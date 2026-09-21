@@ -27,6 +27,20 @@ services:
     ports:
     - "5141:8080"
 
+# Assets Management API
+  assets-management-api:
+    image: assets-management-api
+    build:
+      context: .
+      dockerfile: src/Services/AssetsManagement/AssetsManagement.Api/Dockerfile
+
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__Database: "Host=postgres;Port=5432;Database=ERP_PropertyDB;Username=postgres;Password=YourStrongPassword123!"
+
+    ports:
+    - "5139:8080"
+
 
 # YARP API Gateway
   yarpapigateway:

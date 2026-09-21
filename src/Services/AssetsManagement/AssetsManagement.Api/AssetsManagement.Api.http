@@ -1,5 +1,164 @@
-@AssetsManagement.Api_HostAddress = http://localhost:5139
+# @host = http://localhost:5139
 
-Accept: application/json
+# # Run top to bottom: each step needs ids from the previous responses.
+# # OpenAPI: {{host}}/openapi/v1.json
 
-###
+# ### 1. Taxonomy: class -> type -> category tree (assets attach to LEAF categories only)
+# POST {{host}}/asset-classes
+# Content-Type: application/json
+
+# { "assetClass": { "code": "PHYSICAL", "name": "Physical", "description": null, "displayOrder": 1 } }
+
+# ###
+# POST {{host}}/asset-types
+# Content-Type: application/json
+
+# { "assetType": { "assetClassId": "{{classId}}", "code": "MOVABLE", "name": "Movable", "description": null, "isDepreciable": true, "requiresLocation": false, "requiresCustodian": false } }
+
+# ###
+# POST {{host}}/asset-categories
+# Content-Type: application/json
+
+# { "category": { "assetClassId": "{{classId}}", "assetTypeId": null, "parentCategoryId": null, "code": "IT_EQUIPMENT", "name": "IT Equipment", "description": null } }
+
+# ###
+# POST {{host}}/asset-categories
+# Content-Type: application/json
+
+# { "category": { "assetClassId": "{{classId}}", "assetTypeId": "{{typeId}}", "parentCategoryId": "{{rootCategoryId}}", "code": "LAPTOP", "name": "Laptop", "description": null } }
+
+# ### 2. Lookups
+# POST {{host}}/asset-statuses
+# Content-Type: application/json
+
+# { "status": { "code": "ACTIVE", "name": "Active", "description": null, "isTerminal": false, "allowsAssignment": true } }
+
+# ###
+# POST {{host}}/currencies
+# Content-Type: application/json
+
+# { "currency": { "code": "USD", "name": "US Dollar", "symbol": "$", "minorUnits": 2 } }
+
+# ###
+# POST {{host}}/locations
+# Content-Type: application/json
+
+# { "location": { "parentLocationId": null, "code": "HQ", "name": "Head Office", "locationType": "SITE", "address": null, "latitude": null, "longitude": null } }
+
+# ###
+# POST {{host}}/lifecycle-event-types
+# Content-Type: application/json
+
+# { "eventType": { "stage": "ASSIGNMENT", "code": "STATUS_CHANGE", "name": "Status change", "description": null } }
+
+# ###
+# POST {{host}}/depreciation-methods
+# Content-Type: application/json
+
+# { "method": { "code": "STRAIGHT_LINE", "name": "Straight line", "description": null } }
+
+# ### 3. Dynamic attributes: reusable dictionary
+# POST {{host}}/option-sets
+# Content-Type: application/json
+
+# { "optionSet": { "code": "OPERATING_SYSTEM", "name": "Operating System", "description": null,
+#   "values": [ { "value": "WINDOWS_11", "label": "Windows 11" }, { "value": "UBUNTU_24", "label": "Ubuntu 24.04" } ] } }
+
+# ###
+# POST {{host}}/attribute-definitions
+# Content-Type: application/json
+
+# { "definition": { "code": "manufacturer", "name": "Manufacturer", "description": null, "dataType": "Text", "validation": { "maxLength": 100 } } }
+
+# ###
+# POST {{host}}/attribute-definitions
+# Content-Type: application/json
+
+# { "definition": { "code": "ram_gb", "name": "RAM", "description": null, "dataType": "Integer", "unit": "GB", "validation": { "minNumber": 1, "maxNumber": 1024 } } }
+
+# ###
+# POST {{host}}/attribute-definitions
+# Content-Type: application/json
+
+# { "definition": { "code": "operating_system", "name": "Operating System", "description": null, "dataType": "Select", "optionSetId": "{{optionSetId}}" } }
+
+# ### 4. Assign attributes to scopes (inherited CLASS -> TYPE -> CATEGORY -> ASSET)
+# POST {{host}}/attribute-assignments
+# Content-Type: application/json
+
+# { "assignment": { "attributeDefinitionId": "{{manufacturerDefId}}", "scope": "AssetClass", "assetClassId": "{{classId}}", "isRequired": true, "isSearchable": true, "isVisibleInList": true, "displayOrder": 1 } }
+
+# ###
+# POST {{host}}/attribute-assignments
+# Content-Type: application/json
+
+# { "assignment": { "attributeDefinitionId": "{{ramDefId}}", "scope": "Category", "categoryId": "{{rootCategoryId}}", "isRequired": true, "isFilterable": true, "isVisibleInList": true, "displayOrder": 2 } }
+
+# ###
+# POST {{host}}/attribute-assignments
+# Content-Type: application/json
+
+# { "assignment": { "attributeDefinitionId": "{{osDefId}}", "scope": "Category", "categoryId": "{{laptopCategoryId}}", "isFilterable": true, "defaultValue": "WINDOWS_11", "displayOrder": 3 } }
+
+# ### The effective form for a category (or ?assetId= for an existing asset)
+# GET {{host}}/attribute-schema?categoryId={{laptopCategoryId}}
+
+# ### 5. Assets
+# POST {{host}}/assets
+# Content-Type: application/json
+
+# { "asset": {
+#     "assetCode": "AST-000001", "name": "Dell Latitude 5540", "description": null, "ownership": "Owned",
+#     "assetClassId": "{{classId}}", "assetTypeId": "{{typeId}}", "categoryId": "{{laptopCategoryId}}", "statusId": "{{activeStatusId}}",
+#     "currentLocationId": "{{locationId}}", "serialNumber": "SN-001",
+#     "extraAttributes": { "manufacturer": "Dell", "ram_gb": 16 } } }
+
+# ###
+# GET {{host}}/assets/{{assetId}}
+
+# ### Patch dynamic values (JSON null removes a key)
+# PUT {{host}}/assets/{{assetId}}/attributes
+# Content-Type: application/json
+
+# { "attributes": { "ram_gb": 32, "operating_system": "UBUNTU_24" }, "changeReason": "RAM upgrade" }
+
+# ###
+# GET {{host}}/assets/{{assetId}}/attribute-history
+
+# ### List with dynamic attribute filters (attr=code:op:value; op = eq|neq|gt|gte|lt|lte|contains)
+# GET {{host}}/assets?categoryId={{rootCategoryId}}&attr=ram_gb:gte:16&attr=operating_system:eq:UBUNTU_24&search=dell
+
+# ### 6. Acquisition -> depreciation
+# PUT {{host}}/assets/{{assetId}}/acquisition
+# Content-Type: application/json
+
+# { "acquisition": { "acquisitionDate": "2026-01-15", "acquisitionCost": 1200, "currencyCode": "USD", "acquisitionType": "Purchase", "warrantyExpiryDate": "2028-01-15" } }
+
+# ###
+# POST {{host}}/assets/{{assetId}}/depreciation-schedules
+# Content-Type: application/json
+
+# { "methodId": "{{straightLineMethodId}}", "usefulLifeMonths": 36, "salvageValue": 120, "startDate": "2026-02-01" }
+
+# ###
+# POST {{host}}/depreciation-schedules/{{scheduleId}}/entries/generate
+# Content-Type: application/json
+
+# { "until": "2026-12-31" }
+
+# ###
+# GET {{host}}/assets/{{assetId}}/depreciation-schedules
+
+# ### 7. Transfer / status
+# POST {{host}}/assets/{{assetId}}/assignments
+# Content-Type: application/json
+
+# { "toCustodianId": "11111111-1111-1111-1111-111111111111", "toLocationId": "{{locationId}}", "reason": "Issued to employee", "eventTypeId": "{{statusChangeEventTypeId}}" }
+
+# ###
+# POST {{host}}/assets/{{assetId}}/status
+# Content-Type: application/json
+
+# { "toStatusId": "{{otherStatusId}}", "eventTypeId": "{{statusChangeEventTypeId}}", "notes": "Sent for maintenance" }
+
+# ###

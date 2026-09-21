@@ -3,8 +3,9 @@ using System;
 using System.Collections.Generic;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
-using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
+using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
+using NpgsqlTypes;
 
 #nullable disable
 
@@ -17,97 +18,2033 @@ namespace AssetsManagement.Infrastructure.Data.Migrations
         {
 #pragma warning disable 612, 618
             modelBuilder
+                .HasDefaultSchema("assets")
                 .HasAnnotation("ProductVersion", "10.0.10")
-                .HasAnnotation("Relational:MaxIdentifierLength", 128);
+                .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
-            SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
+            NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "ltree");
+            NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
             modelBuilder.Entity("Asset", b =>
                 {
                     b.Property<Guid>("Id")
-                        .HasColumnType("uniqueidentifier");
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("AssetClassId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("asset_class_id");
+
+                    b.Property<string>("AssetCode")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("asset_code");
+
+                    b.Property<Guid>("AssetTypeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("asset_type_id");
+
+                    b.Property<DateTime?>("AttributesValidatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("attributes_validated_at");
+
+                    b.Property<string>("Barcode")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("barcode");
+
+                    b.Property<Guid>("CategoryId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("category_id");
+
+                    b.Property<DateTime?>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CreatedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid?>("CurrentLocationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("current_location_id");
+
+                    b.Property<Guid?>("CustodianId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("custodian_id");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<string>("DeletedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("deleted_by");
+
+                    b.Property<Guid?>("DepartmentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("department_id");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("text")
+                        .HasColumnName("description");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("is_active");
+
+                    b.Property<DateTime?>("LastModified")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_modified");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("last_modified_by");
+
+                    b.Property<string>("Ownership")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)")
+                        .HasColumnName("ownership");
+
+                    b.Property<Guid?>("ParentAssetId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("parent_asset_id");
+
+                    b.Property<string>("RfidTag")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("rfid_tag");
+
+                    b.Property<string>("SerialNumber")
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("serial_number");
+
+                    b.Property<Guid>("StatusId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("status_id");
+
+                    b.Property<string>("_extraAttributes")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("extra_attributes")
+                        .HasDefaultValueSql("'{}'::jsonb");
+
+                    b.Property<uint>("xmin")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.ComplexProperty(typeof(Dictionary<string, object>), "Name", "Asset.Name#Name", b1 =>
+                        {
+                            b1.IsRequired();
+
+                            b1.Property<string>("Value")
+                                .IsRequired()
+                                .HasMaxLength(200)
+                                .HasColumnType("character varying(200)")
+                                .HasColumnName("name");
+                        });
+
+                    b.HasKey("Id")
+                        .HasName("pk_asset");
+
+                    b.HasIndex("AssetClassId")
+                        .HasDatabaseName("ix_asset_asset_class_id");
+
+                    b.HasIndex("AssetCode")
+                        .IsUnique()
+                        .HasDatabaseName("ix_asset_asset_code");
+
+                    b.HasIndex("AssetTypeId")
+                        .HasDatabaseName("ix_asset_asset_type_id");
+
+                    b.HasIndex("Barcode")
+                        .IsUnique()
+                        .HasDatabaseName("ix_asset_barcode");
+
+                    b.HasIndex("CategoryId")
+                        .HasDatabaseName("ix_asset_category_id");
+
+                    b.HasIndex("CurrentLocationId")
+                        .HasDatabaseName("ix_asset_current_location_id");
+
+                    b.HasIndex("CustodianId")
+                        .HasDatabaseName("ix_asset_custodian_id");
+
+                    b.HasIndex("DepartmentId")
+                        .HasDatabaseName("ix_asset_department_id");
+
+                    b.HasIndex("ParentAssetId")
+                        .HasDatabaseName("ix_asset_parent_asset_id");
+
+                    b.HasIndex("RfidTag")
+                        .IsUnique()
+                        .HasDatabaseName("ix_asset_rfid_tag");
+
+                    b.HasIndex("StatusId")
+                        .HasDatabaseName("ix_asset_status_id");
+
+                    b.HasIndex("_extraAttributes")
+                        .HasDatabaseName("ix_asset_extra_attributes");
+
+                    NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("_extraAttributes"), "gin");
+                    NpgsqlIndexBuilderExtensions.HasOperators(b.HasIndex("_extraAttributes"), new[] { "jsonb_path_ops" });
+
+                    b.HasIndex("AssetTypeId", "AssetClassId")
+                        .HasDatabaseName("ix_asset_asset_type_id_asset_class_id");
+
+                    b.HasIndex("CategoryId", "AssetClassId")
+                        .HasDatabaseName("ix_asset_category_id_asset_class_id");
+
+                    b.HasIndex("CategoryId", "SerialNumber")
+                        .IsUnique()
+                        .HasDatabaseName("ix_asset_category_id_serial_number");
+
+                    b.ToTable("asset", "assets");
+                });
+
+            modelBuilder.Entity("AssetAcquisition", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<decimal>("AcquisitionCost")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)")
+                        .HasColumnName("acquisition_cost");
+
+                    b.Property<DateOnly>("AcquisitionDate")
+                        .HasColumnType("date")
+                        .HasColumnName("acquisition_date");
+
+                    b.Property<string>("AcquisitionType")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)")
+                        .HasColumnName("acquisition_type");
+
+                    b.Property<Guid>("AssetId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("asset_id");
+
+                    b.Property<decimal?>("BaseCurrencyCost")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)")
+                        .HasColumnName("base_currency_cost");
+
+                    b.Property<DateTime?>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CreatedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("CurrencyCode")
+                        .IsRequired()
+                        .HasColumnType("char(3)")
+                        .HasColumnName("currency_code");
+
+                    b.Property<decimal?>("ExchangeRate")
+                        .HasPrecision(18, 6)
+                        .HasColumnType("numeric(18,6)")
+                        .HasColumnName("exchange_rate");
+
+                    b.Property<DateTime?>("LastModified")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_modified");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("last_modified_by");
+
+                    b.Property<string>("PurchaseReference")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("purchase_reference");
+
+                    b.Property<Guid?>("SupplierId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("supplier_id");
+
+                    b.Property<DateOnly?>("WarrantyExpiryDate")
+                        .HasColumnType("date")
+                        .HasColumnName("warranty_expiry_date");
+
+                    b.Property<DateOnly?>("WarrantyStartDate")
+                        .HasColumnType("date")
+                        .HasColumnName("warranty_start_date");
+
+                    b.HasKey("Id")
+                        .HasName("pk_asset_acquisition");
+
+                    b.HasIndex("AssetId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_asset_acquisition_asset_id");
+
+                    b.HasIndex("CurrencyCode")
+                        .HasDatabaseName("ix_asset_acquisition_currency_code");
+
+                    b.ToTable("asset_acquisition", "assets", t =>
+                        {
+                            t.HasCheckConstraint("ck_asset_acquisition_cost", "acquisition_cost >= 0");
+
+                            t.HasCheckConstraint("ck_asset_acquisition_warranty", "warranty_expiry_date IS NULL OR warranty_expiry_date >= acquisition_date");
+                        });
+                });
+
+            modelBuilder.Entity("AssetAssignment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateOnly?>("ActualReturnDate")
+                        .HasColumnType("date")
+                        .HasColumnName("actual_return_date");
+
+                    b.Property<DateTime?>("ApprovedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("approved_at");
+
+                    b.Property<Guid?>("ApprovedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("approved_by");
+
+                    b.Property<Guid>("AssetId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("asset_id");
+
+                    b.Property<DateTime>("AssignmentDate")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("assignment_date");
+
+                    b.Property<DateTime?>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CreatedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateOnly?>("ExpectedReturnDate")
+                        .HasColumnType("date")
+                        .HasColumnName("expected_return_date");
+
+                    b.Property<Guid?>("FromCustodianId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("from_custodian_id");
+
+                    b.Property<Guid?>("FromDepartmentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("from_department_id");
+
+                    b.Property<Guid?>("FromLocationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("from_location_id");
+
+                    b.Property<DateTime?>("LastModified")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_modified");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("last_modified_by");
+
+                    b.Property<string>("Reason")
+                        .HasColumnType("text")
+                        .HasColumnName("reason");
+
+                    b.Property<Guid?>("ToCustodianId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("to_custodian_id");
+
+                    b.Property<Guid?>("ToDepartmentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("to_department_id");
+
+                    b.Property<Guid?>("ToLocationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("to_location_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_asset_assignment");
+
+                    b.HasIndex("AssetId")
+                        .HasDatabaseName("ix_asset_assignment_asset_id");
+
+                    b.HasIndex("AssignmentDate")
+                        .HasDatabaseName("ix_asset_assignment_assignment_date");
+
+                    b.HasIndex("FromLocationId")
+                        .HasDatabaseName("ix_asset_assignment_from_location_id");
+
+                    b.HasIndex("ToLocationId")
+                        .HasDatabaseName("ix_asset_assignment_to_location_id");
+
+                    b.HasIndex("AssetId", "AssignmentDate")
+                        .HasDatabaseName("ix_asset_assignment_asset_id_assignment_date");
+
+                    b.ToTable("asset_assignment", "assets");
+                });
+
+            modelBuilder.Entity("AssetAttachment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("AssetId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("asset_id");
+
+                    b.Property<string>("AttachmentType")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)")
+                        .HasColumnName("attachment_type");
+
+                    b.Property<string>("ChecksumSha256")
+                        .HasColumnType("char(64)")
+                        .HasColumnName("checksum_sha256");
+
+                    b.Property<DateTime?>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CreatedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("created_by");
+
+                    b.Property<long>("FileSize")
+                        .HasColumnType("bigint")
+                        .HasColumnName("file_size");
+
+                    b.Property<bool>("IsPrimaryImage")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_primary_image");
+
+                    b.Property<DateTime?>("LastModified")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_modified");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("last_modified_by");
+
+                    b.Property<string>("MimeType")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("mime_type");
+
+                    b.Property<string>("OriginalFileName")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)")
+                        .HasColumnName("original_file_name");
+
+                    b.Property<string>("StoragePath")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("storage_path");
+
+                    b.Property<string>("StoredFileName")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)")
+                        .HasColumnName("stored_file_name");
+
+                    b.HasKey("Id")
+                        .HasName("pk_asset_attachment");
+
+                    b.HasIndex("AssetId")
+                        .HasDatabaseName("ix_asset_attachment_asset_id");
+
+                    b.HasIndex("AssetId", "AttachmentType")
+                        .HasDatabaseName("ix_asset_attachment_asset_id_attachment_type");
+
+                    b.ToTable("asset_attachment", "assets");
+                });
+
+            modelBuilder.Entity("AssetAttributeHistory", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("AssetId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("asset_id");
+
+                    b.Property<string>("AttributeCode")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("attribute_code");
+
+                    b.Property<Guid>("AttributeDefinitionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("attribute_definition_id");
+
+                    b.Property<string>("ChangeReason")
+                        .HasColumnType("text")
+                        .HasColumnName("change_reason");
+
+                    b.Property<DateTime>("ChangedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("changed_at");
+
+                    b.Property<Guid?>("ChangedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("changed_by");
+
+                    b.Property<DateTime?>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CreatedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTime?>("LastModified")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_modified");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("last_modified_by");
+
+                    b.Property<string>("NewValue")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("new_value");
+
+                    b.Property<string>("OldValue")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("old_value");
+
+                    b.HasKey("Id")
+                        .HasName("pk_asset_attribute_history");
+
+                    b.HasIndex("AttributeDefinitionId")
+                        .HasDatabaseName("ix_asset_attribute_history_attribute_definition_id");
+
+                    b.HasIndex("AssetId", "ChangedAt")
+                        .HasDatabaseName("ix_asset_attribute_history_asset_id_changed_at");
+
+                    b.ToTable("asset_attribute_history", "assets");
+                });
+
+            modelBuilder.Entity("AssetAttributeValue", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("AssetId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("asset_id");
+
+                    b.Property<string>("AttributeCode")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("attribute_code");
+
+                    b.Property<Guid>("AttributeDefinitionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("attribute_definition_id");
+
+                    b.Property<DateTime?>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CreatedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTime?>("LastModified")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_modified");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("last_modified_by");
+
+                    b.Property<Guid?>("OptionValueId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("option_value_id");
+
+                    b.Property<NpgsqlTsVector>("SearchVector")
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("tsvector")
+                        .HasColumnName("search_vector")
+                        .HasAnnotation("Npgsql:TsVectorConfig", "english")
+                        .HasAnnotation("Npgsql:TsVectorProperties", new[] { "ValueText" });
+
+                    b.Property<bool?>("ValueBoolean")
+                        .HasColumnType("boolean")
+                        .HasColumnName("value_boolean");
+
+                    b.Property<DateOnly?>("ValueDate")
+                        .HasColumnType("date")
+                        .HasColumnName("value_date");
+
+                    b.Property<DateTime?>("ValueDatetime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("value_datetime");
+
+                    b.Property<short>("ValueIndex")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("smallint")
+                        .HasDefaultValue((short)0)
+                        .HasColumnName("value_index");
+
+                    b.Property<string>("ValueJson")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("value_json");
+
+                    b.Property<decimal?>("ValueNumber")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("numeric(18,4)")
+                        .HasColumnName("value_number");
+
+                    b.Property<string>("ValueText")
+                        .HasColumnType("text")
+                        .HasColumnName("value_text");
+
+                    b.HasKey("Id")
+                        .HasName("pk_asset_attribute_value");
+
+                    b.HasIndex("AssetId")
+                        .HasDatabaseName("ix_asset_attribute_value_asset_id");
+
+                    b.HasIndex("OptionValueId")
+                        .HasDatabaseName("ix_asset_attribute_value_option_value_id");
+
+                    b.HasIndex("SearchVector")
+                        .HasDatabaseName("ix_asset_attribute_value_search_vector");
+
+                    NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("SearchVector"), "gin");
+
+                    b.HasIndex("AttributeDefinitionId", "OptionValueId")
+                        .HasDatabaseName("ix_asset_attribute_value_attribute_definition_id_option_value_");
+
+                    b.HasIndex("AttributeDefinitionId", "ValueDate")
+                        .HasDatabaseName("ix_asset_attribute_value_attribute_definition_id_value_date");
+
+                    b.HasIndex("AttributeDefinitionId", "ValueNumber")
+                        .HasDatabaseName("ix_asset_attribute_value_attribute_definition_id_value_number");
+
+                    b.HasIndex("AttributeDefinitionId", "ValueText")
+                        .HasDatabaseName("ix_asset_attribute_value_attribute_definition_id_value_text");
+
+                    b.HasIndex("AssetId", "AttributeDefinitionId", "ValueIndex")
+                        .IsUnique()
+                        .HasDatabaseName("ix_asset_attribute_value_asset_id_attribute_definition_id_valu");
+
+                    b.ToTable("asset_attribute_value", "assets");
+                });
+
+            modelBuilder.Entity("AssetCategory", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("AssetClassId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("asset_class_id");
+
+                    b.Property<Guid?>("AssetTypeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("asset_type_id");
 
                     b.Property<string>("Code")
                         .IsRequired()
                         .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)");
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("code");
 
                     b.Property<DateTime?>("CreatedAt")
-                        .HasColumnType("datetime2");
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
 
                     b.Property<string>("CreatedBy")
                         .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("created_by");
+
+                    b.Property<int>("Depth")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0)
+                        .HasColumnName("depth");
 
                     b.Property<string>("Description")
-                        .HasMaxLength(1000)
-                        .HasColumnType("nvarchar(1000)");
+                        .HasColumnType("text")
+                        .HasColumnName("description");
+
+                    b.Property<int?>("DisplayOrder")
+                        .HasColumnType("integer")
+                        .HasColumnName("display_order");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("is_active");
+
+                    b.Property<bool>("IsLeaf")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("is_leaf");
 
                     b.Property<DateTime?>("LastModified")
-                        .HasColumnType("datetime2");
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_modified");
 
                     b.Property<string>("LastModifiedBy")
                         .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("last_modified_by");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("name");
+
+                    b.Property<Guid?>("ParentCategoryId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("parent_category_id");
+
+                    b.Property<string>("Path")
+                        .IsRequired()
+                        .HasColumnType("ltree")
+                        .HasColumnName("path");
+
+                    b.HasKey("Id")
+                        .HasName("pk_asset_category");
+
+                    b.HasAlternateKey("Id", "AssetClassId")
+                        .HasName("ak_asset_category_id_asset_class_id");
+
+                    b.HasIndex("AssetTypeId")
+                        .HasDatabaseName("ix_asset_category_asset_type_id");
+
+                    b.HasIndex("ParentCategoryId")
+                        .HasDatabaseName("ix_asset_category_parent_category_id");
+
+                    b.HasIndex("Path")
+                        .HasDatabaseName("ix_asset_category_path");
+
+                    NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("Path"), "gist");
+
+                    b.HasIndex("AssetClassId", "Code")
+                        .IsUnique()
+                        .HasDatabaseName("ix_asset_category_asset_class_id_code");
+
+                    b.ToTable("asset_category", "assets");
+                });
+
+            modelBuilder.Entity("AssetClass", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("code");
+
+                    b.Property<DateTime?>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CreatedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("text")
+                        .HasColumnName("description");
+
+                    b.Property<int?>("DisplayOrder")
+                        .HasColumnType("integer")
+                        .HasColumnName("display_order");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("is_active");
+
+                    b.Property<DateTime?>("LastModified")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_modified");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("last_modified_by");
 
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("name");
 
-                    b.HasKey("Id");
+                    b.HasKey("Id")
+                        .HasName("pk_asset_class");
 
-                    b.ToTable("Assets");
+                    b.HasIndex("Code")
+                        .IsUnique()
+                        .HasDatabaseName("ix_asset_class_code");
+
+                    b.ToTable("asset_class", "assets");
+                });
+
+            modelBuilder.Entity("AssetDepreciationEntry", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<decimal>("AccumulatedDepreciation")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)")
+                        .HasColumnName("accumulated_depreciation");
+
+                    b.Property<decimal>("BookValueAfter")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)")
+                        .HasColumnName("book_value_after");
+
+                    b.Property<DateTime?>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CreatedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("created_by");
+
+                    b.Property<decimal>("DepreciationAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)")
+                        .HasColumnName("depreciation_amount");
+
+                    b.Property<DateTime?>("LastModified")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_modified");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("last_modified_by");
+
+                    b.Property<decimal>("OpeningBookValue")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)")
+                        .HasColumnName("opening_book_value");
+
+                    b.Property<DateOnly>("PeriodEnd")
+                        .HasColumnType("date")
+                        .HasColumnName("period_end");
+
+                    b.Property<DateOnly>("PeriodStart")
+                        .HasColumnType("date")
+                        .HasColumnName("period_start");
+
+                    b.Property<bool>("Posted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("posted");
+
+                    b.Property<DateTime?>("PostedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("posted_at");
+
+                    b.Property<Guid?>("PostedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("posted_by");
+
+                    b.Property<DateTime?>("ReversedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("reversed_at");
+
+                    b.Property<Guid?>("ReversedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("reversed_by");
+
+                    b.Property<Guid>("ScheduleId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("schedule_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_asset_depreciation_entry");
+
+                    b.HasIndex("PeriodStart")
+                        .HasDatabaseName("ix_asset_depreciation_entry_period_start");
+
+                    b.HasIndex("ScheduleId")
+                        .HasDatabaseName("ix_asset_depreciation_entry_schedule_id");
+
+                    b.HasIndex("ScheduleId", "PeriodStart", "PeriodEnd")
+                        .IsUnique()
+                        .HasDatabaseName("ix_asset_depreciation_entry_schedule_id_period_start_period_end");
+
+                    b.ToTable("asset_depreciation_entry", "assets", t =>
+                        {
+                            t.HasCheckConstraint("ck_asset_depreciation_entry_amount", "depreciation_amount >= 0");
+
+                            t.HasCheckConstraint("ck_asset_depreciation_entry_period", "period_end > period_start");
+                        });
+                });
+
+            modelBuilder.Entity("AssetDepreciationSchedule", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("AssetId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("asset_id");
+
+                    b.Property<DateTime?>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CreatedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("created_by");
+
+                    b.Property<decimal?>("DecliningRate")
+                        .HasPrecision(9, 6)
+                        .HasColumnType("numeric(9,6)")
+                        .HasColumnName("declining_rate");
+
+                    b.Property<decimal>("DepreciableBase")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)")
+                        .HasColumnName("depreciable_base");
+
+                    b.Property<DateOnly?>("EndDate")
+                        .HasColumnType("date")
+                        .HasColumnName("end_date");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("is_active");
+
+                    b.Property<DateTime?>("LastModified")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_modified");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("last_modified_by");
+
+                    b.Property<Guid>("MethodId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("method_id");
+
+                    b.Property<decimal>("SalvageValue")
+                        .ValueGeneratedOnAdd()
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)")
+                        .HasDefaultValue(0m)
+                        .HasColumnName("salvage_value");
+
+                    b.Property<DateOnly>("StartDate")
+                        .HasColumnType("date")
+                        .HasColumnName("start_date");
+
+                    b.Property<int>("UsefulLifeMonths")
+                        .HasColumnType("integer")
+                        .HasColumnName("useful_life_months");
+
+                    b.HasKey("Id")
+                        .HasName("pk_asset_depreciation_schedule");
+
+                    b.HasIndex("AssetId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_asset_depreciation_schedule_active")
+                        .HasFilter("is_active");
+
+                    b.HasIndex("MethodId")
+                        .HasDatabaseName("ix_asset_depreciation_schedule_method_id");
+
+                    b.ToTable("asset_depreciation_schedule", "assets", t =>
+                        {
+                            t.HasCheckConstraint("ck_asset_depreciation_schedule_life", "useful_life_months > 0");
+
+                            t.HasCheckConstraint("ck_asset_depreciation_schedule_salvage", "salvage_value >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("AssetDisposal", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime?>("ApprovedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("approved_at");
+
+                    b.Property<Guid?>("ApprovedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("approved_by");
+
+                    b.Property<Guid>("AssetId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("asset_id");
+
+                    b.Property<string>("BuyerInfo")
+                        .HasColumnType("text")
+                        .HasColumnName("buyer_info");
+
+                    b.Property<DateTime?>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CreatedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("CurrencyCode")
+                        .HasColumnType("char(3)")
+                        .HasColumnName("currency_code");
+
+                    b.Property<DateOnly>("DisposalDate")
+                        .HasColumnType("date")
+                        .HasColumnName("disposal_date");
+
+                    b.Property<Guid>("DisposalMethodId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("disposal_method_id");
+
+                    b.Property<decimal?>("DisposalValue")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)")
+                        .HasColumnName("disposal_value");
+
+                    b.Property<decimal?>("GainLoss")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)")
+                        .HasColumnName("gain_loss");
+
+                    b.Property<DateTime?>("LastModified")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_modified");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("last_modified_by");
+
+                    b.Property<decimal?>("NetBookValueAtDisposal")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)")
+                        .HasColumnName("net_book_value_at_disposal");
+
+                    b.Property<string>("Reason")
+                        .HasColumnType("text")
+                        .HasColumnName("reason");
+
+                    b.HasKey("Id")
+                        .HasName("pk_asset_disposal");
+
+                    b.HasIndex("AssetId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_asset_disposal_asset_id");
+
+                    b.HasIndex("CurrencyCode")
+                        .HasDatabaseName("ix_asset_disposal_currency_code");
+
+                    b.HasIndex("DisposalMethodId")
+                        .HasDatabaseName("ix_asset_disposal_disposal_method_id");
+
+                    b.ToTable("asset_disposal", "assets", t =>
+                        {
+                            t.HasCheckConstraint("ck_asset_disposal_currency", "disposal_value IS NULL OR currency_code IS NOT NULL");
+                        });
+                });
+
+            modelBuilder.Entity("AssetLifecycleEvent", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("AssetId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("asset_id");
+
+                    b.Property<DateTime?>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CreatedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Details")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("details");
+
+                    b.Property<DateTime>("EventDate")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("event_date");
+
+                    b.Property<Guid>("EventTypeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("event_type_id");
+
+                    b.Property<Guid?>("FromStatusId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("from_status_id");
+
+                    b.Property<DateTime?>("LastModified")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_modified");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("last_modified_by");
+
+                    b.Property<string>("Notes")
+                        .HasColumnType("text")
+                        .HasColumnName("notes");
+
+                    b.Property<Guid?>("PerformedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("performed_by");
+
+                    b.Property<Guid?>("ToStatusId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("to_status_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_asset_lifecycle_event");
+
+                    b.HasIndex("AssetId")
+                        .HasDatabaseName("ix_asset_lifecycle_event_asset_id");
+
+                    b.HasIndex("Details")
+                        .HasDatabaseName("ix_asset_lifecycle_event_details");
+
+                    NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("Details"), "gin");
+
+                    b.HasIndex("EventDate")
+                        .HasDatabaseName("ix_asset_lifecycle_event_event_date");
+
+                    b.HasIndex("EventTypeId")
+                        .HasDatabaseName("ix_asset_lifecycle_event_event_type_id");
+
+                    b.HasIndex("FromStatusId")
+                        .HasDatabaseName("ix_asset_lifecycle_event_from_status_id");
+
+                    b.HasIndex("ToStatusId")
+                        .HasDatabaseName("ix_asset_lifecycle_event_to_status_id");
+
+                    b.ToTable("asset_lifecycle_event", "assets");
+                });
+
+            modelBuilder.Entity("AssetStatus", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<bool>("AllowsAssignment")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("allows_assignment");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("code");
+
+                    b.Property<string>("Color")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("color");
+
+                    b.Property<DateTime?>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CreatedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("text")
+                        .HasColumnName("description");
+
+                    b.Property<int?>("DisplayOrder")
+                        .HasColumnType("integer")
+                        .HasColumnName("display_order");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("is_active");
+
+                    b.Property<bool>("IsTerminal")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_terminal");
+
+                    b.Property<DateTime?>("LastModified")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_modified");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("last_modified_by");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("name");
+
+                    b.HasKey("Id")
+                        .HasName("pk_asset_status");
+
+                    b.HasIndex("Code")
+                        .IsUnique()
+                        .HasDatabaseName("ix_asset_status_code");
+
+                    b.ToTable("asset_status", "assets");
+                });
+
+            modelBuilder.Entity("AssetType", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("AssetClassId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("asset_class_id");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("code");
+
+                    b.Property<DateTime?>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CreatedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("text")
+                        .HasColumnName("description");
+
+                    b.Property<int?>("DisplayOrder")
+                        .HasColumnType("integer")
+                        .HasColumnName("display_order");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("is_active");
+
+                    b.Property<bool>("IsDepreciable")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("is_depreciable");
+
+                    b.Property<DateTime?>("LastModified")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_modified");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("last_modified_by");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("name");
+
+                    b.Property<bool>("RequiresCustodian")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("requires_custodian");
+
+                    b.Property<bool>("RequiresLocation")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("requires_location");
+
+                    b.HasKey("Id")
+                        .HasName("pk_asset_type");
+
+                    b.HasAlternateKey("Id", "AssetClassId")
+                        .HasName("ak_asset_types_id_asset_class_id");
+
+                    b.HasIndex("AssetClassId", "Code")
+                        .IsUnique()
+                        .HasDatabaseName("ix_asset_type_asset_class_id_code");
+
+                    b.ToTable("asset_type", "assets");
+                });
+
+            modelBuilder.Entity("AssetValuation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("AssetId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("asset_id");
+
+                    b.Property<DateTime?>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CreatedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("CurrencyCode")
+                        .IsRequired()
+                        .HasColumnType("char(3)")
+                        .HasColumnName("currency_code");
+
+                    b.Property<DateTime?>("LastModified")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_modified");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("last_modified_by");
+
+                    b.Property<string>("Notes")
+                        .HasColumnType("text")
+                        .HasColumnName("notes");
+
+                    b.Property<DateOnly>("ValuationDate")
+                        .HasColumnType("date")
+                        .HasColumnName("valuation_date");
+
+                    b.Property<string>("ValuationMethod")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("valuation_method");
+
+                    b.Property<decimal>("Value")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)")
+                        .HasColumnName("value");
+
+                    b.Property<Guid?>("ValuedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("valued_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_asset_valuation_history");
+
+                    b.HasIndex("AssetId")
+                        .HasDatabaseName("ix_asset_valuation_history_asset_id");
+
+                    b.HasIndex("CurrencyCode")
+                        .HasDatabaseName("ix_asset_valuation_history_currency_code");
+
+                    b.HasIndex("ValuationDate")
+                        .HasDatabaseName("ix_asset_valuation_history_valuation_date");
+
+                    b.HasIndex("AssetId", "ValuationDate")
+                        .IsUnique()
+                        .HasDatabaseName("ix_asset_valuation_history_asset_id_valuation_date");
+
+                    b.ToTable("asset_valuation_history", "assets");
+                });
+
+            modelBuilder.Entity("AttributeAssignment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid?>("AssetClassId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("asset_class_id");
+
+                    b.Property<Guid?>("AssetId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("asset_id");
+
+                    b.Property<Guid?>("AssetTypeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("asset_type_id");
+
+                    b.Property<Guid>("AttributeDefinitionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("attribute_definition_id");
+
+                    b.Property<Guid?>("AttributeGroupId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("attribute_group_id");
+
+                    b.Property<Guid?>("CategoryId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("category_id");
+
+                    b.Property<DateTime?>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CreatedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("DefaultValue")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("default_value");
+
+                    b.Property<Guid?>("DependsOnAssignmentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("depends_on_assignment_id");
+
+                    b.Property<string>("DependsOnValue")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("depends_on_value");
+
+                    b.Property<int?>("DisplayOrder")
+                        .HasColumnType("integer")
+                        .HasColumnName("display_order");
+
+                    b.Property<bool>("InheritToChildren")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("inherit_to_children");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("is_active");
+
+                    b.Property<bool>("IsFilterable")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_filterable");
+
+                    b.Property<bool>("IsReadonly")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_readonly");
+
+                    b.Property<bool>("IsRequired")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_required");
+
+                    b.Property<bool>("IsSearchable")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_searchable");
+
+                    b.Property<bool>("IsVisibleInList")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_visible_in_list");
+
+                    b.Property<string>("LabelOverride")
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("label_override");
+
+                    b.Property<DateTime?>("LastModified")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_modified");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("last_modified_by");
+
+                    b.Property<string>("Scope")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)")
+                        .HasColumnName("scope");
+
+                    b.HasKey("Id")
+                        .HasName("pk_attribute_assignment");
+
+                    b.HasIndex("AssetId")
+                        .HasDatabaseName("ix_attribute_assignment_asset_id");
+
+                    b.HasIndex("AttributeDefinitionId")
+                        .HasDatabaseName("ix_attribute_assignment_attribute_definition_id");
+
+                    b.HasIndex("AttributeGroupId")
+                        .HasDatabaseName("ix_attribute_assignment_attribute_group_id");
+
+                    b.HasIndex("DependsOnAssignmentId")
+                        .HasDatabaseName("ix_attribute_assignment_depends_on_assignment_id");
+
+                    b.HasIndex("AssetClassId", "AttributeDefinitionId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_attribute_assignment_asset_class_id_attribute_definition_id")
+                        .HasFilter("asset_class_id IS NOT NULL");
+
+                    b.HasIndex("AssetId", "AttributeDefinitionId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_attribute_assignment_asset_id_attribute_definition_id")
+                        .HasFilter("asset_id IS NOT NULL");
+
+                    b.HasIndex("AssetTypeId", "AttributeDefinitionId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_attribute_assignment_asset_type_id_attribute_definition_id")
+                        .HasFilter("asset_type_id IS NOT NULL");
+
+                    b.HasIndex("CategoryId", "AttributeDefinitionId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_attribute_assignment_category_id_attribute_definition_id")
+                        .HasFilter("category_id IS NOT NULL");
+
+                    b.HasIndex("Scope", "AssetClassId")
+                        .HasDatabaseName("ix_attribute_assignment_scope_asset_class_id");
+
+                    b.HasIndex("Scope", "AssetTypeId")
+                        .HasDatabaseName("ix_attribute_assignment_scope_asset_type_id");
+
+                    b.HasIndex("Scope", "CategoryId")
+                        .HasDatabaseName("ix_attribute_assignment_scope_category_id");
+
+                    b.ToTable("attribute_assignment", "assets", t =>
+                        {
+                            t.HasCheckConstraint("ck_attribute_assignment_scope", "(scope = 'AssetClass' AND asset_class_id IS NOT NULL AND asset_type_id IS NULL AND category_id IS NULL AND asset_id IS NULL) OR (scope = 'AssetType'  AND asset_type_id  IS NOT NULL AND asset_class_id IS NULL AND category_id IS NULL AND asset_id IS NULL) OR (scope = 'Category'   AND category_id    IS NOT NULL AND asset_class_id IS NULL AND asset_type_id IS NULL AND asset_id IS NULL) OR (scope = 'Asset'      AND asset_id       IS NOT NULL AND asset_class_id IS NULL AND asset_type_id IS NULL AND category_id IS NULL)");
+                        });
+                });
+
+            modelBuilder.Entity("AttributeDefinition", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("code");
+
+                    b.Property<DateTime?>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CreatedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("DataType")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)")
+                        .HasColumnName("data_type");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("text")
+                        .HasColumnName("description");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("is_active");
+
+                    b.Property<bool>("IsMultiValue")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_multi_value");
+
+                    b.Property<bool>("IsPii")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_pii");
+
+                    b.Property<bool>("IsSystem")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_system");
+
+                    b.Property<bool>("IsUniquePerCategory")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_unique_per_category");
+
+                    b.Property<DateTime?>("LastModified")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_modified");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("last_modified_by");
+
+                    b.Property<DateOnly?>("MaxDate")
+                        .HasColumnType("date")
+                        .HasColumnName("max_date");
+
+                    b.Property<int?>("MaxLength")
+                        .HasColumnType("integer")
+                        .HasColumnName("max_length");
+
+                    b.Property<decimal?>("MaxNumber")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("numeric(18,4)")
+                        .HasColumnName("max_number");
+
+                    b.Property<DateOnly?>("MinDate")
+                        .HasColumnType("date")
+                        .HasColumnName("min_date");
+
+                    b.Property<int?>("MinLength")
+                        .HasColumnType("integer")
+                        .HasColumnName("min_length");
+
+                    b.Property<decimal?>("MinNumber")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("numeric(18,4)")
+                        .HasColumnName("min_number");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("name");
+
+                    b.Property<int?>("NumericPrecision")
+                        .HasColumnType("integer")
+                        .HasColumnName("numeric_precision");
+
+                    b.Property<int?>("NumericScale")
+                        .HasColumnType("integer")
+                        .HasColumnName("numeric_scale");
+
+                    b.Property<Guid?>("OptionSetId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("option_set_id");
+
+                    b.Property<string>("ReferenceEntity")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("reference_entity");
+
+                    b.Property<string>("RegexPattern")
+                        .HasColumnType("text")
+                        .HasColumnName("regex_pattern");
+
+                    b.Property<string>("Unit")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("unit");
+
+                    b.Property<string>("ValidationMessage")
+                        .HasColumnType("text")
+                        .HasColumnName("validation_message");
+
+                    b.HasKey("Id")
+                        .HasName("pk_attribute_definition");
+
+                    b.HasIndex("Code")
+                        .IsUnique()
+                        .HasDatabaseName("ix_attribute_definition_code");
+
+                    b.HasIndex("DataType")
+                        .HasDatabaseName("ix_attribute_definition_data_type");
+
+                    b.HasIndex("OptionSetId")
+                        .HasDatabaseName("ix_attribute_definition_option_set_id");
+
+                    b.ToTable("attribute_definition", "assets", t =>
+                        {
+                            t.HasCheckConstraint("ck_attribute_definition_date_range", "min_date IS NULL OR max_date IS NULL OR min_date <= max_date");
+
+                            t.HasCheckConstraint("ck_attribute_definition_length_range", "min_length IS NULL OR max_length IS NULL OR min_length <= max_length");
+
+                            t.HasCheckConstraint("ck_attribute_definition_number_range", "min_number IS NULL OR max_number IS NULL OR min_number <= max_number");
+
+                            t.HasCheckConstraint("ck_attribute_definition_option_set", "(data_type NOT IN ('Select','MultiSelect')) OR option_set_id IS NOT NULL");
+
+                            t.HasCheckConstraint("ck_attribute_definition_reference_entity", "(data_type <> 'Reference') OR reference_entity IS NOT NULL");
+                        });
+                });
+
+            modelBuilder.Entity("AttributeGroup", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("code");
+
+                    b.Property<DateTime?>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CreatedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("text")
+                        .HasColumnName("description");
+
+                    b.Property<int?>("DisplayOrder")
+                        .HasColumnType("integer")
+                        .HasColumnName("display_order");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("is_active");
+
+                    b.Property<bool>("IsCollapsible")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("is_collapsible");
+
+                    b.Property<DateTime?>("LastModified")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_modified");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("last_modified_by");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("name");
+
+                    b.HasKey("Id")
+                        .HasName("pk_attribute_group");
+
+                    b.HasIndex("Code")
+                        .IsUnique()
+                        .HasDatabaseName("ix_attribute_group_code");
+
+                    b.ToTable("attribute_group", "assets");
+                });
+
+            modelBuilder.Entity("CurrencyLookup", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasColumnType("char(3)")
+                        .HasColumnName("code");
+
+                    b.Property<DateTime?>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CreatedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("created_by");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("is_active");
+
+                    b.Property<DateTime?>("LastModified")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_modified");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("last_modified_by");
+
+                    b.Property<short>("MinorUnits")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("smallint")
+                        .HasDefaultValue((short)2)
+                        .HasColumnName("minor_units");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("name");
+
+                    b.Property<string>("Symbol")
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)")
+                        .HasColumnName("symbol");
+
+                    b.HasKey("Id")
+                        .HasName("pk_currency");
+
+                    b.ToTable("currency", "assets");
+                });
+
+            modelBuilder.Entity("DepreciationMethod", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("code");
+
+                    b.Property<DateTime?>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CreatedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("text")
+                        .HasColumnName("description");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("is_active");
+
+                    b.Property<DateTime?>("LastModified")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_modified");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("last_modified_by");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("name");
+
+                    b.HasKey("Id")
+                        .HasName("pk_depreciation_method");
+
+                    b.HasIndex("Code")
+                        .IsUnique()
+                        .HasDatabaseName("ix_depreciation_method_code");
+
+                    b.ToTable("depreciation_method", "assets");
+                });
+
+            modelBuilder.Entity("DisposalMethod", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("code");
+
+                    b.Property<DateTime?>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CreatedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("created_by");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("is_active");
+
+                    b.Property<DateTime?>("LastModified")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_modified");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("last_modified_by");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("name");
+
+                    b.Property<bool>("RequiresValue")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("requires_value");
+
+                    b.HasKey("Id")
+                        .HasName("pk_disposal_method");
+
+                    b.HasIndex("Code")
+                        .IsUnique()
+                        .HasDatabaseName("ix_disposal_method_code");
+
+                    b.ToTable("disposal_method", "assets");
                 });
 
             modelBuilder.Entity("FinishedGoodItem", b =>
                 {
                     b.Property<Guid>("Id")
-                        .HasColumnType("uniqueidentifier");
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
 
                     b.Property<string>("Code")
                         .IsRequired()
                         .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)");
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("code");
 
                     b.Property<DateTime?>("CreatedAt")
-                        .HasColumnType("datetime2");
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
 
                     b.Property<string>("CreatedBy")
                         .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("created_by");
 
                     b.Property<string>("Description")
                         .HasMaxLength(1000)
-                        .HasColumnType("nvarchar(1000)");
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("description");
 
                     b.Property<Guid>("InventoryItemId")
-                        .HasColumnType("uniqueidentifier");
+                        .HasColumnType("uuid")
+                        .HasColumnName("inventory_item_id");
 
                     b.Property<DateTime?>("LastModified")
-                        .HasColumnType("datetime2");
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_modified");
 
                     b.Property<string>("LastModifiedBy")
                         .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("last_modified_by");
 
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("name");
 
                     b.Property<Guid>("ProductionOrderId")
-                        .HasColumnType("uniqueidentifier");
+                        .HasColumnType("uuid")
+                        .HasColumnName("production_order_id");
 
                     b.Property<decimal>("Quantity")
                         .HasPrecision(18, 4)
-                        .HasColumnType("decimal(18,4)");
+                        .HasColumnType("numeric(18,4)")
+                        .HasColumnName("quantity");
 
                     b.Property<DateTime>("ReceiptDate")
-                        .HasColumnType("datetime2");
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("receipt_date");
 
                     b.Property<Guid>("WarehouseId")
-                        .HasColumnType("uniqueidentifier");
+                        .HasColumnType("uuid")
+                        .HasColumnName("warehouse_id");
 
                     b.ComplexProperty(typeof(Dictionary<string, object>), "TotalCost", "FinishedGoodItem.TotalCost#Money", b1 =>
                         {
@@ -115,12 +2052,14 @@ namespace AssetsManagement.Infrastructure.Data.Migrations
 
                             b1.Property<decimal>("Amount")
                                 .HasPrecision(18, 2)
-                                .HasColumnType("decimal(18,2)");
+                                .HasColumnType("numeric(18,2)")
+                                .HasColumnName("total_cost_amount");
 
                             b1.Property<string>("Currency")
                                 .IsRequired()
                                 .HasMaxLength(3)
-                                .HasColumnType("nvarchar(3)");
+                                .HasColumnType("character varying(3)")
+                                .HasColumnName("total_cost_currency");
                         });
 
                     b.ComplexProperty(typeof(Dictionary<string, object>), "UnitCost", "FinishedGoodItem.UnitCost#Money", b1 =>
@@ -129,116 +2068,142 @@ namespace AssetsManagement.Infrastructure.Data.Migrations
 
                             b1.Property<decimal>("Amount")
                                 .HasPrecision(18, 2)
-                                .HasColumnType("decimal(18,2)");
+                                .HasColumnType("numeric(18,2)")
+                                .HasColumnName("unit_cost_amount");
 
                             b1.Property<string>("Currency")
                                 .IsRequired()
                                 .HasMaxLength(3)
-                                .HasColumnType("nvarchar(3)");
+                                .HasColumnType("character varying(3)")
+                                .HasColumnName("unit_cost_currency");
                         });
 
-                    b.HasKey("Id");
+                    b.HasKey("Id")
+                        .HasName("pk_finished_good_item");
 
-                    b.HasIndex("ProductionOrderId");
+                    b.HasIndex("ProductionOrderId")
+                        .HasDatabaseName("ix_finished_good_item_production_order_id");
 
-                    b.ToTable("FinishedGoodItem");
+                    b.ToTable("finished_good_item", "assets");
                 });
 
             modelBuilder.Entity("InventoryCategory", b =>
                 {
                     b.Property<Guid>("Id")
-                        .HasColumnType("uniqueidentifier");
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
 
                     b.Property<string>("Code")
                         .IsRequired()
                         .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)");
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("code");
 
                     b.Property<DateTime?>("CreatedAt")
-                        .HasColumnType("datetime2");
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
 
                     b.Property<string>("CreatedBy")
                         .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("created_by");
 
                     b.Property<string>("Description")
                         .HasMaxLength(1000)
-                        .HasColumnType("nvarchar(1000)");
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("description");
 
                     b.Property<bool>("IsActive")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("bit")
-                        .HasDefaultValue(true);
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("is_active");
 
                     b.Property<DateTime?>("LastModified")
-                        .HasColumnType("datetime2");
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_modified");
 
                     b.Property<string>("LastModifiedBy")
                         .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("last_modified_by");
 
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("name");
 
-                    b.HasKey("Id");
+                    b.HasKey("Id")
+                        .HasName("pk_inventory_categories");
 
-                    b.ToTable("InventoryCategories");
+                    b.ToTable("inventory_categories", "assets");
                 });
 
             modelBuilder.Entity("InventoryItem", b =>
                 {
                     b.Property<Guid>("Id")
-                        .HasColumnType("uniqueidentifier");
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
 
                     b.Property<string>("Code")
                         .IsRequired()
                         .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)");
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("code");
 
                     b.Property<DateTime?>("CreatedAt")
-                        .HasColumnType("datetime2");
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
 
                     b.Property<string>("CreatedBy")
                         .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("created_by");
 
                     b.Property<string>("Description")
                         .HasMaxLength(1000)
-                        .HasColumnType("nvarchar(1000)");
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("description");
 
                     b.Property<string>("FileUrl")
-                        .HasColumnType("nvarchar(max)");
+                        .HasColumnType("text")
+                        .HasColumnName("file_url");
 
                     b.Property<string>("InventoryOwnerShipType")
                         .IsRequired()
                         .ValueGeneratedOnAdd()
                         .HasMaxLength(30)
-                        .HasColumnType("nvarchar(30)")
-                        .HasDefaultValue("Purchase");
+                        .HasColumnType("character varying(30)")
+                        .HasDefaultValue("Purchase")
+                        .HasColumnName("inventory_owner_ship_type");
 
                     b.Property<Guid>("InventoryTypeId")
-                        .HasColumnType("uniqueidentifier");
+                        .HasColumnType("uuid")
+                        .HasColumnName("inventory_type_id");
 
                     b.Property<DateTime?>("LastModified")
-                        .HasColumnType("datetime2");
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_modified");
 
                     b.Property<string>("LastModifiedBy")
                         .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("last_modified_by");
 
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("name");
 
                     b.Property<string>("Status")
                         .IsRequired()
                         .ValueGeneratedOnAdd()
                         .HasMaxLength(30)
-                        .HasColumnType("nvarchar(30)")
-                        .HasDefaultValue("Available");
+                        .HasColumnType("character varying(30)")
+                        .HasDefaultValue("Available")
+                        .HasColumnName("status");
 
                     b.ComplexProperty(typeof(Dictionary<string, object>), "UnitOfMeasure", "InventoryItem.UnitOfMeasure#UnitOfMeasure", b1 =>
                         {
@@ -247,224 +2212,428 @@ namespace AssetsManagement.Infrastructure.Data.Migrations
                             b1.Property<string>("Unit")
                                 .IsRequired()
                                 .HasMaxLength(10)
-                                .HasColumnType("nvarchar(10)");
+                                .HasColumnType("character varying(10)")
+                                .HasColumnName("unit_of_measure_unit");
 
                             b1.Property<decimal>("Value")
                                 .HasPrecision(18, 4)
-                                .HasColumnType("decimal(18,4)");
+                                .HasColumnType("numeric(18,4)")
+                                .HasColumnName("unit_of_measure_value");
                         });
 
-                    b.HasKey("Id");
+                    b.HasKey("Id")
+                        .HasName("pk_inventory_items");
 
-                    b.HasIndex("InventoryTypeId");
+                    b.HasIndex("InventoryTypeId")
+                        .HasDatabaseName("ix_inventory_items_inventory_type_id");
 
-                    b.ToTable("InventoryItems");
+                    b.ToTable("inventory_items", "assets");
                 });
 
             modelBuilder.Entity("InventoryStock", b =>
                 {
                     b.Property<Guid>("Id")
-                        .HasColumnType("uniqueidentifier");
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
 
                     b.Property<decimal>("AvailableQuantity")
                         .HasPrecision(18, 4)
-                        .HasColumnType("decimal(18,4)");
+                        .HasColumnType("numeric(18,4)")
+                        .HasColumnName("available_quantity");
 
                     b.Property<DateTime?>("CreatedAt")
-                        .HasColumnType("datetime2");
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
 
                     b.Property<string>("CreatedBy")
                         .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("created_by");
 
                     b.Property<Guid>("ItemId")
-                        .HasColumnType("uniqueidentifier");
+                        .HasColumnType("uuid")
+                        .HasColumnName("item_id");
 
                     b.Property<DateTime?>("LastModified")
-                        .HasColumnType("datetime2");
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_modified");
 
                     b.Property<string>("LastModifiedBy")
                         .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("last_modified_by");
 
                     b.Property<decimal>("ReservedQuantity")
                         .HasPrecision(18, 4)
-                        .HasColumnType("decimal(18,4)");
+                        .HasColumnType("numeric(18,4)")
+                        .HasColumnName("reserved_quantity");
 
                     b.Property<Guid>("WarehouseId")
-                        .HasColumnType("uniqueidentifier");
+                        .HasColumnType("uuid")
+                        .HasColumnName("warehouse_id");
 
-                    b.HasKey("Id");
+                    b.HasKey("Id")
+                        .HasName("pk_inventory_stocks");
 
-                    b.HasIndex("ItemId");
+                    b.HasIndex("ItemId")
+                        .HasDatabaseName("ix_inventory_stocks_item_id");
 
-                    b.HasIndex("WarehouseId");
+                    b.HasIndex("WarehouseId")
+                        .HasDatabaseName("ix_inventory_stocks_warehouse_id");
 
-                    b.ToTable("InventoryStocks");
+                    b.ToTable("inventory_stocks", "assets");
                 });
 
             modelBuilder.Entity("InventoryType", b =>
                 {
                     b.Property<Guid>("Id")
-                        .HasColumnType("uniqueidentifier");
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
 
                     b.Property<string>("Code")
                         .IsRequired()
                         .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)");
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("code");
 
                     b.Property<DateTime?>("CreatedAt")
-                        .HasColumnType("datetime2");
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
 
                     b.Property<string>("CreatedBy")
                         .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("created_by");
 
                     b.Property<string>("Description")
                         .HasMaxLength(1000)
-                        .HasColumnType("nvarchar(1000)");
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("description");
 
                     b.Property<Guid>("InventoryCategoryId")
-                        .HasColumnType("uniqueidentifier");
+                        .HasColumnType("uuid")
+                        .HasColumnName("inventory_category_id");
 
                     b.Property<DateTime?>("LastModified")
-                        .HasColumnType("datetime2");
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_modified");
 
                     b.Property<string>("LastModifiedBy")
                         .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("last_modified_by");
 
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("name");
 
-                    b.HasKey("Id");
+                    b.HasKey("Id")
+                        .HasName("pk_inventory_types");
 
-                    b.HasIndex("InventoryCategoryId");
+                    b.HasIndex("InventoryCategoryId")
+                        .HasDatabaseName("ix_inventory_types_inventory_category_id");
 
-                    b.ToTable("InventoryTypes");
+                    b.ToTable("inventory_types", "assets");
+                });
+
+            modelBuilder.Entity("LifecycleEventType", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("code");
+
+                    b.Property<DateTime?>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CreatedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("text")
+                        .HasColumnName("description");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("is_active");
+
+                    b.Property<DateTime?>("LastModified")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_modified");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("last_modified_by");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("name");
+
+                    b.Property<string>("Stage")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("stage");
+
+                    b.HasKey("Id")
+                        .HasName("pk_lifecycle_event_type");
+
+                    b.HasIndex("Code")
+                        .IsUnique()
+                        .HasDatabaseName("ix_lifecycle_event_type_code");
+
+                    b.ToTable("lifecycle_event_type", "assets");
+                });
+
+            modelBuilder.Entity("Location", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Address")
+                        .HasColumnType("text")
+                        .HasColumnName("address");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("code");
+
+                    b.Property<DateTime?>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CreatedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("created_by");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("is_active");
+
+                    b.Property<DateTime?>("LastModified")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_modified");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("last_modified_by");
+
+                    b.Property<decimal?>("Latitude")
+                        .HasPrecision(9, 6)
+                        .HasColumnType("numeric(9,6)")
+                        .HasColumnName("latitude");
+
+                    b.Property<string>("LocationType")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("location_type");
+
+                    b.Property<decimal?>("Longitude")
+                        .HasPrecision(9, 6)
+                        .HasColumnType("numeric(9,6)")
+                        .HasColumnName("longitude");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("name");
+
+                    b.Property<Guid?>("ParentLocationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("parent_location_id");
+
+                    b.Property<string>("Path")
+                        .HasColumnType("ltree")
+                        .HasColumnName("path");
+
+                    b.HasKey("Id")
+                        .HasName("pk_location");
+
+                    b.HasIndex("Code")
+                        .IsUnique()
+                        .HasDatabaseName("ix_location_code");
+
+                    b.HasIndex("ParentLocationId")
+                        .HasDatabaseName("ix_location_parent_location_id");
+
+                    b.HasIndex("Path")
+                        .HasDatabaseName("ix_location_path");
+
+                    NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("Path"), "gist");
+
+                    b.ToTable("location", "assets");
                 });
 
             modelBuilder.Entity("Manufacturer", b =>
                 {
                     b.Property<Guid>("Id")
-                        .HasColumnType("uniqueidentifier");
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
 
                     b.Property<string>("ContactNumber")
                         .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)");
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("contact_number");
 
                     b.Property<DateTime?>("CreatedAt")
-                        .HasColumnType("datetime2");
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
 
                     b.Property<string>("CreatedBy")
                         .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("created_by");
 
                     b.Property<string>("Description")
                         .HasMaxLength(1000)
-                        .HasColumnType("nvarchar(1000)");
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("description");
 
                     b.Property<string>("Email")
                         .HasMaxLength(255)
-                        .HasColumnType("nvarchar(255)");
+                        .HasColumnType("character varying(255)")
+                        .HasColumnName("email");
 
                     b.Property<DateTime?>("LastModified")
-                        .HasColumnType("datetime2");
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_modified");
 
                     b.Property<string>("LastModifiedBy")
                         .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("last_modified_by");
 
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("name");
 
                     b.ComplexProperty(typeof(Dictionary<string, object>), "Address", "Manufacturer.Address#Address", b1 =>
                         {
                             b1.Property<string>("Building")
                                 .HasMaxLength(100)
-                                .HasColumnType("nvarchar(100)");
+                                .HasColumnType("character varying(100)")
+                                .HasColumnName("address_building");
 
                             b1.Property<string>("City")
                                 .IsRequired()
                                 .HasMaxLength(100)
-                                .HasColumnType("nvarchar(100)");
+                                .HasColumnType("character varying(100)")
+                                .HasColumnName("address_city");
 
                             b1.Property<string>("Country")
                                 .IsRequired()
                                 .HasMaxLength(100)
-                                .HasColumnType("nvarchar(100)");
+                                .HasColumnType("character varying(100)")
+                                .HasColumnName("address_country");
 
                             b1.Property<double?>("Latitude")
                                 .HasPrecision(10, 7)
-                                .HasColumnType("float(10)");
+                                .HasColumnType("double precision")
+                                .HasColumnName("address_latitude");
 
                             b1.Property<double?>("Longitude")
                                 .HasPrecision(10, 7)
-                                .HasColumnType("float(10)");
+                                .HasColumnType("double precision")
+                                .HasColumnName("address_longitude");
 
                             b1.Property<string>("PostalCode")
                                 .IsRequired()
                                 .HasMaxLength(20)
-                                .HasColumnType("nvarchar(20)");
+                                .HasColumnType("character varying(20)")
+                                .HasColumnName("address_postal_code");
 
                             b1.Property<string>("State")
                                 .HasMaxLength(100)
-                                .HasColumnType("nvarchar(100)");
+                                .HasColumnType("character varying(100)")
+                                .HasColumnName("address_state");
 
                             b1.Property<string>("Street")
                                 .IsRequired()
                                 .HasMaxLength(250)
-                                .HasColumnType("nvarchar(250)");
+                                .HasColumnType("character varying(250)")
+                                .HasColumnName("address_street");
                         });
 
-                    b.HasKey("Id");
+                    b.HasKey("Id")
+                        .HasName("pk_manufacturer");
 
-                    b.HasIndex("Name");
+                    b.HasIndex("Name")
+                        .HasDatabaseName("ix_manufacturer_name");
 
-                    b.ToTable("Manufacturer");
+                    b.ToTable("manufacturer", "assets");
                 });
 
             modelBuilder.Entity("MaterialConsumption", b =>
                 {
                     b.Property<Guid>("Id")
-                        .HasColumnType("uniqueidentifier");
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
 
                     b.Property<string>("Code")
                         .IsRequired()
                         .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)");
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("code");
 
                     b.Property<DateTime?>("CreatedAt")
-                        .HasColumnType("datetime2");
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
 
                     b.Property<string>("CreatedBy")
                         .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("created_by");
 
                     b.Property<string>("Description")
                         .HasMaxLength(1000)
-                        .HasColumnType("nvarchar(1000)");
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("description");
 
                     b.Property<Guid>("InventoryItemId")
-                        .HasColumnType("uniqueidentifier");
+                        .HasColumnType("uuid")
+                        .HasColumnName("inventory_item_id");
 
                     b.Property<DateTime?>("LastModified")
-                        .HasColumnType("datetime2");
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_modified");
 
                     b.Property<string>("LastModifiedBy")
                         .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("last_modified_by");
 
                     b.Property<Guid>("ProductionOrderId")
-                        .HasColumnType("uniqueidentifier");
+                        .HasColumnType("uuid")
+                        .HasColumnName("production_order_id");
 
                     b.Property<decimal>("Quantity")
                         .HasPrecision(18, 4)
-                        .HasColumnType("decimal(18,4)");
+                        .HasColumnType("numeric(18,4)")
+                        .HasColumnName("quantity");
 
                     b.ComplexProperty(typeof(Dictionary<string, object>), "TotalCost", "MaterialConsumption.TotalCost#Money", b1 =>
                         {
@@ -472,12 +2641,14 @@ namespace AssetsManagement.Infrastructure.Data.Migrations
 
                             b1.Property<decimal>("Amount")
                                 .HasPrecision(18, 2)
-                                .HasColumnType("decimal(18,2)");
+                                .HasColumnType("numeric(18,2)")
+                                .HasColumnName("total_cost_amount");
 
                             b1.Property<string>("Currency")
                                 .IsRequired()
                                 .HasMaxLength(3)
-                                .HasColumnType("nvarchar(3)");
+                                .HasColumnType("character varying(3)")
+                                .HasColumnName("total_cost_currency");
                         });
 
                     b.ComplexProperty(typeof(Dictionary<string, object>), "UnitCost", "MaterialConsumption.UnitCost#Money", b1 =>
@@ -486,354 +2657,403 @@ namespace AssetsManagement.Infrastructure.Data.Migrations
 
                             b1.Property<decimal>("Amount")
                                 .HasPrecision(18, 2)
-                                .HasColumnType("decimal(18,2)");
+                                .HasColumnType("numeric(18,2)")
+                                .HasColumnName("unit_cost_amount");
 
                             b1.Property<string>("Currency")
                                 .IsRequired()
                                 .HasMaxLength(3)
-                                .HasColumnType("nvarchar(3)");
+                                .HasColumnType("character varying(3)")
+                                .HasColumnName("unit_cost_currency");
                         });
 
-                    b.HasKey("Id");
+                    b.HasKey("Id")
+                        .HasName("pk_material_consumption");
 
-                    b.HasIndex("ProductionOrderId");
+                    b.HasIndex("ProductionOrderId")
+                        .HasDatabaseName("ix_material_consumption_production_order_id");
 
-                    b.ToTable("MaterialConsumption");
+                    b.ToTable("material_consumption", "assets");
+                });
+
+            modelBuilder.Entity("OptionSet", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("code");
+
+                    b.Property<DateTime?>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CreatedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("text")
+                        .HasColumnName("description");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("is_active");
+
+                    b.Property<bool>("IsSystem")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_system");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("name");
+
+                    b.Property<DateTime?>("LastModified")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_modified");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("last_modified_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_option_set");
+
+                    b.HasIndex("Code")
+                        .IsUnique()
+                        .HasDatabaseName("ix_option_set_code");
+
+                    b.ToTable("option_set", "assets");
+                });
+
+            modelBuilder.Entity("OptionSetValue", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Color")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("color");
+
+                    b.Property<DateTime?>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CreatedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("created_by");
+
+                    b.Property<int?>("DisplayOrder")
+                        .HasColumnType("integer")
+                        .HasColumnName("display_order");
+
+                    b.Property<string>("Icon")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("icon");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("is_active");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)")
+                        .HasColumnName("label");
+
+                    b.Property<DateTime?>("LastModified")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_modified");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("last_modified_by");
+
+                    b.Property<Guid>("OptionSetId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("option_set_id");
+
+                    b.Property<Guid?>("ParentValueId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("parent_value_id");
+
+                    b.Property<string>("Value")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)")
+                        .HasColumnName("value");
+
+                    b.HasKey("Id")
+                        .HasName("pk_option_set_value");
+
+                    b.HasIndex("OptionSetId")
+                        .HasDatabaseName("ix_option_set_value_option_set_id");
+
+                    b.HasIndex("ParentValueId")
+                        .HasDatabaseName("ix_option_set_value_parent_value_id");
+
+                    b.HasIndex("OptionSetId", "Value")
+                        .IsUnique()
+                        .HasDatabaseName("ix_option_set_value_option_set_id_value");
+
+                    b.ToTable("option_set_value", "assets");
                 });
 
             modelBuilder.Entity("Person", b =>
                 {
                     b.Property<Guid>("Id")
-                        .HasColumnType("uniqueidentifier");
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
 
                     b.Property<DateTime?>("CreatedAt")
-                        .HasColumnType("datetime2");
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
 
                     b.Property<string>("CreatedBy")
                         .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("created_by");
 
                     b.Property<string>("Email")
                         .HasMaxLength(255)
-                        .HasColumnType("nvarchar(255)");
+                        .HasColumnType("character varying(255)")
+                        .HasColumnName("email");
 
                     b.Property<string>("FirstName")
                         .IsRequired()
                         .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("first_name");
 
                     b.Property<DateTime?>("LastModified")
-                        .HasColumnType("datetime2");
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_modified");
 
                     b.Property<string>("LastModifiedBy")
                         .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("last_modified_by");
 
                     b.Property<string>("LastName")
                         .IsRequired()
                         .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("last_name");
 
                     b.Property<string>("PhoneNumber")
                         .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)");
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("phone_number");
 
                     b.ComplexProperty(typeof(Dictionary<string, object>), "Address", "Person.Address#Address", b1 =>
                         {
                             b1.Property<string>("Building")
                                 .HasMaxLength(100)
-                                .HasColumnType("nvarchar(100)");
+                                .HasColumnType("character varying(100)")
+                                .HasColumnName("address_building");
 
                             b1.Property<string>("City")
                                 .IsRequired()
                                 .HasMaxLength(100)
-                                .HasColumnType("nvarchar(100)");
+                                .HasColumnType("character varying(100)")
+                                .HasColumnName("address_city");
 
                             b1.Property<string>("Country")
                                 .IsRequired()
                                 .HasMaxLength(100)
-                                .HasColumnType("nvarchar(100)");
+                                .HasColumnType("character varying(100)")
+                                .HasColumnName("address_country");
 
                             b1.Property<double?>("Latitude")
                                 .HasPrecision(10, 7)
-                                .HasColumnType("float(10)");
+                                .HasColumnType("double precision")
+                                .HasColumnName("address_latitude");
 
                             b1.Property<double?>("Longitude")
                                 .HasPrecision(10, 7)
-                                .HasColumnType("float(10)");
+                                .HasColumnType("double precision")
+                                .HasColumnName("address_longitude");
 
                             b1.Property<string>("PostalCode")
                                 .IsRequired()
                                 .HasMaxLength(20)
-                                .HasColumnType("nvarchar(20)");
+                                .HasColumnType("character varying(20)")
+                                .HasColumnName("address_postal_code");
 
                             b1.Property<string>("State")
                                 .HasMaxLength(100)
-                                .HasColumnType("nvarchar(100)");
+                                .HasColumnType("character varying(100)")
+                                .HasColumnName("address_state");
 
                             b1.Property<string>("Street")
                                 .IsRequired()
                                 .HasMaxLength(250)
-                                .HasColumnType("nvarchar(250)");
+                                .HasColumnType("character varying(250)")
+                                .HasColumnName("address_street");
                         });
 
-                    b.HasKey("Id");
+                    b.HasKey("Id")
+                        .HasName("pk_person");
 
-                    b.HasIndex("Email");
+                    b.HasIndex("Email")
+                        .HasDatabaseName("ix_person_email");
 
-                    b.ToTable("Person");
-                });
-
-            modelBuilder.Entity("Physical", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid>("AssetId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<DateTime?>("CreatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("CreatedBy")
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
-
-                    b.Property<DateTime?>("LastModified")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("LastModifiedBy")
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("AssetId")
-                        .IsUnique();
-
-                    b.ToTable("Physicals");
-                });
-
-            modelBuilder.Entity("Plant", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<DateTime?>("CreatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("CreatedBy")
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
-
-                    b.Property<DateTime?>("LastModified")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("LastModifiedBy")
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("Plant");
-                });
-
-            modelBuilder.Entity("PlantItem", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<decimal>("Capacity")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("decimal(18,2)");
-
-                    b.Property<string>("Code")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)");
-
-                    b.Property<DateTime?>("CreatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("CreatedBy")
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
-
-                    b.Property<string>("Description")
-                        .HasMaxLength(1000)
-                        .HasColumnType("nvarchar(1000)");
-
-                    b.Property<DateTime>("InstallationDateTime")
-                        .HasColumnType("datetime2");
-
-                    b.Property<DateTime?>("LastModified")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("LastModifiedBy")
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
-
-                    b.Property<Guid>("ManufacturerId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("Model")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
-
-                    b.Property<Guid>("PlantId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid?>("PlantId1")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<string>("SerialNumber")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<Guid>("SupplierId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<decimal>("UsefulLifeYears")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("decimal(18,2)");
-
-                    b.Property<DateTime>("WarrantyExpirationDate")
-                        .HasColumnType("datetime2");
-
-                    b.ComplexProperty(typeof(Dictionary<string, object>), "Unit", "PlantItem.Unit#Unit", b1 =>
-                        {
-                            b1.IsRequired();
-
-                            b1.Property<string>("Value")
-                                .IsRequired()
-                                .HasMaxLength(100)
-                                .HasColumnType("nvarchar(100)");
-                        });
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ManufacturerId");
-
-                    b.HasIndex("PlantId");
-
-                    b.HasIndex("PlantId1");
-
-                    b.HasIndex("SupplierId");
-
-                    b.ToTable("PlantItem");
+                    b.ToTable("person", "assets");
                 });
 
             modelBuilder.Entity("ProductionOrder", b =>
                 {
                     b.Property<Guid>("Id")
-                        .HasColumnType("uniqueidentifier");
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
 
                     b.Property<DateTime>("ActualEndDate")
-                        .HasColumnType("datetime2");
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("actual_end_date");
 
                     b.Property<DateTime>("ActualStartDate")
-                        .HasColumnType("datetime2");
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("actual_start_date");
 
                     b.Property<DateTime>("ApprovedAt")
-                        .HasColumnType("datetime2");
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("approved_at");
 
                     b.Property<string>("Code")
                         .IsRequired()
                         .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)");
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("code");
 
                     b.Property<DateTime?>("CreatedAt")
-                        .HasColumnType("datetime2");
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
 
                     b.Property<string>("CreatedBy")
                         .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("created_by");
 
                     b.Property<string>("Description")
                         .HasMaxLength(1000)
-                        .HasColumnType("nvarchar(1000)");
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("description");
 
                     b.Property<bool>("IsApproved")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("bit")
-                        .HasDefaultValue(false);
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_approved");
 
                     b.Property<DateTime?>("LastModified")
-                        .HasColumnType("datetime2");
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_modified");
 
                     b.Property<string>("LastModifiedBy")
                         .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("last_modified_by");
 
                     b.Property<string>("Notes")
                         .HasMaxLength(1000)
-                        .HasColumnType("nvarchar(1000)");
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("notes");
 
                     b.Property<DateTime>("PlannedEndDate")
-                        .HasColumnType("datetime2");
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("planned_end_date");
 
                     b.Property<DateTime>("PlannedStartDate")
-                        .HasColumnType("datetime2");
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("planned_start_date");
 
                     b.Property<string>("ProductionOrderName")
                         .IsRequired()
                         .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("production_order_name");
 
                     b.Property<Guid>("SuperVisorId")
-                        .HasColumnType("uniqueidentifier");
+                        .HasColumnType("uuid")
+                        .HasColumnName("super_visor_id");
 
                     b.Property<Guid>("WarehouseId")
-                        .HasColumnType("uniqueidentifier");
+                        .HasColumnType("uuid")
+                        .HasColumnName("warehouse_id");
 
-                    b.HasKey("Id");
+                    b.HasKey("Id")
+                        .HasName("pk_production_order");
 
-                    b.ToTable("ProductionOrder");
+                    b.ToTable("production_order", "assets");
                 });
 
             modelBuilder.Entity("Purchase", b =>
                 {
                     b.Property<Guid>("Id")
-                        .HasColumnType("uniqueidentifier");
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
 
                     b.Property<DateTime?>("CreatedAt")
-                        .HasColumnType("datetime2");
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
 
                     b.Property<string>("CreatedBy")
                         .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("created_by");
 
                     b.Property<DateTime?>("ExpectedDeliveryDate")
-                        .HasColumnType("datetime2");
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expected_delivery_date");
 
                     b.Property<DateTime?>("LastModified")
-                        .HasColumnType("datetime2");
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_modified");
 
                     b.Property<string>("LastModifiedBy")
                         .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("last_modified_by");
 
                     b.Property<DateTime>("PurchaseDate")
-                        .HasColumnType("datetime2");
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("purchase_date");
 
                     b.Property<string>("Remarks")
                         .HasMaxLength(2000)
-                        .HasColumnType("nvarchar(2000)");
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("remarks");
 
                     b.Property<string>("Status")
                         .IsRequired()
                         .ValueGeneratedOnAdd()
                         .HasMaxLength(30)
-                        .HasColumnType("nvarchar(30)")
-                        .HasDefaultValue("Draft");
+                        .HasColumnType("character varying(30)")
+                        .HasDefaultValue("Draft")
+                        .HasColumnName("status");
 
                     b.Property<Guid>("SupplierId")
-                        .HasColumnType("uniqueidentifier");
+                        .HasColumnType("uuid")
+                        .HasColumnName("supplier_id");
 
                     b.ComplexProperty(typeof(Dictionary<string, object>), "Currency", "Purchase.Currency#Currency", b1 =>
                         {
@@ -842,7 +3062,8 @@ namespace AssetsManagement.Infrastructure.Data.Migrations
                             b1.Property<string>("Value")
                                 .IsRequired()
                                 .HasMaxLength(3)
-                                .HasColumnType("nvarchar(3)");
+                                .HasColumnType("character varying(3)")
+                                .HasColumnName("currency_value");
                         });
 
                     b.ComplexProperty(typeof(Dictionary<string, object>), "DeliveryAddress", "Purchase.DeliveryAddress#Address", b1 =>
@@ -851,37 +3072,45 @@ namespace AssetsManagement.Infrastructure.Data.Migrations
 
                             b1.Property<string>("Building")
                                 .HasMaxLength(100)
-                                .HasColumnType("nvarchar(100)");
+                                .HasColumnType("character varying(100)")
+                                .HasColumnName("delivery_address_building");
 
                             b1.Property<string>("City")
                                 .IsRequired()
                                 .HasMaxLength(100)
-                                .HasColumnType("nvarchar(100)");
+                                .HasColumnType("character varying(100)")
+                                .HasColumnName("delivery_address_city");
 
                             b1.Property<string>("Country")
                                 .IsRequired()
                                 .HasMaxLength(100)
-                                .HasColumnType("nvarchar(100)");
+                                .HasColumnType("character varying(100)")
+                                .HasColumnName("delivery_address_country");
 
                             b1.Property<double?>("Latitude")
-                                .HasColumnType("float");
+                                .HasColumnType("double precision")
+                                .HasColumnName("delivery_address_latitude");
 
                             b1.Property<double?>("Longitude")
-                                .HasColumnType("float");
+                                .HasColumnType("double precision")
+                                .HasColumnName("delivery_address_longitude");
 
                             b1.Property<string>("PostalCode")
                                 .IsRequired()
                                 .HasMaxLength(20)
-                                .HasColumnType("nvarchar(20)");
+                                .HasColumnType("character varying(20)")
+                                .HasColumnName("delivery_address_postal_code");
 
                             b1.Property<string>("State")
                                 .HasMaxLength(100)
-                                .HasColumnType("nvarchar(100)");
+                                .HasColumnType("character varying(100)")
+                                .HasColumnName("delivery_address_state");
 
                             b1.Property<string>("Street")
                                 .IsRequired()
                                 .HasMaxLength(200)
-                                .HasColumnType("nvarchar(200)");
+                                .HasColumnType("character varying(200)")
+                                .HasColumnName("delivery_address_street");
                         });
 
                     b.ComplexProperty(typeof(Dictionary<string, object>), "DiscountAmount", "Purchase.DiscountAmount#Money", b1 =>
@@ -890,12 +3119,14 @@ namespace AssetsManagement.Infrastructure.Data.Migrations
 
                             b1.Property<decimal>("Amount")
                                 .HasPrecision(18, 2)
-                                .HasColumnType("decimal(18,2)");
+                                .HasColumnType("numeric(18,2)")
+                                .HasColumnName("discount_amount_amount");
 
                             b1.Property<string>("Currency")
                                 .IsRequired()
                                 .HasMaxLength(3)
-                                .HasColumnType("nvarchar(3)");
+                                .HasColumnType("character varying(3)")
+                                .HasColumnName("discount_amount_currency");
                         });
 
                     b.ComplexProperty(typeof(Dictionary<string, object>), "PaymentTerm", "Purchase.PaymentTerm#PaymentTerm", b1 =>
@@ -904,15 +3135,18 @@ namespace AssetsManagement.Infrastructure.Data.Migrations
 
                             b1.Property<decimal>("AdvancePercentage")
                                 .HasPrecision(5, 2)
-                                .HasColumnType("decimal(5,2)");
+                                .HasColumnType("numeric(5,2)")
+                                .HasColumnName("payment_term_advance_percentage");
 
                             b1.Property<string>("Code")
                                 .IsRequired()
                                 .HasMaxLength(50)
-                                .HasColumnType("nvarchar(50)");
+                                .HasColumnType("character varying(50)")
+                                .HasColumnName("payment_term_code");
 
                             b1.Property<int>("DueDays")
-                                .HasColumnType("int");
+                                .HasColumnType("integer")
+                                .HasColumnName("payment_term_due_days");
                         });
 
                     b.ComplexProperty(typeof(Dictionary<string, object>), "SubTotal", "Purchase.SubTotal#Money", b1 =>
@@ -921,12 +3155,14 @@ namespace AssetsManagement.Infrastructure.Data.Migrations
 
                             b1.Property<decimal>("Amount")
                                 .HasPrecision(18, 2)
-                                .HasColumnType("decimal(18,2)");
+                                .HasColumnType("numeric(18,2)")
+                                .HasColumnName("sub_total_amount");
 
                             b1.Property<string>("Currency")
                                 .IsRequired()
                                 .HasMaxLength(3)
-                                .HasColumnType("nvarchar(3)");
+                                .HasColumnType("character varying(3)")
+                                .HasColumnName("sub_total_currency");
                         });
 
                     b.ComplexProperty(typeof(Dictionary<string, object>), "TaxAmount", "Purchase.TaxAmount#Money", b1 =>
@@ -935,12 +3171,14 @@ namespace AssetsManagement.Infrastructure.Data.Migrations
 
                             b1.Property<decimal>("Amount")
                                 .HasPrecision(18, 2)
-                                .HasColumnType("decimal(18,2)");
+                                .HasColumnType("numeric(18,2)")
+                                .HasColumnName("tax_amount_amount");
 
                             b1.Property<string>("Currency")
                                 .IsRequired()
                                 .HasMaxLength(3)
-                                .HasColumnType("nvarchar(3)");
+                                .HasColumnType("character varying(3)")
+                                .HasColumnName("tax_amount_currency");
                         });
 
                     b.ComplexProperty(typeof(Dictionary<string, object>), "TotalAmount", "Purchase.TotalAmount#Money", b1 =>
@@ -949,72 +3187,90 @@ namespace AssetsManagement.Infrastructure.Data.Migrations
 
                             b1.Property<decimal>("Amount")
                                 .HasPrecision(18, 2)
-                                .HasColumnType("decimal(18,2)");
+                                .HasColumnType("numeric(18,2)")
+                                .HasColumnName("total_amount_amount");
 
                             b1.Property<string>("Currency")
                                 .IsRequired()
                                 .HasMaxLength(3)
-                                .HasColumnType("nvarchar(3)");
+                                .HasColumnType("character varying(3)")
+                                .HasColumnName("total_amount_currency");
                         });
 
-                    b.HasKey("Id");
+                    b.HasKey("Id")
+                        .HasName("pk_purchases");
 
-                    b.ToTable("Purchases");
+                    b.ToTable("purchases", "assets");
                 });
 
             modelBuilder.Entity("PurchaseLine", b =>
                 {
                     b.Property<Guid>("Id")
-                        .HasColumnType("uniqueidentifier");
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
 
                     b.Property<DateTime?>("CreatedAt")
-                        .HasColumnType("datetime2");
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
 
                     b.Property<string>("CreatedBy")
                         .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("created_by");
 
                     b.Property<decimal>("DiscountAmount")
                         .HasPrecision(18, 2)
-                        .HasColumnType("decimal(18,2)");
+                        .HasColumnType("numeric(18,2)")
+                        .HasColumnName("discount_amount");
 
                     b.Property<string>("FileUrl")
-                        .HasColumnType("nvarchar(max)");
+                        .HasColumnType("text")
+                        .HasColumnName("file_url");
 
                     b.Property<Guid>("ItemId")
-                        .HasColumnType("uniqueidentifier");
+                        .HasColumnType("uuid")
+                        .HasColumnName("item_id");
 
                     b.Property<DateTime?>("LastModified")
-                        .HasColumnType("datetime2");
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_modified");
 
                     b.Property<string>("LastModifiedBy")
                         .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("last_modified_by");
 
                     b.Property<decimal>("LineTotal")
-                        .HasColumnType("decimal(18,2)");
+                        .HasColumnType("numeric")
+                        .HasColumnName("line_total");
 
                     b.Property<decimal>("OrderedQuantity")
                         .HasPrecision(18, 4)
-                        .HasColumnType("decimal(18,4)");
+                        .HasColumnType("numeric(18,4)")
+                        .HasColumnName("ordered_quantity");
 
                     b.Property<Guid>("PurchaseId")
-                        .HasColumnType("uniqueidentifier");
+                        .HasColumnType("uuid")
+                        .HasColumnName("purchase_id");
 
                     b.Property<Guid?>("PurchaseId1")
-                        .HasColumnType("uniqueidentifier");
+                        .HasColumnType("uuid")
+                        .HasColumnName("purchase_id1");
 
                     b.Property<decimal>("ReceivedQuantity")
                         .HasPrecision(18, 4)
-                        .HasColumnType("decimal(18,4)");
+                        .HasColumnType("numeric(18,4)")
+                        .HasColumnName("received_quantity");
 
                     b.Property<string>("Remarks")
                         .HasMaxLength(2000)
-                        .HasColumnType("nvarchar(2000)");
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("remarks");
 
                     b.Property<decimal>("TaxAmount")
                         .HasPrecision(18, 2)
-                        .HasColumnType("decimal(18,2)");
+                        .HasColumnType("numeric(18,2)")
+                        .HasColumnName("tax_amount");
 
                     b.ComplexProperty(typeof(Dictionary<string, object>), "UnitOfMeasure", "PurchaseLine.UnitOfMeasure#UnitOfMeasure", b1 =>
                         {
@@ -1023,11 +3279,13 @@ namespace AssetsManagement.Infrastructure.Data.Migrations
                             b1.Property<string>("Unit")
                                 .IsRequired()
                                 .HasMaxLength(10)
-                                .HasColumnType("nvarchar(10)");
+                                .HasColumnType("character varying(10)")
+                                .HasColumnName("unit_of_measure_unit");
 
                             b1.Property<decimal>("Value")
                                 .HasPrecision(18, 4)
-                                .HasColumnType("decimal(18,4)");
+                                .HasColumnType("numeric(18,4)")
+                                .HasColumnName("unit_of_measure_value");
                         });
 
                     b.ComplexProperty(typeof(Dictionary<string, object>), "UnitPrice", "PurchaseLine.UnitPrice#Money", b1 =>
@@ -1036,54 +3294,68 @@ namespace AssetsManagement.Infrastructure.Data.Migrations
 
                             b1.Property<decimal>("Amount")
                                 .HasPrecision(18, 2)
-                                .HasColumnType("decimal(18,2)");
+                                .HasColumnType("numeric(18,2)")
+                                .HasColumnName("unit_price_amount");
 
                             b1.Property<string>("Currency")
                                 .IsRequired()
                                 .HasMaxLength(3)
-                                .HasColumnType("nvarchar(3)");
+                                .HasColumnType("character varying(3)")
+                                .HasColumnName("unit_price_currency");
                         });
 
-                    b.HasKey("Id");
+                    b.HasKey("Id")
+                        .HasName("pk_purchase_lines");
 
-                    b.HasIndex("ItemId");
+                    b.HasIndex("ItemId")
+                        .HasDatabaseName("ix_purchase_lines_item_id");
 
-                    b.HasIndex("PurchaseId");
+                    b.HasIndex("PurchaseId")
+                        .HasDatabaseName("ix_purchase_lines_purchase_id");
 
-                    b.HasIndex("PurchaseId1");
+                    b.HasIndex("PurchaseId1")
+                        .HasDatabaseName("ix_purchase_lines_purchase_id1");
 
-                    b.ToTable("PurchaseLines");
+                    b.ToTable("purchase_lines", "assets");
                 });
 
             modelBuilder.Entity("Scrap", b =>
                 {
                     b.Property<Guid>("InventoryItemId")
-                        .HasColumnType("uniqueidentifier");
+                        .HasColumnType("uuid")
+                        .HasColumnName("inventory_item_id");
 
                     b.Property<DateTime?>("CreatedAt")
-                        .HasColumnType("datetime2");
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
 
                     b.Property<string>("CreatedBy")
                         .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("created_by");
 
                     b.Property<string>("Description")
                         .IsRequired()
-                        .HasColumnType("nvarchar(max)");
+                        .HasColumnType("text")
+                        .HasColumnName("description");
 
                     b.Property<Guid?>("Id")
-                        .HasColumnType("uniqueidentifier");
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
 
                     b.Property<DateTime?>("LastModified")
-                        .HasColumnType("datetime2");
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_modified");
 
                     b.Property<string>("LastModifiedBy")
                         .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("last_modified_by");
 
                     b.Property<decimal>("Total")
                         .HasPrecision(18, 2)
-                        .HasColumnType("decimal(18,2)");
+                        .HasColumnType("numeric(18,2)")
+                        .HasColumnName("total");
 
                     b.ComplexProperty(typeof(Dictionary<string, object>), "Price", "Scrap.Price#Money", b1 =>
                         {
@@ -1091,75 +3363,91 @@ namespace AssetsManagement.Infrastructure.Data.Migrations
 
                             b1.Property<decimal>("Amount")
                                 .HasPrecision(18, 2)
-                                .HasColumnType("decimal(18,2)");
+                                .HasColumnType("numeric(18,2)")
+                                .HasColumnName("price_amount");
 
                             b1.Property<string>("Currency")
                                 .IsRequired()
-                                .HasColumnType("nvarchar(max)");
+                                .HasColumnType("text")
+                                .HasColumnName("price_currency");
                         });
 
-                    b.HasKey("InventoryItemId");
+                    b.HasKey("InventoryItemId")
+                        .HasName("pk_scraps");
 
-                    b.ToTable("Scraps");
+                    b.ToTable("scraps", "assets");
                 });
 
             modelBuilder.Entity("Warehouse", b =>
                 {
                     b.Property<Guid>("Id")
-                        .HasColumnType("uniqueidentifier");
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
 
                     b.Property<string>("Code")
                         .IsRequired()
                         .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)");
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("code");
 
                     b.Property<string>("ContactNumber")
                         .IsRequired()
-                        .HasColumnType("nvarchar(max)");
+                        .HasColumnType("text")
+                        .HasColumnName("contact_number");
 
                     b.Property<DateTime?>("CreatedAt")
-                        .HasColumnType("datetime2");
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
 
                     b.Property<string>("CreatedBy")
                         .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("created_by");
 
                     b.Property<string>("Description")
                         .HasMaxLength(1000)
-                        .HasColumnType("nvarchar(1000)");
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("description");
 
                     b.Property<string>("Email")
                         .IsRequired()
-                        .HasColumnType("nvarchar(max)");
+                        .HasColumnType("text")
+                        .HasColumnName("email");
 
                     b.Property<DateTime?>("LastModified")
-                        .HasColumnType("datetime2");
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_modified");
 
                     b.Property<string>("LastModifiedBy")
                         .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("last_modified_by");
 
                     b.Property<Guid>("ManagerId")
-                        .HasColumnType("uniqueidentifier");
+                        .HasColumnType("uuid")
+                        .HasColumnName("manager_id");
 
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("name");
 
                     b.Property<string>("Status")
                         .IsRequired()
                         .ValueGeneratedOnAdd()
                         .HasMaxLength(30)
-                        .HasColumnType("nvarchar(30)")
-                        .HasDefaultValue("Active");
+                        .HasColumnType("character varying(30)")
+                        .HasDefaultValue("Active")
+                        .HasColumnName("status");
 
                     b.Property<string>("WarehouseType")
                         .IsRequired()
                         .ValueGeneratedOnAdd()
                         .HasMaxLength(30)
-                        .HasColumnType("nvarchar(30)")
-                        .HasDefaultValue("Main");
+                        .HasColumnType("character varying(30)")
+                        .HasDefaultValue("Main")
+                        .HasColumnName("warehouse_type");
 
                     b.ComplexProperty(typeof(Dictionary<string, object>), "Address", "Warehouse.Address#Address", b1 =>
                         {
@@ -1167,93 +3455,432 @@ namespace AssetsManagement.Infrastructure.Data.Migrations
 
                             b1.Property<string>("Building")
                                 .HasMaxLength(100)
-                                .HasColumnType("nvarchar(100)");
+                                .HasColumnType("character varying(100)")
+                                .HasColumnName("address_building");
 
                             b1.Property<string>("City")
                                 .IsRequired()
                                 .HasMaxLength(100)
-                                .HasColumnType("nvarchar(100)");
+                                .HasColumnType("character varying(100)")
+                                .HasColumnName("address_city");
 
                             b1.Property<string>("Country")
                                 .IsRequired()
                                 .HasMaxLength(100)
-                                .HasColumnType("nvarchar(100)");
+                                .HasColumnType("character varying(100)")
+                                .HasColumnName("address_country");
 
                             b1.Property<double?>("Latitude")
-                                .HasColumnType("float");
+                                .HasColumnType("double precision")
+                                .HasColumnName("address_latitude");
 
                             b1.Property<double?>("Longitude")
-                                .HasColumnType("float");
+                                .HasColumnType("double precision")
+                                .HasColumnName("address_longitude");
 
                             b1.Property<string>("PostalCode")
                                 .IsRequired()
                                 .HasMaxLength(20)
-                                .HasColumnType("nvarchar(20)");
+                                .HasColumnType("character varying(20)")
+                                .HasColumnName("address_postal_code");
 
                             b1.Property<string>("State")
                                 .HasMaxLength(100)
-                                .HasColumnType("nvarchar(100)");
+                                .HasColumnType("character varying(100)")
+                                .HasColumnName("address_state");
 
                             b1.Property<string>("Street")
                                 .IsRequired()
                                 .HasMaxLength(200)
-                                .HasColumnType("nvarchar(200)");
+                                .HasColumnType("character varying(200)")
+                                .HasColumnName("address_street");
                         });
 
-                    b.HasKey("Id");
+                    b.HasKey("Id")
+                        .HasName("pk_warehouses");
 
-                    b.ToTable("Warehouses");
+                    b.ToTable("warehouses", "assets");
                 });
 
             modelBuilder.Entity("WorkInProgress", b =>
                 {
                     b.Property<Guid>("Id")
-                        .HasColumnType("uniqueidentifier");
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
 
                     b.Property<DateTime?>("CreatedAt")
-                        .HasColumnType("datetime2");
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
 
                     b.Property<string>("CreatedBy")
                         .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("created_by");
 
                     b.Property<string>("CurrentStage")
                         .IsRequired()
                         .ValueGeneratedOnAdd()
                         .HasMaxLength(30)
-                        .HasColumnType("nvarchar(30)")
-                        .HasDefaultValue("NotStarted");
+                        .HasColumnType("character varying(30)")
+                        .HasDefaultValue("NotStarted")
+                        .HasColumnName("current_stage");
 
                     b.Property<DateTime?>("LastModified")
-                        .HasColumnType("datetime2");
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_modified");
 
                     b.Property<string>("LastModifiedBy")
                         .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("last_modified_by");
 
                     b.Property<Guid>("ProductionOrderId")
-                        .HasColumnType("uniqueidentifier");
+                        .HasColumnType("uuid")
+                        .HasColumnName("production_order_id");
 
                     b.Property<decimal>("ProgressPercentage")
                         .HasPrecision(3, 2)
-                        .HasColumnType("decimal(3,2)");
+                        .HasColumnType("numeric(3,2)")
+                        .HasColumnName("progress_percentage");
 
                     b.Property<DateTime>("RecordedAt")
-                        .HasColumnType("datetime2");
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("recorded_at");
 
                     b.Property<Guid>("RecordedBy")
-                        .HasColumnType("uniqueidentifier");
+                        .HasColumnType("uuid")
+                        .HasColumnName("recorded_by");
 
                     b.Property<string>("Remarks")
                         .IsRequired()
                         .HasMaxLength(1000)
-                        .HasColumnType("nvarchar(1000)");
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("remarks");
 
-                    b.HasKey("Id");
+                    b.HasKey("Id")
+                        .HasName("pk_work_in_progress");
 
-                    b.HasIndex("ProductionOrderId");
+                    b.HasIndex("ProductionOrderId")
+                        .HasDatabaseName("ix_work_in_progress_production_order_id");
 
-                    b.ToTable("WorkInProgress");
+                    b.ToTable("work_in_progress", "assets");
+                });
+
+            modelBuilder.Entity("Asset", b =>
+                {
+                    b.HasOne("AssetClass", null)
+                        .WithMany()
+                        .HasForeignKey("AssetClassId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_asset_asset_class_asset_class_id");
+
+                    b.HasOne("Location", null)
+                        .WithMany()
+                        .HasForeignKey("CurrentLocationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_asset_location_current_location_id");
+
+                    b.HasOne("Asset", null)
+                        .WithMany()
+                        .HasForeignKey("ParentAssetId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_asset_asset_parent_asset_id");
+
+                    b.HasOne("AssetStatus", null)
+                        .WithMany()
+                        .HasForeignKey("StatusId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_asset_asset_status_status_id");
+
+                    b.HasOne("AssetType", null)
+                        .WithMany()
+                        .HasForeignKey("AssetTypeId", "AssetClassId")
+                        .HasPrincipalKey("Id", "AssetClassId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_asset_asset_types_asset_type_id_asset_class_id");
+
+                    b.HasOne("AssetCategory", null)
+                        .WithMany()
+                        .HasForeignKey("CategoryId", "AssetClassId")
+                        .HasPrincipalKey("Id", "AssetClassId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_asset_asset_category_category_id_asset_class_id");
+                });
+
+            modelBuilder.Entity("AssetAcquisition", b =>
+                {
+                    b.HasOne("Asset", null)
+                        .WithMany()
+                        .HasForeignKey("AssetId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_asset_acquisition_asset_asset_id");
+
+                    b.HasOne("CurrencyLookup", null)
+                        .WithMany()
+                        .HasForeignKey("CurrencyCode")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_asset_acquisition_currency_currency_code");
+                });
+
+            modelBuilder.Entity("AssetAssignment", b =>
+                {
+                    b.HasOne("Asset", null)
+                        .WithMany()
+                        .HasForeignKey("AssetId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_asset_assignment_asset_asset_id");
+
+                    b.HasOne("Location", null)
+                        .WithMany()
+                        .HasForeignKey("FromLocationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_asset_assignment_location_from_location_id");
+
+                    b.HasOne("Location", null)
+                        .WithMany()
+                        .HasForeignKey("ToLocationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_asset_assignment_location_to_location_id");
+                });
+
+            modelBuilder.Entity("AssetAttachment", b =>
+                {
+                    b.HasOne("Asset", null)
+                        .WithMany()
+                        .HasForeignKey("AssetId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_asset_attachment_asset_asset_id");
+                });
+
+            modelBuilder.Entity("AssetAttributeHistory", b =>
+                {
+                    b.HasOne("Asset", null)
+                        .WithMany()
+                        .HasForeignKey("AssetId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_asset_attribute_history_asset_asset_id");
+
+                    b.HasOne("AttributeDefinition", null)
+                        .WithMany()
+                        .HasForeignKey("AttributeDefinitionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_asset_attribute_history_attribute_definition_attribute_defi");
+                });
+
+            modelBuilder.Entity("AssetAttributeValue", b =>
+                {
+                    b.HasOne("Asset", null)
+                        .WithMany()
+                        .HasForeignKey("AssetId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_asset_attribute_value_asset_asset_id");
+
+                    b.HasOne("AttributeDefinition", null)
+                        .WithMany()
+                        .HasForeignKey("AttributeDefinitionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_asset_attribute_value_attribute_definition_attribute_defini");
+
+                    b.HasOne("OptionSetValue", null)
+                        .WithMany()
+                        .HasForeignKey("OptionValueId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_asset_attribute_value_option_set_value_option_value_id");
+                });
+
+            modelBuilder.Entity("AssetCategory", b =>
+                {
+                    b.HasOne("AssetClass", null)
+                        .WithMany()
+                        .HasForeignKey("AssetClassId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_asset_category_asset_class_asset_class_id");
+
+                    b.HasOne("AssetType", null)
+                        .WithMany()
+                        .HasForeignKey("AssetTypeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_asset_category_asset_types_asset_type_id");
+
+                    b.HasOne("AssetCategory", null)
+                        .WithMany()
+                        .HasForeignKey("ParentCategoryId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_asset_category_asset_category_parent_category_id");
+                });
+
+            modelBuilder.Entity("AssetDepreciationEntry", b =>
+                {
+                    b.HasOne("AssetDepreciationSchedule", null)
+                        .WithMany("Entries")
+                        .HasForeignKey("ScheduleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_asset_depreciation_entry_asset_depreciation_schedule_schedu");
+                });
+
+            modelBuilder.Entity("AssetDepreciationSchedule", b =>
+                {
+                    b.HasOne("Asset", null)
+                        .WithMany()
+                        .HasForeignKey("AssetId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_asset_depreciation_schedule_asset_asset_id");
+
+                    b.HasOne("DepreciationMethod", null)
+                        .WithMany()
+                        .HasForeignKey("MethodId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_asset_depreciation_schedule_depreciation_method_method_id");
+                });
+
+            modelBuilder.Entity("AssetDisposal", b =>
+                {
+                    b.HasOne("Asset", null)
+                        .WithMany()
+                        .HasForeignKey("AssetId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_asset_disposal_asset_asset_id");
+
+                    b.HasOne("CurrencyLookup", null)
+                        .WithMany()
+                        .HasForeignKey("CurrencyCode")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_asset_disposal_currency_currency_code");
+
+                    b.HasOne("DisposalMethod", null)
+                        .WithMany()
+                        .HasForeignKey("DisposalMethodId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_asset_disposal_disposal_method_disposal_method_id");
+                });
+
+            modelBuilder.Entity("AssetLifecycleEvent", b =>
+                {
+                    b.HasOne("Asset", null)
+                        .WithMany()
+                        .HasForeignKey("AssetId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_asset_lifecycle_event_asset_asset_id");
+
+                    b.HasOne("LifecycleEventType", null)
+                        .WithMany()
+                        .HasForeignKey("EventTypeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_asset_lifecycle_event_lifecycle_event_type_event_type_id");
+
+                    b.HasOne("AssetStatus", null)
+                        .WithMany()
+                        .HasForeignKey("FromStatusId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_asset_lifecycle_event_asset_status_from_status_id");
+
+                    b.HasOne("AssetStatus", null)
+                        .WithMany()
+                        .HasForeignKey("ToStatusId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_asset_lifecycle_event_asset_status_to_status_id");
+                });
+
+            modelBuilder.Entity("AssetType", b =>
+                {
+                    b.HasOne("AssetClass", null)
+                        .WithMany()
+                        .HasForeignKey("AssetClassId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_asset_type_asset_class_asset_class_id");
+                });
+
+            modelBuilder.Entity("AssetValuation", b =>
+                {
+                    b.HasOne("Asset", null)
+                        .WithMany()
+                        .HasForeignKey("AssetId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_asset_valuation_history_asset_asset_id");
+
+                    b.HasOne("CurrencyLookup", null)
+                        .WithMany()
+                        .HasForeignKey("CurrencyCode")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_asset_valuation_history_currency_currency_code");
+                });
+
+            modelBuilder.Entity("AttributeAssignment", b =>
+                {
+                    b.HasOne("AssetClass", null)
+                        .WithMany()
+                        .HasForeignKey("AssetClassId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .HasConstraintName("fk_attribute_assignment_asset_class_asset_class_id");
+
+                    b.HasOne("Asset", null)
+                        .WithMany()
+                        .HasForeignKey("AssetId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .HasConstraintName("fk_attribute_assignment_asset_asset_id");
+
+                    b.HasOne("AssetType", null)
+                        .WithMany()
+                        .HasForeignKey("AssetTypeId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .HasConstraintName("fk_attribute_assignment_asset_type_asset_type_id");
+
+                    b.HasOne("AttributeDefinition", null)
+                        .WithMany()
+                        .HasForeignKey("AttributeDefinitionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_attribute_assignment_attribute_definition_attribute_definit");
+
+                    b.HasOne("AttributeGroup", null)
+                        .WithMany()
+                        .HasForeignKey("AttributeGroupId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_attribute_assignment_attribute_group_attribute_group_id");
+
+                    b.HasOne("AssetCategory", null)
+                        .WithMany()
+                        .HasForeignKey("CategoryId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .HasConstraintName("fk_attribute_assignment_asset_category_category_id");
+
+                    b.HasOne("AttributeAssignment", null)
+                        .WithMany()
+                        .HasForeignKey("DependsOnAssignmentId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_attribute_assignment_attribute_assignment_depends_on_assign");
+                });
+
+            modelBuilder.Entity("AttributeDefinition", b =>
+                {
+                    b.HasOne("OptionSet", null)
+                        .WithMany()
+                        .HasForeignKey("OptionSetId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_attribute_definition_option_set_option_set_id");
                 });
 
             modelBuilder.Entity("FinishedGoodItem", b =>
@@ -1262,7 +3889,8 @@ namespace AssetsManagement.Infrastructure.Data.Migrations
                         .WithMany()
                         .HasForeignKey("ProductionOrderId")
                         .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .IsRequired()
+                        .HasConstraintName("fk_finished_good_item_production_order_production_order_id");
                 });
 
             modelBuilder.Entity("InventoryItem", b =>
@@ -1271,7 +3899,8 @@ namespace AssetsManagement.Infrastructure.Data.Migrations
                         .WithMany()
                         .HasForeignKey("InventoryTypeId")
                         .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .IsRequired()
+                        .HasConstraintName("fk_inventory_items_inventory_types_inventory_type_id");
                 });
 
             modelBuilder.Entity("InventoryStock", b =>
@@ -1280,13 +3909,15 @@ namespace AssetsManagement.Infrastructure.Data.Migrations
                         .WithMany()
                         .HasForeignKey("ItemId")
                         .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .IsRequired()
+                        .HasConstraintName("fk_inventory_stocks_inventory_items_item_id");
 
                     b.HasOne("Warehouse", null)
                         .WithMany()
                         .HasForeignKey("WarehouseId")
                         .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .IsRequired()
+                        .HasConstraintName("fk_inventory_stocks_warehouses_warehouse_id");
                 });
 
             modelBuilder.Entity("InventoryType", b =>
@@ -1295,7 +3926,17 @@ namespace AssetsManagement.Infrastructure.Data.Migrations
                         .WithMany()
                         .HasForeignKey("InventoryCategoryId")
                         .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .IsRequired()
+                        .HasConstraintName("fk_inventory_types_inventory_categories_inventory_category_id");
+                });
+
+            modelBuilder.Entity("Location", b =>
+                {
+                    b.HasOne("Location", null)
+                        .WithMany()
+                        .HasForeignKey("ParentLocationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_location_location_parent_location_id");
                 });
 
             modelBuilder.Entity("MaterialConsumption", b =>
@@ -1304,41 +3945,24 @@ namespace AssetsManagement.Infrastructure.Data.Migrations
                         .WithMany()
                         .HasForeignKey("ProductionOrderId")
                         .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .IsRequired()
+                        .HasConstraintName("fk_material_consumption_production_order_production_order_id");
                 });
 
-            modelBuilder.Entity("Physical", b =>
+            modelBuilder.Entity("OptionSetValue", b =>
                 {
-                    b.HasOne("Asset", null)
-                        .WithOne()
-                        .HasForeignKey("Physical", "AssetId")
+                    b.HasOne("OptionSet", null)
+                        .WithMany("Values")
+                        .HasForeignKey("OptionSetId")
                         .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-                });
+                        .IsRequired()
+                        .HasConstraintName("fk_option_set_value_option_set_option_set_id");
 
-            modelBuilder.Entity("PlantItem", b =>
-                {
-                    b.HasOne("Manufacturer", null)
+                    b.HasOne("OptionSetValue", null)
                         .WithMany()
-                        .HasForeignKey("ManufacturerId")
+                        .HasForeignKey("ParentValueId")
                         .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("Plant", null)
-                        .WithMany()
-                        .HasForeignKey("PlantId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("Plant", null)
-                        .WithMany("PlantItems")
-                        .HasForeignKey("PlantId1");
-
-                    b.HasOne("Person", null)
-                        .WithMany()
-                        .HasForeignKey("SupplierId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .HasConstraintName("fk_option_set_value_option_set_value_parent_value_id");
                 });
 
             modelBuilder.Entity("PurchaseLine", b =>
@@ -1347,17 +3971,20 @@ namespace AssetsManagement.Infrastructure.Data.Migrations
                         .WithMany()
                         .HasForeignKey("ItemId")
                         .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .IsRequired()
+                        .HasConstraintName("fk_purchase_lines_inventory_items_item_id");
 
                     b.HasOne("Purchase", null)
                         .WithMany()
                         .HasForeignKey("PurchaseId")
                         .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .IsRequired()
+                        .HasConstraintName("fk_purchase_lines_purchases_purchase_id");
 
                     b.HasOne("Purchase", null)
                         .WithMany("Lines")
-                        .HasForeignKey("PurchaseId1");
+                        .HasForeignKey("PurchaseId1")
+                        .HasConstraintName("fk_purchase_lines_purchases_purchase_id1");
                 });
 
             modelBuilder.Entity("WorkInProgress", b =>
@@ -1366,12 +3993,18 @@ namespace AssetsManagement.Infrastructure.Data.Migrations
                         .WithMany()
                         .HasForeignKey("ProductionOrderId")
                         .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .IsRequired()
+                        .HasConstraintName("fk_work_in_progress_production_order_production_order_id");
                 });
 
-            modelBuilder.Entity("Plant", b =>
+            modelBuilder.Entity("AssetDepreciationSchedule", b =>
                 {
-                    b.Navigation("PlantItems");
+                    b.Navigation("Entries");
+                });
+
+            modelBuilder.Entity("OptionSet", b =>
+                {
+                    b.Navigation("Values");
                 });
 
             modelBuilder.Entity("Purchase", b =>

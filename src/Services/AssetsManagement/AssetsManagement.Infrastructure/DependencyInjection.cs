@@ -14,9 +14,13 @@ public static class DependencyInjection
     services.AddDbContext<ApplicationDbContext>((sp, opt) =>
     {
       opt.AddInterceptors(sp.GetServices<ISaveChangesInterceptor>()!);
-      opt.UseSqlServer(connectionString);
+      // Shared ERP database: this service owns the "assets" schema and its own migrations history,
+      // so it never collides with PropertyManagement's tables in "public".
+      opt.UseNpgsql(connectionString, npgsql =>
+        npgsql.MigrationsHistoryTable("__EFMigrationsHistory", ApplicationDbContext.Schema));
+      // ERD naming: asset_class, attribute_definition, extra_attributes ...
+      opt.UseSnakeCaseNamingConvention();
     });
-
 
     services.AddScoped<IApplicationDbContext, ApplicationDbContext>();
     return services;

@@ -1,23 +1,25 @@
-public sealed record UpdateAssetRequest(AssetDto Asset);
+public sealed record UpdateAssetRequest(UpdateAssetInput Asset, Guid? PerformedBy = null);
 public sealed record UpdateAssetResponse(bool IsSuccess);
-
 
 public class UpdateAsset : ICarterModule
 {
   public void AddRoutes(IEndpointRouteBuilder app)
   {
-    app.MapPut("/assets/{id}", async (Guid Id, UpdateAssetRequest request, ISender sender) =>
+    app.MapPut("/assets/{id}", async (Guid id, UpdateAssetRequest request, ISender sender) =>
     {
-      var result = await sender.Send(new UpdateAssetCommand(Id, request.Asset));
-      var response = result.Value.Adapt<UpdateAssetResponse>();
+      var result = await sender.Send(new UpdateAssetCommand(id, request.Asset, request.PerformedBy));
 
-      return Results.Ok(response);
+      if (!result.IsSuccess)
+        return Results.BadRequest(new { Message = result.Message });
+
+      return Results.Ok(result.Value.Adapt<UpdateAssetResponse>());
     })
-
-    .WithName("UpdateAsset")
-        .Produces<UpdateAssetResponse>(StatusCodes.Status200OK)
-        .ProducesProblem(StatusCodes.Status400BadRequest)
-        .WithSummary("Update Asset")
-        .WithDescription("Update Asset");
+      .WithName("UpdateAsset")
+      .Produces<UpdateAssetResponse>(StatusCodes.Status200OK)
+      .ProducesProblem(StatusCodes.Status400BadRequest)
+      .ProducesProblem(StatusCodes.Status404NotFound)
+      .ProducesProblem(StatusCodes.Status409Conflict)
+      .WithSummary("Update Asset")
+      .WithDescription("Updates core fields, optionally re-classifies the asset and patches extraAttributes (JSON null removes a key).");
   }
 }
