@@ -1,0 +1,56 @@
+# ---- .NET build output (every project) ----
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+*.dll
+*.pdb
+*.exe
+!**/Dockerfile
+*.nuget.dgspec.json
+*.nuget.g.props
+*.nuget.g.targets
+project.assets.json
+project.nuget.cache
+*.nuget.cache
+*.AssemblyInfo.cs
+*.AssemblyInfoInputs.cache
+*.GeneratedMSBuildEditorConfig.editorconfig
+*.GlobalUsings.g.cs
+*.csproj.FileListAbsolute.txt
+*.csproj.CoreCompileInputs.cache
+*.genruntimeconfig.cache
+*.sourcelink.json
+*.deps.json
+*.runtimeconfig.json
+*.staticwebassets.*.json
+*.assets.cache
+*.apphost
+TestResults/
+artifacts/
+
+# ---- IDE / tooling ----
+.vs/
+.vscode/
+.idea/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.swp
+*~
+.DS_Store
+Thumbs.db
+
+# ---- local secrets / environment ----
+appsettings.*.local.json
+secrets.json
+.env
+.env.*
+*.pfx
+*.key
+
+# ---- logs / temp ----
+*.log
+logs/
+tmp/

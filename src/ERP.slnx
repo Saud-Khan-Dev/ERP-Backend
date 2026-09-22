@@ -1,2 +1,22 @@
 <Solution>
+  <Folder Name="/ApiGateway/">
+    <Project Path="ApiGateway/YarpApiGateway/YarpApiGateway.csproj" />
+  </Folder>
+  <Folder Name="/BuildingBlocks/">
+    <Project Path="BuildingBlocks/BuildingBlock.Messaging/BuildingBlock.Messaging.csproj" />
+    <Project Path="BuildingBlocks/BuildingBlock/BuildingBlock.csproj" />
+  </Folder>
+  <Folder Name="/Services/" />
+  <Folder Name="/Services/AssetsManagement/">
+    <Project Path="Services/AssetsManagement/AssetsManagement.Api/AssetsManagement.Api.csproj" />
+    <Project Path="Services/AssetsManagement/AssetsManagement.Application/AssetsManagement.Application.csproj" />
+    <Project Path="Services/AssetsManagement/AssetsManagement.Domain/AssetsManagement.Domain.csproj" />
+    <Project Path="Services/AssetsManagement/AssetsManagement.Infrastructure/AssetsManagement.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/Services/PropertyManagement/">
+    <Project Path="Services/PropertyManagement/PropertyManagement.Api/PropertyManagement.Api.csproj" />
+    <Project Path="Services/PropertyManagement/PropertyManagement.Application/PropertyManagement.Application.csproj" />
+    <Project Path="Services/PropertyManagement/PropertyManagement.Domain/PropertyManagement.Domain.csproj" />
+    <Project Path="Services/PropertyManagement/PropertyManagement.Infrastructure/PropertyManagement.Infrastructure.csproj" />
+  </Folder>
 </Solution>

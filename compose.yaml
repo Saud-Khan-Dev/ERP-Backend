@@ -1,4 +1,3 @@
-version: '3.8'
 
 
 # PostgreSQL
@@ -6,23 +5,25 @@ services:
   postgres:
     image: postgres:17
     environment:
-      POSTGRES_DB: ERP_PropertyDB
+      POSTGRES_DB: ERP_DB
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: YourStrongPassword123!
 
+    volumes:
+      - pgdata:/var/lib/postgresql/data
     ports:
-    - "5432:5432"    
+    - "5432:5432"
 
 # Property Management API
   poperty-management-api:
     image: poperty-management-api
     build:
-      context: .
-      dockerfile: src/Services/PropertyManagement/PropertyManagement.Api/Dockerfile
+      context: ./src
+      dockerfile: Services/PropertyManagement/PropertyManagement.Api/Dockerfile
 
     environment:
       ASPNETCORE_ENVIRONMENT: Development
-      ConnectionStrings__Database: "Host=postgres;Port=5432;Database=ERP_PropertyDB;Username=postgres;Password=YourStrongPassword123!"
+      ConnectionStrings__Database: "Host=postgres;Port=5432;Database=ERP_DB;Username=postgres;Password=YourStrongPassword123!"
     
     ports:
     - "5141:8080"
@@ -31,12 +32,12 @@ services:
   assets-management-api:
     image: assets-management-api
     build:
-      context: .
-      dockerfile: src/Services/AssetsManagement/AssetsManagement.Api/Dockerfile
+      context: ./src
+      dockerfile: Services/AssetsManagement/AssetsManagement.Api/Dockerfile
 
     environment:
       ASPNETCORE_ENVIRONMENT: Development
-      ConnectionStrings__Database: "Host=postgres;Port=5432;Database=ERP_PropertyDB;Username=postgres;Password=YourStrongPassword123!"
+      ConnectionStrings__Database: "Host=postgres;Port=5432;Database=ERP_DB;Username=postgres;Password=YourStrongPassword123!"
 
     ports:
     - "5139:8080"
@@ -46,10 +47,19 @@ services:
   yarpapigateway:
     image: api-gateway
     build:
-      context: .
-      dockerfile: src/ApiGateway/YarpApiGateway/Dockerfile
+      context: ./src
+      dockerfile: ApiGateway/YarpApiGateway/Dockerfile
       
     environment:
-      ASPNETCORE_ENVIRONMENT: Development    
+      ASPNETCORE_ENVIRONMENT: Development
+      # inside the compose network the services are reached by container name, not localhost
+      ReverseProxy__Clusters__property-management-cluster__Destinations__property-management-api__Address: "http://poperty-management-api:8080"
+      ReverseProxy__Clusters__assets-management-cluster__Destinations__assets-management-api__Address: "http://assets-management-api:8080"
+    depends_on:
+      - poperty-management-api
+      - assets-management-api
     ports:
       - "5000:8080"
+
+volumes:
+  pgdata:
