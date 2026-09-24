@@ -3,6 +3,7 @@
     <Project Path="ApiGateway/YarpApiGateway/YarpApiGateway.csproj" />
   </Folder>
   <Folder Name="/BuildingBlocks/">
+    <Project Path="BuildingBlocks/BuildingBlock.Authentication/BuildingBlock.Authentication.csproj" />
     <Project Path="BuildingBlocks/BuildingBlock.Messaging/BuildingBlock.Messaging.csproj" />
     <Project Path="BuildingBlocks/BuildingBlock/BuildingBlock.csproj" />
   </Folder>
@@ -12,6 +13,12 @@
     <Project Path="Services/AssetsManagement/AssetsManagement.Application/AssetsManagement.Application.csproj" />
     <Project Path="Services/AssetsManagement/AssetsManagement.Domain/AssetsManagement.Domain.csproj" />
     <Project Path="Services/AssetsManagement/AssetsManagement.Infrastructure/AssetsManagement.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/Services/Identity/">
+    <Project Path="Services/Identity/Identity.Api/Identity.Api.csproj" />
+    <Project Path="Services/Identity/Identity.Application/Identity.Application.csproj" />
+    <Project Path="Services/Identity/Identity.Domain/Identity.Domain.csproj" />
+    <Project Path="Services/Identity/Identity.Infrastructure/Identity.Infrastructure.csproj" />
   </Folder>
   <Folder Name="/Services/PropertyManagement/">
     <Project Path="Services/PropertyManagement/PropertyManagement.Api/PropertyManagement.Api.csproj" />
