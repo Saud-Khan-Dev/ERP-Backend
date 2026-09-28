@@ -2,7 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
 /// The Super Admin provisioning workflow, in one transaction:
-/// create the account → link the employee → assign roles → hand back a one-time password.
+/// create the account → link the employee and give it an employee code → assign roles → hand back a one-time password.
 ///
 /// There is deliberately no public counterpart to this handler: an employee cannot create an account.
 public class CreateUserHandler(
@@ -10,6 +10,7 @@ public class CreateUserHandler(
     IPasswordHasher passwordHasher,
     IPasswordGenerator passwordGenerator,
     IdentityGuard guard,
+    EmployeeCodeService employeeCodes,
     ICurrentUser currentUser,
     IOptions<SecurityOptions> securityOptions)
   : ICommandHandler<CreateUserCommand, Result<CreateUserCommandResult>>
@@ -33,6 +34,10 @@ public class CreateUserHandler(
         && await context.Users.IgnoreQueryFilters().AnyAsync(u => u.EmployeeId == employeeId, cancellationToken))
       return Result<CreateUserCommandResult>.Failure("That employee already has a login account.");
 
+    var employeeCode = await employeeCodes.ForNewUserAsync(input.EmployeeCode, input.AutoGenerateEmployeeCode, cancellationToken);
+    if (!employeeCode.IsSuccess)
+      return Result<CreateUserCommandResult>.Failure(employeeCode.Message!);
+
     // roles are resolved and authorized before anything is written
     var roles = await LoadRolesAsync(input.RoleIds, cancellationToken);
     foreach (var role in roles)
@@ -49,6 +54,7 @@ public class CreateUserHandler(
       displayName: Name.Of(input.DisplayName),
       passwordHash: PasswordHash.Of(passwordHasher.Hash(password)),
       employeeId: input.EmployeeId,
+      employeeCode: employeeCode.Value,
       // a generated password must always be changed on first use
       mustChangePassword: input.MustChangePassword || generated,
       now: now);
@@ -62,7 +68,7 @@ public class CreateUserHandler(
     await context.SaveChangesAsync(cancellationToken);
 
     return Result<CreateUserCommandResult>.Success(
-      new CreateUserCommandResult(user.Id.Value, generated ? password : null));
+      new CreateUserCommandResult(user.Id.Value, generated ? password : null, user.EmployeeCode?.Value));
   }
 
   private async Task<List<Role>> LoadRolesAsync(IReadOnlyList<Guid>? roleIds, CancellationToken cancellationToken)

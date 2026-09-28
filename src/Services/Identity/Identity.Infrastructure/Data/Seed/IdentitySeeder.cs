@@ -8,6 +8,7 @@ using Microsoft.Extensions.Options;
 ///   1. permission modules and permissions, from the shared PermissionCatalog
 ///   2. the protected SUPER_ADMIN role, holding every permission
 ///   3. the first Super Admin account, if no Super Admin exists yet
+///   4. the default employee code template (EMP-###), if none exists yet
 ///
 /// Idempotent: safe to run on every start. Steps 1 and 2 also *reconcile* — a permission added to
 /// the catalogue in code appears in the database and on SUPER_ADMIN without a manual migration.
@@ -34,6 +35,23 @@ public sealed class IdentitySeeder(
     await SeedPermissionsAsync(moduleIds, cancellationToken);
     var superAdminRole = await SeedSuperAdminRoleAsync(cancellationToken);
     await SeedSuperAdminUserAsync(superAdminRole, cancellationToken);
+    await SeedEmployeeCodeTemplateAsync(cancellationToken);
+  }
+
+  /// Only ever creates the default; an administrator's edits to the template are never overwritten.
+  private async Task SeedEmployeeCodeTemplateAsync(CancellationToken cancellationToken)
+  {
+    var id = EmployeeCodeTemplateId.Of(EmployeeCodeTemplate.SingletonId);
+
+    if (await context.EmployeeCodeTemplates.AnyAsync(t => t.Id == id, cancellationToken))
+      return;
+
+    var template = EmployeeCodeTemplate.CreateDefault();
+    await context.EmployeeCodeTemplates.AddAsync(template, cancellationToken);
+    await context.SaveChangesAsync(cancellationToken);
+
+    logger.LogInformation("Seeded the employee code template {Pattern}; the first code will be {Code}.",
+      template.Pattern, template.NextCode.Value);
   }
 
   private async Task<Dictionary<string, PermissionModuleId>> SeedModulesAsync(CancellationToken cancellationToken)
@@ -196,6 +214,7 @@ public sealed class IdentitySeeder(
         Name.Of(_seed.SuperAdminDisplayName),
         PasswordHash.Of(passwordHasher.Hash(password)),
         employeeId: null,
+        employeeCode: null,
         // a generated bootstrap password must always be replaced on first use
         mustChangePassword: generated || _seed.SuperAdminMustChangePassword,
         now);

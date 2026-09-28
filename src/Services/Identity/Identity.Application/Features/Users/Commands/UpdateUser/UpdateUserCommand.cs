@@ -2,7 +2,9 @@ using FluentValidation;
 
 /// Profile fields only. Roles, activation and passwords each have their own command so that every
 /// privilege change is an explicit, separately-authorized action.
-public sealed record UpdateUserInput(string Email, string DisplayName, Guid? EmployeeId = null);
+/// EmployeeCode is editable: an unchanged code is kept, a new one must follow the employee code
+/// template, and null clears it.
+public sealed record UpdateUserInput(string Email, string DisplayName, Guid? EmployeeId = null, string? EmployeeCode = null);
 
 public sealed record UpdateUserCommandResult(bool IsSuccess);
 
@@ -14,6 +16,7 @@ public class UpdateUserInputValidator : AbstractValidator<UpdateUserInput>
   {
     RuleFor(x => x.Email).NotEmpty().MaximumLength(EmailAddress.MaxLength);
     RuleFor(x => x.DisplayName).NotEmpty().MaximumLength(150);
+    RuleFor(x => x.EmployeeCode).MaximumLength(EmployeeCode.MaxLength);
   }
 }
 

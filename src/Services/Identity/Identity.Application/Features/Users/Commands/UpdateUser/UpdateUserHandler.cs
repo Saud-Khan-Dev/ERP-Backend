@@ -1,6 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 
-public class UpdateUserHandler(IApplicationDbContext context)
+public class UpdateUserHandler(IApplicationDbContext context, EmployeeCodeService employeeCodes)
   : ICommandHandler<UpdateUserCommand, Result<UpdateUserCommandResult>>
 {
   public async Task<Result<UpdateUserCommandResult>> Handle(UpdateUserCommand command, CancellationToken cancellationToken)
@@ -19,7 +19,11 @@ public class UpdateUserHandler(IApplicationDbContext context)
         && await context.Users.IgnoreQueryFilters().AnyAsync(u => u.Id != id && u.EmployeeId == employeeId, cancellationToken))
       return Result<UpdateUserCommandResult>.Failure("That employee already has a login account.");
 
-    user.UpdateProfile(email, Name.Of(input.DisplayName), input.EmployeeId);
+    var employeeCode = await employeeCodes.ForExistingUserAsync(user, input.EmployeeCode, cancellationToken);
+    if (!employeeCode.IsSuccess)
+      return Result<UpdateUserCommandResult>.Failure(employeeCode.Message!);
+
+    user.UpdateProfile(email, Name.Of(input.DisplayName), input.EmployeeId, employeeCode.Value);
     await context.SaveChangesAsync(cancellationToken);
 
     return Result<UpdateUserCommandResult>.Success(new UpdateUserCommandResult(true));

@@ -39,6 +39,11 @@ public class UserConfiguration : EntityConfiguration<User, UserId>
       .IsRequired();
 
     builder.Property(x => x.EmployeeId).IsRequired(false);
+
+    builder.Property(x => x.EmployeeCode)
+      .HasConversion(c => c!.Value, dbValue => EmployeeCode.Of(dbValue))
+      .HasMaxLength(EmployeeCode.MaxLength)
+      .IsRequired(false);
     builder.Property(x => x.IsActive).IsRequired().HasDefaultValue(true);
     builder.Property(x => x.EmailVerifiedAt).IsRequired(false);
 
@@ -68,6 +73,7 @@ public class UserConfiguration : EntityConfiguration<User, UserId>
     builder.HasIndex(x => x.Username).IsUnique();
     builder.HasIndex(x => x.Email).IsUnique();
     builder.HasIndex(x => x.EmployeeId).IsUnique().HasFilter("employee_id IS NOT NULL");
+    builder.HasIndex(x => x.EmployeeCode).IsUnique().HasFilter("employee_code IS NOT NULL");
     builder.HasIndex(x => x.IsActive);
   }
 }

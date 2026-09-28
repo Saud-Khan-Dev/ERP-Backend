@@ -12,6 +12,10 @@ public class User : Aggregate<UserId>
   /// another schema/service entirely.
   public Guid? EmployeeId { get; private set; }
 
+  /// Human-readable employee number (EMP-101), issued from or checked against the admin-editable
+  /// EmployeeCodeTemplate by the application layer. Unique when present.
+  public EmployeeCode? EmployeeCode { get; private set; }
+
   /// Display name shown in admin screens and audit trails, so listing users does not require a
   /// cross-service call for every row.
   public Name DisplayName { get; private set; } = default!;
@@ -51,6 +55,7 @@ public class User : Aggregate<UserId>
       Name displayName,
       PasswordHash passwordHash,
       Guid? employeeId,
+      EmployeeCode? employeeCode,
       bool mustChangePassword,
       DateTime now)
   {
@@ -70,13 +75,14 @@ public class User : Aggregate<UserId>
       DisplayName = displayName,
       PasswordHash = passwordHash,
       EmployeeId = employeeId,
+      EmployeeCode = employeeCode,
       IsActive = true,
       MustChangePassword = mustChangePassword,
       PasswordChangedAt = now
     };
   }
 
-  public void UpdateProfile(EmailAddress email, Name displayName, Guid? employeeId)
+  public void UpdateProfile(EmailAddress email, Name displayName, Guid? employeeId, EmployeeCode? employeeCode)
   {
     ArgumentNullException.ThrowIfNull(email);
     ArgumentNullException.ThrowIfNull(displayName);
@@ -88,6 +94,7 @@ public class User : Aggregate<UserId>
     Email = email;
     DisplayName = displayName;
     EmployeeId = employeeId;
+    EmployeeCode = employeeCode;
   }
 
   /// Throws when this account may not sign in. Called only after the password has been verified,

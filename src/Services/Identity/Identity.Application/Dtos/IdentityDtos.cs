@@ -11,6 +11,7 @@ public sealed record UserDto(
   string Email,
   string DisplayName,
   Guid? EmployeeId,
+  string? EmployeeCode,
   bool IsActive,
   bool MustChangePassword,
   bool MfaEnabled,
@@ -29,6 +30,7 @@ public sealed record UserListItemDto(
   string Username,
   string Email,
   string DisplayName,
+  string? EmployeeCode,
   bool IsActive,
   bool IsLockedOut,
   DateTime? LastLoginAt,
@@ -111,19 +113,29 @@ public sealed record CurrentUserDto(
   string Email,
   string DisplayName,
   Guid? EmployeeId,
+  string? EmployeeCode,
   bool MustChangePassword,
   IReadOnlyList<string> Roles,
   IReadOnlyList<string> Permissions);
 
+/// The employee-code numbering scheme, plus what it produces next so an admin screen can preview it.
+public sealed record EmployeeCodeTemplateDto(
+  string Prefix,
+  string Separator,
+  int MinimumDigits,
+  long NextNumber,
+  string Pattern,
+  string NextCode);
+
 public static class IdentityMappings
 {
   public static UserDto ToDto(this User x, DateTime now) => new(
-    x.Id.Value, x.Username.Value, x.Email.Value, x.DisplayName.Value, x.EmployeeId, x.IsActive,
+    x.Id.Value, x.Username.Value, x.Email.Value, x.DisplayName.Value, x.EmployeeId, x.EmployeeCode?.Value, x.IsActive,
     x.MustChangePassword, x.MfaEnabled, x.IsLockedOut(now), x.LockedUntil, x.FailedLoginAttempts,
     x.LastLoginAt, x.LastLoginIp?.Value, x.PasswordChangedAt, x.EmailVerifiedAt, x.CreatedAt, x.CreatedBy);
 
   public static UserListItemDto ToListItemDto(this User x, DateTime now, IReadOnlyList<string> roles) => new(
-    x.Id.Value, x.Username.Value, x.Email.Value, x.DisplayName.Value, x.IsActive, x.IsLockedOut(now),
+    x.Id.Value, x.Username.Value, x.Email.Value, x.DisplayName.Value, x.EmployeeCode?.Value, x.IsActive, x.IsLockedOut(now),
     x.LastLoginAt, roles);
 
   public static RoleDto ToDto(this Role x, int permissionCount) => new(
@@ -140,12 +152,15 @@ public static class IdentityMappings
     x.Id.Value, x.UserId.Value, x.IpAddress?.Value, x.UserAgent, x.IssuedAt, x.ExpiresAt,
     x.RevokedAt, x.RevokedReason, x.IsActive(now));
 
+  public static EmployeeCodeTemplateDto ToDto(this EmployeeCodeTemplate x) => new(
+    x.Prefix, x.Separator, x.MinimumDigits, x.NextNumber, x.Pattern, x.NextCode.Value);
+
   public static LoginAttemptDto ToDto(this LoginAttempt x) => new(
     x.Id.Value, x.UserId?.Value, x.AttemptedUsername, x.Succeeded, x.FailureReason,
     x.IpAddress?.Value, x.UserAgent, x.AttemptedAt);
 
   public static CurrentUserDto ToCurrentUserDto(this User x, PermissionResolver.ResolvedPermissions resolved) => new(
-    x.Id.Value, x.Username.Value, x.Email.Value, x.DisplayName.Value, x.EmployeeId, x.MustChangePassword,
+    x.Id.Value, x.Username.Value, x.Email.Value, x.DisplayName.Value, x.EmployeeId, x.EmployeeCode?.Value, x.MustChangePassword,
     resolved.RoleCodes.OrderBy(r => r, StringComparer.Ordinal).ToList(),
     resolved.PermissionCodes.OrderBy(p => p, StringComparer.Ordinal).ToList());
 }

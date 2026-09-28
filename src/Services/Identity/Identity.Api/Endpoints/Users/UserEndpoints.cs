@@ -21,7 +21,7 @@ public class UserEndpoints : ICarterModule
       .Produces<CreateUserResponse>(StatusCodes.Status201Created)
       .ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Register An Employee Account")
-      .WithDescription("Creates a login account, links it to an employee and assigns roles in one call. Omit temporaryPassword to have one generated — it is returned once and never retrievable again.");
+      .WithDescription("Creates a login account, links it to an employee and assigns roles in one call. Omit temporaryPassword to have one generated — it is returned once and never retrievable again. Omit employeeCode to have the next one issued from the employee code template.");
 
     app.MapGet("/users", async (
       ISender sender, int? pageIndex, int? pageSize, string? search, Guid? roleId, bool? isActive, bool? includeDeleted) =>
@@ -66,7 +66,7 @@ public class UserEndpoints : ICarterModule
       .ProducesProblem(StatusCodes.Status400BadRequest)
       .ProducesProblem(StatusCodes.Status404NotFound)
       .WithSummary("Update User")
-      .WithDescription("Profile fields only. Roles, activation and passwords each have their own endpoint so every privilege change is explicit.");
+      .WithDescription("Profile fields only, including the employee code (a changed code must follow the template). Roles, activation and passwords each have their own endpoint so every privilege change is explicit.");
 
     app.MapPost("/users/{id}/activate", async (Guid id, ISender sender) =>
     {
@@ -222,7 +222,7 @@ public class UserEndpoints : ICarterModule
 }
 
 public sealed record CreateUserRequest(CreateUserInput User);
-public sealed record CreateUserResponse(Guid Id, string? GeneratedPassword);
+public sealed record CreateUserResponse(Guid Id, string? GeneratedPassword, string? EmployeeCode);
 
 public sealed record GetUsersResponse(PaginatedResult<UserListItemDto> Users);
 

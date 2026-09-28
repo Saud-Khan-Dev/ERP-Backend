@@ -10,11 +10,15 @@ public sealed record CreateUserInput(
   /// Leave null to have the server generate one and return it once.
   string? TemporaryPassword = null,
   IReadOnlyList<Guid>? RoleIds = null,
-  bool MustChangePassword = true);
+  bool MustChangePassword = true,
+  /// e.g. EMP-205. Must follow the employee code template. Leave null to have the next code issued.
+  string? EmployeeCode = null,
+  /// Set false (with no EmployeeCode) for an account that is not an employee, such as a service account.
+  bool AutoGenerateEmployeeCode = true);
 
 /// GeneratedPassword is populated only when the server generated it — it is shown to the
 /// administrator once and never stored in plaintext or retrievable again.
-public sealed record CreateUserCommandResult(Guid Id, string? GeneratedPassword);
+public sealed record CreateUserCommandResult(Guid Id, string? GeneratedPassword, string? EmployeeCode);
 
 public sealed record CreateUserCommand(CreateUserInput User) : ICommand<Result<CreateUserCommandResult>>;
 
@@ -26,6 +30,7 @@ public class CreateUserInputValidator : AbstractValidator<CreateUserInput>
     RuleFor(x => x.Email).NotEmpty().MaximumLength(EmailAddress.MaxLength);
     RuleFor(x => x.DisplayName).NotEmpty().MaximumLength(150);
     RuleForEach(x => x.RoleIds).NotEmpty().WithMessage("Role ids cannot be empty.");
+    RuleFor(x => x.EmployeeCode).MaximumLength(EmployeeCode.MaxLength);
   }
 }
 

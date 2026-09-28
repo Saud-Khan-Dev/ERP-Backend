@@ -25,13 +25,15 @@ public class GetUsersHandler(IApplicationDbContext context)
     {
       var term = query.Search.Trim();
 
-      // username and email are value-converted identifiers: they match exactly, and an
+      // username, email and employee code are value-converted identifiers: they match exactly, and an
       // unparseable term simply matches neither. Display name is a complex property, so a
       // case-insensitive partial match translates to SQL.
       Username? username = null;
       EmailAddress? email = null;
+      EmployeeCode? employeeCode = null;
       try { username = Username.Of(term); } catch (DomainException) { }
       try { email = EmailAddress.Of(term); } catch (DomainException) { }
+      try { employeeCode = EmployeeCode.Of(term); } catch (DomainException) { }
 
       // Like + ToLower rather than Npgsql's ILike: the Application layer stays provider-agnostic.
       var pattern = $"%{term.ToLowerInvariant()}%";
@@ -39,6 +41,7 @@ public class GetUsersHandler(IApplicationDbContext context)
       users = users.Where(u =>
           (username != null && u.Username == username)
           || (email != null && u.Email == email)
+          || (employeeCode != null && u.EmployeeCode == employeeCode)
           || EF.Functions.Like(u.DisplayName.Value.ToLower(), pattern));
     }
 
