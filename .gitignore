@@ -54,3 +54,6 @@ secrets.json
 *.log
 logs/
 tmp/
+
+# ---- Claude Code (local agent settings) ----
+.claude/
