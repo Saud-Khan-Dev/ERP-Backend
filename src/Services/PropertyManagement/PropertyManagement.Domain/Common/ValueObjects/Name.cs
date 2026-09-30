@@ -1,14 +1,20 @@
 public sealed record Name
 {
-  private const int DefaultLength = 100;
+  private const int DefaultLength = 200;
+
   public string Value { get; }
 
   private Name(string value) => Value = value;
 
-  public static Name Of(string value)
+  public static Name Of(string value, int maxLength = DefaultLength)
   {
-    ArgumentException.ThrowIfNullOrWhiteSpace(value);
-    ArgumentOutOfRangeException.ThrowIfGreaterThan(value.Length, DefaultLength);
+    if (string.IsNullOrWhiteSpace(value))
+      throw new DomainException("Name is required.");
+
+    value = value.Trim();
+
+    if (value.Length > maxLength)
+      throw new DomainException($"Name cannot exceed {maxLength} characters.");
 
     return new Name(value);
   }

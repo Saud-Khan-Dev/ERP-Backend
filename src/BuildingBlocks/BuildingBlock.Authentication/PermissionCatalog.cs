@@ -28,6 +28,7 @@ public static class PermissionCatalog
     public const string Inventory = "INVENTORY";
     public const string Procurement = "PROCUREMENT";
     public const string Property = "PROPERTY";
+    public const string PropertySetup = "PROPERTY_SETUP";
     public const string IamUsers = "IAM_USERS";
     public const string IamRoles = "IAM_ROLES";
     public const string IamPermissions = "IAM_PERMISSIONS";
@@ -94,12 +95,25 @@ public static class PermissionCatalog
     public const string Approve = "PROCUREMENT.APPROVE";
   }
 
+  /// Properties and everything recorded against them: status, area, owners, ownership, transfers,
+  /// encumbrances, documents, custom-field values.
   public static class Property
   {
     public const string View = "PROPERTY.VIEW";
     public const string Create = "PROPERTY.CREATE";
     public const string Edit = "PROPERTY.EDIT";
     public const string Delete = "PROPERTY.DELETE";
+    /// Approve and complete a transfer (the step that changes ownership).
+    public const string Approve = "PROPERTY.APPROVE";
+  }
+
+  /// Property module settings: master data lists, code numbering, custom-field definitions.
+  public static class PropertySetup
+  {
+    public const string View = "PROPERTY_SETUP.VIEW";
+    public const string Create = "PROPERTY_SETUP.CREATE";
+    public const string Edit = "PROPERTY_SETUP.EDIT";
+    public const string Delete = "PROPERTY_SETUP.DELETE";
   }
 
   /// User account administration — Super Admin territory.
@@ -160,6 +174,7 @@ public static class PermissionCatalog
     new ModuleDefinition(Modules.Inventory, "Inventory"),
     new ModuleDefinition(Modules.Procurement, "Procurement"),
     new ModuleDefinition(Modules.Property, "Property"),
+    new ModuleDefinition(Modules.PropertySetup, "Property Setup"),
     new ModuleDefinition(Modules.IamUsers, "User Administration"),
     new ModuleDefinition(Modules.IamRoles, "Role Administration"),
     new ModuleDefinition(Modules.IamPermissions, "Permission Administration"),
@@ -185,7 +200,8 @@ public static class PermissionCatalog
     Crud(Modules.AssetFinance, "asset finance records", Actions.Post, Actions.Approve);
     Crud(Modules.Inventory, "inventory");
     Crud(Modules.Procurement, "purchases", Actions.Approve);
-    Crud(Modules.Property, "properties");
+    Crud(Modules.Property, "properties", Actions.Approve);
+    Crud(Modules.PropertySetup, "property setup");
     Crud(Modules.IamUsers, "user accounts", Actions.Assign);
     Crud(Modules.IamRoles, "roles");
     Crud(Modules.Hr, "employees");

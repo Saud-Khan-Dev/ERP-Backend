@@ -1,21 +1,19 @@
-using Microsoft.EntityFrameworkCore;
-
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddApplicationServices();
+builder.Services.AddApplicationServices(builder.Configuration);
 builder.Services.AddInfrastructureServices(builder.Configuration);
-builder.Services.AddApiServices();
+builder.Services.AddApiServices(builder.Configuration);
 
 var app = builder.Build();
 
-// Apply migrations on startup so a fresh clone runs without any manual `dotnet ef` commands.
-// Defaults to on in Development; set Database:AutoMigrate to control it explicitly.
-if (app.Configuration.GetValue("Database:AutoMigrate", app.Environment.IsDevelopment()))
+// Apply migrations, then seed the master tables and code sequences, so a fresh clone runs without
+// any manual `dotnet ef` commands. Auto-migration defaults to on in Development; set
+// Database:AutoMigrate to control it explicitly.
+await using (var scope = app.Services.CreateAsyncScope())
 {
-  await using var scope = app.Services.CreateAsyncScope();
-  await scope.ServiceProvider.GetRequiredService<ApplicationDbContext>().Database.MigrateAsync();
+  var autoMigrate = app.Configuration.GetValue("Database:AutoMigrate", app.Environment.IsDevelopment());
+  await scope.ServiceProvider.GetRequiredService<DatabaseInitializer>().InitialiseAsync(autoMigrate);
 }
-
 
 app.UseApiService();
 

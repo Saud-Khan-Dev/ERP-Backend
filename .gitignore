@@ -55,5 +55,8 @@ secrets.json
 logs/
 tmp/
 
+# ---- local document storage (dev file server) ----
+**/PropertyManagement.Api/storage/
+
 # ---- Claude Code (local agent settings) ----
 .claude/

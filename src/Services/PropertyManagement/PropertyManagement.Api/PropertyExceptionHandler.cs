@@ -1,6 +1,7 @@
 using FluentValidation;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 
 public class PropertyExceptionHandler(ILogger<PropertyExceptionHandler> logger) : IExceptionHandler
 {
@@ -32,6 +33,18 @@ public class PropertyExceptionHandler(ILogger<PropertyExceptionHandler> logger) 
         Title: nameof(NotFoundException),
         Detail: exception.Message,
         StatusCode: StatusCodes.Status404NotFound
+      ),
+
+      DbUpdateConcurrencyException => (
+        Title: nameof(DbUpdateConcurrencyException),
+        Detail: "The record was modified by someone else. Reload it and try again.",
+        StatusCode: StatusCodes.Status409Conflict
+      ),
+
+      DbUpdateException => (
+        Title: nameof(DbUpdateException),
+        Detail: exception.InnerException?.Message ?? exception.Message,
+        StatusCode: StatusCodes.Status409Conflict
       ),
 
       _ => (

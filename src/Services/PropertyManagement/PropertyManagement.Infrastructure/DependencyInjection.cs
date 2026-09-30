@@ -15,10 +15,22 @@ public static class DependencyInjection
     services.AddDbContext<ApplicationDbContext>((sp, opt) =>
     {
       opt.AddInterceptors(sp.GetServices<ISaveChangesInterceptor>()!);
-      opt.UseNpgsql(connectionString);
+      // Shared ERP database: this service owns the "property" schema and its own migrations history.
+      opt.UseNpgsql(connectionString, npgsql =>
+        npgsql.MigrationsHistoryTable("__EFMigrationsHistory", ApplicationDbContext.Schema));
+      // schema naming: property_status_history, ownership_share_pct ...
+      opt.UseSnakeCaseNamingConvention();
     });
 
     services.AddScoped<IApplicationDbContext, ApplicationDbContext>();
+
+    // ---- files ----
+    services.Configure<FileStorageOptions>(configuration.GetSection(FileStorageOptions.SectionName));
+    services.AddSingleton<IFileStorage, LocalFileStorage>();
+
+    // ---- bootstrap ----
+    services.AddScoped<PropertySeeder>();
+    services.AddScoped<DatabaseInitializer>();
 
     return services;
   }

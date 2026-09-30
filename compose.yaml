@@ -24,7 +24,14 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ConnectionStrings__Database: "Host=postgres;Port=5432;Database=ERP_DB;Username=postgres;Password=YourStrongPassword123!"
-    
+      # must match the Identity service; override in any environment that is not a developer machine
+      Jwt__SigningKey: "dev-only-signing-key-change-me-at-least-32-bytes-long"
+      # the GDA file server; mounted below so uploaded documents survive a container rebuild
+      FileStorage__RootPath: "/data/property-files"
+
+    volumes:
+      - property-files:/data/property-files
+
     depends_on:
       - postgres
 
@@ -91,3 +98,4 @@ services:
 
 volumes:
   pgdata:
+  property-files:

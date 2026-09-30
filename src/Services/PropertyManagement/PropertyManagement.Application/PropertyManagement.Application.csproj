@@ -8,6 +8,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../../../BuildingBlocks/BuildingBlock/BuildingBlock.csproj" />
+    <ProjectReference Include="../../../BuildingBlocks/BuildingBlock.Authentication/BuildingBlock.Authentication.csproj" />
     <ProjectReference Include="../PropertyManagement.Domain/PropertyManagement.Domain.csproj" />
   </ItemGroup>
 
