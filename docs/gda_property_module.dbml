@@ -1,0 +1,1190 @@
+// =====================================================================
+//  GDA PROPERTY MODULE — Database Schema (DBML for dbdiagram.io)
+//  Sources: "GDA Property Module — Complete Requirements Understanding"
+//           + Galiyat Development Authority (Amendment) Act, 2020
+//           (amending KP Act No. XII of 2016)
+//
+//  Conventions
+//   - snake_case tables/columns, surrogate bigint PKs, FK columns end in _id
+//   - Every transactional table carries audit columns + is_active
+//   - Master (lookup) data is admin-configurable: no hard-coded enums
+//   - History is never overwritten (effective_from / effective_to / status)
+//   - Tax, water tax, conservancy, fees/user charges (Act s.7) => TAX MODULE
+//   - Files are stored on the GDA file server; DB holds metadata only
+// =====================================================================
+
+Project gda_property_module {
+  database_type: 'PostgreSQL'
+  Note: '''
+  Property registry & property-management for Galiyat Development Authority.
+  Act 2020 provisions reflected here:
+   • s.6(4)(c): sell, lease, exchange, transfer, mortgage, lien/encumbrance,
+     allot, hire, cancel, restore, regularize  -> transfer types, encumbrance,
+     allotment cancel/restore, area regularization
+   • s.9: auction committee / dispute resolution committee -> auction.committee_ref,
+     litigation.case_type incl. dispute-resolution
+   • s.28-A: violation of lease / rent / sale agreements, fine up to Rs 1M,
+     3rd repetition -> cancellation of agreement  -> agreement_violation
+   • s.32: appeal within 30 days to Chief Secretary, decided in 120 days -> property_appeal
+   • s.7 / s.28(2): fees, charges, conservancy, recovery as land-revenue arrears -> Tax Module (out of scope)
+  '''
+}
+
+// ---------------------------------------------------------------------
+//  0. SYSTEM / SECURITY (minimal — full user mgmt lives in core ERP)
+// ---------------------------------------------------------------------
+Table app_user {
+  id            bigint     [pk, increment]
+  username      varchar(100) [unique, not null]
+  full_name     varchar(200) [not null]
+  designation   varchar(150)
+  is_authorized_officer boolean [default: false, note: 'Act s.2(a-i): officer authorized u/s 28']
+  is_active     boolean    [default: true]
+  created_at    timestamp  [default: `now()`]
+}
+
+// ---------------------------------------------------------------------
+//  1. CONFIGURABLE MASTER DATA
+//     (identical shape: code, name, description, sort_order, is_active)
+// ---------------------------------------------------------------------
+Table town {
+  id            bigint     [pk, increment]
+  code          varchar(20) [unique, not null]
+  name          varchar(150) [not null]
+  description   text
+  sort_order    int        [default: 0]
+  is_active     boolean    [default: true]
+  created_at    timestamp  [default: `now()`]
+  updated_at    timestamp
+  Note: 'Currently 6 towns; must NOT be assumed fixed. Rename/deactivate allowed.'
+}
+
+Table property_type {
+  id bigint [pk, increment]
+  code varchar(30) [unique, not null]
+  name varchar(100) [not null]
+  description text
+  sort_order int [default: 0]
+  is_active boolean [default: true]
+  Note: 'Residential, Commercial, Industrial, Agricultural, Institutional, Open Land, Mixed Use, Other'
+}
+
+Table property_status {
+  id bigint [pk, increment]
+  code varchar(30) [unique, not null]
+  name varchar(100) [not null]
+  description text
+  sort_order int [default: 0]
+  is_active boolean [default: true]
+  Note: 'Open Plot, Under Construction, Construction Complete, Vacant, Occupied, Encroached, Under Litigation, Other'
+}
+
+Table property_classification {
+  id bigint [pk, increment]
+  code varchar(30) [unique, not null]
+  name varchar(100) [not null]
+  description text
+  sort_order int [default: 0]
+  is_active boolean [default: true]
+  Note: 'GDA Property / Private Property / Other — TO BE CONFIRMED with GDA business users (req. §21)'
+}
+
+Table owner_type {
+  id bigint [pk, increment]
+  code varchar(30) [unique, not null]
+  name varchar(100) [not null]
+  sort_order int [default: 0]
+  is_active boolean [default: true]
+  Note: 'Individual, Company, Government, Trust, Joint Entity, Other'
+}
+
+Table tenure_type {
+  id bigint [pk, increment]
+  code varchar(30) [unique, not null]
+  name varchar(100) [not null]
+  sort_order int [default: 0]
+  is_active boolean [default: true]
+  Note: 'Owned, Leased, Rented, Other — kept separate from owner_type (req. §12)'
+}
+
+Table transfer_type {
+  id bigint [pk, increment]
+  code varchar(30) [unique, not null]
+  name varchar(100) [not null]
+  requires_relationship boolean [default: false, note: 'true for Gift / Inheritance (req. §17)']
+  sort_order int [default: 0]
+  is_active boolean [default: true]
+  Note: 'Sale, Purchase, Exchange (Act s.6(4)(c)), Inheritance, Gift, Administrative Transfer, Other'
+}
+
+Table allotment_type {
+  id bigint [pk, increment]
+  code varchar(30) [unique, not null]
+  name varchar(100) [not null]
+  sort_order int [default: 0]
+  is_active boolean [default: true]
+}
+
+Table allotment_status {
+  id bigint [pk, increment]
+  code varchar(30) [unique, not null]
+  name varchar(100) [not null]
+  sort_order int [default: 0]
+  is_active boolean [default: true]
+  Note: 'Active, Cancelled, Restored, Surrendered, Expired — cancel/restore per Act s.6(4)(c)'
+}
+
+Table lease_type {
+  id bigint [pk, increment]
+  code varchar(30) [unique, not null]
+  name varchar(100) [not null]
+  sort_order int [default: 0]
+  is_active boolean [default: true]
+}
+
+Table lease_status {
+  id bigint [pk, increment]
+  code varchar(30) [unique, not null]
+  name varchar(100) [not null]
+  sort_order int [default: 0]
+  is_active boolean [default: true]
+  Note: 'Draft, Active, Expired, Renewed, Terminated, Cancelled (s.28-A)'
+}
+
+Table rental_type {
+  id bigint [pk, increment]
+  code varchar(30) [unique, not null]
+  name varchar(100) [not null]
+  sort_order int [default: 0]
+  is_active boolean [default: true]
+}
+
+Table rental_status {
+  id bigint [pk, increment]
+  code varchar(30) [unique, not null]
+  name varchar(100) [not null]
+  sort_order int [default: 0]
+  is_active boolean [default: true]
+}
+
+Table auction_type {
+  id bigint [pk, increment]
+  code varchar(30) [unique, not null]
+  name varchar(100) [not null]
+  sort_order int [default: 0]
+  is_active boolean [default: true]
+  Note: 'Open auction, Sealed bid, Re-auction, Other'
+}
+
+Table auction_status {
+  id bigint [pk, increment]
+  code varchar(30) [unique, not null]
+  name varchar(100) [not null]
+  sort_order int [default: 0]
+  is_active boolean [default: true]
+  Note: 'Planned, Announced, Conducted, Successful, Unsuccessful, Cancelled, Awarded'
+}
+
+Table outsourcing_type {
+  id bigint [pk, increment]
+  code varchar(30) [unique, not null]
+  name varchar(100) [not null]
+  sort_order int [default: 0]
+  is_active boolean [default: true]
+}
+
+Table contract_status {
+  id bigint [pk, increment]
+  code varchar(30) [unique, not null]
+  name varchar(100) [not null]
+  sort_order int [default: 0]
+  is_active boolean [default: true]
+  Note: 'Used by outsourcing contracts'
+}
+
+Table encroachment_status {
+  id bigint [pk, increment]
+  code varchar(30) [unique, not null]
+  name varchar(100) [not null]
+  sort_order int [default: 0]
+  is_active boolean [default: true]
+  Note: 'Active, Under Notice, Regularized, Resolved / Removed, Under Litigation'
+}
+
+Table litigation_type {
+  id bigint [pk, increment]
+  code varchar(30) [unique, not null]
+  name varchar(100) [not null]
+  sort_order int [default: 0]
+  is_active boolean [default: true]
+  Note: 'Civil suit, Writ, Criminal complaint (Act s.30), Dispute Resolution Committee (Act s.9), Other'
+}
+
+Table litigation_status {
+  id bigint [pk, increment]
+  code varchar(30) [unique, not null]
+  name varchar(100) [not null]
+  sort_order int [default: 0]
+  is_active boolean [default: true]
+  Note: 'Pending, Decided, Withdrawn, Settled, Appealed, Closed, Other'
+}
+
+Table building_plan_type {
+  id bigint [pk, increment]
+  code varchar(30) [unique, not null]
+  name varchar(100) [not null]
+  sort_order int [default: 0]
+  is_active boolean [default: true]
+  Note: 'Site Plan, Building Plan, Revised Building Plan, Completion Plan, Other'
+}
+
+Table building_plan_status {
+  id bigint [pk, increment]
+  code varchar(30) [unique, not null]
+  name varchar(100) [not null]
+  sort_order int [default: 0]
+  is_active boolean [default: true]
+  Note: 'Submitted, Under Review, Approved, Rejected, Revised, Withdrawn'
+}
+
+Table document_type {
+  id bigint [pk, increment]
+  code varchar(30) [unique, not null]
+  name varchar(100) [not null]
+  storage_folder varchar(50) [note: 'e.g. ownership, notesheets, plans, notices, litigation, leases, transfers']
+  sort_order int [default: 0]
+  is_active boolean [default: true]
+  Note: 'Notesheet, Ownership Document, Site/Building Plan, Notice/Letter, CNIC Copy, Agreement, Court Order, Other'
+}
+
+Table measurement_unit {
+  id bigint [pk, increment]
+  code varchar(20) [unique, not null]
+  name varchar(50) [not null]
+  factor_to_base decimal(18,8) [not null, note: 'multiply to get base unit (sq ft). e.g. sq m = 10.7639, marla = 272.25, kanal = 5445']
+  is_base boolean [default: false]
+  is_active boolean [default: true]
+  Note: 'Square Feet (base), Square Meter, Kanal, Marla, Other'
+}
+
+Table encumbrance_type {
+  id bigint [pk, increment]
+  code varchar(30) [unique, not null]
+  name varchar(100) [not null]
+  sort_order int [default: 0]
+  is_active boolean [default: true]
+  Note: 'Mortgage, Lien, Charge, Other — Act s.6(4)(c)'
+}
+
+Table agreement_type {
+  id bigint [pk, increment]
+  code varchar(30) [unique, not null]
+  name varchar(100) [not null]
+  is_active boolean [default: true]
+  Note: 'Lease, Rent, Sale, Other — Act s.28-A'
+}
+
+Table contact_type {
+  id bigint [pk, increment]
+  code varchar(20) [unique, not null]
+  name varchar(50) [not null]
+  is_active boolean [default: true]
+  Note: 'Mobile, Landline, Office, WhatsApp, Other'
+}
+
+// ---------------------------------------------------------------------
+//  2. PROPERTY CORE
+// ---------------------------------------------------------------------
+Table property {
+  id                          bigint [pk, increment]
+  property_code               varchar(20) [unique, not null, note: 'PROP-00001; stable for lifetime']
+  property_name               varchar(200) [not null]
+  town_id                     bigint [not null]
+  property_type_id            bigint [not null]
+  property_status_id          bigint [not null]
+  property_classification_id  bigint [not null, note: 'GDA / Private / Other']
+  address_line                varchar(300)
+  khasra_survey_no            varchar(100) [note: 'revenue record reference, optional']
+  description                 text
+  remarks                     text
+  is_active                   boolean [default: true]
+  created_at  timestamp [default: `now()`]
+  created_by  bigint
+  updated_at  timestamp
+  updated_by  bigint
+
+  indexes {
+    (town_id)
+    (property_type_id)
+    (property_status_id)
+    (property_classification_id)
+  }
+  Note: 'Core record only — no owner_id, no lease fields, no area columns (req. §2, §37)'
+}
+
+Table property_status_history {
+  id                  bigint [pk, increment]
+  property_id         bigint [not null]
+  property_status_id  bigint [not null]
+  effective_from      date [not null]
+  effective_to        date
+  reason              varchar(300)
+  reference_no        varchar(100)
+  created_at timestamp [default: `now()`]
+  created_by bigint
+  Note: 'Optional but recommended: audit trail of status changes (Occupied -> Encroached -> Under Litigation...)'
+}
+
+// ---------------------------------------------------------------------
+//  3. MEASUREMENTS
+// ---------------------------------------------------------------------
+Table property_measurement {
+  id                    bigint [pk, increment]
+  property_id           bigint [not null]
+  measurement_unit_id   bigint [not null]
+  total_area            decimal(18,4) [not null, note: 'original / legal area']
+  built_up_area         decimal(18,4) [default: 0]
+  total_area_base       decimal(18,4) [note: 'derived: total_area * factor_to_base']
+  built_up_area_base    decimal(18,4) [note: 'derived']
+  measured_on           date
+  measurement_source    varchar(150) [note: 'survey, allotment letter, site plan, GIS']
+  is_current            boolean [default: true]
+  remarks               text
+  created_at timestamp [default: `now()`]
+  created_by bigint
+  updated_at timestamp
+  updated_by bigint
+
+  indexes {
+    (property_id, is_current)
+  }
+  Note: '''
+  Total & built-up area, kept as history rows (is_current flags latest).
+  Additional/regularized area -> property_area_regularization.
+  Encroachment area -> property_encroachment.
+  '''
+}
+
+Table property_area_regularization {
+  id                    bigint [pk, increment]
+  property_id           bigint [not null]
+  additional_area       decimal(18,4) [not null]
+  measurement_unit_id   bigint [not null]
+  additional_area_base  decimal(18,4)
+  regularization_status varchar(30) [not null, note: 'Applied, Regularized, Rejected, Pending']
+  application_date      date
+  regularization_date   date
+  order_reference_no    varchar(100)
+  approved_by           varchar(150)
+  effective_from        date
+  effective_to          date
+  remarks               text
+  is_active             boolean [default: true]
+  created_at timestamp [default: `now()`]
+  created_by bigint
+  updated_at timestamp
+  updated_by bigint
+  Note: 'Additional / regularized area kept as history, never overwritten (req. §24; "regularize" — Act s.6(4)(c))'
+}
+
+// ---------------------------------------------------------------------
+//  4. BOUNDARIES / GIS (optional)
+// ---------------------------------------------------------------------
+Table property_boundary {
+  id              bigint [pk, increment]
+  property_id     bigint [not null]
+  boundary_type   varchar(30) [default: 'ORIGINAL', note: 'ORIGINAL, REVISED, REGULARIZED']
+  survey_date     date
+  survey_source   varchar(150)
+  slope_percentage decimal(8,4) [note: 'ground slope of the surveyed plot as a percentage: 12.50 = 12.50% slope (not degrees)']
+  is_current      boolean [default: true]
+  remarks         text
+  created_at timestamp [default: `now()`]
+  created_by bigint
+  Note: 'One polygon per row; points in boundary_point. Slope of the surveyed plot is stored here as a percentage. Optional (req. §25).'
+}
+
+Table boundary_point {
+  id                    bigint [pk, increment]
+  property_boundary_id  bigint [not null]
+  sequence_no           int [not null]
+  latitude              decimal(10,7) [not null]
+  longitude             decimal(10,7) [not null]
+
+  indexes {
+    (property_boundary_id, sequence_no) [unique]
+  }
+  Note: 'Latitude / longitude only; no elevation is stored.'
+}
+
+// ---------------------------------------------------------------------
+//  5. OWNERS
+// ---------------------------------------------------------------------
+Table property_owner {
+  id              bigint [pk, increment]
+  owner_code      varchar(20) [unique, not null, note: 'OWN-00001']
+  owner_type_id   bigint [not null]
+  owner_name      varchar(200) [not null]
+  father_husband_name varchar(200) [note: 'for individuals']
+  cnic            varchar(15) [note: '13-digit CNIC (individuals)']
+  ntn             varchar(20) [note: 'NTN (companies / trusts)']
+  registration_no varchar(50) [note: 'SECP / trust registration where applicable']
+  email           varchar(150)
+  cnic_document_id bigint [note: 'FK -> property_document (CNIC copy, PDF)']
+  remarks         text
+  is_active       boolean [default: true]
+  created_at timestamp [default: `now()`]
+  created_by bigint
+  updated_at timestamp
+  updated_by bigint
+
+  indexes {
+    (cnic)
+    (ntn)
+    (owner_name)
+  }
+  Note: 'Property Module owns this master; no shared GDA person DB exists (req. §8). Also serves as allottee / lessee / tenant / bidder / outsourced party.'
+}
+
+Table owner_contact {
+  id            bigint [pk, increment]
+  owner_id      bigint [not null]
+  contact_type_id bigint [not null]
+  contact_number varchar(30) [not null]
+  is_primary    boolean [default: false]
+  is_active     boolean [default: true]
+  remarks       varchar(200)
+  created_at timestamp [default: `now()`]
+
+  indexes {
+    (owner_id, is_primary)
+  }
+  Note: 'Business rule: at most one is_primary=true per owner'
+}
+
+Table owner_address {
+  id            bigint [pk, increment]
+  owner_id      bigint [not null]
+  address_type  varchar(20) [default: 'PERMANENT', note: 'PERMANENT, PRESENT, MAILING, OFFICE']
+  full_address  varchar(400) [not null]
+  city_town     varchar(100)
+  district      varchar(100)
+  province      varchar(100)
+  country       varchar(100) [default: 'Pakistan']
+  postal_code   varchar(20)
+  is_primary    boolean [default: false]
+  is_active     boolean [default: true]
+  created_at timestamp [default: `now()`]
+}
+
+// ---------------------------------------------------------------------
+//  6. OWNERSHIP (relationship, shares, history) & TRANSFERS
+// ---------------------------------------------------------------------
+Table property_ownership {
+  id                  bigint [pk, increment]
+  property_id         bigint [not null]
+  owner_id            bigint [not null]
+  tenure_type_id      bigint [not null]
+  ownership_share_pct decimal(7,4) [not null, default: 100, note: '0 < share <= 100']
+  effective_from      date [not null]
+  effective_to        date [note: 'NULL = current']
+  ownership_status    varchar(20) [not null, default: 'ACTIVE', note: 'ACTIVE, ENDED, DISPUTED']
+  acquisition_transfer_type_id bigint [note: 'how this owner acquired (FK transfer_type)']
+  acquired_via_transfer_id     bigint [note: 'FK property_transfer that created this record']
+  acquired_via_allotment_id    bigint [note: 'FK property_allotment if ownership arises from allotment']
+  reference_no        varchar(100) [note: 'mutation / registry / deed no.']
+  remarks             text
+  created_at timestamp [default: `now()`]
+  created_by bigint
+  updated_at timestamp
+  updated_by bigint
+
+  indexes {
+    (property_id, ownership_status)
+    (owner_id)
+    (property_id, owner_id, effective_from) [unique]
+  }
+  Note: '''
+  Validation (app/trigger): SUM(ownership_share_pct) WHERE property_id=? AND ownership_status='ACTIVE' <= 100
+  (== 100 if GDA mandates fully-owned totals). Old rows are closed (effective_to) never deleted.
+  '''
+}
+
+Table property_transfer {
+  id                    bigint [pk, increment]
+  property_id           bigint [not null]
+  transfer_no           varchar(50) [unique, note: 'TRF-00001']
+  transfer_type_id      bigint [not null]
+  transfer_date         date [not null]
+  transfer_reference_no varchar(100) [note: 'mutation / registry / order no.']
+  share_transferred_pct decimal(7,4) [note: 'portion of property moved in this transfer']
+  consideration_amount  decimal(18,2) [note: 'sale price / exchange value, informational only']
+  relationship          varchar(100) [note: 'e.g. Father -> Son; required for Gift / Inheritance. Tax exemption decided by Tax Module (req. §17)']
+  approved_by           varchar(150)
+  approval_date         date
+  transfer_status       varchar(20) [default: 'COMPLETED', note: 'INITIATED, APPROVED, COMPLETED, CANCELLED']
+  remarks               text
+  created_at timestamp [default: `now()`]
+  created_by bigint
+  updated_at timestamp
+  updated_by bigint
+
+  indexes {
+    (property_id, transfer_date)
+  }
+  Note: 'Header. Parties in property_transfer_party. Completing a transfer closes old property_ownership rows and inserts new ones.'
+}
+
+Table property_transfer_party {
+  id                    bigint [pk, increment]
+  property_transfer_id  bigint [not null]
+  owner_id              bigint [not null]
+  party_role            varchar(15) [not null, note: 'TRANSFEROR (previous) / TRANSFEREE (new)']
+  share_pct             decimal(7,4) [note: 'share given / received']
+
+  indexes {
+    (property_transfer_id, owner_id, party_role) [unique]
+  }
+  Note: 'Supports Owner B + Owner C -> Owner C + Owner D style multi-party transfers (req. §14)'
+}
+
+// ---------------------------------------------------------------------
+//  7. ENCUMBRANCE (Act s.6(4)(c): mortgage, lien, encumbrance)
+// ---------------------------------------------------------------------
+Table property_encumbrance {
+  id                  bigint [pk, increment]
+  property_id         bigint [not null]
+  encumbrance_type_id bigint [not null]
+  ownership_id        bigint [note: 'FK property_ownership: which owner’s interest is encumbered (optional)']
+  holder_name         varchar(200) [not null, note: 'bank / lender / lien holder']
+  holder_owner_id     bigint [note: 'FK property_owner if holder is registered']
+  reference_no        varchar(100)
+  amount              decimal(18,2)
+  start_date          date [not null]
+  end_date            date
+  release_date        date
+  release_reference_no varchar(100)
+  status              varchar(20) [default: 'ACTIVE', note: 'ACTIVE, RELEASED, ENFORCED']
+  remarks             text
+  created_at timestamp [default: `now()`]
+  created_by bigint
+  updated_at timestamp
+  updated_by bigint
+}
+
+// ---------------------------------------------------------------------
+//  8. ALLOTMENT
+// ---------------------------------------------------------------------
+Table property_allotment {
+  id                  bigint [pk, increment]
+  property_id         bigint [not null]
+  allottee_owner_id   bigint [not null, note: 'FK property_owner']
+  allotment_no        varchar(50) [unique, not null]
+  allotment_type_id   bigint [not null]
+  allotment_status_id bigint [not null]
+  allotment_date      date [not null]
+  effective_date      date
+  expiry_date         date
+  allotment_letter_ref varchar(100)
+  conditions          text [note: 'construction deadline, purpose, etc.']
+  cancellation_date   date
+  cancellation_reason text
+  cancellation_order_ref varchar(100)
+  restoration_date    date
+  restoration_order_ref varchar(100)
+  remarks             text
+  is_active           boolean [default: true]
+  created_at timestamp [default: `now()`]
+  created_by bigint
+  updated_at timestamp
+  updated_by bigint
+
+  indexes {
+    (property_id, allotment_status_id)
+    (allottee_owner_id)
+  }
+  Note: 'Separate from ownership (req. §15). cancel / restore per Act s.6(4)(c); an appeal against cancellation -> property_appeal'
+}
+
+// ---------------------------------------------------------------------
+//  9. TENURE: LEASE & RENTAL
+// ---------------------------------------------------------------------
+Table property_lease {
+  id                  bigint [pk, increment]
+  property_id         bigint [not null]
+  lessee_owner_id     bigint [not null, note: 'FK property_owner']
+  lease_no            varchar(50) [unique, not null]
+  lease_type_id       bigint [not null]
+  lease_status_id     bigint [not null]
+  lease_start_date    date [not null]
+  lease_end_date      date [not null]
+  lease_term_years    int
+  lease_purpose       varchar(200)
+  lease_amount        decimal(18,2) [note: 'premium / annual lease money']
+  amount_frequency    varchar(20) [note: 'ANNUAL, MONTHLY, ONE_TIME']
+  security_deposit    decimal(18,2)
+  agreement_reference varchar(100)
+  agreement_date      date
+  is_renewable        boolean [default: false]
+  renewed_from_lease_id bigint [note: 'self FK: previous lease this one renews']
+  termination_date    date
+  termination_reason  text
+  remarks             text
+  created_at timestamp [default: `now()`]
+  created_by bigint
+  updated_at timestamp
+  updated_by bigint
+
+  indexes {
+    (property_id, lease_status_id)
+    (lessee_owner_id)
+    (lease_end_date)
+  }
+  Note: 'Collection of lease money / arrears -> Tax Module. Violations -> agreement_violation (Act s.28-A).'
+}
+
+Table property_rental {
+  id                  bigint [pk, increment]
+  property_id         bigint [not null]
+  tenant_owner_id     bigint [not null, note: 'FK property_owner']
+  rental_no           varchar(50) [unique, not null]
+  rental_type_id      bigint [not null]
+  rental_status_id    bigint [not null]
+  rental_start_date   date [not null]
+  rental_end_date     date
+  rent_amount         decimal(18,2) [not null]
+  rent_frequency      varchar(20) [default: 'MONTHLY', note: 'MONTHLY, QUARTERLY, ANNUAL']
+  security_deposit    decimal(18,2)
+  annual_increase_pct decimal(5,2)
+  agreement_reference varchar(100)
+  agreement_date      date
+  renewed_from_rental_id bigint [note: 'self FK']
+  termination_date    date
+  termination_reason  text
+  remarks             text
+  created_at timestamp [default: `now()`]
+  created_by bigint
+  updated_at timestamp
+  updated_by bigint
+
+  indexes {
+    (property_id, rental_status_id)
+    (tenant_owner_id)
+  }
+  Note: 'Lease vs rental distinction to follow GDA terminology (req. §19). Rent collection -> Tax/Finance Module.'
+}
+
+// ---------------------------------------------------------------------
+// 10. AGREEMENT VIOLATIONS  (Act s.28-A)
+// ---------------------------------------------------------------------
+Table agreement_violation {
+  id                  bigint [pk, increment]
+  property_id         bigint [not null]
+  agreement_type_id   bigint [not null, note: 'Lease / Rent / Sale / Other']
+  lease_id            bigint [note: 'FK property_lease (when agreement is a lease)']
+  rental_id           bigint [note: 'FK property_rental (when agreement is a rental)']
+  transfer_id         bigint [note: 'FK property_transfer (when agreement is a sale)']
+  violator_owner_id   bigint [not null, note: 'FK property_owner']
+  violation_date      date [not null]
+  violation_description text [not null, note: 'breach of terms, default in lease money / levy / taxes, rule violation']
+  occurrence_no       smallint [not null, default: 1, note: '1st, 2nd = fine; 3rd within notice period = cancellation']
+  notice_no           varchar(50)
+  notice_date         date
+  notice_deadline     date [note: '"time specified in the notice"']
+  fine_amount         decimal(18,2) [note: 'may extend to Rs 1,000,000 (s.28-A)']
+  fine_imposed_by     bigint [note: 'FK app_user (authorized officer)']
+  fine_status         varchar(20) [default: 'IMPOSED', note: 'IMPOSED, PAID, WAIVED, RECOVERY_AS_ARREARS (s.28(2))']
+  led_to_cancellation boolean [default: false]
+  cancellation_date   date
+  violation_status    varchar(20) [default: 'OPEN', note: 'OPEN, RECTIFIED, FINED, CANCELLED, APPEALED']
+  remarks             text
+  created_at timestamp [default: `now()`]
+  created_by bigint
+  updated_at timestamp
+  updated_by bigint
+
+  indexes {
+    (property_id, violation_date)
+    (lease_id)
+    (rental_id)
+  }
+  Note: 'Exactly one of lease_id / rental_id / transfer_id should be set (check constraint). Fine collection & arrears recovery handled by Tax/Finance Module.'
+}
+
+// ---------------------------------------------------------------------
+// 11. AUCTION
+// ---------------------------------------------------------------------
+Table property_auction {
+  id                  bigint [pk, increment]
+  property_id         bigint [not null]
+  auction_no          varchar(50) [unique, not null]
+  auction_type_id     bigint [not null]
+  auction_status_id   bigint [not null]
+  announcement_date   date
+  auction_date        date
+  base_reserve_price  decimal(18,2)
+  winning_bid_amount  decimal(18,2)
+  successful_bidder_owner_id bigint [note: 'FK property_owner']
+  award_date          date
+  award_reference_no  varchar(100)
+  auction_committee_ref varchar(100) [note: 'Auction Committee minutes ref — Act s.9']
+  venue               varchar(200)
+  reference_no        varchar(100)
+  remarks             text
+  created_at timestamp [default: `now()`]
+  created_by bigint
+  updated_at timestamp
+  updated_by bigint
+
+  indexes {
+    (property_id, auction_status_id)
+  }
+  Note: 'Award may lead to property_transfer / property_allotment / property_lease depending on what was auctioned.'
+}
+
+Table auction_bid {
+  id              bigint [pk, increment]
+  auction_id      bigint [not null]
+  bidder_owner_id bigint [not null, note: 'FK property_owner']
+  bid_amount      decimal(18,2) [not null]
+  bid_rank        int
+  earnest_money   decimal(18,2)
+  is_winning      boolean [default: false]
+  remarks         varchar(300)
+  created_at timestamp [default: `now()`]
+  Note: 'Optional detail table — keep if GDA records all bids, not just the winner'
+}
+
+// ---------------------------------------------------------------------
+// 12. OUTSOURCING
+// ---------------------------------------------------------------------
+Table property_outsourcing {
+  id                    bigint [pk, increment]
+  property_id           bigint [not null]
+  outsourced_party_owner_id bigint [not null, note: 'FK property_owner (organization)']
+  contract_no           varchar(50) [unique, not null]
+  outsourcing_type_id   bigint [not null]
+  contract_status_id    bigint [not null]
+  contract_start_date   date [not null]
+  contract_end_date     date
+  purpose_service       varchar(300)
+  contract_amount       decimal(18,2)
+  amount_frequency      varchar(20)
+  performance_guarantee decimal(18,2)
+  reference_no          varchar(100)
+  termination_date      date
+  termination_reason    text
+  remarks               text
+  created_at timestamp [default: `now()`]
+  created_by bigint
+  updated_at timestamp
+  updated_by bigint
+
+  indexes {
+    (property_id, contract_status_id)
+  }
+}
+
+// ---------------------------------------------------------------------
+// 13. ENCROACHMENT
+// ---------------------------------------------------------------------
+Table property_encroachment {
+  id                    bigint [pk, increment]
+  property_id           bigint [not null]
+  encroachment_no       varchar(50) [unique]
+  encroachment_area     decimal(18,4) [not null]
+  measurement_unit_id   bigint [not null]
+  encroachment_area_base decimal(18,4)
+  encroachment_status_id bigint [not null]
+  encroacher_name       varchar(200)
+  encroacher_owner_id   bigint [note: 'FK property_owner if known/registered']
+  detection_date        date [not null]
+  effective_date        date
+  notice_no             varchar(50)
+  notice_date           date
+  resolution_date       date
+  resolution_type       varchar(30) [note: 'Removed, Regularized, Litigated, Other']
+  resolution_reference_no varchar(100)
+  description           text
+  remarks               text
+  created_at timestamp [default: `now()`]
+  created_by bigint
+  updated_at timestamp
+  updated_by bigint
+
+  indexes {
+    (property_id, encroachment_status_id)
+  }
+  Note: 'Multiple records over time per property (req. §26). Regularized encroachment may also produce a property_area_regularization row.'
+}
+
+Table encroachment_boundary_point {
+  id              bigint [pk, increment]
+  encroachment_id bigint [not null]
+  sequence_no     int [not null]
+  latitude        decimal(10,7) [not null]
+  longitude       decimal(10,7) [not null]
+
+  indexes {
+    (encroachment_id, sequence_no) [unique]
+  }
+  Note: 'Own polygon — never shares property boundary points (req. §27)'
+}
+
+// ---------------------------------------------------------------------
+// 14. LITIGATION & APPEALS
+// ---------------------------------------------------------------------
+Table property_litigation {
+  id                    bigint [pk, increment]
+  property_id           bigint [not null]
+  case_no               varchar(100) [not null]
+  case_title            varchar(300) [not null]
+  court_authority       varchar(200) [not null, note: 'e.g. District & Sessions Judge Abbottabad (Act s.30), Peshawar High Court, Dispute Resolution Committee']
+  litigation_type_id    bigint [not null]
+  litigation_status_id  bigint [not null]
+  filing_date           date
+  gda_role              varchar(20) [note: 'PLAINTIFF, DEFENDANT, COMPLAINANT, RESPONDENT']
+  filed_by_officer_id   bigint [note: 'FK app_user — officer authorized by DG (Act s.30)']
+  related_encroachment_id bigint [note: 'FK property_encroachment if case arises from encroachment']
+  related_allotment_id  bigint
+  related_lease_id      bigint
+  next_hearing_date     date
+  decision_date         date
+  decision_outcome      text
+  appealed_to           varchar(200)
+  parent_litigation_id  bigint [note: 'self FK: lower-court case this appeal arises from']
+  gda_counsel           varchar(150)
+  remarks               text
+  created_at timestamp [default: `now()`]
+  created_by bigint
+  updated_at timestamp
+  updated_by bigint
+
+  indexes {
+    (property_id, litigation_status_id)
+    (case_no, court_authority) [unique]
+    (next_hearing_date)
+  }
+}
+
+Table litigation_party {
+  id              bigint [pk, increment]
+  litigation_id   bigint [not null]
+  party_name      varchar(200) [not null]
+  party_owner_id  bigint [note: 'FK property_owner if registered']
+  party_role      varchar(30) [not null, note: 'PLAINTIFF, DEFENDANT, PETITIONER, RESPONDENT, INTERVENER']
+  counsel_name    varchar(150)
+  remarks         varchar(300)
+}
+
+Table litigation_hearing {
+  id              bigint [pk, increment]
+  litigation_id   bigint [not null]
+  hearing_date    date [not null]
+  proceedings     text
+  order_passed    text
+  next_hearing_date date
+  attended_by     varchar(150)
+  created_at timestamp [default: `now()`]
+  Note: 'Optional hearing log'
+}
+
+Table property_appeal {
+  id                  bigint [pk, increment]
+  property_id         bigint [not null]
+  appeal_no           varchar(50) [unique]
+  appellant_owner_id  bigint [not null, note: 'FK property_owner']
+  appealed_order_ref  varchar(100) [not null, note: 'DG / officer order being appealed']
+  appealed_order_date date [not null]
+  order_received_date date [note: 'appeal must be filed within 30 days of receipt (Act s.32(1))']
+  order_source_table  varchar(40) [note: 'property_allotment, agreement_violation, property_encroachment, ...']
+  order_source_id     bigint
+  appeal_date         date [not null]
+  appellate_authority varchar(150) [default: 'Chief Secretary, Khyber Pakhtunkhwa', note: 'or delegated officer not below BPS-20 (s.32(2))']
+  delegated_officer   varchar(150)
+  decision_due_date   date [note: 'appeal_date + 120 days (s.32(1))']
+  decision_date       date
+  decision_outcome    varchar(30) [note: 'ALLOWED, DISMISSED, REMANDED, MODIFIED']
+  decision_details    text
+  appeal_status       varchar(20) [default: 'FILED', note: 'FILED, UNDER_HEARING, DECIDED, WITHDRAWN']
+  remarks             text
+  created_at timestamp [default: `now()`]
+  created_by bigint
+  updated_at timestamp
+  updated_by bigint
+  Note: 'Departmental appeal u/s 32 (decision final). Court cases stay in property_litigation.'
+}
+
+// ---------------------------------------------------------------------
+// 15. BUILDING PLANS
+// ---------------------------------------------------------------------
+Table building_plan {
+  id                      bigint [pk, increment]
+  property_id             bigint [not null]
+  plan_no                 varchar(50) [not null]
+  building_plan_type_id   bigint [not null]
+  building_plan_status_id bigint [not null]
+  revision_no             int [default: 0]
+  supersedes_plan_id      bigint [note: 'self FK: previous revision']
+  applicant_owner_id      bigint [note: 'FK property_owner']
+  submission_date         date
+  approval_date           date
+  approved_by             varchar(150)
+  approval_reference_no   varchar(100)
+  validity_end_date       date
+  covered_area            decimal(18,4)
+  measurement_unit_id     bigint
+  floors                  int
+  architect_name          varchar(150)
+  remarks                 text
+  created_at timestamp [default: `now()`]
+  created_by bigint
+  updated_at timestamp
+  updated_by bigint
+
+  indexes {
+    (property_id, building_plan_status_id)
+    (plan_no, revision_no) [unique]
+  }
+  Note: 'Structured plan data; the drawing file itself is a property_document (req. §29)'
+}
+
+// ---------------------------------------------------------------------
+// 16. DOCUMENTS (metadata only; files on GDA server)
+// ---------------------------------------------------------------------
+Table property_document {
+  id                  bigint [pk, increment]
+  property_id         bigint [not null, note: 'always set, even when attached to a sub-record']
+  document_type_id    bigint [not null]
+  entity_type         varchar(40) [not null, default: 'PROPERTY', note: 'PROPERTY, OWNER, OWNERSHIP, TRANSFER, ALLOTMENT, LEASE, RENTAL, AUCTION, OUTSOURCING, ENCROACHMENT, LITIGATION, APPEAL, BUILDING_PLAN, ENCUMBRANCE, VIOLATION, REGULARIZATION']
+  entity_id           bigint [note: 'PK of the row in entity_type table (polymorphic; enforce in app layer)']
+  title               varchar(200)
+  original_file_name  varchar(255) [not null]
+  stored_file_name    varchar(255) [not null]
+  relative_path       varchar(500) [not null, note: '/property-documents/PROP-00125/ownership/...']
+  mime_type           varchar(100) [not null]
+  file_size_bytes     bigint [not null]
+  checksum_sha256     char(64)
+  document_date       date [note: 'date on the document itself']
+  reference_no        varchar(100) [note: 'notesheet no., letter no., etc.']
+  version_no          int [default: 1]
+  supersedes_document_id bigint [note: 'self FK']
+  description         text
+  is_confidential     boolean [default: false]
+  is_active           boolean [default: true]
+  uploaded_at         timestamp [not null, default: `now()`]
+  uploaded_by         bigint [not null]
+
+  indexes {
+    (property_id, document_type_id)
+    (entity_type, entity_id)
+  }
+  Note: '''
+  Main types: Notesheet, Ownership Document, Site/Building Plan, Notice/Letter (req. §30)
+  plus CNIC copies, agreements, court orders, auction notices, etc.
+  DB never stores file bytes (req. §31).
+  '''
+}
+
+// =====================================================================
+//  RELATIONSHIPS
+// =====================================================================
+
+// -- property core
+Ref: property.town_id > town.id
+Ref: property.property_type_id > property_type.id
+Ref: property.property_status_id > property_status.id
+Ref: property.property_classification_id > property_classification.id
+Ref: property.created_by > app_user.id
+Ref: property.updated_by > app_user.id
+Ref: property_status_history.property_id > property.id
+Ref: property_status_history.property_status_id > property_status.id
+
+// -- measurements
+Ref: property_measurement.property_id > property.id
+Ref: property_measurement.measurement_unit_id > measurement_unit.id
+Ref: property_area_regularization.property_id > property.id
+Ref: property_area_regularization.measurement_unit_id > measurement_unit.id
+
+// -- boundaries
+Ref: property_boundary.property_id > property.id
+Ref: boundary_point.property_boundary_id > property_boundary.id
+
+// -- owners
+Ref: property_owner.owner_type_id > owner_type.id
+Ref: property_owner.cnic_document_id - property_document.id
+Ref: owner_contact.owner_id > property_owner.id
+Ref: owner_contact.contact_type_id > contact_type.id
+Ref: owner_address.owner_id > property_owner.id
+
+// -- ownership & transfers
+Ref: property_ownership.property_id > property.id
+Ref: property_ownership.owner_id > property_owner.id
+Ref: property_ownership.tenure_type_id > tenure_type.id
+Ref: property_ownership.acquisition_transfer_type_id > transfer_type.id
+Ref: property_ownership.acquired_via_transfer_id > property_transfer.id
+Ref: property_ownership.acquired_via_allotment_id > property_allotment.id
+Ref: property_transfer.property_id > property.id
+Ref: property_transfer.transfer_type_id > transfer_type.id
+Ref: property_transfer_party.property_transfer_id > property_transfer.id
+Ref: property_transfer_party.owner_id > property_owner.id
+
+// -- encumbrance
+Ref: property_encumbrance.property_id > property.id
+Ref: property_encumbrance.encumbrance_type_id > encumbrance_type.id
+Ref: property_encumbrance.ownership_id > property_ownership.id
+Ref: property_encumbrance.holder_owner_id > property_owner.id
+
+// -- allotment
+Ref: property_allotment.property_id > property.id
+Ref: property_allotment.allottee_owner_id > property_owner.id
+Ref: property_allotment.allotment_type_id > allotment_type.id
+Ref: property_allotment.allotment_status_id > allotment_status.id
+
+// -- lease / rental
+Ref: property_lease.property_id > property.id
+Ref: property_lease.lessee_owner_id > property_owner.id
+Ref: property_lease.lease_type_id > lease_type.id
+Ref: property_lease.lease_status_id > lease_status.id
+Ref: property_lease.renewed_from_lease_id > property_lease.id
+Ref: property_rental.property_id > property.id
+Ref: property_rental.tenant_owner_id > property_owner.id
+Ref: property_rental.rental_type_id > rental_type.id
+Ref: property_rental.rental_status_id > rental_status.id
+Ref: property_rental.renewed_from_rental_id > property_rental.id
+
+// -- agreement violations (Act s.28-A)
+Ref: agreement_violation.property_id > property.id
+Ref: agreement_violation.agreement_type_id > agreement_type.id
+Ref: agreement_violation.lease_id > property_lease.id
+Ref: agreement_violation.rental_id > property_rental.id
+Ref: agreement_violation.transfer_id > property_transfer.id
+Ref: agreement_violation.violator_owner_id > property_owner.id
+Ref: agreement_violation.fine_imposed_by > app_user.id
+
+// -- auction
+Ref: property_auction.property_id > property.id
+Ref: property_auction.auction_type_id > auction_type.id
+Ref: property_auction.auction_status_id > auction_status.id
+Ref: property_auction.successful_bidder_owner_id > property_owner.id
+Ref: auction_bid.auction_id > property_auction.id
+Ref: auction_bid.bidder_owner_id > property_owner.id
+
+// -- outsourcing
+Ref: property_outsourcing.property_id > property.id
+Ref: property_outsourcing.outsourced_party_owner_id > property_owner.id
+Ref: property_outsourcing.outsourcing_type_id > outsourcing_type.id
+Ref: property_outsourcing.contract_status_id > contract_status.id
+
+// -- encroachment
+Ref: property_encroachment.property_id > property.id
+Ref: property_encroachment.measurement_unit_id > measurement_unit.id
+Ref: property_encroachment.encroachment_status_id > encroachment_status.id
+Ref: property_encroachment.encroacher_owner_id > property_owner.id
+Ref: encroachment_boundary_point.encroachment_id > property_encroachment.id
+
+// -- litigation & appeals
+Ref: property_litigation.property_id > property.id
+Ref: property_litigation.litigation_type_id > litigation_type.id
+Ref: property_litigation.litigation_status_id > litigation_status.id
+Ref: property_litigation.filed_by_officer_id > app_user.id
+Ref: property_litigation.related_encroachment_id > property_encroachment.id
+Ref: property_litigation.related_allotment_id > property_allotment.id
+Ref: property_litigation.related_lease_id > property_lease.id
+Ref: property_litigation.parent_litigation_id > property_litigation.id
+Ref: litigation_party.litigation_id > property_litigation.id
+Ref: litigation_party.party_owner_id > property_owner.id
+Ref: litigation_hearing.litigation_id > property_litigation.id
+Ref: property_appeal.property_id > property.id
+Ref: property_appeal.appellant_owner_id > property_owner.id
+
+// -- building plans
+Ref: building_plan.property_id > property.id
+Ref: building_plan.building_plan_type_id > building_plan_type.id
+Ref: building_plan.building_plan_status_id > building_plan_status.id
+Ref: building_plan.supersedes_plan_id > building_plan.id
+Ref: building_plan.applicant_owner_id > property_owner.id
+Ref: building_plan.measurement_unit_id > measurement_unit.id
+
+// -- documents
+Ref: property_document.property_id > property.id
+Ref: property_document.document_type_id > document_type.id
+Ref: property_document.supersedes_document_id > property_document.id
+Ref: property_document.uploaded_by > app_user.id
+
+// =====================================================================
+//  TABLE GROUPS (for the dbdiagram canvas)
+// =====================================================================
+TableGroup master_data {
+  town
+  property_type
+  property_status
+  property_classification
+  owner_type
+  tenure_type
+  transfer_type
+  allotment_type
+  allotment_status
+  lease_type
+  lease_status
+  rental_type
+  rental_status
+  auction_type
+  auction_status
+  outsourcing_type
+  contract_status
+  encroachment_status
+  litigation_type
+  litigation_status
+  building_plan_type
+  building_plan_status
+  document_type
+  measurement_unit
+  encumbrance_type
+  agreement_type
+  contact_type
+}
+
+TableGroup property_core {
+  property
+  property_status_history
+  property_measurement
+  property_area_regularization
+  property_boundary
+  boundary_point
+}
+
+TableGroup ownership {
+  property_owner
+  owner_contact
+  owner_address
+  property_ownership
+  property_transfer
+  property_transfer_party
+  property_encumbrance
+}
+
+TableGroup management {
+  property_allotment
+  property_lease
+  property_rental
+  agreement_violation
+  property_auction
+  auction_bid
+  property_outsourcing
+}
+
+TableGroup compliance {
+  property_encroachment
+  encroachment_boundary_point
+  property_litigation
+  litigation_party
+  litigation_hearing
+  property_appeal
+  building_plan
+}
+
+TableGroup documents_system {
+  property_document
+  app_user
+}
