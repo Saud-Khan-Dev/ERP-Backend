@@ -32,6 +32,8 @@ public class PropertyOwnerConfiguration : EntityConfiguration<PropertyOwner, Own
     builder.HasIndex(x => x.OwnerCode).IsUnique();
     builder.HasIndex(x => x.Cnic);
     builder.HasIndex(x => x.Ntn);
+    // The ERD's (owner_name) index: EF cannot index a complex-type property, so the
+    // PropertyManagementAndCompliance migration creates ix_property_owner_owner_name in SQL.
 
     builder.HasOne<OwnerType>().WithMany().HasForeignKey(x => x.OwnerTypeId).OnDelete(DeleteBehavior.Restrict);
     builder.HasOne<PropertyDocument>().WithMany().HasForeignKey(x => x.CnicDocumentId).OnDelete(DeleteBehavior.Restrict);

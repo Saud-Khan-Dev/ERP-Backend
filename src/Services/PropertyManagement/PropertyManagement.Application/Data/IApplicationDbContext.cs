@@ -14,6 +14,21 @@ public interface IApplicationDbContext
   DbSet<PropertyTransfer> Transfers { get; }
   DbSet<PropertyEncumbrance> Encumbrances { get; }
 
+  // ---- management ----
+  DbSet<PropertyAllotment> Allotments { get; }
+  DbSet<PropertyLease> Leases { get; }
+  DbSet<PropertyRental> Rentals { get; }
+  DbSet<AgreementViolation> Violations { get; }
+  DbSet<PropertyAuction> Auctions { get; }
+  DbSet<PropertyOutsourcing> Outsourcings { get; }
+
+  // ---- compliance & GIS ----
+  DbSet<PropertyBoundary> Boundaries { get; }
+  DbSet<PropertyEncroachment> Encroachments { get; }
+  DbSet<PropertyLitigation> Litigations { get; }
+  DbSet<PropertyAppeal> Appeals { get; }
+  DbSet<BuildingPlan> BuildingPlans { get; }
+
   // ---- documents ----
   DbSet<PropertyDocument> Documents { get; }
 

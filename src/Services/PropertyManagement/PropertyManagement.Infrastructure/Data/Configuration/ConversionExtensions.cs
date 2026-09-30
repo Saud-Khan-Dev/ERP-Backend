@@ -20,6 +20,25 @@ public static class ConversionExtensions
       where TEnum : struct, Enum =>
       builder.HasConversion(value => EnumText.ToUpperSnake(value.ToString()), text => EnumText.Parse<TEnum>(text))
         .HasMaxLength(maxLength);
+
+  /// Same, for an optional value (null stays NULL).
+  public static PropertyBuilder<TEnum?> HasNullableUpperSnakeEnum<TEnum>(this PropertyBuilder<TEnum?> builder, int maxLength = 30)
+      where TEnum : struct, Enum =>
+      builder.HasConversion(
+          value => value.HasValue ? EnumText.ToUpperSnake(value.Value.ToString()) : null,
+          text => text == null ? null : EnumText.Parse<TEnum>(text))
+        .HasMaxLength(maxLength);
+}
+
+public static class LowerSnakeEnumExtensions
+{
+  /// For columns that store a table name (property_appeal.order_source_table = 'property_allotment').
+  public static PropertyBuilder<TEnum?> HasLowerSnakeEnum<TEnum>(this PropertyBuilder<TEnum?> builder, int maxLength)
+      where TEnum : struct, Enum =>
+      builder.HasConversion(
+          value => value.HasValue ? EnumText.ToUpperSnake(value.Value.ToString()).ToLowerInvariant() : null,
+          text => text == null ? null : EnumText.Parse<TEnum>(text))
+        .HasMaxLength(maxLength);
 }
 
 public static class EnumText

@@ -17,8 +17,8 @@ public class PropertyOwnership : Aggregate<OwnershipId>
   /// How this owner acquired the share (transfer_type).
   public MasterId? AcquisitionTransferTypeId { get; private set; }
   public TransferId? AcquiredViaTransferId { get; private set; }
-  /// Set when ownership arises from an allotment (property_allotment arrives in phase 2).
-  public Guid? AcquiredViaAllotmentId { get; private set; }
+  /// Set when GDA confirms an allottee as legal owner (allotment is not ownership by itself).
+  public AllotmentId? AcquiredViaAllotmentId { get; private set; }
   /// Mutation / registry / deed no.
   public string? ReferenceNo { get; private set; }
   public string? Remarks { get; private set; }
@@ -47,6 +47,32 @@ public class PropertyOwnership : Aggregate<OwnershipId>
 
     return New(id, property.Id, owner.Id, tenureType.Id, sharePct, effectiveFrom,
       acquisitionTransferType?.Id, acquiredViaTransferId: null, referenceNo, remarks);
+  }
+
+  /// GDA confirms the allottee as legal owner: the ownership points back at the allotment.
+  public static PropertyOwnership FromAllotment(
+      OwnershipId id,
+      Property property,
+      PropertyAllotment allotment,
+      PropertyOwner allottee,
+      TenureType tenureType,
+      decimal sharePct,
+      DateOnly effectiveFrom,
+      string? referenceNo,
+      string? remarks)
+  {
+    ArgumentNullException.ThrowIfNull(allotment);
+    ArgumentNullException.ThrowIfNull(allottee);
+
+    if (allotment.PropertyId != property.Id)
+      throw new DomainException("The allotment belongs to another property.");
+
+    if (allotment.AllotteeOwnerId != allottee.Id)
+      throw new DomainException("Only the allottee can be confirmed as owner through this allotment.");
+
+    var ownership = Register(id, property, allottee, tenureType, sharePct, effectiveFrom, null, referenceNo, remarks);
+    ownership.AcquiredViaAllotmentId = allotment.Id;
+    return ownership;
   }
 
   internal static PropertyOwnership New(

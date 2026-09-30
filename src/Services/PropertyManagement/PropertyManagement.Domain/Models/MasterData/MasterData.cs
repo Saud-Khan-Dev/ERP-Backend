@@ -4,6 +4,7 @@
 /// the columns and rules.
 public abstract class MasterData : Entity<MasterId>
 {
+  /// Longest name any master allows; each table's own limit is in MasterLimits.
   public const int NameMaxLength = 150;
 
   /// Immutable once created: it is what code and reports compare against.
@@ -18,6 +19,10 @@ public abstract class MasterData : Entity<MasterId>
   {
     ArgumentNullException.ThrowIfNull(code);
 
+    var codeLength = MasterLimits.For(typeof(T)).CodeLength;
+    if (code.Value.Length > codeLength)
+      throw new DomainException($"Code cannot exceed {codeLength} characters.");
+
     var master = new T { Id = id, Code = code, IsActive = true };
     master.Apply(name, description, sortOrder, extras ?? MasterExtras.None);
     return master;
@@ -29,6 +34,16 @@ public abstract class MasterData : Entity<MasterId>
   /// Masters are never deleted, only deactivated (schema guide, rule 9): old records keep pointing at them.
   public void Activate() => IsActive = true;
   public void Deactivate() => IsActive = false;
+
+  public bool Is(string code) => Code.Value == code;
+
+  /// Workflow steps move a record into a specific status (CANCELLED, AWARDED ...): the master passed in
+  /// must be exactly that one.
+  public void EnsureIs(string code)
+  {
+    if (!Is(code))
+      throw new DomainException($"Expected the {code} value but got {Code.Value}.");
+  }
 
   public void EnsureActive()
   {
@@ -43,8 +58,9 @@ public abstract class MasterData : Entity<MasterId>
   {
     ArgumentNullException.ThrowIfNull(name);
 
-    if (name.Value.Length > NameMaxLength)
-      throw new DomainException($"Name cannot exceed {NameMaxLength} characters.");
+    var nameLength = MasterLimits.For(GetType()).NameLength;
+    if (name.Value.Length > nameLength)
+      throw new DomainException($"Name cannot exceed {nameLength} characters.");
 
     Name = name;
     Description = Guard.Text(description, 2000, "Description");

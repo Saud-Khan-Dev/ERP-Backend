@@ -21,8 +21,7 @@ public class PropertyOwnershipConfiguration : EntityConfiguration<PropertyOwners
     builder.Property(x => x.OwnershipStatus).HasUpperSnakeEnum(20).IsRequired();
     builder.Property(x => x.AcquisitionTransferTypeId).HasOptionalMasterId();
     builder.Property(x => x.AcquiredViaTransferId).HasConversion(id => id!.Value, value => TransferId.Of(value));
-    // FK to property_allotment is added with the allotment table in phase 2
-    builder.Property(x => x.AcquiredViaAllotmentId);
+    builder.Property(x => x.AcquiredViaAllotmentId).HasConversion(id => id!.Value, value => AllotmentId.Of(value));
     builder.Property(x => x.ReferenceNo).HasMaxLength(100);
     builder.Ignore(x => x.IsCurrent);
 
@@ -35,6 +34,7 @@ public class PropertyOwnershipConfiguration : EntityConfiguration<PropertyOwners
     builder.HasOne<TenureType>().WithMany().HasForeignKey(x => x.TenureTypeId).OnDelete(DeleteBehavior.Restrict);
     builder.HasOne<TransferType>().WithMany().HasForeignKey(x => x.AcquisitionTransferTypeId).OnDelete(DeleteBehavior.Restrict);
     builder.HasOne<PropertyTransfer>().WithMany().HasForeignKey(x => x.AcquiredViaTransferId).OnDelete(DeleteBehavior.Restrict);
+    builder.HasOne<PropertyAllotment>().WithMany().HasForeignKey(x => x.AcquiredViaAllotmentId).OnDelete(DeleteBehavior.Restrict);
   }
 }
 

@@ -20,6 +20,21 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
   public DbSet<PropertyTransfer> Transfers => Set<PropertyTransfer>();
   public DbSet<PropertyEncumbrance> Encumbrances => Set<PropertyEncumbrance>();
 
+  // ---- management ----
+  public DbSet<PropertyAllotment> Allotments => Set<PropertyAllotment>();
+  public DbSet<PropertyLease> Leases => Set<PropertyLease>();
+  public DbSet<PropertyRental> Rentals => Set<PropertyRental>();
+  public DbSet<AgreementViolation> Violations => Set<AgreementViolation>();
+  public DbSet<PropertyAuction> Auctions => Set<PropertyAuction>();
+  public DbSet<PropertyOutsourcing> Outsourcings => Set<PropertyOutsourcing>();
+
+  // ---- compliance & GIS ----
+  public DbSet<PropertyBoundary> Boundaries => Set<PropertyBoundary>();
+  public DbSet<PropertyEncroachment> Encroachments => Set<PropertyEncroachment>();
+  public DbSet<PropertyLitigation> Litigations => Set<PropertyLitigation>();
+  public DbSet<PropertyAppeal> Appeals => Set<PropertyAppeal>();
+  public DbSet<BuildingPlan> BuildingPlans => Set<BuildingPlan>();
+
   // ---- documents ----
   public DbSet<PropertyDocument> Documents => Set<PropertyDocument>();
 

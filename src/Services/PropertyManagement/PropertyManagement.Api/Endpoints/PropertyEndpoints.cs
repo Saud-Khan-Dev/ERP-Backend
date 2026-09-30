@@ -106,7 +106,7 @@ public class PropertyEndpoints : ICarterModule
       .WithName("GetAreaSummary")
       .Produces<GetAreaSummaryQueryResult>()
       .WithSummary("Get Area Summary")
-      .WithDescription("Current total and built-up area plus regularized additional area, in square feet.");
+      .WithDescription("Current total and built-up area, regularized additional area and unresolved encroached area, in square feet.");
 
     properties.MapPost("/{id:guid}/regularizations", async (Guid id, RegularizationInput regularization, ISender sender) =>
         (await sender.Send(new OpenRegularizationCommand(id, regularization))).ToOk())

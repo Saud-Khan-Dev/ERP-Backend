@@ -19,3 +19,25 @@ public class EncumbranceNotFoundException(string message) : NotFoundException(me
 public class DocumentNotFoundException(string message) : NotFoundException(message);
 
 public class AttributeDefinitionNotFoundException(string message) : NotFoundException(message);
+
+public class AllotmentNotFoundException(string message) : NotFoundException(message);
+
+public class LeaseNotFoundException(string message) : NotFoundException(message);
+
+public class RentalNotFoundException(string message) : NotFoundException(message);
+
+public class ViolationNotFoundException(string message) : NotFoundException(message);
+
+public class AuctionNotFoundException(string message) : NotFoundException(message);
+
+public class OutsourcingNotFoundException(string message) : NotFoundException(message);
+
+public class BoundaryNotFoundException(string message) : NotFoundException(message);
+
+public class EncroachmentNotFoundException(string message) : NotFoundException(message);
+
+public class LitigationNotFoundException(string message) : NotFoundException(message);
+
+public class AppealNotFoundException(string message) : NotFoundException(message);
+
+public class BuildingPlanNotFoundException(string message) : NotFoundException(message);

@@ -113,6 +113,14 @@ public static class CodeSequenceKeys
   public const string Property = "PROPERTY";
   public const string Owner = "OWNER";
   public const string Transfer = "TRANSFER";
+  public const string Allotment = "ALLOTMENT";
+  public const string Lease = "LEASE";
+  public const string Rental = "RENTAL";
+  public const string Auction = "AUCTION";
+  public const string Contract = "CONTRACT";
+  public const string Encroachment = "ENCROACHMENT";
+  public const string Appeal = "APPEAL";
+  public const string BuildingPlan = "BUILDING_PLAN";
 
   public sealed record Default(string Key, string Prefix, string Separator, int MinimumDigits);
 
@@ -121,5 +129,13 @@ public static class CodeSequenceKeys
     new Default(Property, "PROP", "-", 5),
     new Default(Owner, "OWN", "-", 5),
     new Default(Transfer, "TRF", "-", 5),
+    new Default(Allotment, "ALT", "-", 5),
+    new Default(Lease, "LSE", "-", 5),
+    new Default(Rental, "RNT", "-", 5),
+    new Default(Auction, "AUC", "-", 5),
+    new Default(Contract, "CON", "-", 5),
+    new Default(Encroachment, "ENC", "-", 5),
+    new Default(Appeal, "APL", "-", 5),
+    new Default(BuildingPlan, "BP", "-", 5),
   };
 }

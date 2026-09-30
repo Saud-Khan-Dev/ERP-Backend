@@ -38,15 +38,7 @@ public static class MasterRules
   /// Codes the application relies on (SystemMasterCodes) must stay active.
   public static void EnsureCanDeactivate(MasterDescriptor descriptor, MasterData master)
   {
-    var isSystem = (descriptor.ClrType, master.Code.Value) switch
-    {
-      (var t, SystemMasterCodes.UnitSquareFeet) when t == typeof(MeasurementUnit) => true,
-      (var t, SystemMasterCodes.TenureOwned) when t == typeof(TenureType) => true,
-      (var t, SystemMasterCodes.DocumentCnicCopy) when t == typeof(DocumentType) => true,
-      _ => false
-    };
-
-    if (isSystem)
+    if (SystemMasterCodes.IsRequired(descriptor.ClrType, master.Code.Value))
       throw new DomainException($"{descriptor.Label} {master.Code.Value} is used by the system and cannot be deactivated.");
   }
 

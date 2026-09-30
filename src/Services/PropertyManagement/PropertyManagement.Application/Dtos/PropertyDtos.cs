@@ -105,13 +105,14 @@ public sealed record RegularizationDto(
   string? Remarks,
   bool IsActive);
 
-/// All areas in square feet (the base unit). Encroached area joins this in phase 3.
+/// All areas in square feet (the base unit). EncroachedAreaSqFt: unresolved encroachments.
 public sealed record AreaSummaryDto(
   Guid? CurrentMeasurementId,
   decimal? TotalAreaSqFt,
   decimal? BuiltUpAreaSqFt,
   decimal RegularizedAreaSqFt,
-  decimal? TotalWithRegularizedSqFt);
+  decimal? TotalWithRegularizedSqFt,
+  decimal EncroachedAreaSqFt);
 
 // ---- owners ----
 

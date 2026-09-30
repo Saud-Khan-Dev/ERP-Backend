@@ -50,7 +50,17 @@ public class DocumentService(
       DocumentEntityType.Transfer => await context.Transfers.AnyAsync(t => t.Id == TransferId.Of(id) && t.PropertyId == propertyId, cancellationToken),
       DocumentEntityType.Encumbrance => await context.Encumbrances.AnyAsync(e => e.Id == EncumbranceId.Of(id) && e.PropertyId == propertyId, cancellationToken),
       DocumentEntityType.Regularization => await context.AreaRegularizations.AnyAsync(r => r.Id == AreaRegularizationId.Of(id) && r.PropertyId == propertyId, cancellationToken),
-      _ => throw new DomainException($"Documents for {entityType} records become available when that part of the property module is added.")
+      DocumentEntityType.Allotment => await context.Allotments.AnyAsync(x => x.Id == AllotmentId.Of(id) && x.PropertyId == propertyId, cancellationToken),
+      DocumentEntityType.Lease => await context.Leases.AnyAsync(x => x.Id == LeaseId.Of(id) && x.PropertyId == propertyId, cancellationToken),
+      DocumentEntityType.Rental => await context.Rentals.AnyAsync(x => x.Id == RentalId.Of(id) && x.PropertyId == propertyId, cancellationToken),
+      DocumentEntityType.Violation => await context.Violations.AnyAsync(x => x.Id == ViolationId.Of(id) && x.PropertyId == propertyId, cancellationToken),
+      DocumentEntityType.Auction => await context.Auctions.AnyAsync(x => x.Id == AuctionId.Of(id) && x.PropertyId == propertyId, cancellationToken),
+      DocumentEntityType.Outsourcing => await context.Outsourcings.AnyAsync(x => x.Id == OutsourcingId.Of(id) && x.PropertyId == propertyId, cancellationToken),
+      DocumentEntityType.Encroachment => await context.Encroachments.AnyAsync(x => x.Id == EncroachmentId.Of(id) && x.PropertyId == propertyId, cancellationToken),
+      DocumentEntityType.Litigation => await context.Litigations.AnyAsync(x => x.Id == LitigationId.Of(id) && x.PropertyId == propertyId, cancellationToken),
+      DocumentEntityType.Appeal => await context.Appeals.AnyAsync(x => x.Id == AppealId.Of(id) && x.PropertyId == propertyId, cancellationToken),
+      DocumentEntityType.BuildingPlan => await context.BuildingPlans.AnyAsync(x => x.Id == BuildingPlanId.Of(id) && x.PropertyId == propertyId, cancellationToken),
+      _ => throw new DomainException($"Unknown document entity type {entityType}.")
     };
 
     if (!exists)

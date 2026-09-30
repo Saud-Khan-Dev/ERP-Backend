@@ -4,7 +4,7 @@ using Microsoft.EntityFrameworkCore;
 public class PropertyReadService(IApplicationDbContext context, MasterLookup masters)
 {
   /// Schema guide, "How to read areas": the current measurement gives total and built-up area; active,
-  /// in-force regularizations add to it. Encroached area joins in phase 3.
+  /// in-force regularizations add to it; encroached area is the sum of unresolved encroachments.
   public async Task<AreaSummaryDto> AreaSummaryAsync(PropertyId propertyId, CancellationToken cancellationToken)
   {
     var current = await context.PropertyMeasurements.AsNoTracking()
@@ -19,12 +19,17 @@ public class PropertyReadService(IApplicationDbContext context, MasterLookup mas
 
     var regularized = regularizations.Where(r => r.CountsTowardArea(today)).Sum(r => r.AdditionalAreaBase);
 
+    var encroached = await context.Encroachments.AsNoTracking()
+        .Where(e => e.PropertyId == propertyId && e.ResolutionDate == null)
+        .SumAsync(e => e.EncroachmentAreaBase, cancellationToken);
+
     return new AreaSummaryDto(
       current?.Id.Value,
       current?.TotalAreaBase,
       current?.BuiltUpAreaBase,
       regularized,
-      current is null ? null : current.TotalAreaBase + regularized);
+      current is null ? null : current.TotalAreaBase + regularized,
+      encroached);
   }
 
   public async Task<List<OwnershipDto>> OwnershipDtosAsync(IReadOnlyCollection<PropertyOwnership> ownerships, CancellationToken cancellationToken)

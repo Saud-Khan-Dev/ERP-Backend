@@ -55,8 +55,8 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
 
                     b.Property<string>("Name")
                         .IsRequired()
-                        .HasMaxLength(150)
-                        .HasColumnType("character varying(150)")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
                         .HasColumnName("name");
 
                     b.Property<int>("SortOrder")
@@ -81,6 +81,143 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
                         .HasDatabaseName("ix_agreement_type_code");
 
                     b.ToTable("agreement_type", "property");
+                });
+
+            modelBuilder.Entity("AgreementViolation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("AgreementTypeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("agreement_type_id");
+
+                    b.Property<DateOnly?>("CancellationDate")
+                        .HasColumnType("date")
+                        .HasColumnName("cancellation_date");
+
+                    b.Property<DateTime?>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<decimal?>("FineAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)")
+                        .HasColumnName("fine_amount");
+
+                    b.Property<Guid?>("FineImposedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("fine_imposed_by");
+
+                    b.Property<string>("FineStatus")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("fine_status");
+
+                    b.Property<Guid?>("LeaseId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("lease_id");
+
+                    b.Property<bool>("LedToCancellation")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("led_to_cancellation");
+
+                    b.Property<DateOnly?>("NoticeDate")
+                        .HasColumnType("date")
+                        .HasColumnName("notice_date");
+
+                    b.Property<DateOnly?>("NoticeDeadline")
+                        .HasColumnType("date")
+                        .HasColumnName("notice_deadline");
+
+                    b.Property<string>("NoticeNo")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("notice_no");
+
+                    b.Property<short>("OccurrenceNo")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("smallint")
+                        .HasDefaultValue((short)1)
+                        .HasColumnName("occurrence_no");
+
+                    b.Property<Guid>("PropertyId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("property_id");
+
+                    b.Property<string>("Remarks")
+                        .HasColumnType("text")
+                        .HasColumnName("remarks");
+
+                    b.Property<Guid?>("RentalId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("rental_id");
+
+                    b.Property<Guid?>("TransferId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("transfer_id");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.Property<DateOnly>("ViolationDate")
+                        .HasColumnType("date")
+                        .HasColumnName("violation_date");
+
+                    b.Property<string>("ViolationDescription")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("violation_description");
+
+                    b.Property<string>("ViolationStatus")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasDefaultValue("OPEN")
+                        .HasColumnName("violation_status");
+
+                    b.Property<Guid>("ViolatorOwnerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("violator_owner_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_agreement_violation");
+
+                    b.HasIndex("AgreementTypeId")
+                        .HasDatabaseName("ix_agreement_violation_agreement_type_id");
+
+                    b.HasIndex("LeaseId")
+                        .HasDatabaseName("ix_agreement_violation_lease_id");
+
+                    b.HasIndex("RentalId")
+                        .HasDatabaseName("ix_agreement_violation_rental_id");
+
+                    b.HasIndex("TransferId")
+                        .HasDatabaseName("ix_agreement_violation_transfer_id");
+
+                    b.HasIndex("ViolatorOwnerId")
+                        .HasDatabaseName("ix_agreement_violation_violator_owner_id");
+
+                    b.HasIndex("PropertyId", "ViolationDate")
+                        .HasDatabaseName("ix_agreement_violation_property_id_violation_date");
+
+                    b.ToTable("agreement_violation", "property", t =>
+                        {
+                            t.HasCheckConstraint("ck_agreement_violation_one_agreement", "num_nonnulls(lease_id, rental_id, transfer_id) = 1");
+                        });
                 });
 
             modelBuilder.Entity("AllotmentStatus", b =>
@@ -115,8 +252,8 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
 
                     b.Property<string>("Name")
                         .IsRequired()
-                        .HasMaxLength(150)
-                        .HasColumnType("character varying(150)")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
                         .HasColumnName("name");
 
                     b.Property<int>("SortOrder")
@@ -175,8 +312,8 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
 
                     b.Property<string>("Name")
                         .IsRequired()
-                        .HasMaxLength(150)
-                        .HasColumnType("character varying(150)")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
                         .HasColumnName("name");
 
                     b.Property<int>("SortOrder")
@@ -316,8 +453,8 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
 
                     b.Property<string>("Name")
                         .IsRequired()
-                        .HasMaxLength(150)
-                        .HasColumnType("character varying(150)")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
                         .HasColumnName("name");
 
                     b.Property<int>("SortOrder")
@@ -342,6 +479,61 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
                         .HasDatabaseName("ix_attribute_group_code");
 
                     b.ToTable("attribute_group", "property");
+                });
+
+            modelBuilder.Entity("AuctionBid", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("AuctionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("auction_id");
+
+                    b.Property<decimal>("BidAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)")
+                        .HasColumnName("bid_amount");
+
+                    b.Property<int?>("BidRank")
+                        .HasColumnType("integer")
+                        .HasColumnName("bid_rank");
+
+                    b.Property<Guid>("BidderOwnerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("bidder_owner_id");
+
+                    b.Property<DateTime?>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<decimal?>("EarnestMoney")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)")
+                        .HasColumnName("earnest_money");
+
+                    b.Property<bool>("IsWinning")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_winning");
+
+                    b.Property<string>("Remarks")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
+                        .HasColumnName("remarks");
+
+                    b.HasKey("Id")
+                        .HasName("pk_auction_bid");
+
+                    b.HasIndex("AuctionId")
+                        .HasDatabaseName("ix_auction_bid_auction_id");
+
+                    b.HasIndex("BidderOwnerId")
+                        .HasDatabaseName("ix_auction_bid_bidder_owner_id");
+
+                    b.ToTable("auction_bid", "property");
                 });
 
             modelBuilder.Entity("AuctionStatus", b =>
@@ -376,8 +568,8 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
 
                     b.Property<string>("Name")
                         .IsRequired()
-                        .HasMaxLength(150)
-                        .HasColumnType("character varying(150)")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
                         .HasColumnName("name");
 
                     b.Property<int>("SortOrder")
@@ -436,8 +628,8 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
 
                     b.Property<string>("Name")
                         .IsRequired()
-                        .HasMaxLength(150)
-                        .HasColumnType("character varying(150)")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
                         .HasColumnName("name");
 
                     b.Property<int>("SortOrder")
@@ -462,6 +654,166 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
                         .HasDatabaseName("ix_auction_type_code");
 
                     b.ToTable("auction_type", "property");
+                });
+
+            modelBuilder.Entity("BoundaryPoint", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<decimal>("Latitude")
+                        .HasPrecision(10, 7)
+                        .HasColumnType("numeric(10,7)")
+                        .HasColumnName("latitude");
+
+                    b.Property<decimal>("Longitude")
+                        .HasPrecision(10, 7)
+                        .HasColumnType("numeric(10,7)")
+                        .HasColumnName("longitude");
+
+                    b.Property<Guid>("PropertyBoundaryId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("property_boundary_id");
+
+                    b.Property<int>("SequenceNo")
+                        .HasColumnType("integer")
+                        .HasColumnName("sequence_no");
+
+                    b.HasKey("Id")
+                        .HasName("pk_boundary_point");
+
+                    b.HasIndex("PropertyBoundaryId", "SequenceNo")
+                        .IsUnique()
+                        .HasDatabaseName("ix_boundary_point_property_boundary_id_sequence_no");
+
+                    b.ToTable("boundary_point", "property");
+                });
+
+            modelBuilder.Entity("BuildingPlan", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid?>("ApplicantOwnerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("applicant_owner_id");
+
+                    b.Property<DateOnly?>("ApprovalDate")
+                        .HasColumnType("date")
+                        .HasColumnName("approval_date");
+
+                    b.Property<string>("ApprovalReferenceNo")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("approval_reference_no");
+
+                    b.Property<string>("ApprovedBy")
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("approved_by");
+
+                    b.Property<string>("ArchitectName")
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("architect_name");
+
+                    b.Property<Guid>("BuildingPlanStatusId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("building_plan_status_id");
+
+                    b.Property<Guid>("BuildingPlanTypeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("building_plan_type_id");
+
+                    b.Property<decimal?>("CoveredArea")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("numeric(18,4)")
+                        .HasColumnName("covered_area");
+
+                    b.Property<DateTime?>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<int?>("Floors")
+                        .HasColumnType("integer")
+                        .HasColumnName("floors");
+
+                    b.Property<Guid?>("MeasurementUnitId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("measurement_unit_id");
+
+                    b.Property<string>("PlanNo")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("plan_no");
+
+                    b.Property<Guid>("PropertyId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("property_id");
+
+                    b.Property<string>("Remarks")
+                        .HasColumnType("text")
+                        .HasColumnName("remarks");
+
+                    b.Property<int>("RevisionNo")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0)
+                        .HasColumnName("revision_no");
+
+                    b.Property<DateOnly?>("SubmissionDate")
+                        .HasColumnType("date")
+                        .HasColumnName("submission_date");
+
+                    b.Property<Guid?>("SupersedesPlanId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("supersedes_plan_id");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.Property<DateOnly?>("ValidityEndDate")
+                        .HasColumnType("date")
+                        .HasColumnName("validity_end_date");
+
+                    b.HasKey("Id")
+                        .HasName("pk_building_plan");
+
+                    b.HasIndex("ApplicantOwnerId")
+                        .HasDatabaseName("ix_building_plan_applicant_owner_id");
+
+                    b.HasIndex("BuildingPlanStatusId")
+                        .HasDatabaseName("ix_building_plan_building_plan_status_id");
+
+                    b.HasIndex("BuildingPlanTypeId")
+                        .HasDatabaseName("ix_building_plan_building_plan_type_id");
+
+                    b.HasIndex("MeasurementUnitId")
+                        .HasDatabaseName("ix_building_plan_measurement_unit_id");
+
+                    b.HasIndex("SupersedesPlanId")
+                        .HasDatabaseName("ix_building_plan_supersedes_plan_id");
+
+                    b.HasIndex("PlanNo", "RevisionNo")
+                        .IsUnique()
+                        .HasDatabaseName("ix_building_plan_plan_no_revision_no");
+
+                    b.HasIndex("PropertyId", "BuildingPlanStatusId")
+                        .HasDatabaseName("ix_building_plan_property_id_building_plan_status_id");
+
+                    b.ToTable("building_plan", "property");
                 });
 
             modelBuilder.Entity("BuildingPlanStatus", b =>
@@ -496,8 +848,8 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
 
                     b.Property<string>("Name")
                         .IsRequired()
-                        .HasMaxLength(150)
-                        .HasColumnType("character varying(150)")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
                         .HasColumnName("name");
 
                     b.Property<int>("SortOrder")
@@ -556,8 +908,8 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
 
                     b.Property<string>("Name")
                         .IsRequired()
-                        .HasMaxLength(150)
-                        .HasColumnType("character varying(150)")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
                         .HasColumnName("name");
 
                     b.Property<int>("SortOrder")
@@ -661,8 +1013,8 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
 
                     b.Property<string>("Code")
                         .IsRequired()
-                        .HasMaxLength(30)
-                        .HasColumnType("character varying(30)")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
                         .HasColumnName("code");
 
                     b.Property<DateTime?>("CreatedAt")
@@ -685,8 +1037,8 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
 
                     b.Property<string>("Name")
                         .IsRequired()
-                        .HasMaxLength(150)
-                        .HasColumnType("character varying(150)")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
                         .HasColumnName("name");
 
                     b.Property<int>("SortOrder")
@@ -745,8 +1097,8 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
 
                     b.Property<string>("Name")
                         .IsRequired()
-                        .HasMaxLength(150)
-                        .HasColumnType("character varying(150)")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
                         .HasColumnName("name");
 
                     b.Property<int>("SortOrder")
@@ -805,8 +1157,8 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
 
                     b.Property<string>("Name")
                         .IsRequired()
-                        .HasMaxLength(150)
-                        .HasColumnType("character varying(150)")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
                         .HasColumnName("name");
 
                     b.Property<int>("SortOrder")
@@ -837,6 +1189,40 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
                         .HasDatabaseName("ix_document_type_code");
 
                     b.ToTable("document_type", "property");
+                });
+
+            modelBuilder.Entity("EncroachmentBoundaryPoint", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("EncroachmentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("encroachment_id");
+
+                    b.Property<decimal>("Latitude")
+                        .HasPrecision(10, 7)
+                        .HasColumnType("numeric(10,7)")
+                        .HasColumnName("latitude");
+
+                    b.Property<decimal>("Longitude")
+                        .HasPrecision(10, 7)
+                        .HasColumnType("numeric(10,7)")
+                        .HasColumnName("longitude");
+
+                    b.Property<int>("SequenceNo")
+                        .HasColumnType("integer")
+                        .HasColumnName("sequence_no");
+
+                    b.HasKey("Id")
+                        .HasName("pk_encroachment_boundary_point");
+
+                    b.HasIndex("EncroachmentId", "SequenceNo")
+                        .IsUnique()
+                        .HasDatabaseName("ix_encroachment_boundary_point_encroachment_id_sequence_no");
+
+                    b.ToTable("encroachment_boundary_point", "property");
                 });
 
             modelBuilder.Entity("EncroachmentStatus", b =>
@@ -871,8 +1257,8 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
 
                     b.Property<string>("Name")
                         .IsRequired()
-                        .HasMaxLength(150)
-                        .HasColumnType("character varying(150)")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
                         .HasColumnName("name");
 
                     b.Property<int>("SortOrder")
@@ -931,8 +1317,8 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
 
                     b.Property<string>("Name")
                         .IsRequired()
-                        .HasMaxLength(150)
-                        .HasColumnType("character varying(150)")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
                         .HasColumnName("name");
 
                     b.Property<int>("SortOrder")
@@ -991,8 +1377,8 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
 
                     b.Property<string>("Name")
                         .IsRequired()
-                        .HasMaxLength(150)
-                        .HasColumnType("character varying(150)")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
                         .HasColumnName("name");
 
                     b.Property<int>("SortOrder")
@@ -1051,8 +1437,8 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
 
                     b.Property<string>("Name")
                         .IsRequired()
-                        .HasMaxLength(150)
-                        .HasColumnType("character varying(150)")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
                         .HasColumnName("name");
 
                     b.Property<int>("SortOrder")
@@ -1077,6 +1463,98 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
                         .HasDatabaseName("ix_lease_type_code");
 
                     b.ToTable("lease_type", "property");
+                });
+
+            modelBuilder.Entity("LitigationHearing", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("AttendedBy")
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("attended_by");
+
+                    b.Property<DateTime?>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateOnly>("HearingDate")
+                        .HasColumnType("date")
+                        .HasColumnName("hearing_date");
+
+                    b.Property<Guid>("LitigationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("litigation_id");
+
+                    b.Property<DateOnly?>("NextHearingDate")
+                        .HasColumnType("date")
+                        .HasColumnName("next_hearing_date");
+
+                    b.Property<string>("OrderPassed")
+                        .HasColumnType("text")
+                        .HasColumnName("order_passed");
+
+                    b.Property<string>("Proceedings")
+                        .HasColumnType("text")
+                        .HasColumnName("proceedings");
+
+                    b.HasKey("Id")
+                        .HasName("pk_litigation_hearing");
+
+                    b.HasIndex("LitigationId")
+                        .HasDatabaseName("ix_litigation_hearing_litigation_id");
+
+                    b.ToTable("litigation_hearing", "property");
+                });
+
+            modelBuilder.Entity("LitigationParty", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("CounselName")
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("counsel_name");
+
+                    b.Property<Guid>("LitigationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("litigation_id");
+
+                    b.Property<string>("PartyName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("party_name");
+
+                    b.Property<Guid?>("PartyOwnerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("party_owner_id");
+
+                    b.Property<string>("PartyRole")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)")
+                        .HasColumnName("party_role");
+
+                    b.Property<string>("Remarks")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
+                        .HasColumnName("remarks");
+
+                    b.HasKey("Id")
+                        .HasName("pk_litigation_party");
+
+                    b.HasIndex("LitigationId")
+                        .HasDatabaseName("ix_litigation_party_litigation_id");
+
+                    b.HasIndex("PartyOwnerId")
+                        .HasDatabaseName("ix_litigation_party_party_owner_id");
+
+                    b.ToTable("litigation_party", "property");
                 });
 
             modelBuilder.Entity("LitigationStatus", b =>
@@ -1111,8 +1589,8 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
 
                     b.Property<string>("Name")
                         .IsRequired()
-                        .HasMaxLength(150)
-                        .HasColumnType("character varying(150)")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
                         .HasColumnName("name");
 
                     b.Property<int>("SortOrder")
@@ -1171,8 +1649,8 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
 
                     b.Property<string>("Name")
                         .IsRequired()
-                        .HasMaxLength(150)
-                        .HasColumnType("character varying(150)")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
                         .HasColumnName("name");
 
                     b.Property<int>("SortOrder")
@@ -1207,8 +1685,8 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
 
                     b.Property<string>("Code")
                         .IsRequired()
-                        .HasMaxLength(30)
-                        .HasColumnType("character varying(30)")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
                         .HasColumnName("code");
 
                     b.Property<DateTime?>("CreatedAt")
@@ -1242,8 +1720,8 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
 
                     b.Property<string>("Name")
                         .IsRequired()
-                        .HasMaxLength(150)
-                        .HasColumnType("character varying(150)")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
                         .HasColumnName("name");
 
                     b.Property<int>("SortOrder")
@@ -1310,8 +1788,8 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
 
                     b.Property<string>("Name")
                         .IsRequired()
-                        .HasMaxLength(150)
-                        .HasColumnType("character varying(150)")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
                         .HasColumnName("name");
 
                     b.Property<int>("SortOrder")
@@ -1522,8 +2000,8 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
 
                     b.Property<string>("Name")
                         .IsRequired()
-                        .HasMaxLength(150)
-                        .HasColumnType("character varying(150)")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
                         .HasColumnName("name");
 
                     b.Property<int>("SortOrder")
@@ -1649,6 +2127,246 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
                         .HasDatabaseName("ix_property_town_id");
 
                     b.ToTable("property", "property");
+                });
+
+            modelBuilder.Entity("PropertyAllotment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateOnly>("AllotmentDate")
+                        .HasColumnType("date")
+                        .HasColumnName("allotment_date");
+
+                    b.Property<string>("AllotmentLetterRef")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("allotment_letter_ref");
+
+                    b.Property<string>("AllotmentNo")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("allotment_no");
+
+                    b.Property<Guid>("AllotmentStatusId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("allotment_status_id");
+
+                    b.Property<Guid>("AllotmentTypeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("allotment_type_id");
+
+                    b.Property<Guid>("AllotteeOwnerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("allottee_owner_id");
+
+                    b.Property<DateOnly?>("CancellationDate")
+                        .HasColumnType("date")
+                        .HasColumnName("cancellation_date");
+
+                    b.Property<string>("CancellationOrderRef")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("cancellation_order_ref");
+
+                    b.Property<string>("CancellationReason")
+                        .HasColumnType("text")
+                        .HasColumnName("cancellation_reason");
+
+                    b.Property<string>("Conditions")
+                        .HasColumnType("text")
+                        .HasColumnName("conditions");
+
+                    b.Property<DateTime?>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateOnly?>("EffectiveDate")
+                        .HasColumnType("date")
+                        .HasColumnName("effective_date");
+
+                    b.Property<DateOnly?>("ExpiryDate")
+                        .HasColumnType("date")
+                        .HasColumnName("expiry_date");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("is_active");
+
+                    b.Property<Guid>("PropertyId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("property_id");
+
+                    b.Property<string>("Remarks")
+                        .HasColumnType("text")
+                        .HasColumnName("remarks");
+
+                    b.Property<DateOnly?>("RestorationDate")
+                        .HasColumnType("date")
+                        .HasColumnName("restoration_date");
+
+                    b.Property<string>("RestorationOrderRef")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("restoration_order_ref");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_property_allotment");
+
+                    b.HasIndex("AllotmentNo")
+                        .IsUnique()
+                        .HasDatabaseName("ix_property_allotment_allotment_no");
+
+                    b.HasIndex("AllotmentStatusId")
+                        .HasDatabaseName("ix_property_allotment_allotment_status_id");
+
+                    b.HasIndex("AllotmentTypeId")
+                        .HasDatabaseName("ix_property_allotment_allotment_type_id");
+
+                    b.HasIndex("AllotteeOwnerId")
+                        .HasDatabaseName("ix_property_allotment_allottee_owner_id");
+
+                    b.HasIndex("PropertyId", "AllotmentStatusId")
+                        .HasDatabaseName("ix_property_allotment_property_id_allotment_status_id");
+
+                    b.ToTable("property_allotment", "property");
+                });
+
+            modelBuilder.Entity("PropertyAppeal", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateOnly>("AppealDate")
+                        .HasColumnType("date")
+                        .HasColumnName("appeal_date");
+
+                    b.Property<string>("AppealNo")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("appeal_no");
+
+                    b.Property<string>("AppealStatus")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasDefaultValue("FILED")
+                        .HasColumnName("appeal_status");
+
+                    b.Property<DateOnly>("AppealedOrderDate")
+                        .HasColumnType("date")
+                        .HasColumnName("appealed_order_date");
+
+                    b.Property<string>("AppealedOrderRef")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("appealed_order_ref");
+
+                    b.Property<Guid>("AppellantOwnerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("appellant_owner_id");
+
+                    b.Property<string>("AppellateAuthority")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasDefaultValue("Chief Secretary, Khyber Pakhtunkhwa")
+                        .HasColumnName("appellate_authority");
+
+                    b.Property<DateTime?>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateOnly?>("DecisionDate")
+                        .HasColumnType("date")
+                        .HasColumnName("decision_date");
+
+                    b.Property<string>("DecisionDetails")
+                        .HasColumnType("text")
+                        .HasColumnName("decision_details");
+
+                    b.Property<DateOnly>("DecisionDueDate")
+                        .HasColumnType("date")
+                        .HasColumnName("decision_due_date");
+
+                    b.Property<string>("DecisionOutcome")
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)")
+                        .HasColumnName("decision_outcome");
+
+                    b.Property<string>("DelegatedOfficer")
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("delegated_officer");
+
+                    b.Property<DateOnly?>("OrderReceivedDate")
+                        .HasColumnType("date")
+                        .HasColumnName("order_received_date");
+
+                    b.Property<Guid?>("OrderSourceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("order_source_id");
+
+                    b.Property<string>("OrderSourceTable")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("order_source_table");
+
+                    b.Property<Guid>("PropertyId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("property_id");
+
+                    b.Property<string>("Remarks")
+                        .HasColumnType("text")
+                        .HasColumnName("remarks");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_property_appeal");
+
+                    b.HasIndex("AppealNo")
+                        .IsUnique()
+                        .HasDatabaseName("ix_property_appeal_appeal_no");
+
+                    b.HasIndex("AppellantOwnerId")
+                        .HasDatabaseName("ix_property_appeal_appellant_owner_id");
+
+                    b.HasIndex("PropertyId")
+                        .HasDatabaseName("ix_property_appeal_property_id");
+
+                    b.ToTable("property_appeal", "property");
                 });
 
             modelBuilder.Entity("PropertyAreaRegularization", b =>
@@ -1802,6 +2520,177 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
                     b.ToTable("property_attribute_value", "property");
                 });
 
+            modelBuilder.Entity("PropertyAuction", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateOnly?>("AnnouncementDate")
+                        .HasColumnType("date")
+                        .HasColumnName("announcement_date");
+
+                    b.Property<string>("AuctionCommitteeRef")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("auction_committee_ref");
+
+                    b.Property<DateOnly?>("AuctionDate")
+                        .HasColumnType("date")
+                        .HasColumnName("auction_date");
+
+                    b.Property<string>("AuctionNo")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("auction_no");
+
+                    b.Property<Guid>("AuctionStatusId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("auction_status_id");
+
+                    b.Property<Guid>("AuctionTypeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("auction_type_id");
+
+                    b.Property<DateOnly?>("AwardDate")
+                        .HasColumnType("date")
+                        .HasColumnName("award_date");
+
+                    b.Property<string>("AwardReferenceNo")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("award_reference_no");
+
+                    b.Property<decimal?>("BaseReservePrice")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)")
+                        .HasColumnName("base_reserve_price");
+
+                    b.Property<DateTime?>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid>("PropertyId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("property_id");
+
+                    b.Property<string>("ReferenceNo")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("reference_no");
+
+                    b.Property<string>("Remarks")
+                        .HasColumnType("text")
+                        .HasColumnName("remarks");
+
+                    b.Property<Guid?>("SuccessfulBidderOwnerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("successful_bidder_owner_id");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.Property<string>("Venue")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("venue");
+
+                    b.Property<decimal?>("WinningBidAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)")
+                        .HasColumnName("winning_bid_amount");
+
+                    b.HasKey("Id")
+                        .HasName("pk_property_auction");
+
+                    b.HasIndex("AuctionNo")
+                        .IsUnique()
+                        .HasDatabaseName("ix_property_auction_auction_no");
+
+                    b.HasIndex("AuctionStatusId")
+                        .HasDatabaseName("ix_property_auction_auction_status_id");
+
+                    b.HasIndex("AuctionTypeId")
+                        .HasDatabaseName("ix_property_auction_auction_type_id");
+
+                    b.HasIndex("SuccessfulBidderOwnerId")
+                        .HasDatabaseName("ix_property_auction_successful_bidder_owner_id");
+
+                    b.HasIndex("PropertyId", "AuctionStatusId")
+                        .HasDatabaseName("ix_property_auction_property_id_auction_status_id");
+
+                    b.ToTable("property_auction", "property");
+                });
+
+            modelBuilder.Entity("PropertyBoundary", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("BoundaryType")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)")
+                        .HasDefaultValue("ORIGINAL")
+                        .HasColumnName("boundary_type");
+
+                    b.Property<DateTime?>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<bool>("IsCurrent")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("is_current");
+
+                    b.Property<Guid>("PropertyId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("property_id");
+
+                    b.Property<string>("Remarks")
+                        .HasColumnType("text")
+                        .HasColumnName("remarks");
+
+                    b.Property<decimal?>("SlopePercentage")
+                        .HasPrecision(8, 4)
+                        .HasColumnType("numeric(8,4)")
+                        .HasColumnName("slope_percentage");
+
+                    b.Property<DateOnly?>("SurveyDate")
+                        .HasColumnType("date")
+                        .HasColumnName("survey_date");
+
+                    b.Property<string>("SurveySource")
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("survey_source");
+
+                    b.HasKey("Id")
+                        .HasName("pk_property_boundary");
+
+                    b.HasIndex("PropertyId")
+                        .HasDatabaseName("ix_property_boundary_property_id");
+
+                    b.ToTable("property_boundary", "property");
+                });
+
             modelBuilder.Entity("PropertyClassification", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1834,8 +2723,8 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
 
                     b.Property<string>("Name")
                         .IsRequired()
-                        .HasMaxLength(150)
-                        .HasColumnType("character varying(150)")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
                         .HasColumnName("name");
 
                     b.Property<int>("SortOrder")
@@ -2009,6 +2898,126 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
                         });
                 });
 
+            modelBuilder.Entity("PropertyEncroachment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime?>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Description")
+                        .HasColumnType("text")
+                        .HasColumnName("description");
+
+                    b.Property<DateOnly>("DetectionDate")
+                        .HasColumnType("date")
+                        .HasColumnName("detection_date");
+
+                    b.Property<DateOnly?>("EffectiveDate")
+                        .HasColumnType("date")
+                        .HasColumnName("effective_date");
+
+                    b.Property<string>("EncroacherName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("encroacher_name");
+
+                    b.Property<Guid?>("EncroacherOwnerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("encroacher_owner_id");
+
+                    b.Property<decimal>("EncroachmentArea")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("numeric(18,4)")
+                        .HasColumnName("encroachment_area");
+
+                    b.Property<decimal>("EncroachmentAreaBase")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("numeric(18,4)")
+                        .HasColumnName("encroachment_area_base");
+
+                    b.Property<string>("EncroachmentNo")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("encroachment_no");
+
+                    b.Property<Guid>("EncroachmentStatusId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("encroachment_status_id");
+
+                    b.Property<Guid>("MeasurementUnitId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("measurement_unit_id");
+
+                    b.Property<DateOnly?>("NoticeDate")
+                        .HasColumnType("date")
+                        .HasColumnName("notice_date");
+
+                    b.Property<string>("NoticeNo")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("notice_no");
+
+                    b.Property<Guid>("PropertyId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("property_id");
+
+                    b.Property<string>("Remarks")
+                        .HasColumnType("text")
+                        .HasColumnName("remarks");
+
+                    b.Property<DateOnly?>("ResolutionDate")
+                        .HasColumnType("date")
+                        .HasColumnName("resolution_date");
+
+                    b.Property<string>("ResolutionReferenceNo")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("resolution_reference_no");
+
+                    b.Property<string>("ResolutionType")
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)")
+                        .HasColumnName("resolution_type");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_property_encroachment");
+
+                    b.HasIndex("EncroacherOwnerId")
+                        .HasDatabaseName("ix_property_encroachment_encroacher_owner_id");
+
+                    b.HasIndex("EncroachmentNo")
+                        .IsUnique()
+                        .HasDatabaseName("ix_property_encroachment_encroachment_no");
+
+                    b.HasIndex("EncroachmentStatusId")
+                        .HasDatabaseName("ix_property_encroachment_encroachment_status_id");
+
+                    b.HasIndex("MeasurementUnitId")
+                        .HasDatabaseName("ix_property_encroachment_measurement_unit_id");
+
+                    b.HasIndex("PropertyId", "EncroachmentStatusId")
+                        .HasDatabaseName("ix_property_encroachment_property_id_encroachment_status_id");
+
+                    b.ToTable("property_encroachment", "property");
+                });
+
             modelBuilder.Entity("PropertyEncumbrance", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2108,6 +3117,282 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
                     b.ToTable("property_encumbrance", "property");
                 });
 
+            modelBuilder.Entity("PropertyLease", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateOnly?>("AgreementDate")
+                        .HasColumnType("date")
+                        .HasColumnName("agreement_date");
+
+                    b.Property<string>("AgreementReference")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("agreement_reference");
+
+                    b.Property<string>("AmountFrequency")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("amount_frequency");
+
+                    b.Property<DateTime?>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<bool>("IsRenewable")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_renewable");
+
+                    b.Property<decimal?>("LeaseAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)")
+                        .HasColumnName("lease_amount");
+
+                    b.Property<DateOnly>("LeaseEndDate")
+                        .HasColumnType("date")
+                        .HasColumnName("lease_end_date");
+
+                    b.Property<string>("LeaseNo")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("lease_no");
+
+                    b.Property<string>("LeasePurpose")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("lease_purpose");
+
+                    b.Property<DateOnly>("LeaseStartDate")
+                        .HasColumnType("date")
+                        .HasColumnName("lease_start_date");
+
+                    b.Property<Guid>("LeaseStatusId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("lease_status_id");
+
+                    b.Property<int?>("LeaseTermYears")
+                        .HasColumnType("integer")
+                        .HasColumnName("lease_term_years");
+
+                    b.Property<Guid>("LeaseTypeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("lease_type_id");
+
+                    b.Property<Guid>("LesseeOwnerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("lessee_owner_id");
+
+                    b.Property<Guid>("PropertyId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("property_id");
+
+                    b.Property<string>("Remarks")
+                        .HasColumnType("text")
+                        .HasColumnName("remarks");
+
+                    b.Property<Guid?>("RenewedFromLeaseId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("renewed_from_lease_id");
+
+                    b.Property<decimal?>("SecurityDeposit")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)")
+                        .HasColumnName("security_deposit");
+
+                    b.Property<DateOnly?>("TerminationDate")
+                        .HasColumnType("date")
+                        .HasColumnName("termination_date");
+
+                    b.Property<string>("TerminationReason")
+                        .HasColumnType("text")
+                        .HasColumnName("termination_reason");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_property_lease");
+
+                    b.HasIndex("LeaseEndDate")
+                        .HasDatabaseName("ix_property_lease_lease_end_date");
+
+                    b.HasIndex("LeaseNo")
+                        .IsUnique()
+                        .HasDatabaseName("ix_property_lease_lease_no");
+
+                    b.HasIndex("LeaseStatusId")
+                        .HasDatabaseName("ix_property_lease_lease_status_id");
+
+                    b.HasIndex("LeaseTypeId")
+                        .HasDatabaseName("ix_property_lease_lease_type_id");
+
+                    b.HasIndex("LesseeOwnerId")
+                        .HasDatabaseName("ix_property_lease_lessee_owner_id");
+
+                    b.HasIndex("RenewedFromLeaseId")
+                        .HasDatabaseName("ix_property_lease_renewed_from_lease_id");
+
+                    b.HasIndex("PropertyId", "LeaseStatusId")
+                        .HasDatabaseName("ix_property_lease_property_id_lease_status_id");
+
+                    b.ToTable("property_lease", "property");
+                });
+
+            modelBuilder.Entity("PropertyLitigation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("AppealedTo")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("appealed_to");
+
+                    b.Property<string>("CaseNo")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("case_no");
+
+                    b.Property<string>("CaseTitle")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
+                        .HasColumnName("case_title");
+
+                    b.Property<string>("CourtAuthority")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("court_authority");
+
+                    b.Property<DateTime?>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateOnly?>("DecisionDate")
+                        .HasColumnType("date")
+                        .HasColumnName("decision_date");
+
+                    b.Property<string>("DecisionOutcome")
+                        .HasColumnType("text")
+                        .HasColumnName("decision_outcome");
+
+                    b.Property<Guid?>("FiledByOfficerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("filed_by_officer_id");
+
+                    b.Property<DateOnly?>("FilingDate")
+                        .HasColumnType("date")
+                        .HasColumnName("filing_date");
+
+                    b.Property<string>("GdaCounsel")
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("gda_counsel");
+
+                    b.Property<string>("GdaRole")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("gda_role");
+
+                    b.Property<Guid>("LitigationStatusId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("litigation_status_id");
+
+                    b.Property<Guid>("LitigationTypeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("litigation_type_id");
+
+                    b.Property<DateOnly?>("NextHearingDate")
+                        .HasColumnType("date")
+                        .HasColumnName("next_hearing_date");
+
+                    b.Property<Guid?>("ParentLitigationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("parent_litigation_id");
+
+                    b.Property<Guid>("PropertyId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("property_id");
+
+                    b.Property<Guid?>("RelatedAllotmentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("related_allotment_id");
+
+                    b.Property<Guid?>("RelatedEncroachmentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("related_encroachment_id");
+
+                    b.Property<Guid?>("RelatedLeaseId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("related_lease_id");
+
+                    b.Property<string>("Remarks")
+                        .HasColumnType("text")
+                        .HasColumnName("remarks");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_property_litigation");
+
+                    b.HasIndex("LitigationStatusId")
+                        .HasDatabaseName("ix_property_litigation_litigation_status_id");
+
+                    b.HasIndex("LitigationTypeId")
+                        .HasDatabaseName("ix_property_litigation_litigation_type_id");
+
+                    b.HasIndex("NextHearingDate")
+                        .HasDatabaseName("ix_property_litigation_next_hearing_date");
+
+                    b.HasIndex("ParentLitigationId")
+                        .HasDatabaseName("ix_property_litigation_parent_litigation_id");
+
+                    b.HasIndex("RelatedAllotmentId")
+                        .HasDatabaseName("ix_property_litigation_related_allotment_id");
+
+                    b.HasIndex("RelatedEncroachmentId")
+                        .HasDatabaseName("ix_property_litigation_related_encroachment_id");
+
+                    b.HasIndex("RelatedLeaseId")
+                        .HasDatabaseName("ix_property_litigation_related_lease_id");
+
+                    b.HasIndex("CaseNo", "CourtAuthority")
+                        .IsUnique()
+                        .HasDatabaseName("ix_property_litigation_case_no_court_authority");
+
+                    b.HasIndex("PropertyId", "LitigationStatusId")
+                        .HasDatabaseName("ix_property_litigation_property_id_litigation_status_id");
+
+                    b.ToTable("property_litigation", "property");
+                });
+
             modelBuilder.Entity("PropertyMeasurement", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2194,6 +3479,117 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
 
                             t.HasCheckConstraint("ck_property_measurement_total_area", "total_area > 0");
                         });
+                });
+
+            modelBuilder.Entity("PropertyOutsourcing", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("AmountFrequency")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("amount_frequency");
+
+                    b.Property<decimal?>("ContractAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)")
+                        .HasColumnName("contract_amount");
+
+                    b.Property<DateOnly?>("ContractEndDate")
+                        .HasColumnType("date")
+                        .HasColumnName("contract_end_date");
+
+                    b.Property<string>("ContractNo")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("contract_no");
+
+                    b.Property<DateOnly>("ContractStartDate")
+                        .HasColumnType("date")
+                        .HasColumnName("contract_start_date");
+
+                    b.Property<Guid>("ContractStatusId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("contract_status_id");
+
+                    b.Property<DateTime?>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid>("OutsourcedPartyOwnerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("outsourced_party_owner_id");
+
+                    b.Property<Guid>("OutsourcingTypeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("outsourcing_type_id");
+
+                    b.Property<decimal?>("PerformanceGuarantee")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)")
+                        .HasColumnName("performance_guarantee");
+
+                    b.Property<Guid>("PropertyId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("property_id");
+
+                    b.Property<string>("PurposeService")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
+                        .HasColumnName("purpose_service");
+
+                    b.Property<string>("ReferenceNo")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("reference_no");
+
+                    b.Property<string>("Remarks")
+                        .HasColumnType("text")
+                        .HasColumnName("remarks");
+
+                    b.Property<DateOnly?>("TerminationDate")
+                        .HasColumnType("date")
+                        .HasColumnName("termination_date");
+
+                    b.Property<string>("TerminationReason")
+                        .HasColumnType("text")
+                        .HasColumnName("termination_reason");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_property_outsourcing");
+
+                    b.HasIndex("ContractNo")
+                        .IsUnique()
+                        .HasDatabaseName("ix_property_outsourcing_contract_no");
+
+                    b.HasIndex("ContractStatusId")
+                        .HasDatabaseName("ix_property_outsourcing_contract_status_id");
+
+                    b.HasIndex("OutsourcedPartyOwnerId")
+                        .HasDatabaseName("ix_property_outsourcing_outsourced_party_owner_id");
+
+                    b.HasIndex("OutsourcingTypeId")
+                        .HasDatabaseName("ix_property_outsourcing_outsourcing_type_id");
+
+                    b.HasIndex("PropertyId", "ContractStatusId")
+                        .HasDatabaseName("ix_property_outsourcing_property_id_contract_status_id");
+
+                    b.ToTable("property_outsourcing", "property");
                 });
 
             modelBuilder.Entity("PropertyOwner", b =>
@@ -2379,6 +3775,9 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
                     b.HasKey("Id")
                         .HasName("pk_property_ownership");
 
+                    b.HasIndex("AcquiredViaAllotmentId")
+                        .HasDatabaseName("ix_property_ownership_acquired_via_allotment_id");
+
                     b.HasIndex("AcquiredViaTransferId")
                         .HasDatabaseName("ix_property_ownership_acquired_via_transfer_id");
 
@@ -2404,6 +3803,131 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
 
                             t.HasCheckConstraint("ck_property_ownership_share", "ownership_share_pct > 0 AND ownership_share_pct <= 100");
                         });
+                });
+
+            modelBuilder.Entity("PropertyRental", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateOnly?>("AgreementDate")
+                        .HasColumnType("date")
+                        .HasColumnName("agreement_date");
+
+                    b.Property<string>("AgreementReference")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("agreement_reference");
+
+                    b.Property<decimal?>("AnnualIncreasePct")
+                        .HasPrecision(5, 2)
+                        .HasColumnType("numeric(5,2)")
+                        .HasColumnName("annual_increase_pct");
+
+                    b.Property<DateTime?>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid>("PropertyId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("property_id");
+
+                    b.Property<string>("Remarks")
+                        .HasColumnType("text")
+                        .HasColumnName("remarks");
+
+                    b.Property<Guid?>("RenewedFromRentalId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("renewed_from_rental_id");
+
+                    b.Property<decimal>("RentAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)")
+                        .HasColumnName("rent_amount");
+
+                    b.Property<string>("RentFrequency")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasDefaultValue("MONTHLY")
+                        .HasColumnName("rent_frequency");
+
+                    b.Property<DateOnly?>("RentalEndDate")
+                        .HasColumnType("date")
+                        .HasColumnName("rental_end_date");
+
+                    b.Property<string>("RentalNo")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("rental_no");
+
+                    b.Property<DateOnly>("RentalStartDate")
+                        .HasColumnType("date")
+                        .HasColumnName("rental_start_date");
+
+                    b.Property<Guid>("RentalStatusId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("rental_status_id");
+
+                    b.Property<Guid>("RentalTypeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("rental_type_id");
+
+                    b.Property<decimal?>("SecurityDeposit")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)")
+                        .HasColumnName("security_deposit");
+
+                    b.Property<Guid>("TenantOwnerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_owner_id");
+
+                    b.Property<DateOnly?>("TerminationDate")
+                        .HasColumnType("date")
+                        .HasColumnName("termination_date");
+
+                    b.Property<string>("TerminationReason")
+                        .HasColumnType("text")
+                        .HasColumnName("termination_reason");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_property_rental");
+
+                    b.HasIndex("RenewedFromRentalId")
+                        .HasDatabaseName("ix_property_rental_renewed_from_rental_id");
+
+                    b.HasIndex("RentalNo")
+                        .IsUnique()
+                        .HasDatabaseName("ix_property_rental_rental_no");
+
+                    b.HasIndex("RentalStatusId")
+                        .HasDatabaseName("ix_property_rental_rental_status_id");
+
+                    b.HasIndex("RentalTypeId")
+                        .HasDatabaseName("ix_property_rental_rental_type_id");
+
+                    b.HasIndex("TenantOwnerId")
+                        .HasDatabaseName("ix_property_rental_tenant_owner_id");
+
+                    b.HasIndex("PropertyId", "RentalStatusId")
+                        .HasDatabaseName("ix_property_rental_property_id_rental_status_id");
+
+                    b.ToTable("property_rental", "property");
                 });
 
             modelBuilder.Entity("PropertyStatus", b =>
@@ -2438,8 +3962,8 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
 
                     b.Property<string>("Name")
                         .IsRequired()
-                        .HasMaxLength(150)
-                        .HasColumnType("character varying(150)")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
                         .HasColumnName("name");
 
                     b.Property<int>("SortOrder")
@@ -2713,8 +4237,8 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
 
                     b.Property<string>("Name")
                         .IsRequired()
-                        .HasMaxLength(150)
-                        .HasColumnType("character varying(150)")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
                         .HasColumnName("name");
 
                     b.Property<int>("SortOrder")
@@ -2773,8 +4297,8 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
 
                     b.Property<string>("Name")
                         .IsRequired()
-                        .HasMaxLength(150)
-                        .HasColumnType("character varying(150)")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
                         .HasColumnName("name");
 
                     b.Property<int>("SortOrder")
@@ -2833,8 +4357,8 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
 
                     b.Property<string>("Name")
                         .IsRequired()
-                        .HasMaxLength(150)
-                        .HasColumnType("character varying(150)")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
                         .HasColumnName("name");
 
                     b.Property<int>("SortOrder")
@@ -2893,8 +4417,8 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
 
                     b.Property<string>("Name")
                         .IsRequired()
-                        .HasMaxLength(150)
-                        .HasColumnType("character varying(150)")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
                         .HasColumnName("name");
 
                     b.Property<int>("SortOrder")
@@ -2929,8 +4453,8 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
 
                     b.Property<string>("Code")
                         .IsRequired()
-                        .HasMaxLength(30)
-                        .HasColumnType("character varying(30)")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
                         .HasColumnName("code");
 
                     b.Property<DateTime?>("CreatedAt")
@@ -3013,8 +4537,8 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
 
                     b.Property<string>("Name")
                         .IsRequired()
-                        .HasMaxLength(150)
-                        .HasColumnType("character varying(150)")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
                         .HasColumnName("name");
 
                     b.Property<bool>("RequiresRelationship")
@@ -3047,6 +4571,48 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
                     b.ToTable("transfer_type", "property");
                 });
 
+            modelBuilder.Entity("AgreementViolation", b =>
+                {
+                    b.HasOne("AgreementType", null)
+                        .WithMany()
+                        .HasForeignKey("AgreementTypeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_agreement_violation_agreement_type_agreement_type_id");
+
+                    b.HasOne("PropertyLease", null)
+                        .WithMany()
+                        .HasForeignKey("LeaseId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_agreement_violation_property_lease_lease_id");
+
+                    b.HasOne("Property", null)
+                        .WithMany()
+                        .HasForeignKey("PropertyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_agreement_violation_property_property_id");
+
+                    b.HasOne("PropertyRental", null)
+                        .WithMany()
+                        .HasForeignKey("RentalId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_agreement_violation_property_rental_rental_id");
+
+                    b.HasOne("PropertyTransfer", null)
+                        .WithMany()
+                        .HasForeignKey("TransferId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_agreement_violation_property_transfer_transfer_id");
+
+                    b.HasOne("PropertyOwner", null)
+                        .WithMany()
+                        .HasForeignKey("ViolatorOwnerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_agreement_violation_property_owner_violator_owner_id");
+                });
+
             modelBuilder.Entity("AttributeDefinition", b =>
                 {
                     b.HasOne("AttributeGroup", null)
@@ -3055,6 +4621,111 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_attribute_definition_attribute_group_attribute_group_id");
+                });
+
+            modelBuilder.Entity("AuctionBid", b =>
+                {
+                    b.HasOne("PropertyAuction", null)
+                        .WithMany("Bids")
+                        .HasForeignKey("AuctionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_auction_bid_property_auction_auction_id");
+
+                    b.HasOne("PropertyOwner", null)
+                        .WithMany()
+                        .HasForeignKey("BidderOwnerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_auction_bid_property_owner_bidder_owner_id");
+                });
+
+            modelBuilder.Entity("BoundaryPoint", b =>
+                {
+                    b.HasOne("PropertyBoundary", null)
+                        .WithMany("Points")
+                        .HasForeignKey("PropertyBoundaryId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_boundary_point_property_boundary_property_boundary_id");
+                });
+
+            modelBuilder.Entity("BuildingPlan", b =>
+                {
+                    b.HasOne("PropertyOwner", null)
+                        .WithMany()
+                        .HasForeignKey("ApplicantOwnerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_building_plan_property_owner_applicant_owner_id");
+
+                    b.HasOne("BuildingPlanStatus", null)
+                        .WithMany()
+                        .HasForeignKey("BuildingPlanStatusId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_building_plan_building_plan_status_building_plan_status_id");
+
+                    b.HasOne("BuildingPlanType", null)
+                        .WithMany()
+                        .HasForeignKey("BuildingPlanTypeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_building_plan_building_plan_type_building_plan_type_id");
+
+                    b.HasOne("MeasurementUnit", null)
+                        .WithMany()
+                        .HasForeignKey("MeasurementUnitId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_building_plan_measurement_unit_measurement_unit_id");
+
+                    b.HasOne("Property", null)
+                        .WithMany()
+                        .HasForeignKey("PropertyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_building_plan_property_property_id");
+
+                    b.HasOne("BuildingPlan", null)
+                        .WithMany()
+                        .HasForeignKey("SupersedesPlanId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_building_plan_building_plan_supersedes_plan_id");
+                });
+
+            modelBuilder.Entity("EncroachmentBoundaryPoint", b =>
+                {
+                    b.HasOne("PropertyEncroachment", null)
+                        .WithMany("Points")
+                        .HasForeignKey("EncroachmentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_encroachment_boundary_point_property_encroachment_encroachm");
+                });
+
+            modelBuilder.Entity("LitigationHearing", b =>
+                {
+                    b.HasOne("PropertyLitigation", null)
+                        .WithMany("Hearings")
+                        .HasForeignKey("LitigationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_litigation_hearing_property_litigation_litigation_id");
+                });
+
+            modelBuilder.Entity("LitigationParty", b =>
+                {
+                    b.HasOne("PropertyLitigation", null)
+                        .WithMany("Parties")
+                        .HasForeignKey("LitigationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_litigation_party_property_litigation_litigation_id");
+
+                    b.HasOne("PropertyOwner", null)
+                        .WithMany()
+                        .HasForeignKey("PartyOwnerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_litigation_party_property_owner_party_owner_id");
                 });
 
             modelBuilder.Entity("OwnerAddress", b =>
@@ -3115,6 +4786,54 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
                         .HasConstraintName("fk_property_town_town_id");
                 });
 
+            modelBuilder.Entity("PropertyAllotment", b =>
+                {
+                    b.HasOne("AllotmentStatus", null)
+                        .WithMany()
+                        .HasForeignKey("AllotmentStatusId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_property_allotment_allotment_status_allotment_status_id");
+
+                    b.HasOne("AllotmentType", null)
+                        .WithMany()
+                        .HasForeignKey("AllotmentTypeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_property_allotment_allotment_type_allotment_type_id");
+
+                    b.HasOne("PropertyOwner", null)
+                        .WithMany()
+                        .HasForeignKey("AllotteeOwnerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_property_allotment_property_owner_allottee_owner_id");
+
+                    b.HasOne("Property", null)
+                        .WithMany()
+                        .HasForeignKey("PropertyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_property_allotment_property_property_id");
+                });
+
+            modelBuilder.Entity("PropertyAppeal", b =>
+                {
+                    b.HasOne("PropertyOwner", null)
+                        .WithMany()
+                        .HasForeignKey("AppellantOwnerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_property_appeal_property_owner_appellant_owner_id");
+
+                    b.HasOne("Property", null)
+                        .WithMany()
+                        .HasForeignKey("PropertyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_property_appeal_property_property_id");
+                });
+
             modelBuilder.Entity("PropertyAreaRegularization", b =>
                 {
                     b.HasOne("MeasurementUnit", null)
@@ -3149,6 +4868,46 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
                         .HasConstraintName("fk_property_attribute_value_property_property_id");
                 });
 
+            modelBuilder.Entity("PropertyAuction", b =>
+                {
+                    b.HasOne("AuctionStatus", null)
+                        .WithMany()
+                        .HasForeignKey("AuctionStatusId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_property_auction_auction_status_auction_status_id");
+
+                    b.HasOne("AuctionType", null)
+                        .WithMany()
+                        .HasForeignKey("AuctionTypeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_property_auction_auction_type_auction_type_id");
+
+                    b.HasOne("Property", null)
+                        .WithMany()
+                        .HasForeignKey("PropertyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_property_auction_property_property_id");
+
+                    b.HasOne("PropertyOwner", null)
+                        .WithMany()
+                        .HasForeignKey("SuccessfulBidderOwnerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_property_auction_property_owner_successful_bidder_owner_id");
+                });
+
+            modelBuilder.Entity("PropertyBoundary", b =>
+                {
+                    b.HasOne("Property", null)
+                        .WithMany()
+                        .HasForeignKey("PropertyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_property_boundary_property_property_id");
+                });
+
             modelBuilder.Entity("PropertyDocument", b =>
                 {
                     b.HasOne("DocumentType", null)
@@ -3169,6 +4928,36 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
                         .HasForeignKey("SupersedesDocumentId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .HasConstraintName("fk_property_document_property_document_supersedes_document_id");
+                });
+
+            modelBuilder.Entity("PropertyEncroachment", b =>
+                {
+                    b.HasOne("PropertyOwner", null)
+                        .WithMany()
+                        .HasForeignKey("EncroacherOwnerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_property_encroachment_property_owner_encroacher_owner_id");
+
+                    b.HasOne("EncroachmentStatus", null)
+                        .WithMany()
+                        .HasForeignKey("EncroachmentStatusId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_property_encroachment_encroachment_status_encroachment_stat");
+
+                    b.HasOne("MeasurementUnit", null)
+                        .WithMany()
+                        .HasForeignKey("MeasurementUnitId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_property_encroachment_measurement_unit_measurement_unit_id");
+
+                    b.HasOne("Property", null)
+                        .WithMany()
+                        .HasForeignKey("PropertyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_property_encroachment_property_property_id");
                 });
 
             modelBuilder.Entity("PropertyEncumbrance", b =>
@@ -3200,6 +4989,91 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
                         .HasConstraintName("fk_property_encumbrance_property_property_id");
                 });
 
+            modelBuilder.Entity("PropertyLease", b =>
+                {
+                    b.HasOne("LeaseStatus", null)
+                        .WithMany()
+                        .HasForeignKey("LeaseStatusId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_property_lease_lease_status_lease_status_id");
+
+                    b.HasOne("LeaseType", null)
+                        .WithMany()
+                        .HasForeignKey("LeaseTypeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_property_lease_lease_type_lease_type_id");
+
+                    b.HasOne("PropertyOwner", null)
+                        .WithMany()
+                        .HasForeignKey("LesseeOwnerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_property_lease_property_owner_lessee_owner_id");
+
+                    b.HasOne("Property", null)
+                        .WithMany()
+                        .HasForeignKey("PropertyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_property_lease_property_property_id");
+
+                    b.HasOne("PropertyLease", null)
+                        .WithMany()
+                        .HasForeignKey("RenewedFromLeaseId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_property_lease_property_lease_renewed_from_lease_id");
+                });
+
+            modelBuilder.Entity("PropertyLitigation", b =>
+                {
+                    b.HasOne("LitigationStatus", null)
+                        .WithMany()
+                        .HasForeignKey("LitigationStatusId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_property_litigation_litigation_status_litigation_status_id");
+
+                    b.HasOne("LitigationType", null)
+                        .WithMany()
+                        .HasForeignKey("LitigationTypeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_property_litigation_litigation_type_litigation_type_id");
+
+                    b.HasOne("PropertyLitigation", null)
+                        .WithMany()
+                        .HasForeignKey("ParentLitigationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_property_litigation_property_litigation_parent_litigation_id");
+
+                    b.HasOne("Property", null)
+                        .WithMany()
+                        .HasForeignKey("PropertyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_property_litigation_property_property_id");
+
+                    b.HasOne("PropertyAllotment", null)
+                        .WithMany()
+                        .HasForeignKey("RelatedAllotmentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_property_litigation_property_allotment_related_allotment_id");
+
+                    b.HasOne("PropertyEncroachment", null)
+                        .WithMany()
+                        .HasForeignKey("RelatedEncroachmentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_property_litigation_property_encroachment_related_encroachm");
+
+                    b.HasOne("PropertyLease", null)
+                        .WithMany()
+                        .HasForeignKey("RelatedLeaseId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_property_litigation_property_lease_related_lease_id");
+                });
+
             modelBuilder.Entity("PropertyMeasurement", b =>
                 {
                     b.HasOne("MeasurementUnit", null)
@@ -3215,6 +5089,37 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_property_measurement_property_property_id");
+                });
+
+            modelBuilder.Entity("PropertyOutsourcing", b =>
+                {
+                    b.HasOne("ContractStatus", null)
+                        .WithMany()
+                        .HasForeignKey("ContractStatusId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_property_outsourcing_contract_status_contract_status_id");
+
+                    b.HasOne("PropertyOwner", null)
+                        .WithMany()
+                        .HasForeignKey("OutsourcedPartyOwnerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_property_outsourcing_property_owner_outsourced_party_owner_");
+
+                    b.HasOne("OutsourcingType", null)
+                        .WithMany()
+                        .HasForeignKey("OutsourcingTypeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_property_outsourcing_outsourcing_type_outsourcing_type_id");
+
+                    b.HasOne("Property", null)
+                        .WithMany()
+                        .HasForeignKey("PropertyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_property_outsourcing_property_property_id");
                 });
 
             modelBuilder.Entity("PropertyOwner", b =>
@@ -3235,6 +5140,12 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
 
             modelBuilder.Entity("PropertyOwnership", b =>
                 {
+                    b.HasOne("PropertyAllotment", null)
+                        .WithMany()
+                        .HasForeignKey("AcquiredViaAllotmentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_property_ownership_property_allotment_acquired_via_allotmen");
+
                     b.HasOne("PropertyTransfer", null)
                         .WithMany()
                         .HasForeignKey("AcquiredViaTransferId")
@@ -3267,6 +5178,43 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_property_ownership_tenure_type_tenure_type_id");
+                });
+
+            modelBuilder.Entity("PropertyRental", b =>
+                {
+                    b.HasOne("Property", null)
+                        .WithMany()
+                        .HasForeignKey("PropertyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_property_rental_property_property_id");
+
+                    b.HasOne("PropertyRental", null)
+                        .WithMany()
+                        .HasForeignKey("RenewedFromRentalId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_property_rental_property_rental_renewed_from_rental_id");
+
+                    b.HasOne("RentalStatus", null)
+                        .WithMany()
+                        .HasForeignKey("RentalStatusId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_property_rental_rental_status_rental_status_id");
+
+                    b.HasOne("RentalType", null)
+                        .WithMany()
+                        .HasForeignKey("RentalTypeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_property_rental_rental_type_rental_type_id");
+
+                    b.HasOne("PropertyOwner", null)
+                        .WithMany()
+                        .HasForeignKey("TenantOwnerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_property_rental_property_owner_tenant_owner_id");
                 });
 
             modelBuilder.Entity("PropertyStatusHistory", b =>
@@ -3318,6 +5266,28 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_property_transfer_party_property_transfer_property_transfer");
+                });
+
+            modelBuilder.Entity("PropertyAuction", b =>
+                {
+                    b.Navigation("Bids");
+                });
+
+            modelBuilder.Entity("PropertyBoundary", b =>
+                {
+                    b.Navigation("Points");
+                });
+
+            modelBuilder.Entity("PropertyEncroachment", b =>
+                {
+                    b.Navigation("Points");
+                });
+
+            modelBuilder.Entity("PropertyLitigation", b =>
+                {
+                    b.Navigation("Hearings");
+
+                    b.Navigation("Parties");
                 });
 
             modelBuilder.Entity("PropertyOwner", b =>

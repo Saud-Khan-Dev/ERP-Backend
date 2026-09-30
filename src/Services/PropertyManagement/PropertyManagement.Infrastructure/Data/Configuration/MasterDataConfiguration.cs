@@ -15,14 +15,17 @@ public sealed class MasterDataConfiguration<T>(string table) : EntityConfigurati
     builder.HasKey(x => x.Id);
     builder.Property(x => x.Id).HasMasterId();
 
+    // column sizes per the ERD: code varchar(30) / name varchar(100) unless MasterLimits says otherwise
+    var limits = MasterLimits.For(typeof(T));
+
     builder.Property(x => x.Code)
       .HasConversion(code => code.Value, value => MasterCode.Of(value))
-      .HasMaxLength(MasterCode.MaxLength)
+      .HasMaxLength(limits.CodeLength)
       .IsRequired();
 
     builder.Property(x => x.Name)
       .HasConversion(name => name.Value, value => Name.Of(value, MasterData.NameMaxLength))
-      .HasMaxLength(MasterData.NameMaxLength)
+      .HasMaxLength(limits.NameLength)
       .IsRequired();
 
     builder.Property(x => x.Description).IsRequired(false);
