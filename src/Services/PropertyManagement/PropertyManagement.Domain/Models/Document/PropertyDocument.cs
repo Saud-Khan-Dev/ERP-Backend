@@ -1,12 +1,11 @@
 /// Metadata for one scanned file. The bytes live on the GDA file server at relative_path; the database
 /// never stores them.
 ///
-/// property_id is set for everything that belongs to a property, so "all documents of PROP-00125" is one
-/// query. The one exception is an owner's own paper (CNIC copy ...), which exists before and apart
-/// from any property: those rows have entity_type = OWNER and no property.
+/// property_id is always set, even when the file belongs to a sub-record or to an owner (schema guide),
+/// so "all documents of PROP-00125" is one query. entity_type + entity_id say which record it belongs to.
 public class PropertyDocument : Aggregate<DocumentId>
 {
-  public PropertyId? PropertyId { get; private set; }
+  public PropertyId PropertyId { get; private set; } = default!;
   public MasterId DocumentTypeId { get; private set; } = default!;
   public DocumentEntityType EntityType { get; private set; }
   /// Id of the record in the table named by entity_type (checked by the application — rule 10).
@@ -37,7 +36,7 @@ public class PropertyDocument : Aggregate<DocumentId>
 
   public static PropertyDocument Create(
       DocumentId id,
-      PropertyId? propertyId,
+      PropertyId propertyId,
       DocumentType documentType,
       DocumentEntityType entityType,
       Guid entityId,
@@ -53,10 +52,9 @@ public class PropertyDocument : Aggregate<DocumentId>
     if (!Enum.IsDefined(entityType))
       throw new DomainException("Unknown document entity type.");
 
-    if (entityType != DocumentEntityType.Owner && propertyId is null)
-      throw new DomainException("Every document except an owner's own papers must belong to a property.");
+    ArgumentNullException.ThrowIfNull(propertyId);
 
-    if (entityType == DocumentEntityType.Property && propertyId is not null && entityId != propertyId.Value)
+    if (entityType == DocumentEntityType.Property && entityId != propertyId.Value)
       throw new DomainException("A PROPERTY document must point at its own property.");
 
     if (entityId == Guid.Empty)

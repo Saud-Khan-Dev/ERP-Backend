@@ -1,21 +1,21 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
+/// property_document — the ERD records uploaded_at / uploaded_by instead of the audit columns.
 public class PropertyDocumentConfiguration : EntityConfiguration<PropertyDocument, DocumentId>
 {
+  protected override AuditColumns Audit => AuditColumns.None;
+
   public override void Configure(EntityTypeBuilder<PropertyDocument> builder)
   {
     base.Configure(builder);
     builder.ToTable("property_document", t =>
-    {
-      // property_id is always set, except for an owner's own papers (CNIC copy ...)
-      t.HasCheckConstraint("ck_property_document_property", "entity_type = 'OWNER' OR property_id IS NOT NULL");
-      t.HasCheckConstraint("ck_property_document_version", "version_no >= 1");
-    });
+      t.HasCheckConstraint("ck_property_document_version", "version_no >= 1"));
 
     builder.HasKey(x => x.Id);
     builder.Property(x => x.Id).HasConversion(id => id.Value, value => DocumentId.Of(value));
-    builder.Property(x => x.PropertyId).HasConversion(id => id!.Value, value => PropertyId.Of(value));
+    // always set, even when attached to a sub-record or an owner (ERD: not null)
+    builder.Property(x => x.PropertyId).HasConversion(id => id.Value, value => PropertyId.Of(value)).IsRequired();
     builder.Property(x => x.DocumentTypeId).HasMasterId().IsRequired();
     builder.Property(x => x.EntityType).HasUpperSnakeEnum(40).IsRequired().HasDefaultValue(DocumentEntityType.Property);
     builder.Property(x => x.EntityId).IsRequired();

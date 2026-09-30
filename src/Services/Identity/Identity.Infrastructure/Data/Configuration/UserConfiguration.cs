@@ -45,6 +45,7 @@ public class UserConfiguration : EntityConfiguration<User, UserId>
       .HasMaxLength(EmployeeCode.MaxLength)
       .IsRequired(false);
     builder.Property(x => x.IsActive).IsRequired().HasDefaultValue(true);
+    builder.Property(x => x.IsAuthorizedOfficer).IsRequired().HasDefaultValue(false);
     builder.Property(x => x.EmailVerifiedAt).IsRequired(false);
 
     builder.Property(x => x.FailedLoginAttempts).IsRequired().HasDefaultValue(0);

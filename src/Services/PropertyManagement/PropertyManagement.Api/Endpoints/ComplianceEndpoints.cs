@@ -117,9 +117,9 @@ public class ComplianceEndpoints : ICarterModule
         (await sender.Send(new FileLitigationCommand(id, litigation))).ToCreated(r => $"/litigations/{r.Id}"))
       .RequirePermission(PermissionCatalog.Property.Edit)
       .WithTags("Litigation").WithName("FileLitigation")
-      .Produces<FileLitigationCommandResult>(StatusCodes.Status201Created).ProducesProblem(StatusCodes.Status400BadRequest)
+      .Produces<FileLitigationCommandResult>(StatusCodes.Status201Created).ProducesProblem(StatusCodes.Status400BadRequest).ProducesProblem(StatusCodes.Status403Forbidden)
       .WithSummary("Record Court Case")
-      .WithDescription("case_no + court must be unique. A criminal complaint must record the authorized officer (Act s.30; defaults to the signed-in user). With parentLitigationId the case is an appeal and the lower-court case becomes APPEALED.");
+      .WithDescription("case_no + court must be unique. A criminal complaint is filed only by an authorized officer (Act s.30; 403 otherwise) and is recorded against that signed-in officer. With parentLitigationId the case is an appeal and the lower-court case becomes APPEALED.");
 
     app.MapGet("/properties/{id:guid}/litigations", async (Guid id, ISender sender) => (await sender.Send(new GetPropertyLitigationsQuery(id))).ToOk())
       .RequirePermission(PermissionCatalog.Property.View)

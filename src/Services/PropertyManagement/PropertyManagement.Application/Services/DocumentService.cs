@@ -12,32 +12,31 @@ public class DocumentService(
     IOptions<DocumentOptions> options)
 {
   private const string PropertyRoot = "property-documents";
-  private const string OwnerRoot = "owner-documents";
 
   public sealed record Upload(Stream Content, string FileName, string? ContentType, long Length);
 
-  /// Where a document goes: its property (if any) and the folder its file is stored under.
-  public sealed record Target(PropertyId? PropertyId, DocumentEntityType EntityType, Guid EntityId, string RootFolder);
+  /// Where a document goes: its property and the folder its file is stored under.
+  public sealed record Target(PropertyId PropertyId, DocumentEntityType EntityType, Guid EntityId, string RootFolder);
 
+  /// property_id is always set (schema guide), so even an owner's own paper — a CNIC copy — is filed in
+  /// the file of a property the owner is connected to.
   public async Task<Target> ResolveTargetAsync(PropertyId? propertyId, DocumentEntityType entityType, Guid? entityId, CancellationToken cancellationToken)
   {
+    if (propertyId is null)
+      throw new DomainException(entityType == DocumentEntityType.Owner
+        ? "An owner's document is filed under a property: give the propertyId whose file it belongs to."
+        : $"A {entityType} document must belong to a property.");
+
+    var folder = await PropertyFolderAsync(propertyId, cancellationToken);
+
     if (entityType == DocumentEntityType.Owner)
     {
       var ownerId = OwnerId.Of(entityId ?? Guid.Empty);
-      var owner = await context.Owners.AsNoTracking().FirstOrDefaultAsync(o => o.Id == ownerId, cancellationToken)
-        ?? throw new OwnerNotFoundException($"Owner {entityId} was not found.");
+      if (!await context.Owners.AnyAsync(o => o.Id == ownerId, cancellationToken))
+        throw new OwnerNotFoundException($"Owner {entityId} was not found.");
 
-      // an owner's paper filed in a property's file goes to that property's folder
-      if (propertyId is not null)
-        return new Target(propertyId, entityType, owner.Id.Value, await PropertyFolderAsync(propertyId, cancellationToken));
-
-      return new Target(null, entityType, owner.Id.Value, $"/{OwnerRoot}/{owner.OwnerCode.Value}");
+      return new Target(propertyId, entityType, ownerId.Value, folder);
     }
-
-    if (propertyId is null)
-      throw new DomainException($"A {entityType} document must belong to a property.");
-
-    var folder = await PropertyFolderAsync(propertyId, cancellationToken);
     var id = entityType == DocumentEntityType.Property ? propertyId.Value : entityId ?? Guid.Empty;
 
     if (id == Guid.Empty)
@@ -88,9 +87,7 @@ public class DocumentService(
 
   public async Task<PropertyDocument> CreateVersionAsync(PropertyDocument current, DocumentType documentType, Upload upload, CancellationToken cancellationToken)
   {
-    var folder = current.PropertyId is not null
-      ? await PropertyFolderAsync(current.PropertyId, cancellationToken)
-      : (await ResolveTargetAsync(null, DocumentEntityType.Owner, current.EntityId, cancellationToken)).RootFolder;
+    var folder = await PropertyFolderAsync(current.PropertyId, cancellationToken);
 
     var file = await StoreAsync(folder, documentType, upload, cancellationToken);
     var version = current.NewVersion(DocumentId.New(), upload.FileName, file, UploadedBy(), DateTime.UtcNow);

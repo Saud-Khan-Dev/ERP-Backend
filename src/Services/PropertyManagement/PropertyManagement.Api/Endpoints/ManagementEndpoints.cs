@@ -230,8 +230,8 @@ public class ManagementEndpoints : ICarterModule
     violations.MapPost("/{id:guid}/fine", async (Guid id, ImposeFineRequest request, ISender sender) =>
         (await sender.Send(new ImposeFineCommand(id, request.FineAmount))).ToOk())
       .RequirePermission(PermissionCatalog.Property.Approve)
-      .WithName("ImposeFine").Produces<ViolationActionResult>().ProducesProblem(StatusCodes.Status400BadRequest)
-      .WithSummary("Impose Fine").WithDescription("Up to Rs 1,000,000 (s.28-A), recorded against the signed-in officer. Collection is the Tax / Finance Module's job.");
+      .WithName("ImposeFine").Produces<ViolationActionResult>().ProducesProblem(StatusCodes.Status400BadRequest).ProducesProblem(StatusCodes.Status403Forbidden)
+      .WithSummary("Impose Fine").WithDescription("Up to Rs 1,000,000 (s.28-A), imposed by an authorized officer (the Identity user flag, carried in the token) and recorded against them; anyone else gets 403. Collection is the Tax / Finance Module's job.");
 
     violations.MapPost("/{id:guid}/fine-status", async (Guid id, FineStatusRequest request, ISender sender) =>
         (await sender.Send(new SetFineStatusCommand(id, request.FineStatus))).ToOk())

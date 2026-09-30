@@ -41,3 +41,6 @@ public class LitigationNotFoundException(string message) : NotFoundException(mes
 public class AppealNotFoundException(string message) : NotFoundException(message);
 
 public class BuildingPlanNotFoundException(string message) : NotFoundException(message);
+
+/// GDA Act s.2(a-i): the action is reserved for an officer authorized by the DG (fines s.28, complaints s.30).
+public class AuthorizedOfficerRequiredException(string message) : Exception(message);

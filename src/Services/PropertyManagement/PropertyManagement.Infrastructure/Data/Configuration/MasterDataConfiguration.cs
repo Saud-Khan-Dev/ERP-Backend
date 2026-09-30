@@ -6,6 +6,10 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 public sealed class MasterDataConfiguration<T>(string table) : EntityConfiguration<T, MasterId>
   where T : MasterData
 {
+  /// Master tables carry no audit columns in the ERD, except town (created_at / updated_at).
+  protected override AuditColumns Audit =>
+      typeof(T) == typeof(Town) ? AuditColumns.CreatedAt | AuditColumns.UpdatedAt : AuditColumns.None;
+
   public override void Configure(EntityTypeBuilder<T> builder)
   {
     base.Configure(builder);

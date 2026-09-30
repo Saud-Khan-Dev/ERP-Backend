@@ -1,0 +1,640 @@
+# Property Management — walkthrough of the main flows (GDA property schema).
+#
+# Run top to bottom in VS Code (REST Client), Rider or Visual Studio 17.12+. Named requests (# @name)
+# pass ids forward, e.g. {{createProperty.response.body.$.id}}.
+#
+# Master data ids are generated when the database is seeded, so copy them once from step 1 into the
+# variables below (GET /masters/{type} lists id + code). Everything created later chains by name.
+#
+# OpenAPI: {{host}}/openapi/v1.json
+
+@host = http://localhost:5141
+@identity = http://localhost:5142
+@token = {{login.response.body.$.authentication.accessToken}}
+
+# ---- master ids (step 1) ----
+@kanal = <measurement-units: KANAL>
+@marla = <measurement-units: MARLA>
+@sqft = <measurement-units: SQFT>
+@residential = <property-types: RESIDENTIAL>
+@gdaProperty = <property-classifications: GDA_PROPERTY>
+@occupied = <property-statuses: OCCUPIED>
+@encroachedStatus = <property-statuses: ENCROACHED>
+@individual = <owner-types: INDIVIDUAL>
+@company = <owner-types: COMPANY>
+@mobile = <contact-types: MOBILE>
+@owned = <tenure-types: OWNED>
+@sale = <transfer-types: SALE>
+@mortgage = <encumbrance-types: MORTGAGE>
+@noticeLetter = <document-types: NOTICE_LETTER>
+@cnicCopy = <document-types: CNIC_COPY>
+@general = <attribute-groups: GENERAL>
+@leaseAgreement = <agreement-types: LEASE>
+@openAuction = <auction-types: OPEN_AUCTION>
+@civilSuit = <litigation-types: CIVIL_SUIT>
+@criminalComplaint = <litigation-types: CRIMINAL_COMPLAINT>
+@sitePlan = <building-plan-types: SITE_PLAN>
+# no seeded values in the guide; create them in step 1 and paste the ids
+@allotmentType = <allotment-types: your code>
+@leaseType = <lease-types: your code>
+@rentalType = <rental-types: your code>
+@outsourcingType = <outsourcing-types: your code>
+
+
+### 0. Sign in (Identity service)
+# @name login
+POST {{identity}}/auth/login
+Content-Type: application/json
+
+{ "username": "superadmin", "password": "SuperAdmin@123" }
+
+
+##############################################################################
+### 1. Master data — one API for all 28 lookup tables
+##############################################################################
+
+### List the master types (slug, table, columns)
+GET {{host}}/masters
+Authorization: Bearer {{token}}
+
+### List one master (copy ids into the variables above)
+GET {{host}}/masters/measurement-units
+Authorization: Bearer {{token}}
+
+### Add a town
+# @name createTown
+POST {{host}}/masters/towns
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "code": "NATHIA_GALI", "name": "Nathia Gali", "sortOrder": 1 }
+
+### Add a lease type (types have no seeded values in the guide)
+POST {{host}}/masters/lease-types
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "code": "COMMERCIAL_LEASE", "name": "Commercial Lease" }
+
+### Deactivating a required system code (e.g. SQFT, the base unit) is refused — 400
+POST {{host}}/masters/measurement-units/{{sqft}}/deactivate
+Authorization: Bearer {{token}}
+
+### Code sequences (rule 8): PROPERTY, OWNER, TRANSFER, ALLOTMENT, LEASE, RENTAL, AUCTION, CONTRACT, ENCROACHMENT, APPEAL, BUILDING_PLAN
+GET {{host}}/code-sequences
+Authorization: Bearer {{token}}
+
+### Edit a template — the next property becomes GDA/0100. It cannot move back onto a code in use.
+# PUT {{host}}/code-sequences/PROPERTY
+# Authorization: Bearer {{token}}
+# Content-Type: application/json
+#
+# { "prefix": "GDA", "separator": "/", "minimumDigits": 4, "nextNumber": 100 }
+
+
+##############################################################################
+### 2. Property register
+##############################################################################
+
+### Create a property: PROP-00001, opening status row and first measurement in one go
+# @name createProperty
+POST {{host}}/properties
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "property": {
+    "propertyName": "Commercial Plaza Block A",
+    "townId": "{{createTown.response.body.$.id}}",
+    "propertyTypeId": "{{residential}}",
+    "propertyClassificationId": "{{gdaProperty}}",
+    "addressLine": "Main Road",
+    "khasraSurveyNo": "KH-12/7"
+  },
+  "propertyStatusId": "{{occupied}}",
+  "statusEffectiveFrom": "2026-01-01",
+  "measurement": { "measurementUnitId": "{{kanal}}", "totalArea": 2, "builtUpArea": 1 }
+}
+
+### Property detail (area also shown in sq ft: 2 kanal = 10,890)
+GET {{host}}/properties/{{createProperty.response.body.$.id}}
+Authorization: Bearer {{token}}
+
+### Search by name / code
+GET {{host}}/properties?search=plaza
+Authorization: Bearer {{token}}
+
+### Change status — the old history row is closed (rule 2)
+POST {{host}}/properties/{{createProperty.response.body.$.id}}/status
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "propertyStatusId": "{{encroachedStatus}}", "effectiveFrom": "2026-06-01", "reason": "Survey found encroachment" }
+
+### Status history
+GET {{host}}/properties/{{createProperty.response.body.$.id}}/status-history
+Authorization: Bearer {{token}}
+
+### New measurement — the previous one is superseded, not overwritten
+POST {{host}}/properties/{{createProperty.response.body.$.id}}/measurements
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "measurementUnitId": "{{marla}}", "totalArea": 40, "builtUpArea": 20 }
+
+### Area regularization case
+POST {{host}}/properties/{{createProperty.response.body.$.id}}/regularizations
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "additionalArea": 500, "measurementUnitId": "{{sqft}}", "status": "Regularized", "regularizationDate": "2026-02-01" }
+
+### Area summary in sq ft: current, regularized, encroached
+GET {{host}}/properties/{{createProperty.response.body.$.id}}/area
+Authorization: Bearer {{token}}
+
+
+##############################################################################
+### 3. Owners (people and organizations)
+##############################################################################
+
+### Owner B — OWN-00001; CNIC is stored as 13 digits and shown as 12345-1234567-1
+# @name ownerB
+POST {{host}}/owners
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "owner": { "ownerTypeId": "{{individual}}", "ownerName": "Owner B", "cnic": "12345-1234567-1" },
+  "contacts": [ { "contactTypeId": "{{mobile}}", "contactNumber": "0300-1234567" } ],
+  "addresses": [ { "fullAddress": "House 1, Abbottabad", "cityTown": "Abbottabad" } ]
+}
+
+### Owner C
+# @name ownerC
+POST {{host}}/owners
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "owner": { "ownerTypeId": "{{individual}}", "ownerName": "Owner C", "cnic": "2222222222222" } }
+
+### Owner D
+# @name ownerD
+POST {{host}}/owners
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "owner": { "ownerTypeId": "{{individual}}", "ownerName": "Owner D", "cnic": "3333333333333" } }
+
+### Look up by CNIC
+GET {{host}}/owners?cnic=12345-1234567-1
+Authorization: Bearer {{token}}
+
+
+##############################################################################
+### 4. Ownership, transfers, encumbrances
+##############################################################################
+
+### B holds 60% (rule 1: current shares never exceed 100%)
+POST {{host}}/properties/{{createProperty.response.body.$.id}}/ownerships
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "ownerId": "{{ownerB.response.body.$.id}}", "tenureTypeId": "{{owned}}", "ownershipSharePct": 60, "effectiveFrom": "2020-01-01" }
+
+### C holds 40%
+POST {{host}}/properties/{{createProperty.response.body.$.id}}/ownerships
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "ownerId": "{{ownerC.response.body.$.id}}", "tenureTypeId": "{{owned}}", "ownershipSharePct": 40, "effectiveFrom": "2020-01-01" }
+
+### The guide's example: B gives 60 and C gives 20; C receives 30 and D receives 50 → C 50%, D 50%
+# @name transfer
+POST {{host}}/properties/{{createProperty.response.body.$.id}}/transfers
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "transferTypeId": "{{sale}}",
+  "transferDate": "2026-07-01",
+  "transferReferenceNo": "MUT-991",
+  "parties": [
+    { "ownerId": "{{ownerB.response.body.$.id}}", "role": "Transferor", "sharePct": 60 },
+    { "ownerId": "{{ownerC.response.body.$.id}}", "role": "Transferor", "sharePct": 20 },
+    { "ownerId": "{{ownerC.response.body.$.id}}", "role": "Transferee", "sharePct": 30 },
+    { "ownerId": "{{ownerD.response.body.$.id}}", "role": "Transferee", "sharePct": 50 }
+  ]
+}
+
+### Approve (approvedBy defaults to the signed-in user)
+POST {{host}}/transfers/{{transfer.response.body.$.id}}/approve
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "approvalDate": "2026-07-02" }
+
+### Complete — old ownership rows are closed on the transfer date, new ones opened
+POST {{host}}/transfers/{{transfer.response.body.$.id}}/complete
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{}
+
+### Current owners (add ?includeHistory=true for the closed rows)
+GET {{host}}/properties/{{createProperty.response.body.$.id}}/ownerships
+Authorization: Bearer {{token}}
+
+### A transfer that already happened (paper register) — entered as COMPLETED in one step
+POST {{host}}/properties/{{createProperty.response.body.$.id}}/transfers/completed
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "transfer": {
+    "transferTypeId": "{{sale}}",
+    "transferDate": "2026-08-01",
+    "transferReferenceNo": "MUT-1002",
+    "parties": [
+      { "ownerId": "{{ownerD.response.body.$.id}}", "role": "Transferor", "sharePct": 50 },
+      { "ownerId": "{{ownerC.response.body.$.id}}", "role": "Transferee", "sharePct": 50 }
+    ]
+  }
+}
+
+### Mortgage
+# @name mortgage
+POST {{host}}/properties/{{createProperty.response.body.$.id}}/encumbrances
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "encumbranceTypeId": "{{mortgage}}", "holderName": "Bank of Khyber", "startDate": "2026-08-01", "amount": 1500000 }
+
+### Release it
+POST {{host}}/encumbrances/{{mortgage.response.body.$.id}}/release
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "releaseDate": "2026-09-01", "releaseReferenceNo": "REL-1" }
+
+
+##############################################################################
+### 5. Documents (every document is filed under a property)
+##############################################################################
+
+### Upload to the property file
+# @name notice
+POST {{host}}/properties/{{createProperty.response.body.$.id}}/documents
+Authorization: Bearer {{token}}
+Content-Type: multipart/form-data; boundary=GdaBoundary
+
+--GdaBoundary
+Content-Disposition: form-data; name="documentTypeId"
+
+{{noticeLetter}}
+--GdaBoundary
+Content-Disposition: form-data; name="title"
+
+Encroachment notice
+--GdaBoundary
+Content-Disposition: form-data; name="file"; filename="notice.pdf"
+Content-Type: application/pdf
+
+%PDF-1.4 sample notice
+--GdaBoundary--
+
+### Attach to a record on the property (entityType: Transfer, Lease, Violation, ... — the record must exist, rule 10)
+POST {{host}}/properties/{{createProperty.response.body.$.id}}/documents
+Authorization: Bearer {{token}}
+Content-Type: multipart/form-data; boundary=GdaBoundary
+
+--GdaBoundary
+Content-Disposition: form-data; name="documentTypeId"
+
+{{noticeLetter}}
+--GdaBoundary
+Content-Disposition: form-data; name="entityType"
+
+Transfer
+--GdaBoundary
+Content-Disposition: form-data; name="entityId"
+
+{{transfer.response.body.$.id}}
+--GdaBoundary
+Content-Disposition: form-data; name="file"; filename="mutation.pdf"
+Content-Type: application/pdf
+
+%PDF-1.4 mutation
+--GdaBoundary--
+
+### Owner's CNIC copy — propertyId says whose file it goes in; the owner's cnicDocumentId is set
+POST {{host}}/owners/{{ownerB.response.body.$.id}}/documents
+Authorization: Bearer {{token}}
+Content-Type: multipart/form-data; boundary=GdaBoundary
+
+--GdaBoundary
+Content-Disposition: form-data; name="documentTypeId"
+
+{{cnicCopy}}
+--GdaBoundary
+Content-Disposition: form-data; name="propertyId"
+
+{{createProperty.response.body.$.id}}
+--GdaBoundary
+Content-Disposition: form-data; name="file"; filename="cnic.jpg"
+Content-Type: image/jpeg
+
+(image bytes)
+--GdaBoundary--
+
+### New version — v2 supersedes v1
+POST {{host}}/documents/{{notice.response.body.$.id}}/versions
+Authorization: Bearer {{token}}
+Content-Type: multipart/form-data; boundary=GdaBoundary
+
+--GdaBoundary
+Content-Disposition: form-data; name="file"; filename="notice-v2.pdf"
+Content-Type: application/pdf
+
+%PDF-1.4 corrected notice
+--GdaBoundary--
+
+### Property file (add ?includeSuperseded=true for old versions)
+GET {{host}}/properties/{{createProperty.response.body.$.id}}/documents
+Authorization: Bearer {{token}}
+
+### Download
+GET {{host}}/documents/{{notice.response.body.$.id}}/content
+Authorization: Bearer {{token}}
+
+
+##############################################################################
+### 6. Custom fields
+##############################################################################
+
+### Define a field (code is normalized to PLOT_FACING)
+# @name plotFacing
+POST {{host}}/attribute-definitions
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "attributeGroupId": "{{general}}", "code": "plot facing", "label": "Plot Facing", "dataType": "Dropdown", "optionsCsv": "North,South,East,West", "isRequired": true }
+
+### Save the value on a property
+PUT {{host}}/properties/{{createProperty.response.body.$.id}}/attributes
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "values": [ { "attributeDefinitionId": "{{plotFacing.response.body.$.id}}", "value": "North" } ] }
+
+### Form with values
+GET {{host}}/properties/{{createProperty.response.body.$.id}}/attributes
+Authorization: Bearer {{token}}
+
+
+##############################################################################
+### 7. Authorized officer (Identity) — needed for s.28-A fines and s.30 complaints
+##############################################################################
+# The DG's designation is a flag on the Identity user. Another administrator sets it (nobody designates
+# themselves), and it takes effect with the officer's next sign-in, when the token carries it.
+
+### Designate a user
+POST {{identity}}/users/<officer user id>/authorized-officer
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "isAuthorizedOfficer": true }
+
+### Check your own designation after signing in again
+GET {{identity}}/auth/me
+Authorization: Bearer {{token}}
+
+
+##############################################################################
+### 8. Management records
+##############################################################################
+
+### Allotment — ALT-00001 (an allotment is not ownership)
+# @name allotment
+POST {{host}}/properties/{{createProperty.response.body.$.id}}/allotments
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "allotteeOwnerId": "{{ownerB.response.body.$.id}}", "allotment": { "allotmentTypeId": "{{allotmentType}}", "allotmentDate": "2026-01-10", "allotmentLetterRef": "AL-77" } }
+
+### Cancel (Act s.6(4)(c)) — restore reverses it and keeps the cancellation details
+POST {{host}}/allotments/{{allotment.response.body.$.id}}/cancel
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "cancellationDate": "2026-03-01", "reason": "Construction deadline missed", "orderRef": "DG/12" }
+
+###
+POST {{host}}/allotments/{{allotment.response.body.$.id}}/restore
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "restorationDate": "2026-04-01", "orderRef": "CS/APL-1" }
+
+### Lease — LSE-00001 (terms editable only while DRAFT; changes after that are a renewal)
+# @name lease
+POST {{host}}/properties/{{createProperty.response.body.$.id}}/leases
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "lesseeOwnerId": "{{ownerC.response.body.$.id}}",
+  "terms": { "leaseTypeId": "{{leaseType}}", "leaseStartDate": "2026-01-01", "leaseEndDate": "2030-12-31", "leaseTermYears": 5,
+             "leaseAmount": 250000, "amountFrequency": "Annual", "isRenewable": true }
+}
+
+### Renew — a new lease row pointing back; the old one becomes RENEWED
+POST {{host}}/leases/{{lease.response.body.$.id}}/renew
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "terms": { "leaseTypeId": "{{leaseType}}", "leaseStartDate": "2031-01-01", "leaseEndDate": "2035-12-31", "leaseAmount": 275000, "amountFrequency": "Annual", "isRenewable": true } }
+
+### Rental — RNT-00001
+# @name rental
+POST {{host}}/properties/{{createProperty.response.body.$.id}}/rentals
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "tenantOwnerId": "{{ownerD.response.body.$.id}}", "terms": { "rentalTypeId": "{{rentalType}}", "rentalStartDate": "2026-02-01", "rentAmount": 45000, "annualIncreasePct": 10 } }
+
+### Agreement violation (Act s.28-A). Rule 4: exactly one agreement, matching the type.
+### Rule 5: the 3rd violation inside the notice period cancels the lease / rental.
+# @name violation
+POST {{host}}/properties/{{createProperty.response.body.$.id}}/violations
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "agreementTypeId": "{{leaseAgreement}}", "violatorOwnerId": "{{ownerC.response.body.$.id}}", "leaseId": "{{lease.response.body.$.id}}",
+  "violationDate": "2026-02-01", "violationDescription": "Default in lease money",
+  "noticeNo": "N-1", "noticeDate": "2026-02-01", "noticeDeadline": "2026-03-31"
+}
+
+### Fine up to Rs 1,000,000 — authorized officer only (403 otherwise)
+POST {{host}}/violations/{{violation.response.body.$.id}}/fine
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "fineAmount": 50000 }
+
+### Hand the fine over for recovery as arrears (s.28(2))
+POST {{host}}/violations/{{violation.response.body.$.id}}/fine-status
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "fineStatus": "RecoveryAsArrears" }
+
+### Auction (Act s.9) — AUC-00001
+# @name auction
+POST {{host}}/properties/{{createProperty.response.body.$.id}}/auctions
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "auctionTypeId": "{{openAuction}}", "auctionDate": "2026-05-01", "baseReservePrice": 5500000, "auctionCommitteeRef": "AC/2026/4" }
+
+### Bid (one bid per bidder; bids are ranked)
+POST {{host}}/auctions/{{auction.response.body.$.id}}/bids
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "bidderOwnerId": "{{ownerD.response.body.$.id}}", "bidAmount": 6000000 }
+
+### Award — to the highest bid by default; must reach the reserve price
+POST {{host}}/auctions/{{auction.response.body.$.id}}/award
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "awardDate": "2026-05-02", "awardReferenceNo": "AWD-1" }
+
+### Outsourcing contract — CON-00001
+POST {{host}}/properties/{{createProperty.response.body.$.id}}/outsourcing-contracts
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "outsourcedPartyOwnerId": "{{ownerD.response.body.$.id}}", "terms": { "outsourcingTypeId": "{{outsourcingType}}", "contractStartDate": "2026-01-01", "contractAmount": 120000, "amountFrequency": "Monthly", "purposeService": "Parking management" } }
+
+
+##############################################################################
+### 9. Compliance records
+##############################################################################
+
+### Boundary: latitude / longitude points in order, slope as a percentage (12.5 = 12.5%)
+# @name boundary
+POST {{host}}/properties/{{createProperty.response.body.$.id}}/boundaries
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "surveyDate": "2026-02-01", "surveySource": "GPS survey", "slopePercentage": 12.5,
+  "points": [
+    { "latitude": 34.0781234, "longitude": 73.3871234 },
+    { "latitude": 34.0782234, "longitude": 73.3872234 },
+    { "latitude": 34.0781234, "longitude": 73.3873234 },
+    { "latitude": 34.0780234, "longitude": 73.3872234 }
+  ]
+}
+
+###
+GET {{host}}/boundaries/{{boundary.response.body.$.id}}
+Authorization: Bearer {{token}}
+
+### Encroachment — ENC-00001, area kept in sq ft (5 marla = 1,361.25)
+# @name encroachment
+POST {{host}}/properties/{{createProperty.response.body.$.id}}/encroachments
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "encroachmentArea": 5, "measurementUnitId": "{{marla}}", "detectionDate": "2026-06-01", "noticeNo": "EN-1",
+  "details": { "encroacherName": "Unknown shop", "description": "Kiosk on the road side" },
+  "points": [
+    { "latitude": 34.0781234, "longitude": 73.3871234 },
+    { "latitude": 34.0782234, "longitude": 73.3872234 },
+    { "latitude": 34.0781234, "longitude": 73.3873234 }
+  ]
+}
+
+### Resolve as regularized — also opens a regularization case for the area
+POST {{host}}/encroachments/{{encroachment.response.body.$.id}}/resolve
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "resolutionDate": "2026-07-01", "resolutionType": "Regularized", "resolutionReferenceNo": "REG-9", "openRegularization": true }
+
+### Court case with parties
+# @name litigation
+POST {{host}}/properties/{{createProperty.response.body.$.id}}/litigations
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "caseNo": "CS-101/2026", "courtAuthority": "Civil Judge Abbottabad",
+  "details": { "caseTitle": "GDA vs Unknown", "litigationTypeId": "{{civilSuit}}", "filingDate": "2026-06-05", "gdaRole": "Plaintiff" },
+  "relatedEncroachmentId": "{{encroachment.response.body.$.id}}",
+  "parties": [ { "partyName": "Unknown shop", "partyRole": "Defendant" } ]
+}
+
+### Hearing — sets the next hearing date
+POST {{host}}/litigations/{{litigation.response.body.$.id}}/hearings
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "hearingDate": "2026-07-10", "orderPassed": "Adjourned", "nextHearingDate": "2026-08-10" }
+
+### Hearing diary
+GET {{host}}/litigations/upcoming-hearings?days=30
+Authorization: Bearer {{token}}
+
+### Criminal complaint (Act s.30) — authorized officer only; recorded against the signed-in officer
+POST {{host}}/properties/{{createProperty.response.body.$.id}}/litigations
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "caseNo": "CC-7/2026", "courtAuthority": "District & Sessions Judge Abbottabad", "details": { "caseTitle": "Complaint u/s 30", "litigationTypeId": "{{criminalComplaint}}" } }
+
+### Departmental appeal (Act s.32, rule 6): decision due = appeal date + 120 days; a warning if filed > 30 days after receipt
+# @name appeal
+POST {{host}}/properties/{{createProperty.response.body.$.id}}/appeals
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "appellantOwnerId": "{{ownerC.response.body.$.id}}", "appealedOrderRef": "DG/FINE/7", "appealedOrderDate": "2026-02-10",
+  "orderReceivedDate": "2026-02-12", "appealDate": "2026-03-01",
+  "orderSourceTable": "AgreementViolation", "orderSourceId": "{{violation.response.body.$.id}}"
+}
+
+### Decide
+POST {{host}}/appeals/{{appeal.response.body.$.id}}/decide
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "decisionDate": "2026-05-30", "decisionOutcome": "Modified", "decisionDetails": "Fine reduced" }
+
+### Building plan — BP-00001 revision 0
+# @name plan
+POST {{host}}/properties/{{createProperty.response.body.$.id}}/building-plans
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "buildingPlanTypeId": "{{sitePlan}}", "applicantOwnerId": "{{ownerC.response.body.$.id}}", "submissionDate": "2026-05-01", "coveredArea": 3000, "measurementUnitId": "{{sqft}}", "floors": 2 }
+
+### Approve
+POST {{host}}/building-plans/{{plan.response.body.$.id}}/approve
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "approvalDate": "2026-05-20", "approvalReferenceNo": "BCA-11", "validityEndDate": "2028-05-20" }
+
+### Revise — same plan number, revision 1; the approved one becomes REVISED
+POST {{host}}/building-plans/{{plan.response.body.$.id}}/revise
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "buildingPlanTypeId": "{{sitePlan}}", "floors": 3, "submissionDate": "2026-09-01" }

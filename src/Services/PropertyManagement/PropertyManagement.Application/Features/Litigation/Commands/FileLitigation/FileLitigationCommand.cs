@@ -67,10 +67,24 @@ public class FileLitigationCommandValidator : AbstractValidator<FileLitigationCo
 
 public static class LitigationInputs
 {
-  public static async Task<PropertyLitigation.Details> ToDetailsAsync(this LitigationDetailsInput input, MasterLookup masters, ICurrentUser currentUser, CancellationToken cancellationToken) => new(
-    input.CaseTitle,
-    await masters.GetAsync<LitigationType>(input.LitigationTypeId, cancellationToken),
-    input.FilingDate, input.GdaRole, input.FiledByOfficerId ?? currentUser.UserId, input.GdaCounsel, input.Remarks);
+  public static async Task<PropertyLitigation.Details> ToDetailsAsync(this LitigationDetailsInput input, MasterLookup masters, ICurrentUser currentUser, CancellationToken cancellationToken)
+  {
+    var type = await masters.GetAsync<LitigationType>(input.LitigationTypeId, cancellationToken);
+    var filedBy = input.FiledByOfficerId ?? currentUser.UserId;
+
+    // Act s.30: only an officer authorized by the DG files a complaint in court. The designation travels
+    // in the officer's own token, so the complaint is recorded against the signed-in authorized officer.
+    if (type.Is(SystemMasterCodes.LitigationCriminalComplaint))
+    {
+      if (!currentUser.IsAuthorizedOfficer || currentUser.UserId is null)
+        throw new AuthorizedOfficerRequiredException("Only an officer authorized by the DG may file a complaint in court (GDA Act s.30).");
+
+      if (filedBy != currentUser.UserId)
+        throw new DomainException("A complaint is recorded against the authorized officer filing it: leave filedByOfficerId empty or give your own id.");
+    }
+
+    return new PropertyLitigation.Details(input.CaseTitle, type, input.FilingDate, input.GdaRole, filedBy, input.GdaCounsel, input.Remarks);
+  }
 
   public static async Task<PropertyLitigation.PartyInput> ToPartyAsync(this LitigationPartyInput input, IApplicationDbContext context, CancellationToken cancellationToken)
   {

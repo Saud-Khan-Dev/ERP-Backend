@@ -93,6 +93,19 @@ public class UserEndpoints : ICarterModule
       .WithSummary("Deactivate User")
       .WithDescription("Blocks sign-in and revokes every live session. Refuses on your own account, or on the last active Super Admin.");
 
+    app.MapPost("/users/{id}/authorized-officer", async (Guid id, SetAuthorizedOfficerRequest request, ISender sender) =>
+    {
+      var result = await sender.Send(new SetAuthorizedOfficerCommand(id, request.IsAuthorizedOfficer));
+      return Results.Ok(result.Value.Adapt<SetAuthorizedOfficerResponse>());
+    })
+      .RequirePermission(PermissionCatalog.Users.Assign)
+      .WithName("SetAuthorizedOfficer")
+      .Produces<SetAuthorizedOfficerResponse>(StatusCodes.Status200OK)
+      .ProducesProblem(StatusCodes.Status400BadRequest)
+      .ProducesProblem(StatusCodes.Status404NotFound)
+      .WithSummary("Designate Authorized Officer")
+      .WithDescription("Marks an account as an officer authorized by the DG (GDA Act s.2(a-i)): only such officers may impose fines (s.28) or file complaints in court (s.30). Refused on your own account; takes effect with the user's next access token.");
+
     app.MapPost("/users/{id}/unlock", async (Guid id, ISender sender) =>
     {
       var result = await sender.Send(new UnlockUserCommand(id));
@@ -237,6 +250,8 @@ public sealed record UpdateUserResponse(bool IsSuccess);
 
 public sealed record SetUserActivationResponse(bool IsActive);
 public sealed record UnlockUserResponse(bool IsSuccess);
+public sealed record SetAuthorizedOfficerRequest(bool IsAuthorizedOfficer);
+public sealed record SetAuthorizedOfficerResponse(bool IsAuthorizedOfficer);
 
 public sealed record ResetPasswordRequest(string? NewPassword);
 public sealed record ResetPasswordResponse(string? GeneratedPassword);

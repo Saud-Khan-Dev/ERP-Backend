@@ -19,4 +19,7 @@ public static class ErpClaimTypes
 
   /// Session id, so a token can be tied back to the session that issued it.
   public const string SessionId = "sid";
+
+  /// Present ("true") only for an officer authorized by the DG (GDA Act s.2(a-i), s.28, s.30).
+  public const string AuthorizedOfficer = "ao";
 }

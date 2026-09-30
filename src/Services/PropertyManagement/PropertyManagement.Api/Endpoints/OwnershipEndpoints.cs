@@ -3,6 +3,7 @@ public sealed record RemarksRequest(string? Remarks = null);
 public sealed record ApproveTransferRequest(string? ApprovedBy = null, DateOnly? ApprovalDate = null);
 public sealed record CompleteTransferRequest(Guid? TenureTypeId = null);
 public sealed record CancelTransferRequest(string? Reason = null);
+public sealed record RecordCompletedTransferRequest(TransferInput Transfer, string? ApprovedBy = null, DateOnly? ApprovalDate = null, Guid? TenureTypeId = null);
 public sealed record ReleaseEncumbranceRequest(DateOnly ReleaseDate, string? ReleaseReferenceNo = null);
 
 /// Who owns what share, how it changed hands, and what charges sit on it.
@@ -65,6 +66,16 @@ public class OwnershipEndpoints : ICarterModule
       .ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Initiate Transfer")
       .WithDescription("TRF-00001 is generated. Transferors must be current owners giving no more than they hold, and both sides must add up to the same share. Gift and Inheritance need the relationship.");
+
+    properties.MapPost("/{id:guid}/transfers/completed", async (Guid id, RecordCompletedTransferRequest request, ISender sender) =>
+        (await sender.Send(new RecordCompletedTransferCommand(id, request.Transfer, request.ApprovedBy, request.ApprovalDate, request.TenureTypeId)))
+          .ToCreated(r => $"/transfers/{r.Id}"))
+      .RequirePermission(PermissionCatalog.Property.Approve)
+      .WithName("RecordCompletedTransfer")
+      .Produces<RecordCompletedTransferCommandResult>(StatusCodes.Status201Created)
+      .ProducesProblem(StatusCodes.Status400BadRequest)
+      .WithSummary("Record Completed Transfer")
+      .WithDescription("Enters a transfer that already happened (e.g. from the paper register) as COMPLETED in one step, with the same share rules; ownership rows are closed and opened on the transfer date.");
 
     properties.MapGet("/{id:guid}/transfers", async (Guid id, TransferStatus? status, ISender sender) =>
         (await sender.Send(new GetPropertyTransfersQuery(id, status))).ToOk())

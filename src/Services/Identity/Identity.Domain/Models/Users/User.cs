@@ -21,6 +21,11 @@ public class User : Aggregate<UserId>
   public Name DisplayName { get; private set; } = default!;
 
   public bool IsActive { get; private set; }
+
+  /// Officer authorized by the DG (GDA Act s.2(a-i), s.28, s.30): may impose fines and file complaints
+  /// in court. A designation, not a role — it travels in the access token as its own claim.
+  public bool IsAuthorizedOfficer { get; private set; }
+
   public DateTime? EmailVerifiedAt { get; private set; }
 
   // ---- brute-force protection ----
@@ -166,6 +171,16 @@ public class User : Aggregate<UserId>
   {
     EnsureNotDeleted();
     IsActive = false;
+  }
+
+  public void SetAuthorizedOfficer(bool isAuthorizedOfficer)
+  {
+    EnsureNotDeleted();
+
+    if (isAuthorizedOfficer && !IsActive)
+      throw new DomainException("An inactive account cannot be designated an authorized officer.");
+
+    IsAuthorizedOfficer = isAuthorizedOfficer;
   }
 
   public void Unlock()

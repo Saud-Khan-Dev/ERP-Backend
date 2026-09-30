@@ -35,6 +35,12 @@ public class PropertyExceptionHandler(ILogger<PropertyExceptionHandler> logger) 
         StatusCode: StatusCodes.Status404NotFound
       ),
 
+      AuthorizedOfficerRequiredException => (
+        Title: nameof(AuthorizedOfficerRequiredException),
+        Detail: exception.Message,
+        StatusCode: StatusCodes.Status403Forbidden
+      ),
+
       DbUpdateConcurrencyException => (
         Title: nameof(DbUpdateConcurrencyException),
         Detail: "The record was modified by someone else. Reload it and try again.",

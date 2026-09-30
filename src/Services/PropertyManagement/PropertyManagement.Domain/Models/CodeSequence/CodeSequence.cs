@@ -63,10 +63,15 @@ public class CodeSequence : Aggregate<CodeSequenceId>
     if (digits.Length == 0 || !digits.All(char.IsAsciiDigit))
       return false;
 
-    if (!long.TryParse(digits, NumberStyles.None, CultureInfo.InvariantCulture, out number) || number is < 1 or > MaxNumber)
+    if (!long.TryParse(digits, NumberStyles.None, CultureInfo.InvariantCulture, out var parsed) || parsed is < 1 or > MaxNumber)
       return false;
 
-    return Format(number) == code;
+    // PROP-0012 is not a code this sequence issues (the padding is 5), so it does not hold number 12.
+    if (Format(parsed) != code)
+      return false;
+
+    number = parsed;
+    return true;
   }
 
   /// Hands out the next code and moves the counter on. The caller skips any code already in use.

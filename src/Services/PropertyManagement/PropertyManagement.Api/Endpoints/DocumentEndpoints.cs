@@ -4,6 +4,8 @@ using Microsoft.AspNetCore.Mvc;
 public sealed class UploadDocumentForm
 {
   public IFormFile? File { get; set; }
+  /// Owner uploads only: the property whose file the paper goes in (property_id is always set).
+  public Guid? PropertyId { get; set; }
   public Guid DocumentTypeId { get; set; }
   /// PROPERTY (default), OWNERSHIP, TRANSFER, ENCUMBRANCE, REGULARIZATION ... on a property upload.
   public DocumentEntityType? EntityType { get; set; }
@@ -60,7 +62,7 @@ public class DocumentEndpoints : ICarterModule
     {
       await using var content = OpenUpload(form.File, out var upload);
       return (await sender.Send(new UploadDocumentCommand(
-        null, id, form.DocumentTypeId, DocumentEntityType.Owner, id, form.Details(), upload)))
+        form.PropertyId, id, form.DocumentTypeId, DocumentEntityType.Owner, id, form.Details(), upload)))
         .ToCreated(r => $"/documents/{r.Id}");
     })
       .DisableAntiforgery()
@@ -71,7 +73,7 @@ public class DocumentEndpoints : ICarterModule
       .Produces<UploadDocumentCommandResult>(StatusCodes.Status201Created)
       .ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Upload Owner Document")
-      .WithDescription("An owner's own paper. With the CNIC Copy document type it also becomes the owner's CNIC document.");
+      .WithDescription("An owner's own paper, filed in the file of the property given in propertyId (property_document.property_id is always set). With the CNIC Copy document type it also becomes the owner's CNIC document.");
 
     app.MapGet("/owners/{id:guid}/documents", async (Guid id, bool? includeSuperseded, bool? includeInactive, ISender sender) =>
         (await sender.Send(new GetDocumentsQuery(null, id, null, null, null, includeSuperseded ?? false, includeInactive ?? false))).ToOk())

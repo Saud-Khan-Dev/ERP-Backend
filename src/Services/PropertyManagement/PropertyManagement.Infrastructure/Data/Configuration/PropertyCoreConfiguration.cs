@@ -39,8 +39,11 @@ public class PropertyConfiguration : EntityConfiguration<Property, PropertyId>
   }
 }
 
+/// property_status_history — the ERD gives it created_at / created_by only.
 public class PropertyStatusHistoryConfiguration : EntityConfiguration<PropertyStatusHistory, PropertyStatusHistoryId>
 {
+  protected override AuditColumns Audit => AuditColumns.Created;
+
   public override void Configure(EntityTypeBuilder<PropertyStatusHistory> builder)
   {
     base.Configure(builder);

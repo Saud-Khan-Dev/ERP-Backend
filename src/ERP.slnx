@@ -26,4 +26,7 @@
     <Project Path="Services/PropertyManagement/PropertyManagement.Domain/PropertyManagement.Domain.csproj" />
     <Project Path="Services/PropertyManagement/PropertyManagement.Infrastructure/PropertyManagement.Infrastructure.csproj" />
   </Folder>
+  <Folder Name="/Tests/">
+    <Project Path="Tests/PropertyManagement.Domain.Tests/PropertyManagement.Domain.Tests.csproj" />
+  </Folder>
 </Solution>

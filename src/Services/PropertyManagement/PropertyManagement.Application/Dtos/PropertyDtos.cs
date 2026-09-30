@@ -214,7 +214,7 @@ public sealed record EncumbranceDto(
 
 public sealed record DocumentDto(
   Guid Id,
-  Guid? PropertyId,
+  Guid PropertyId,
   MasterRef? DocumentType,
   DocumentEntityType EntityType,
   Guid EntityId,

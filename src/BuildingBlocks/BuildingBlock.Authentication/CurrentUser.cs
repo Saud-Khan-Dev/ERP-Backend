@@ -18,6 +18,8 @@ public sealed class CurrentUser(IHttpContextAccessor httpContextAccessor) : ICur
 
   public Guid? SessionId => ReadGuid(ErpClaimTypes.SessionId);
 
+  public bool IsAuthorizedOfficer => string.Equals(Read(ErpClaimTypes.AuthorizedOfficer), "true", StringComparison.OrdinalIgnoreCase);
+
   public IReadOnlyCollection<string> Permissions =>
       Principal?.FindAll(ErpClaimTypes.Permission).Select(c => c.Value).ToArray() ?? Array.Empty<string>();
 

@@ -69,7 +69,7 @@ public static class Mappings
     x.ReferenceNo, x.Amount, x.StartDate, x.EndDate, x.ReleaseDate, x.ReleaseReferenceNo, x.Status, x.Remarks);
 
   public static DocumentDto ToDto(this PropertyDocument x, MasterRefs refs, bool isLatest) => new(
-    x.Id.Value, x.PropertyId?.Value, refs[x.DocumentTypeId], x.EntityType, x.EntityId, x.Title, x.OriginalFileName,
+    x.Id.Value, x.PropertyId.Value, refs[x.DocumentTypeId], x.EntityType, x.EntityId, x.Title, x.OriginalFileName,
     x.MimeType, x.FileSizeBytes, x.ChecksumSha256, x.DocumentDate, x.ReferenceNo, x.VersionNo,
     x.SupersedesDocumentId?.Value, isLatest, x.Description, x.IsConfidential, x.IsActive, x.UploadedAt, x.UploadedBy);
 

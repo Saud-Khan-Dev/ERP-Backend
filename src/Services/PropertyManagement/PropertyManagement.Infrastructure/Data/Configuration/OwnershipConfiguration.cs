@@ -68,8 +68,11 @@ public class PropertyTransferConfiguration : EntityConfiguration<PropertyTransfe
   }
 }
 
+/// property_transfer_party — no audit columns in the ERD (the transfer header carries them).
 public class PropertyTransferPartyConfiguration : EntityConfiguration<PropertyTransferParty, TransferPartyId>
 {
+  protected override AuditColumns Audit => AuditColumns.None;
+
   public override void Configure(EntityTypeBuilder<PropertyTransferParty> builder)
   {
     base.Configure(builder);

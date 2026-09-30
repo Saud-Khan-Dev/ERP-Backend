@@ -25,6 +25,9 @@ public interface ICurrentUser
   /// Session the access token was issued for.
   Guid? SessionId { get; }
 
+  /// Officer authorized by the DG (GDA Act s.2(a-i)): may impose fines (s.28) and file complaints (s.30).
+  bool IsAuthorizedOfficer { get; }
+
   bool HasPermission(string permissionCode);
 
   /// Identifier written to audit columns. Falls back to "system" for background work.

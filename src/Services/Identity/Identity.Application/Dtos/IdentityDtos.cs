@@ -13,6 +13,7 @@ public sealed record UserDto(
   Guid? EmployeeId,
   string? EmployeeCode,
   bool IsActive,
+  bool IsAuthorizedOfficer,
   bool MustChangePassword,
   bool MfaEnabled,
   bool IsLockedOut,
@@ -114,6 +115,7 @@ public sealed record CurrentUserDto(
   string DisplayName,
   Guid? EmployeeId,
   string? EmployeeCode,
+  bool IsAuthorizedOfficer,
   bool MustChangePassword,
   IReadOnlyList<string> Roles,
   IReadOnlyList<string> Permissions);
@@ -130,7 +132,7 @@ public sealed record EmployeeCodeTemplateDto(
 public static class IdentityMappings
 {
   public static UserDto ToDto(this User x, DateTime now) => new(
-    x.Id.Value, x.Username.Value, x.Email.Value, x.DisplayName.Value, x.EmployeeId, x.EmployeeCode?.Value, x.IsActive,
+    x.Id.Value, x.Username.Value, x.Email.Value, x.DisplayName.Value, x.EmployeeId, x.EmployeeCode?.Value, x.IsActive, x.IsAuthorizedOfficer,
     x.MustChangePassword, x.MfaEnabled, x.IsLockedOut(now), x.LockedUntil, x.FailedLoginAttempts,
     x.LastLoginAt, x.LastLoginIp?.Value, x.PasswordChangedAt, x.EmailVerifiedAt, x.CreatedAt, x.CreatedBy);
 
@@ -160,7 +162,7 @@ public static class IdentityMappings
     x.IpAddress?.Value, x.UserAgent, x.AttemptedAt);
 
   public static CurrentUserDto ToCurrentUserDto(this User x, PermissionResolver.ResolvedPermissions resolved) => new(
-    x.Id.Value, x.Username.Value, x.Email.Value, x.DisplayName.Value, x.EmployeeId, x.EmployeeCode?.Value, x.MustChangePassword,
+    x.Id.Value, x.Username.Value, x.Email.Value, x.DisplayName.Value, x.EmployeeId, x.EmployeeCode?.Value, x.IsAuthorizedOfficer, x.MustChangePassword,
     resolved.RoleCodes.OrderBy(r => r, StringComparer.Ordinal).ToList(),
     resolved.PermissionCodes.OrderBy(p => p, StringComparer.Ordinal).ToList());
 }

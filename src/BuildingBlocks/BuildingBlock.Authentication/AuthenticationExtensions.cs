@@ -28,6 +28,9 @@ public static class AuthenticationExtensions
     services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
       .AddJwtBearer(options =>
       {
+        // Keep the short claim names the issuer writes ("role", "sub", "ao"...). With the default mapping
+        // "role" arrives as the long ClaimTypes.Role URI and ICurrentUser.Roles comes back empty.
+        options.MapInboundClaims = false;
         options.TokenValidationParameters = new TokenValidationParameters
         {
           ValidateIssuer = true,

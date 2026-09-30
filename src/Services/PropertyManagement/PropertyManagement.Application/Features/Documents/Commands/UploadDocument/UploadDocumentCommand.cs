@@ -12,8 +12,8 @@ public sealed record DocumentDetailsInput(
 
 public sealed record UploadDocumentCommandResult(Guid Id, int VersionNo);
 
-/// Files a scanned document. Either PropertyId (optionally naming a sub-record through EntityType +
-/// EntityId) or OwnerId (an owner's own papers) is set.
+/// Files a scanned document in a property's file (property_id is always set). EntityType + EntityId name
+/// the sub-record it belongs to; with OwnerId it is one of that owner's own papers (CNIC copy ...).
 public sealed record UploadDocumentCommand(
   Guid? PropertyId,
   Guid? OwnerId,
@@ -27,8 +27,8 @@ public class UploadDocumentCommandValidator : AbstractValidator<UploadDocumentCo
 {
   public UploadDocumentCommandValidator()
   {
-    RuleFor(x => x).Must(x => x.PropertyId.HasValue || x.OwnerId.HasValue)
-      .WithMessage("A document is filed under a property or an owner.");
+    RuleFor(x => x.PropertyId).NotEmpty()
+      .WithMessage("A document is always filed under a property (property_document.property_id).");
     RuleFor(x => x.DocumentTypeId).NotEmpty();
     RuleFor(x => x.EntityType).IsInEnum();
     RuleFor(x => x.File).NotNull();

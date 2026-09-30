@@ -45,8 +45,11 @@ public class PropertyOwnerConfiguration : EntityConfiguration<PropertyOwner, Own
   }
 }
 
+/// owner_contact — the ERD gives it created_at only.
 public class OwnerContactConfiguration : EntityConfiguration<OwnerContact, OwnerContactId>
 {
+  protected override AuditColumns Audit => AuditColumns.CreatedAt;
+
   public override void Configure(EntityTypeBuilder<OwnerContact> builder)
   {
     base.Configure(builder);
@@ -69,8 +72,11 @@ public class OwnerContactConfiguration : EntityConfiguration<OwnerContact, Owner
   }
 }
 
+/// owner_address — the ERD gives it created_at only.
 public class OwnerAddressConfiguration : EntityConfiguration<OwnerAddress, OwnerAddressId>
 {
+  protected override AuditColumns Audit => AuditColumns.CreatedAt;
+
   public override void Configure(EntityTypeBuilder<OwnerAddress> builder)
   {
     base.Configure(builder);

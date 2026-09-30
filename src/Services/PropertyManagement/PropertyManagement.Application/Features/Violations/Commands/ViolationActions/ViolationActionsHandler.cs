@@ -13,9 +13,12 @@ public class ViolationActionsHandler(IApplicationDbContext context, ICurrentUser
 
   public async Task<Result<ViolationActionResult>> Handle(ImposeFineCommand command, CancellationToken cancellationToken)
   {
+    // s.28-A: the fine is imposed by an officer authorized by the DG (app_user.is_authorized_officer)
+    if (!currentUser.IsAuthorizedOfficer || currentUser.UserId is null)
+      throw new AuthorizedOfficerRequiredException("Only an officer authorized by the DG may impose a fine (GDA Act s.28-A).");
+
     var violation = await context.LoadViolationAsync(command.Id, cancellationToken);
-    violation.ImposeFine(command.FineAmount,
-      currentUser.UserId ?? throw new DomainException("Imposing a fine requires a signed-in officer."));
+    violation.ImposeFine(command.FineAmount, currentUser.UserId.Value);
     return await SaveAsync(violation, cancellationToken);
   }
 
