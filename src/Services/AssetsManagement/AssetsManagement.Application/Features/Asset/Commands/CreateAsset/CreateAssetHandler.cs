@@ -7,10 +7,18 @@ public class CreateAssetHandler(IApplicationDbContext context, IAttributeSchemaS
   public async Task<Result<CreateAssetCommandResult>> Handle(CreateAssetCommand command, CancellationToken cancellationToken)
   {
     var input = command.Asset;
-    var assetCode = AssetCode.Of(input.AssetCode);
 
-    if (await context.Assets.IgnoreQueryFilters().AnyAsync(a => a.AssetCode == assetCode, cancellationToken))
-      return Result<CreateAssetCommandResult>.Failure($"An asset with code {assetCode.Value} already exists.");
+    AssetCode assetCode;
+    if (string.IsNullOrWhiteSpace(input.AssetCode))
+    {
+      assetCode = await AssetCodeIssuer.NextAsync(context, cancellationToken);
+    }
+    else
+    {
+      assetCode = AssetCode.Of(input.AssetCode);
+      if (await context.Assets.IgnoreQueryFilters().AnyAsync(a => a.AssetCode == assetCode, cancellationToken))
+        return Result<CreateAssetCommandResult>.Failure($"An asset with code {assetCode.Value} already exists.");
+    }
 
     var taxonomy = await AssetTaxonomyLoader.LoadAsync(context, input.AssetClassId, input.AssetTypeId, input.CategoryId, cancellationToken);
 
@@ -18,7 +26,7 @@ public class CreateAssetHandler(IApplicationDbContext context, IAttributeSchemaS
     var status = await context.AssetStatuses.AsNoTracking().FirstOrDefaultAsync(s => s.Id == statusId, cancellationToken)
       ?? throw new AssetStatusNotFoundException($"Asset status {input.StatusId} was not found.");
 
-    var identifierConflict = await AssetIdentifierChecks.FindConflictAsync(context, null, taxonomy.Category.Id, input.SerialNumber, input.Barcode, input.RfidTag, cancellationToken);
+    var identifierConflict = await AssetIdentifierChecks.FindConflictAsync(context, null, input.Barcode, cancellationToken);
     if (identifierConflict is not null)
       return Result<CreateAssetCommandResult>.Failure(identifierConflict);
 
@@ -26,16 +34,8 @@ public class CreateAssetHandler(IApplicationDbContext context, IAttributeSchemaS
     if (input.CurrentLocationId.HasValue)
     {
       locationId = LocationId.Of(input.CurrentLocationId.Value);
-      if (!await context.Locations.AnyAsync(l => l.Id == locationId, cancellationToken))
-        throw new LocationNotFoundException($"Location {input.CurrentLocationId} was not found.");
-    }
-
-    AssetId? parentId = null;
-    if (input.ParentAssetId.HasValue)
-    {
-      parentId = AssetId.Of(input.ParentAssetId.Value);
-      if (!await context.Assets.AnyAsync(a => a.Id == parentId, cancellationToken))
-        throw new AssetNotFoundException($"Parent asset {input.ParentAssetId} was not found.");
+      if (!await context.Locations.AnyAsync(l => l.Id == locationId && l.IsActive, cancellationToken))
+        throw new LocationNotFoundException($"Location {input.CurrentLocationId} was not found or is inactive.");
     }
 
     var asset = Asset.Create(
@@ -48,13 +48,10 @@ public class CreateAssetHandler(IApplicationDbContext context, IAttributeSchemaS
       assetType: taxonomy.Type,
       category: taxonomy.Category,
       status: status,
-      parentAssetId: parentId,
       departmentId: input.DepartmentId,
       custodianId: input.CustodianId,
       currentLocationId: locationId,
-      serialNumber: input.SerialNumber,
-      barcode: input.Barcode,
-      rfidTag: input.RfidTag);
+      barcode: input.Barcode);
 
     await context.Assets.AddAsync(asset, cancellationToken);
 
@@ -67,9 +64,58 @@ public class CreateAssetHandler(IApplicationDbContext context, IAttributeSchemaS
       "Asset created",
       cancellationToken);
 
+    if (command.Acquisition is { } purchase)
+    {
+      var currency = Currency.Of(purchase.CurrencyCode);
+      if (!await context.Currencies.AnyAsync(c => c.Id == currency && c.IsActive, cancellationToken))
+        throw new CurrencyNotFoundException($"Currency {currency.Value} was not found or is inactive.");
+
+      var acquisition = AssetAcquisition.Create(
+        AssetAcquisitionId.Of(Guid.NewGuid()), asset.Id, purchase.AcquisitionDate, purchase.AcquisitionCost, currency,
+        purchase.ExchangeRate, purchase.SupplierId, purchase.PurchaseReference, purchase.AcquisitionType,
+        purchase.WarrantyStartDate, purchase.WarrantyExpiryDate);
+      await context.AssetAcquisitions.AddAsync(acquisition, cancellationToken);
+
+      if (command.Depreciation is { } plan)
+      {
+        var methodId = DepreciationMethodId.Of(plan.MethodId);
+        var method = await context.DepreciationMethods.AsNoTracking().FirstOrDefaultAsync(m => m.Id == methodId, cancellationToken)
+          ?? throw new DepreciationMethodNotFoundException($"Depreciation method {plan.MethodId} was not found.");
+
+        var schedule = AssetDepreciationSchedule.Create(
+          AssetDepreciationScheduleId.Of(Guid.NewGuid()), asset, taxonomy.Type, method, purchase.AcquisitionCost,
+          plan.UsefulLifeMonths, plan.SalvageValue, plan.DecliningRate, plan.StartDate ?? purchase.AcquisitionDate);
+        await context.AssetDepreciationSchedules.AddAsync(schedule, cancellationToken);
+      }
+    }
+
     await context.SaveChangesAsync(cancellationToken);
 
-    return Result<CreateAssetCommandResult>.Success(new CreateAssetCommandResult(asset.Id.Value));
+    return Result<CreateAssetCommandResult>.Success(new CreateAssetCommandResult(asset.Id.Value, asset.AssetCode.Value));
+  }
+}
+
+/// Issues the next AST-000001 style code. Deleted assets keep their codes, so they are counted too.
+public static class AssetCodeIssuer
+{
+  public const string Prefix = "AST-";
+  private const int Digits = 6;
+
+  public static async Task<AssetCode> NextAsync(IApplicationDbContext context, CancellationToken cancellationToken)
+  {
+    var codes = await context.Assets.IgnoreQueryFilters()
+      .Select(a => a.AssetCode)
+      .ToListAsync(cancellationToken);
+
+    var highest = 0;
+    foreach (var code in codes)
+    {
+      var value = code.Value;
+      if (value.StartsWith(Prefix, StringComparison.Ordinal) && int.TryParse(value[Prefix.Length..], out var number))
+        highest = Math.Max(highest, number);
+    }
+
+    return AssetCode.Of($"{Prefix}{(highest + 1).ToString().PadLeft(Digits, '0')}");
   }
 }
 
@@ -98,32 +144,21 @@ public static class AssetTaxonomyLoader
 
 public static class AssetIdentifierChecks
 {
-  /// Barcode / RFID are globally unique, serial numbers are unique within a category (matches the DB indexes).
+  /// Barcodes are globally unique (matches the DB index); deleted assets keep theirs.
   public static async Task<string?> FindConflictAsync(
       IApplicationDbContext context,
       AssetId? self,
-      AssetCategoryId categoryId,
-      string? serialNumber,
       string? barcode,
-      string? rfidTag,
       CancellationToken cancellationToken)
   {
     var assets = context.Assets.IgnoreQueryFilters();
     if (self is not null)
       assets = assets.Where(a => a.Id != self);
 
-    serialNumber = string.IsNullOrWhiteSpace(serialNumber) ? null : serialNumber.Trim();
     barcode = string.IsNullOrWhiteSpace(barcode) ? null : barcode.Trim();
-    rfidTag = string.IsNullOrWhiteSpace(rfidTag) ? null : rfidTag.Trim();
-
-    if (serialNumber is not null && await assets.AnyAsync(a => a.CategoryId == categoryId && a.SerialNumber == serialNumber, cancellationToken))
-      return $"Serial number {serialNumber} is already used by another asset in this category.";
 
     if (barcode is not null && await assets.AnyAsync(a => a.Barcode == barcode, cancellationToken))
       return $"Barcode {barcode} is already used by another asset.";
-
-    if (rfidTag is not null && await assets.AnyAsync(a => a.RfidTag == rfidTag, cancellationToken))
-      return $"RFID tag {rfidTag} is already used by another asset.";
 
     return null;
   }

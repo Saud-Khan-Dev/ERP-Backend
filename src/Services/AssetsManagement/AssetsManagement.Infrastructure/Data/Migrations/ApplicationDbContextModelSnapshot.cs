@@ -113,20 +113,6 @@ namespace AssetsManagement.Infrastructure.Data.Migrations
                         .HasColumnType("character varying(30)")
                         .HasColumnName("ownership");
 
-                    b.Property<Guid?>("ParentAssetId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("parent_asset_id");
-
-                    b.Property<string>("RfidTag")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
-                        .HasColumnName("rfid_tag");
-
-                    b.Property<string>("SerialNumber")
-                        .HasMaxLength(150)
-                        .HasColumnType("character varying(150)")
-                        .HasColumnName("serial_number");
-
                     b.Property<Guid>("StatusId")
                         .HasColumnType("uuid")
                         .HasColumnName("status_id");
@@ -184,13 +170,6 @@ namespace AssetsManagement.Infrastructure.Data.Migrations
                     b.HasIndex("DepartmentId")
                         .HasDatabaseName("ix_asset_department_id");
 
-                    b.HasIndex("ParentAssetId")
-                        .HasDatabaseName("ix_asset_parent_asset_id");
-
-                    b.HasIndex("RfidTag")
-                        .IsUnique()
-                        .HasDatabaseName("ix_asset_rfid_tag");
-
                     b.HasIndex("StatusId")
                         .HasDatabaseName("ix_asset_status_id");
 
@@ -205,10 +184,6 @@ namespace AssetsManagement.Infrastructure.Data.Migrations
 
                     b.HasIndex("CategoryId", "AssetClassId")
                         .HasDatabaseName("ix_asset_category_id_asset_class_id");
-
-                    b.HasIndex("CategoryId", "SerialNumber")
-                        .IsUnique()
-                        .HasDatabaseName("ix_asset_category_id_serial_number");
 
                     b.ToTable("asset", "assets");
                 });
@@ -474,6 +449,11 @@ namespace AssetsManagement.Infrastructure.Data.Migrations
                         .HasColumnType("character varying(255)")
                         .HasColumnName("stored_file_name");
 
+                    b.Property<string>("Title")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("title");
+
                     b.HasKey("Id")
                         .HasName("pk_asset_attachment");
 
@@ -679,7 +659,7 @@ namespace AssetsManagement.Infrastructure.Data.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("asset_class_id");
 
-                    b.Property<Guid?>("AssetTypeId")
+                    b.Property<Guid>("AssetTypeId")
                         .HasColumnType("uuid")
                         .HasColumnName("asset_type_id");
 
@@ -3581,12 +3561,6 @@ namespace AssetsManagement.Infrastructure.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .HasConstraintName("fk_asset_location_current_location_id");
 
-                    b.HasOne("Asset", null)
-                        .WithMany()
-                        .HasForeignKey("ParentAssetId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .HasConstraintName("fk_asset_asset_parent_asset_id");
-
                     b.HasOne("AssetStatus", null)
                         .WithMany()
                         .HasForeignKey("StatusId")
@@ -3713,6 +3687,7 @@ namespace AssetsManagement.Infrastructure.Data.Migrations
                         .WithMany()
                         .HasForeignKey("AssetTypeId")
                         .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
                         .HasConstraintName("fk_asset_category_asset_types_asset_type_id");
 
                     b.HasOne("AssetCategory", null)

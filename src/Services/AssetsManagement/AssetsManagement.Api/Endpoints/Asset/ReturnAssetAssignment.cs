@@ -1,4 +1,4 @@
-public sealed record ReturnAssetAssignmentRequest(DateOnly? ActualReturnDate = null);
+public sealed record ReturnAssetAssignmentRequest(DateOnly? ActualReturnDate = null, Guid? EventTypeId = null, string? Notes = null, Guid? PerformedBy = null);
 public sealed record ReturnAssetAssignmentResponse(bool IsSuccess);
 
 public class ReturnAssetAssignment : ICarterModule
@@ -7,7 +7,7 @@ public class ReturnAssetAssignment : ICarterModule
   {
     app.MapPost("/assets/{id}/assignments/{assignmentId}/return", async (Guid id, Guid assignmentId, ReturnAssetAssignmentRequest request, ISender sender) =>
     {
-      var result = await sender.Send(new ReturnAssetAssignmentCommand(id, assignmentId, request.ActualReturnDate));
+      var result = await sender.Send(new ReturnAssetAssignmentCommand(id, assignmentId, request.ActualReturnDate, request.EventTypeId, request.Notes, request.PerformedBy));
 
       if (!result.IsSuccess)
         return Results.BadRequest(new { Message = result.Message });

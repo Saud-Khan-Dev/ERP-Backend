@@ -11,16 +11,12 @@ public class CreateAssetCategoryHandler(IApplicationDbContext context)
     if (!await context.AssetClasses.AnyAsync(c => c.Id == classId, cancellationToken))
       throw new AssetClassNotFoundException($"Asset class {input.AssetClassId} was not found.");
 
-    AssetTypeId? typeId = null;
-    if (input.AssetTypeId.HasValue)
-    {
-      typeId = AssetTypeId.Of(input.AssetTypeId.Value);
-      var assetType = await context.AssetTypes.AsNoTracking().FirstOrDefaultAsync(t => t.Id == typeId, cancellationToken)
-        ?? throw new AssetTypeNotFoundException($"Asset type {input.AssetTypeId} was not found.");
+    var typeId = AssetTypeId.Of(input.AssetTypeId);
+    var assetType = await context.AssetTypes.AsNoTracking().FirstOrDefaultAsync(t => t.Id == typeId, cancellationToken)
+      ?? throw new AssetTypeNotFoundException($"Asset type {input.AssetTypeId} was not found.");
 
-      if (assetType.AssetClassId != classId)
-        return Result<CreateAssetCategoryCommandResult>.Failure("The asset type does not belong to the given asset class.");
-    }
+    if (assetType.AssetClassId != classId)
+      return Result<CreateAssetCategoryCommandResult>.Failure("The asset type does not belong to the given asset class.");
 
     AssetCategory? parent = null;
     if (input.ParentCategoryId.HasValue)
@@ -31,7 +27,7 @@ public class CreateAssetCategoryHandler(IApplicationDbContext context)
 
       // a leaf that already holds assets cannot become a branch (assets live on leaves only)
       if (parent.IsLeaf && await context.Assets.IgnoreQueryFilters().AnyAsync(a => a.CategoryId == parentId, cancellationToken))
-        return Result<CreateAssetCategoryCommandResult>.Failure("The parent category already has assets attached; move them before adding sub-categories.");
+        return Result<CreateAssetCategoryCommandResult>.Failure($"'{parent.Name.Value}' already has assets in it, so it cannot get sub-categories. Move its assets first.");
     }
 
     var code = LookupCode.Of(input.Code);
@@ -50,7 +46,7 @@ public class CreateAssetCategoryHandler(IApplicationDbContext context)
       displayOrder: input.DisplayOrder);
 
     if (!input.IsActive)
-      category.Update(typeId, code, Name.Of(input.Name, 150), input.Description, input.DisplayOrder, false);
+      category.Update(code, Name.Of(input.Name, 150), input.Description, input.DisplayOrder, false);
 
     await context.AssetCategories.AddAsync(category, cancellationToken);
     await context.SaveChangesAsync(cancellationToken);

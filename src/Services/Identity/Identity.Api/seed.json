@@ -1,20 +1,4 @@
 {
-  // =====================================================================
-  //  SHARED DEVELOPMENT CREDENTIALS — committed on purpose.
-  //
-  //  Anyone who clones this repository and runs the stack gets this
-  //  Super Admin account created automatically, so they can sign in and
-  //  start working without any manual database setup.
-  //
-  //  The password below is only honoured when ASPNETCORE_ENVIRONMENT is
-  //  Development. In any other environment the seeder ignores it and
-  //  generates a random one instead, so these credentials can never
-  //  become a production login. Override in real deployments with:
-  //
-  //      Seed__SuperAdminPassword=...
-  //
-  //  =====================================================================
-
   "Seed": {
     "Enabled": true,
     "SuperAdminUsername": "superadmin",

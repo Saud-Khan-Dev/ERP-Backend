@@ -11,6 +11,10 @@ public class DeleteAssetAttachmentHandler(IApplicationDbContext context)
     var attachment = await context.AssetAttachments.FirstOrDefaultAsync(a => a.Id == attachmentId && a.AssetId == assetId, cancellationToken)
       ?? throw new AssetAttachmentNotFoundException($"Attachment {command.AttachmentId} was not found on asset {command.AssetId}.");
 
+    var asset = await context.Assets.AsNoTracking().FirstAsync(a => a.Id == assetId, cancellationToken);
+    if (await AssetRecordGuard.ClosedReasonAsync(context, asset, cancellationToken) is { } closed)
+      return Result<DeleteAssetAttachmentCommandResult>.Failure(closed);
+
     // FILE attributes point at attachment ids; refuse to orphan them
     var referencedByAttribute = await context.AssetAttributeValues
       .AnyAsync(v => v.AssetId == assetId && v.ValueText == command.AttachmentId.ToString(), cancellationToken);

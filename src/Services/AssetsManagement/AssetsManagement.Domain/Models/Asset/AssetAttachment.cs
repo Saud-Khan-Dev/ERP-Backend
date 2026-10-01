@@ -12,6 +12,8 @@ public class AssetAttachment : Aggregate<AssetAttachmentId>
   /// Integrity / dedupe
   public string? ChecksumSha256 { get; private set; }
   public bool IsPrimaryImage { get; private set; }
+  /// What the paper is, in the user's words: "Purchase invoice", "Warranty card", "Front view".
+  public string? Title { get; private set; }
 
   public static AssetAttachment Create(
       AssetAttachmentId id,
@@ -23,7 +25,8 @@ public class AssetAttachment : Aggregate<AssetAttachmentId>
       long fileSize,
       string storagePath,
       string? checksumSha256,
-      bool isPrimaryImage)
+      bool isPrimaryImage,
+      string? title = null)
   {
     ArgumentNullException.ThrowIfNull(assetId);
     ArgumentException.ThrowIfNullOrWhiteSpace(originalFileName);
@@ -51,7 +54,8 @@ public class AssetAttachment : Aggregate<AssetAttachmentId>
       FileSize = fileSize,
       StoragePath = storagePath.Trim(),
       ChecksumSha256 = checksumSha256?.ToLowerInvariant(),
-      IsPrimaryImage = isPrimaryImage
+      IsPrimaryImage = isPrimaryImage,
+      Title = string.IsNullOrWhiteSpace(title) ? null : title.Trim()
     };
   }
 

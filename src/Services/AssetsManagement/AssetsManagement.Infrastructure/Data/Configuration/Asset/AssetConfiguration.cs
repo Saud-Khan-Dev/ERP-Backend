@@ -35,10 +35,6 @@ public class AssetConfiguration : EntityConfiguration<Asset, AssetId>
     builder.Property(x => x.CategoryId).HasConversion(id => id.Value, dbId => AssetCategoryId.Of(dbId)).IsRequired();
     builder.Property(x => x.StatusId).HasConversion(id => id.Value, dbId => AssetStatusId.Of(dbId)).IsRequired();
 
-    builder.Property(x => x.ParentAssetId)
-      .HasConversion(id => id!.Value, dbId => AssetId.Of(dbId))
-      .IsRequired(false);
-
     builder.Property(x => x.DepartmentId).IsRequired(false);
     builder.Property(x => x.CustodianId).IsRequired(false);
 
@@ -46,9 +42,7 @@ public class AssetConfiguration : EntityConfiguration<Asset, AssetId>
       .HasConversion(id => id!.Value, dbId => LocationId.Of(dbId))
       .IsRequired(false);
 
-    builder.Property(x => x.SerialNumber).HasMaxLength(150).IsRequired(false);
     builder.Property(x => x.Barcode).HasMaxLength(100).IsRequired(false);
-    builder.Property(x => x.RfidTag).HasMaxLength(100).IsRequired(false);
 
     // Dynamic values: SOURCE OF TRUTH. Mapped through the backing field so the domain keeps a read-only view.
     builder.Ignore(x => x.ExtraAttributes);
@@ -78,10 +72,7 @@ public class AssetConfiguration : EntityConfiguration<Asset, AssetId>
     builder.HasIndex(x => x.DepartmentId);
     builder.HasIndex(x => x.CustodianId);
     builder.HasIndex(x => x.CurrentLocationId);
-    builder.HasIndex(x => x.ParentAssetId);
     builder.HasIndex(x => x.Barcode).IsUnique();
-    builder.HasIndex(x => x.RfidTag).IsUnique();
-    builder.HasIndex(x => new { x.CategoryId, x.SerialNumber }).IsUnique();
     builder.HasIndex("_extraAttributes")
       .HasDatabaseName("ix_asset_extra_attributes")
       .HasMethod("gin")
@@ -112,12 +103,6 @@ public class AssetConfiguration : EntityConfiguration<Asset, AssetId>
       .WithMany()
       .HasForeignKey(x => x.StatusId)
       .IsRequired()
-      .OnDelete(DeleteBehavior.Restrict);
-
-    builder.HasOne<Asset>()
-      .WithMany()
-      .HasForeignKey(x => x.ParentAssetId)
-      .IsRequired(false)
       .OnDelete(DeleteBehavior.Restrict);
 
     builder.HasOne<Location>()

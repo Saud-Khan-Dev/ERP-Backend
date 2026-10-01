@@ -7,19 +7,20 @@ public class GetAssetCategories : ICarterModule
     app.MapGet("/asset-categories", async (
       ISender sender,
       Guid? assetClassId,
+      Guid? assetTypeId,
       Guid? parentCategoryId,
       bool? onlyRoots,
       bool? onlyLeaves,
       bool? includeInactive) =>
     {
       var result = await sender.Send(new GetAssetCategoriesQuery(
-        assetClassId, parentCategoryId, onlyRoots ?? false, onlyLeaves ?? false, includeInactive ?? false));
+        assetClassId, parentCategoryId, onlyRoots ?? false, onlyLeaves ?? false, includeInactive ?? false, assetTypeId));
 
       return Results.Ok(new GetAssetCategoriesResponse(result.Value!.Categories));
     })
       .WithName("GetAssetCategories")
       .Produces<GetAssetCategoriesResponse>(StatusCodes.Status200OK)
       .WithSummary("Get Asset Categories")
-      .WithDescription("Lists categories: filter by class, by parent (children of a node), onlyRoots for the top level, onlyLeaves for asset-attachable nodes.");
+      .WithDescription("Lists categories: filter by class, by asset type, by parent (children of a node), onlyRoots for the top level of each type, onlyLeaves for the categories assets can be put in.");
   }
 }

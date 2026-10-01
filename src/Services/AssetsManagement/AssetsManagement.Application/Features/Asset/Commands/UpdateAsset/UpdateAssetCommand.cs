@@ -11,10 +11,7 @@ public sealed record UpdateAssetInput(
   Guid AssetClassId,
   Guid AssetTypeId,
   Guid CategoryId,
-  Guid? ParentAssetId = null,
-  string? SerialNumber = null,
   string? Barcode = null,
-  string? RfidTag = null,
   bool IsActive = true,
   Dictionary<string, JsonElement>? ExtraAttributes = null);
 
@@ -32,9 +29,7 @@ public class UpdateAssetInputValidator : AbstractValidator<UpdateAssetInput>
     RuleFor(x => x.AssetClassId).NotEmpty();
     RuleFor(x => x.AssetTypeId).NotEmpty();
     RuleFor(x => x.CategoryId).NotEmpty();
-    RuleFor(x => x.SerialNumber).MaximumLength(150);
     RuleFor(x => x.Barcode).MaximumLength(100);
-    RuleFor(x => x.RfidTag).MaximumLength(100);
   }
 }
 

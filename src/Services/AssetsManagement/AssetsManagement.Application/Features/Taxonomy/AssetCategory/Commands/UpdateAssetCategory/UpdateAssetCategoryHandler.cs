@@ -14,16 +14,8 @@ public class UpdateAssetCategoryHandler(IApplicationDbContext context)
     var category = tree.FirstOrDefault(c => c.Id == id)
       ?? throw new AssetCategoryNotFoundException($"Asset category {command.Id} was not found in class {input.AssetClassId}.");
 
-    AssetTypeId? typeId = null;
-    if (input.AssetTypeId.HasValue)
-    {
-      typeId = AssetTypeId.Of(input.AssetTypeId.Value);
-      var assetType = await context.AssetTypes.AsNoTracking().FirstOrDefaultAsync(t => t.Id == typeId, cancellationToken)
-        ?? throw new AssetTypeNotFoundException($"Asset type {input.AssetTypeId} was not found.");
-
-      if (assetType.AssetClassId != classId)
-        return Result<UpdateAssetCategoryCommandResult>.Failure("The asset type does not belong to the given asset class.");
-    }
+    if (AssetTypeId.Of(input.AssetTypeId) != category.AssetTypeId)
+      return Result<UpdateAssetCategoryCommandResult>.Failure("A category stays under the asset type it was created in. Create it under the other type instead.");
 
     var code = LookupCode.Of(input.Code);
     if (tree.Any(c => c.Id != id && c.Code == code))
@@ -42,9 +34,9 @@ public class UpdateAssetCategoryHandler(IApplicationDbContext context)
 
     if (parentChanged && newParent is not null && newParent.IsLeaf
         && await context.Assets.IgnoreQueryFilters().AnyAsync(a => a.CategoryId == newParent.Id, cancellationToken))
-      return Result<UpdateAssetCategoryCommandResult>.Failure("The new parent already has assets attached; move them before adding sub-categories.");
+      return Result<UpdateAssetCategoryCommandResult>.Failure($"'{newParent.Name.Value}' already has assets in it, so it cannot get sub-categories. Move its assets first.");
 
-    category.Update(typeId, code, Name.Of(input.Name, 150), input.Description, input.DisplayOrder, input.IsActive);
+    category.Update(code, Name.Of(input.Name, 150), input.Description, input.DisplayOrder, input.IsActive);
 
     // Rebuild path/depth for the node and its whole subtree (code or parent may have changed).
     var byId = tree.ToDictionary(c => c.Id);

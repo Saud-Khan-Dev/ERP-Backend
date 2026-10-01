@@ -23,6 +23,12 @@ public static class DependencyInjection
     });
 
     services.AddScoped<IApplicationDbContext, ApplicationDbContext>();
+
+    // documents and photos of assets: the file server as a directory (a mounted volume in Docker)
+    services.Configure<FileStorageOptions>(configuration.GetSection(FileStorageOptions.SectionName));
+    services.Configure<AttachmentOptions>(configuration.GetSection(AttachmentOptions.SectionName));
+    services.AddSingleton<IFileStorage, LocalFileStorage>();
+
     return services;
   }
 }

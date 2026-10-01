@@ -21,6 +21,7 @@ public class AssetAttachmentConfiguration : EntityConfiguration<AssetAttachment,
     builder.Property(x => x.StoragePath).IsRequired();
     builder.Property(x => x.ChecksumSha256).HasColumnType("char(64)").IsRequired(false);
     builder.Property(x => x.IsPrimaryImage).IsRequired().HasDefaultValue(false);
+    builder.Property(x => x.Title).HasMaxLength(200).IsRequired(false);
 
     builder.HasIndex(x => x.AssetId);
     builder.HasIndex(x => new { x.AssetId, x.AttachmentType });

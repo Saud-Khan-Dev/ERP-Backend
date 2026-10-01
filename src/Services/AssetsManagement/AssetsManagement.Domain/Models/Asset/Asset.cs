@@ -14,18 +14,13 @@ public class Asset : Aggregate<AssetId>
   public AssetCategoryId CategoryId { get; private set; } = default!;
   public AssetStatusId StatusId { get; private set; } = default!;
 
-  /// Components: a RAM module belongs to a Laptop.
-  public AssetId? ParentAssetId { get; private set; }
-
   // ---- current organizational state ----
   public Guid? DepartmentId { get; private set; }
   public Guid? CustodianId { get; private set; }
   public LocationId? CurrentLocationId { get; private set; }
 
   // ---- identification ----
-  public string? SerialNumber { get; private set; }
   public string? Barcode { get; private set; }
-  public string? RfidTag { get; private set; }
 
   /// Dynamic values: SOURCE OF TRUTH. Keys = attribute_definition.code, values are typed JSON.
   public IReadOnlyDictionary<string, JsonElement> ExtraAttributes => _extraAttributes;
@@ -48,13 +43,10 @@ public class Asset : Aggregate<AssetId>
       AssetType assetType,
       AssetCategory category,
       AssetStatus status,
-      AssetId? parentAssetId,
       Guid? departmentId,
       Guid? custodianId,
       LocationId? currentLocationId,
-      string? serialNumber,
-      string? barcode,
-      string? rfidTag)
+      string? barcode)
   {
     ArgumentNullException.ThrowIfNull(assetCode);
     ArgumentNullException.ThrowIfNull(name);
@@ -66,8 +58,11 @@ public class Asset : Aggregate<AssetId>
     EnsureTaxonomyIsConsistent(assetClass, assetType, category);
     EnsureTypeRequirements(assetType, custodianId, currentLocationId);
 
-    if (parentAssetId is not null && parentAssetId == id)
-      throw new DomainException("An asset cannot be its own parent.");
+    if (!status.IsActive)
+      throw new DomainException($"Status '{status.Name.Value}' is inactive.");
+
+    if (status.IsTerminal)
+      throw new DomainException($"A new asset cannot start in the final status '{status.Name.Value}'.");
 
     return new Asset
     {
@@ -80,13 +75,10 @@ public class Asset : Aggregate<AssetId>
       AssetTypeId = assetType.Id,
       CategoryId = category.Id,
       StatusId = status.Id,
-      ParentAssetId = parentAssetId,
       DepartmentId = departmentId,
       CustodianId = custodianId,
       CurrentLocationId = currentLocationId,
-      SerialNumber = NormalizeIdentifier(serialNumber),
       Barcode = NormalizeIdentifier(barcode),
-      RfidTag = NormalizeIdentifier(rfidTag),
       IsActive = true
     };
   }
@@ -97,27 +89,18 @@ public class Asset : Aggregate<AssetId>
       string? description,
       OwnershipType ownership,
       AssetStatus currentStatus,
-      AssetId? parentAssetId,
-      string? serialNumber,
       string? barcode,
-      string? rfidTag,
       bool isActive)
   {
     ArgumentNullException.ThrowIfNull(assetCode);
     ArgumentNullException.ThrowIfNull(name);
     EnsureEditable(currentStatus);
 
-    if (parentAssetId is not null && parentAssetId == Id)
-      throw new DomainException("An asset cannot be its own parent.");
-
     AssetCode = assetCode;
     Name = name;
     Description = description;
     Ownership = ownership;
-    ParentAssetId = parentAssetId;
-    SerialNumber = NormalizeIdentifier(serialNumber);
     Barcode = NormalizeIdentifier(barcode);
-    RfidTag = NormalizeIdentifier(rfidTag);
     IsActive = isActive;
   }
 
@@ -217,8 +200,8 @@ public class Asset : Aggregate<AssetId>
     if (category.AssetClassId != assetClass.Id)
       throw new DomainException($"Category '{category.Name.Value}' does not belong to class '{assetClass.Name.Value}'.");
 
-    if (category.AssetTypeId is not null && category.AssetTypeId != assetType.Id)
-      throw new DomainException($"Category '{category.Name.Value}' is pinned to a different asset type.");
+    if (category.AssetTypeId != assetType.Id)
+      throw new DomainException($"Category '{category.Name.Value}' belongs to a different asset type than '{assetType.Name.Value}'.");
 
     category.EnsureAcceptsAssets();
   }

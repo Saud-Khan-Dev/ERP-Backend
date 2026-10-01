@@ -1,12 +1,13 @@
-/// Level 3 of the taxonomy. Hierarchical, unlimited depth, scoped to a class:
-/// PHYSICAL > IT Equipment > Computer > Laptop.
+/// Level 3 of the taxonomy: one strict tree per class - Class > Type > Category > Sub-category, unlimited depth:
+/// PHYSICAL > MOVABLE > IT Equipment > Computer > Laptop. Every category belongs to exactly one asset type, and a
+/// sub-category always belongs to its parent's type, so the type decides which categories an asset can be put in.
 /// Path is an ltree materialized path (physical.it_equipment.computer.laptop) rebuilt whenever the node moves.
 public class AssetCategory : Aggregate<AssetCategoryId>
 {
   public const char PathSeparator = '.';
 
   public AssetClassId AssetClassId { get; private set; } = default!;
-  public AssetTypeId? AssetTypeId { get; private set; }
+  public AssetTypeId AssetTypeId { get; private set; } = default!;
   public AssetCategoryId? ParentCategoryId { get; private set; }
   public LookupCode Code { get; private set; } = default!;
   public Name Name { get; private set; } = default!;
@@ -20,7 +21,7 @@ public class AssetCategory : Aggregate<AssetCategoryId>
   public static AssetCategory Create(
       AssetCategoryId id,
       AssetClassId assetClassId,
-      AssetTypeId? assetTypeId,
+      AssetTypeId assetTypeId,
       AssetCategory? parent,
       LookupCode code,
       Name name,
@@ -28,11 +29,15 @@ public class AssetCategory : Aggregate<AssetCategoryId>
       int? displayOrder)
   {
     ArgumentNullException.ThrowIfNull(assetClassId);
+    ArgumentNullException.ThrowIfNull(assetTypeId);
     ArgumentNullException.ThrowIfNull(code);
     ArgumentNullException.ThrowIfNull(name);
 
     if (parent is not null && parent.AssetClassId != assetClassId)
       throw new DomainException("A category must belong to the same asset class as its parent.");
+
+    if (parent is not null && parent.AssetTypeId != assetTypeId)
+      throw new DomainException("A sub-category belongs to the same asset type as its parent.");
 
     var category = new AssetCategory
     {
@@ -53,12 +58,13 @@ public class AssetCategory : Aggregate<AssetCategoryId>
     return category;
   }
 
-  public void Update(AssetTypeId? assetTypeId, LookupCode code, Name name, string? description, int? displayOrder, bool isActive)
+  /// The type is fixed once the category exists (like its class): moving a branch to another type would silently
+  /// change what its assets are. Create the category under the other type instead.
+  public void Update(LookupCode code, Name name, string? description, int? displayOrder, bool isActive)
   {
     ArgumentNullException.ThrowIfNull(code);
     ArgumentNullException.ThrowIfNull(name);
 
-    AssetTypeId = assetTypeId;
     Code = code;
     Name = name;
     Description = description;
@@ -76,6 +82,9 @@ public class AssetCategory : Aggregate<AssetCategoryId>
 
       if (parent.AssetClassId != AssetClassId)
         throw new DomainException("A category must belong to the same asset class as its parent.");
+
+      if (parent.AssetTypeId != AssetTypeId)
+        throw new DomainException("A sub-category belongs to the same asset type as its parent.");
 
       if (Path is not null && IsAncestorOf(parent))
         throw new DomainException("Moving a category under one of its own descendants would create a cycle.");
@@ -99,7 +108,7 @@ public class AssetCategory : Aggregate<AssetCategoryId>
   public void EnsureAcceptsAssets()
   {
     if (!IsLeaf)
-      throw new DomainException($"Category '{Name.Value}' is not a leaf category. Assets can only be attached to leaf categories.");
+      throw new DomainException($"Category '{Name.Value}' has sub-categories. Choose one of its sub-categories for the asset.");
 
     if (!IsActive)
       throw new DomainException($"Category '{Name.Value}' is inactive.");

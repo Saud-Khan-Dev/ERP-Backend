@@ -48,6 +48,11 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ConnectionStrings__Database: "Host=postgres;Port=5432;Database=ERP_DB;Username=postgres;Password=YourStrongPassword123!"
+      # documents and photos of assets (invoices, warranty cards, pictures)
+      FileStorage__RootPath: "/data/asset-files"
+
+    volumes:
+      - asset-files:/data/asset-files
 
     depends_on:
       - postgres
@@ -99,3 +104,4 @@ services:
 volumes:
   pgdata:
   property-files:
+  asset-files:

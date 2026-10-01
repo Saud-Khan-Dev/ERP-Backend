@@ -19,17 +19,9 @@ public class UpdateAssetHandler(IApplicationDbContext context, IAttributeSchemaS
     var currentStatus = await context.AssetStatuses.AsNoTracking().FirstAsync(s => s.Id == asset.StatusId, cancellationToken);
     var taxonomy = await AssetTaxonomyLoader.LoadAsync(context, input.AssetClassId, input.AssetTypeId, input.CategoryId, cancellationToken);
 
-    var identifierConflict = await AssetIdentifierChecks.FindConflictAsync(context, id, taxonomy.Category.Id, input.SerialNumber, input.Barcode, input.RfidTag, cancellationToken);
+    var identifierConflict = await AssetIdentifierChecks.FindConflictAsync(context, id, input.Barcode, cancellationToken);
     if (identifierConflict is not null)
       return Result<UpdateAssetCommandResult>.Failure(identifierConflict);
-
-    AssetId? parentId = null;
-    if (input.ParentAssetId.HasValue)
-    {
-      parentId = AssetId.Of(input.ParentAssetId.Value);
-      if (!await context.Assets.AnyAsync(a => a.Id == parentId, cancellationToken))
-        throw new AssetNotFoundException($"Parent asset {input.ParentAssetId} was not found.");
-    }
 
     asset.UpdateDetails(
       assetCode,
@@ -37,10 +29,7 @@ public class UpdateAssetHandler(IApplicationDbContext context, IAttributeSchemaS
       input.Description,
       input.Ownership,
       currentStatus,
-      parentId,
-      input.SerialNumber,
       input.Barcode,
-      input.RfidTag,
       input.IsActive);
 
     var reclassified = asset.CategoryId != taxonomy.Category.Id || asset.AssetTypeId != taxonomy.Type.Id || asset.AssetClassId != taxonomy.Class.Id;

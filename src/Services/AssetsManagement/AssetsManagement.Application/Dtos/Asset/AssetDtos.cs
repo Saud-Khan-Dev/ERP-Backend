@@ -10,13 +10,10 @@ public sealed record AssetDto(
   Guid AssetTypeId,
   Guid CategoryId,
   Guid StatusId,
-  Guid? ParentAssetId,
   Guid? DepartmentId,
   Guid? CustodianId,
   Guid? CurrentLocationId,
-  string? SerialNumber,
   string? Barcode,
-  string? RfidTag,
   IReadOnlyDictionary<string, JsonElement> ExtraAttributes,
   DateTime? AttributesValidatedAt,
   bool IsActive,
@@ -33,11 +30,18 @@ public sealed record AssetListItemDto(
   Guid AssetTypeId,
   Guid CategoryId,
   Guid StatusId,
+  Guid? DepartmentId,
   Guid? CustodianId,
   Guid? CurrentLocationId,
-  string? SerialNumber,
+  string? Barcode,
   IReadOnlyDictionary<string, JsonElement> ListAttributes,
-  bool IsActive);
+  bool IsActive,
+  DateTime? CreatedAt,
+  DateOnly? AcquisitionDate,
+  decimal? AcquisitionCost,
+  string? CurrencyCode,
+  bool IsDisposed,
+  DateOnly? DisposalDate);
 
 public sealed record AssetAcquisitionDto(
   Guid Id,
@@ -64,7 +68,8 @@ public sealed record AssetAttachmentDto(
   string StoragePath,
   string? ChecksumSha256,
   bool IsPrimaryImage,
-  DateTime? CreatedAt);
+  DateTime? CreatedAt,
+  string? Title);
 
 public sealed record AssetAssignmentDto(
   Guid Id,
@@ -98,16 +103,18 @@ public static class AssetMappings
   public static AssetDto ToDto(this Asset x) => new(
     x.Id.Value, x.AssetCode.Value, x.Name.Value, x.Description, x.Ownership,
     x.AssetClassId.Value, x.AssetTypeId.Value, x.CategoryId.Value, x.StatusId.Value,
-    x.ParentAssetId?.Value, x.DepartmentId, x.CustodianId, x.CurrentLocationId?.Value,
-    x.SerialNumber, x.Barcode, x.RfidTag, x.ExtraAttributes, x.AttributesValidatedAt,
+    x.DepartmentId, x.CustodianId, x.CurrentLocationId?.Value,
+    x.Barcode, x.ExtraAttributes, x.AttributesValidatedAt,
     x.IsActive, x.CreatedAt, x.LastModified);
 
-  public static AssetListItemDto ToListItemDto(this Asset x, IReadOnlySet<string> listAttributeCodes) => new(
+  public static AssetListItemDto ToListItemDto(this Asset x, IReadOnlySet<string> listAttributeCodes, AssetAcquisition? acquisition, AssetDisposal? disposal) => new(
     x.Id.Value, x.AssetCode.Value, x.Name.Value, x.Ownership,
     x.AssetClassId.Value, x.AssetTypeId.Value, x.CategoryId.Value, x.StatusId.Value,
-    x.CustodianId, x.CurrentLocationId?.Value, x.SerialNumber,
+    x.DepartmentId, x.CustodianId, x.CurrentLocationId?.Value, x.Barcode,
     x.ExtraAttributes.Where(kv => listAttributeCodes.Contains(kv.Key)).ToDictionary(kv => kv.Key, kv => kv.Value),
-    x.IsActive);
+    x.IsActive, x.CreatedAt,
+    acquisition?.AcquisitionDate, acquisition?.AcquisitionCost, acquisition?.CurrencyCode.Value,
+    disposal is not null, disposal?.DisposalDate);
 
   public static AssetAcquisitionDto ToDto(this AssetAcquisition x) => new(
     x.Id.Value, x.AssetId.Value, x.AcquisitionDate, x.AcquisitionCost, x.CurrencyCode.Value,
@@ -116,7 +123,7 @@ public static class AssetMappings
 
   public static AssetAttachmentDto ToDto(this AssetAttachment x) => new(
     x.Id.Value, x.AssetId.Value, x.AttachmentType, x.OriginalFileName, x.StoredFileName, x.MimeType,
-    x.FileSize, x.StoragePath, x.ChecksumSha256, x.IsPrimaryImage, x.CreatedAt);
+    x.FileSize, x.StoragePath, x.ChecksumSha256, x.IsPrimaryImage, x.CreatedAt, x.Title);
 
   public static AssetAssignmentDto ToDto(this AssetAssignment x) => new(
     x.Id.Value, x.AssetId.Value, x.FromDepartmentId, x.ToDepartmentId, x.FromCustodianId, x.ToCustodianId,

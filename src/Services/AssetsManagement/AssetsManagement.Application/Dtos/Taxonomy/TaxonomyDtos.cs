@@ -21,7 +21,7 @@ public sealed record AssetTypeDto(
 public sealed record AssetCategoryDto(
   Guid Id,
   Guid AssetClassId,
-  Guid? AssetTypeId,
+  Guid AssetTypeId,
   Guid? ParentCategoryId,
   string Code,
   string Name,
@@ -42,6 +42,6 @@ public static class TaxonomyMappings
     x.IsDepreciable, x.RequiresLocation, x.RequiresCustodian, x.DisplayOrder, x.IsActive);
 
   public static AssetCategoryDto ToDto(this AssetCategory x) => new(
-    x.Id.Value, x.AssetClassId.Value, x.AssetTypeId?.Value, x.ParentCategoryId?.Value,
+    x.Id.Value, x.AssetClassId.Value, x.AssetTypeId.Value, x.ParentCategoryId?.Value,
     x.Code.Value, x.Name.Value, x.Description, x.Path, x.Depth, x.IsLeaf, x.DisplayOrder, x.IsActive);
 }

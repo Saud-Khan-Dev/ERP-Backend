@@ -17,8 +17,8 @@ public class AssetCategoryConfiguration : EntityConfiguration<AssetCategory, Ass
       .IsRequired();
 
     builder.Property(x => x.AssetTypeId)
-      .HasConversion(id => id!.Value, dbId => AssetTypeId.Of(dbId))
-      .IsRequired(false);
+      .HasConversion(id => id.Value, dbId => AssetTypeId.Of(dbId))
+      .IsRequired();
 
     builder.Property(x => x.ParentCategoryId)
       .HasConversion(id => id!.Value, dbId => AssetCategoryId.Of(dbId))
@@ -43,6 +43,7 @@ public class AssetCategoryConfiguration : EntityConfiguration<AssetCategory, Ass
 
     builder.HasIndex(x => new { x.AssetClassId, x.Code }).IsUnique();
     builder.HasIndex(x => x.ParentCategoryId);
+    builder.HasIndex(x => x.AssetTypeId);
     builder.HasIndex(x => x.Path).HasMethod("gist");
 
     // Target for the composite FK from asset — guarantees the category belongs to the class.
@@ -57,7 +58,7 @@ public class AssetCategoryConfiguration : EntityConfiguration<AssetCategory, Ass
     builder.HasOne<AssetType>()
       .WithMany()
       .HasForeignKey(x => x.AssetTypeId)
-      .IsRequired(false)
+      .IsRequired()
       .OnDelete(DeleteBehavior.Restrict);
 
     builder.HasOne<AssetCategory>()

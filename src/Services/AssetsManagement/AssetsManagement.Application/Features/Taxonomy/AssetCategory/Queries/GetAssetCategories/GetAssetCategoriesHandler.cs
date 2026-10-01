@@ -13,6 +13,12 @@ public class GetAssetCategoriesHandler(IApplicationDbContext context)
       categories = categories.Where(c => c.AssetClassId == classId);
     }
 
+    if (query.AssetTypeId.HasValue)
+    {
+      var typeId = AssetTypeId.Of(query.AssetTypeId.Value);
+      categories = categories.Where(c => c.AssetTypeId == typeId);
+    }
+
     if (query.ParentCategoryId.HasValue)
     {
       var parentId = AssetCategoryId.Of(query.ParentCategoryId.Value);
