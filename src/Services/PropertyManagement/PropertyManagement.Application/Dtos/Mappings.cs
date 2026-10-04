@@ -15,10 +15,10 @@ public static class Mappings
   public static CodeSequenceDto ToDto(this CodeSequence x) => new(
     x.Key.Value, x.Prefix, x.Separator, x.MinimumDigits, x.NextNumber, x.Pattern, x.NextCode.Value);
 
-  public static PropertyListItemDto ToListItemDto(this Property x, MasterRefs refs) => new(
+  public static PropertyListItemDto ToListItemDto(this Property x, MasterRefs refs, decimal? totalAreaSqFt, int currentOwnerCount) => new(
     x.Id.Value, x.PropertyCode.Value, x.PropertyName.Value,
     refs[x.TownId], refs[x.PropertyTypeId], refs[x.PropertyStatusId], refs[x.PropertyClassificationId],
-    x.AddressLine, x.IsActive);
+    x.AddressLine, x.KhasraSurveyNo, totalAreaSqFt, currentOwnerCount, x.IsActive, x.CreatedAt);
 
   public static PropertyDto ToDto(this Property x, MasterRefs refs, AreaSummaryDto area, IReadOnlyList<OwnershipDto> currentOwners) => new(
     x.Id.Value, x.PropertyCode.Value, x.PropertyName.Value,

@@ -42,7 +42,8 @@ public class GetLitigationsHandler(IApplicationDbContext context, MasterLookup m
         .Add<LitigationStatus>(rows.Select(l => l.LitigationStatusId))
         .LoadAsync(cancellationToken);
     var owners = await read.OwnerRefsAsync(rows.SelectMany(l => l.Parties).Select(p => p.PartyOwnerId), cancellationToken);
-    return rows.Select(l => l.ToDto(refs, owners)).ToList();
+    var properties = await read.PropertyRefsAsync(rows.Select(l => l.PropertyId), cancellationToken);
+    return rows.Select(l => l.ToDto(refs, owners, properties.GetValueOrDefault(l.PropertyId))).ToList();
   }
 }
 

@@ -12,9 +12,9 @@ public static class MasterDataSeed
 
   public static IReadOnlyDictionary<string, Value[]> BySlug { get; } = new Dictionary<string, Value[]>
   {
-    ["property-types"] = List("Residential", "Commercial", "Industrial", "Agricultural", "Institutional", "Open Land", "Mixed Use", "Other"),
-    ["property-statuses"] = List("Open Plot", "Under Construction", "Construction Complete", "Vacant", "Occupied", "Encroached", "Under Litigation", "Other"),
-    ["property-classifications"] = List("GDA Property", "Private Property", "Other"),
+    ["property-types"] = List("Residential", "Commercial", "Industrial", "Agricultural", "Institutional", "Open Land", "Mixed Use"),
+    ["property-statuses"] = List("Open Plot", "Under Construction", "Construction Complete", "Vacant", "Occupied", "Encroached", "Under Litigation"),
+    ["property-classifications"] = List("GDA Property", "Private Property"),
     ["measurement-units"] = new[]
     {
       new Value(SystemMasterCodes.UnitSquareFeet, "Square Feet", new MasterExtras(FactorToBase: 1m, IsBase: true)),
@@ -23,8 +23,8 @@ public static class MasterDataSeed
       new Value("KANAL", "Kanal", new MasterExtras(FactorToBase: 5445m)),
     },
 
-    ["owner-types"] = List("Individual", "Company", "Government", "Trust", "Joint Entity", "Other"),
-    ["tenure-types"] = List("Owned", "Leased", "Rented", "Other"),
+    ["owner-types"] = List("Individual", "Company", "Government", "Trust", "Joint Entity"),
+    ["tenure-types"] = List("Owned", "Leased", "Rented"),
     ["transfer-types"] = new[]
     {
       new Value("SALE", "Sale"),
@@ -33,18 +33,17 @@ public static class MasterDataSeed
       new Value("INHERITANCE", "Inheritance", new MasterExtras(RequiresRelationship: true)),
       new Value("GIFT", "Gift", new MasterExtras(RequiresRelationship: true)),
       new Value("ADMINISTRATIVE_TRANSFER", "Administrative Transfer"),
-      new Value("OTHER", "Other"),
     },
-    ["contact-types"] = List("Mobile", "Landline", "Office", "WhatsApp", "Other"),
-    ["encumbrance-types"] = List("Mortgage", "Lien", "Charge", "Other"),
+    ["contact-types"] = List("Mobile", "Landline", "Office", "WhatsApp"),
+    ["encumbrance-types"] = List("Mortgage", "Lien", "Charge"),
 
     ["allotment-statuses"] = List("Active", "Cancelled", "Restored", "Surrendered", "Expired"),
     ["lease-statuses"] = List("Draft", "Active", "Expired", "Renewed", "Terminated", "Cancelled"),
     ["rental-statuses"] = List("Active", "Ended"),
-    ["auction-types"] = List("Open Auction", "Sealed Bid", "Re-auction", "Other"),
+    ["auction-types"] = List("Open Auction", "Sealed Bid", "Re-auction"),
     ["auction-statuses"] = List("Planned", "Announced", "Conducted", "Successful", "Unsuccessful", "Cancelled", "Awarded"),
     ["contract-statuses"] = List("Active", "Expired"),
-    ["agreement-types"] = List("Lease", "Rent", "Sale", "Other"),
+    ["agreement-types"] = List("Lease", "Rent", "Sale"),
 
     ["encroachment-statuses"] = new[]
     {
@@ -60,10 +59,9 @@ public static class MasterDataSeed
       new Value("WRIT", "Writ"),
       new Value("CRIMINAL_COMPLAINT", "Criminal Complaint (Act s.30)"),
       new Value("DISPUTE_RESOLUTION", "Dispute Resolution Committee (Act s.9)"),
-      new Value("OTHER", "Other"),
     },
-    ["litigation-statuses"] = List("Pending", "Decided", "Withdrawn", "Settled", "Appealed", "Closed", "Other"),
-    ["building-plan-types"] = List("Site Plan", "Building Plan", "Revised Building Plan", "Completion Plan", "Other"),
+    ["litigation-statuses"] = List("Pending", "Decided", "Withdrawn", "Settled", "Appealed", "Closed"),
+    ["building-plan-types"] = List("Site Plan", "Building Plan", "Revised Building Plan", "Completion Plan"),
     ["building-plan-statuses"] = List("Submitted", "Under Review", "Approved", "Rejected", "Revised", "Withdrawn"),
 
     ["document-types"] = new[]
@@ -75,7 +73,6 @@ public static class MasterDataSeed
       new Value(SystemMasterCodes.DocumentCnicCopy, "CNIC Copy", new MasterExtras(StorageFolder: "cnic")),
       new Value("AGREEMENT", "Agreement", new MasterExtras(StorageFolder: "agreements")),
       new Value("COURT_ORDER", "Court Order", new MasterExtras(StorageFolder: "litigation")),
-      new Value("OTHER", "Other", new MasterExtras(StorageFolder: "other")),
     },
     ["attribute-groups"] = List("General"),
   };

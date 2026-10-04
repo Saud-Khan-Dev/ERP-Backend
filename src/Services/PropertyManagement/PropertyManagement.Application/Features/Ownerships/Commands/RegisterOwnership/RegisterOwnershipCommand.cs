@@ -15,15 +15,23 @@ public sealed record RegisterOwnershipCommandResult(Guid Id);
 
 public sealed record RegisterOwnershipCommand(Guid PropertyId, OwnershipInput Ownership) : ICommand<Result<RegisterOwnershipCommandResult>>;
 
+public class OwnershipInputValidator : AbstractValidator<OwnershipInput>
+{
+  public OwnershipInputValidator()
+  {
+    RuleFor(x => x.OwnerId).NotEmpty();
+    RuleFor(x => x.TenureTypeId).NotEmpty();
+    RuleFor(x => x.OwnershipSharePct).GreaterThan(0).LessThanOrEqualTo(100);
+    RuleFor(x => x.EffectiveFrom).NotEmpty().WithMessage("The date the owner holds the share from (effectiveFrom) is required.");
+    RuleFor(x => x.ReferenceNo).MaximumLength(100);
+  }
+}
+
 public class RegisterOwnershipCommandValidator : AbstractValidator<RegisterOwnershipCommand>
 {
   public RegisterOwnershipCommandValidator()
   {
     RuleFor(x => x.PropertyId).NotEmpty();
-    RuleFor(x => x.Ownership).NotNull();
-    RuleFor(x => x.Ownership.OwnerId).NotEmpty();
-    RuleFor(x => x.Ownership.TenureTypeId).NotEmpty();
-    RuleFor(x => x.Ownership.OwnershipSharePct).GreaterThan(0).LessThanOrEqualTo(100);
-    RuleFor(x => x.Ownership.ReferenceNo).MaximumLength(100);
+    RuleFor(x => x.Ownership).NotNull().SetValidator(new OwnershipInputValidator());
   }
 }

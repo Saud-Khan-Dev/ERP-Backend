@@ -58,14 +58,14 @@ public sealed record LitigationPartyDto(Guid Id, string PartyName, OwnerRef? Par
 public sealed record LitigationHearingDto(Guid Id, DateOnly HearingDate, string? Proceedings, string? OrderPassed, DateOnly? NextHearingDate, string? AttendedBy);
 
 public sealed record LitigationDto(
-  Guid Id, Guid PropertyId, string CaseNo, string CaseTitle, string CourtAuthority, MasterRef? LitigationType, MasterRef? Status,
+  Guid Id, Guid PropertyId, string? PropertyCode, string? PropertyName, string CaseNo, string CaseTitle, string CourtAuthority, MasterRef? LitigationType, MasterRef? Status,
   DateOnly? FilingDate, GdaRole? GdaRole, Guid? FiledByOfficerId, Guid? RelatedEncroachmentId, Guid? RelatedAllotmentId,
   Guid? RelatedLeaseId, DateOnly? NextHearingDate, DateOnly? DecisionDate, string? DecisionOutcome, string? AppealedTo,
   Guid? ParentLitigationId, string? GdaCounsel, string? Remarks, IReadOnlyList<LitigationPartyDto> Parties,
   IReadOnlyList<LitigationHearingDto> Hearings, DateTime? CreatedAt, Guid? CreatedBy);
 
 public sealed record AppealDto(
-  Guid Id, Guid PropertyId, string AppealNo, OwnerRef? Appellant, string AppealedOrderRef, DateOnly AppealedOrderDate,
+  Guid Id, Guid PropertyId, string? PropertyCode, string? PropertyName, string AppealNo, OwnerRef? Appellant, string AppealedOrderRef, DateOnly AppealedOrderDate,
   DateOnly? OrderReceivedDate, AppealOrderSource? OrderSourceTable, Guid? OrderSourceId, DateOnly AppealDate,
   string AppellateAuthority, string? DelegatedOfficer, DateOnly DecisionDueDate, bool IsOverdue, DateOnly? DecisionDate,
   AppealOutcome? DecisionOutcome, string? DecisionDetails, AppealStatus Status, string? Remarks, DateTime? CreatedAt, Guid? CreatedBy);
@@ -126,8 +126,8 @@ public static class ComplianceMappings
     x.Description, x.Remarks, x.Points.Select(p => new GeoPointDto(p.SequenceNo, p.Latitude, p.Longitude)).ToList(),
     x.CreatedAt, x.CreatedBy);
 
-  public static LitigationDto ToDto(this PropertyLitigation x, MasterRefs refs, IReadOnlyDictionary<OwnerId, OwnerRef> owners) => new(
-    x.Id.Value, x.PropertyId.Value, x.CaseNo, x.CaseTitle, x.CourtAuthority, refs[x.LitigationTypeId], refs[x.LitigationStatusId],
+  public static LitigationDto ToDto(this PropertyLitigation x, MasterRefs refs, IReadOnlyDictionary<OwnerId, OwnerRef> owners, PropertyRef? property) => new(
+    x.Id.Value, x.PropertyId.Value, property?.PropertyCode, property?.PropertyName, x.CaseNo, x.CaseTitle, x.CourtAuthority, refs[x.LitigationTypeId], refs[x.LitigationStatusId],
     x.FilingDate, x.GdaRole, x.FiledByOfficerId, x.RelatedEncroachmentId?.Value, x.RelatedAllotmentId?.Value, x.RelatedLeaseId?.Value,
     x.NextHearingDate, x.DecisionDate, x.DecisionOutcome, x.AppealedTo, x.ParentLitigationId?.Value, x.GdaCounsel, x.Remarks,
     x.Parties.Select(p => new LitigationPartyDto(p.Id.Value, p.PartyName, p.PartyOwnerId is null ? null : owners.GetValueOrDefault(p.PartyOwnerId),
@@ -135,8 +135,8 @@ public static class ComplianceMappings
     x.Hearings.Select(h => new LitigationHearingDto(h.Id.Value, h.HearingDate, h.Proceedings, h.OrderPassed, h.NextHearingDate, h.AttendedBy)).ToList(),
     x.CreatedAt, x.CreatedBy);
 
-  public static AppealDto ToDto(this PropertyAppeal x, IReadOnlyDictionary<OwnerId, OwnerRef> owners, DateOnly today) => new(
-    x.Id.Value, x.PropertyId.Value, x.AppealNo.Value, owners.GetValueOrDefault(x.AppellantOwnerId), x.AppealedOrderRef,
+  public static AppealDto ToDto(this PropertyAppeal x, IReadOnlyDictionary<OwnerId, OwnerRef> owners, PropertyRef? property, DateOnly today) => new(
+    x.Id.Value, x.PropertyId.Value, property?.PropertyCode, property?.PropertyName, x.AppealNo.Value, owners.GetValueOrDefault(x.AppellantOwnerId), x.AppealedOrderRef,
     x.AppealedOrderDate, x.OrderReceivedDate, x.OrderSourceTable, x.OrderSourceId, x.AppealDate, x.AppellateAuthority,
     x.DelegatedOfficer, x.DecisionDueDate, x.IsOverdue(today), x.DecisionDate, x.DecisionOutcome, x.DecisionDetails,
     x.AppealStatus, x.Remarks, x.CreatedAt, x.CreatedBy);

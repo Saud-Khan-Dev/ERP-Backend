@@ -1,4 +1,11 @@
-public sealed record CreatePropertyRequest(PropertyInput Property, Guid PropertyStatusId, DateOnly? StatusEffectiveFrom = null, MeasurementInput? Measurement = null);
+public sealed record CreatePropertyRequest(
+  PropertyInput Property,
+  Guid PropertyStatusId,
+  DateOnly? StatusEffectiveFrom = null,
+  MeasurementInput? Measurement = null,
+  IReadOnlyList<OwnershipInput>? Owners = null,
+  BoundaryInput? Boundary = null,
+  IReadOnlyList<AttributeValueInput>? Attributes = null);
 public sealed record ChangeStatusRequest(Guid PropertyStatusId, DateOnly? EffectiveFrom = null, string? Reason = null, string? ReferenceNo = null);
 
 /// The property register: core record, status history, measurements, area regularization.
@@ -9,26 +16,35 @@ public class PropertyEndpoints : ICarterModule
     var properties = app.MapGroup("/properties").WithTags("Properties");
 
     properties.MapPost("/", async (CreatePropertyRequest request, ISender sender) =>
-        (await sender.Send(new CreatePropertyCommand(request.Property, request.PropertyStatusId, request.StatusEffectiveFrom, request.Measurement)))
+        (await sender.Send(new CreatePropertyCommand(
+          request.Property, request.PropertyStatusId, request.StatusEffectiveFrom, request.Measurement,
+          request.Owners ?? [], request.Boundary, request.Attributes ?? [])))
           .ToCreated(r => $"/properties/{r.Id}"))
       .RequirePermission(PermissionCatalog.Property.Create)
       .WithName("CreateProperty")
       .Produces<CreatePropertyCommandResult>(StatusCodes.Status201Created)
       .ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Register Property")
-      .WithDescription("Registers a property. PROP-00001 is generated, the opening status is recorded in the status history and, optionally, the first measurement is saved.");
+      .WithDescription("Registers a property. PROP-00001 is generated, the opening status is recorded in the status history and, optionally, the first measurement, the first owners (no owner twice, shares at most 100%), the boundary survey and the custom-field values are saved with it - all or nothing. Every active required custom field needs a value (its default is used when none is sent).");
 
-    properties.MapGet("/", async (
-        ISender sender, int? pageIndex, int? pageSize, string? search, Guid? townId, Guid? propertyTypeId,
-        Guid? propertyStatusId, Guid? propertyClassificationId, bool? includeInactive) =>
-        (await sender.Send(new GetPropertiesQuery(
-          new PaginationRequest(pageIndex ?? 0, pageSize ?? 20), search, townId, propertyTypeId,
-          propertyStatusId, propertyClassificationId, includeInactive ?? false))).ToOk())
+    properties.MapGet("/next-code", async (ISender sender) => (await sender.Send(new GetNextPropertyCodeQuery())).ToOk())
+      .RequirePermission(PermissionCatalog.Property.Create)
+      .WithName("GetNextPropertyCode")
+      .Produces<GetNextPropertyCodeQueryResult>()
+      .WithSummary("Preview Next Property Code")
+      .WithDescription("The code the next registration would get, e.g. PROP-00012. A preview only: nothing is reserved, so a registration made meanwhile can take it.");
+
+    properties.MapGet("/", async (ISender sender, int? pageIndex, int? pageSize, [AsParameters] PropertyFilterParameters filter) =>
+        (await sender.Send(filter.ToQuery(new PaginationRequest(pageIndex ?? 0, pageSize ?? 20)))).ToOk())
       .RequirePermission(PermissionCatalog.Property.View)
       .WithName("GetProperties")
       .Produces<GetPropertiesQueryResult>()
+      .ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Get Properties")
-      .WithDescription("Paginated register. search matches the property code exactly, and the name or khasra number partially.");
+      .WithDescription("Paginated register (pageSize 1-200). search matches part of the property code, name, khasra number or address, ignoring case. "
+        + "registeredFrom / registeredTo: instants on the registration time (inclusive); areaMin / areaMax: current total area in sq ft; "
+        + "ownerId: properties where that owner holds a current share; hasOpenEncroachment / hasOpenCase: true or false. "
+        + "sortBy = code | name | registered | area | town | status (default code), sortDir = asc | desc.");
 
     properties.MapGet("/{id:guid}", async (Guid id, ISender sender) => (await sender.Send(new GetPropertyQuery(id))).ToOk())
       .RequirePermission(PermissionCatalog.Property.View)

@@ -42,6 +42,31 @@ public class CodeGenerator(IApplicationDbContext context)
     throw new DomainException($"Could not find a free {key} code after {MaxIssueAttempts} attempts. Raise the sequence's next number.");
   }
 
+  /// The code NextAsync would issue now, without moving the counter or saving anything (a preview, not a
+  /// reservation). It skips codes already taken exactly as NextAsync does.
+  public async Task<BusinessCode> PreviewAsync(string key, CancellationToken cancellationToken)
+  {
+    var sequenceKey = MasterCode.Of(key);
+
+    var sequence = await context.CodeSequences.AsNoTracking().FirstOrDefaultAsync(s => s.Key == sequenceKey, cancellationToken);
+    if (sequence is null)
+    {
+      var defaults = CodeSequenceKeys.Defaults.FirstOrDefault(d => d.Key == sequenceKey.Value)
+        ?? throw new CodeSequenceNotFoundException($"There is no code sequence '{sequenceKey.Value}'.");
+      sequence = CodeSequence.Create(CodeSequenceId.New(), sequenceKey, defaults.Prefix, defaults.Separator, defaults.MinimumDigits, 1);
+    }
+
+    for (long number = sequence.NextNumber, attempt = 0; attempt < MaxIssueAttempts && number <= CodeSequence.MaxNumber; number++, attempt++)
+    {
+      var code = sequence.Format(number);
+
+      if (!await IsTakenAsync(key, code, cancellationToken))
+        return code;
+    }
+
+    throw new DomainException($"Could not find a free {key} code after {MaxIssueAttempts} attempts. Raise the sequence's next number.");
+  }
+
   /// Every code already issued for this key, so a sequence edit can be checked against them.
   public async Task<IReadOnlyList<BusinessCode>> UsedCodesAsync(string key, CancellationToken cancellationToken) => key switch
   {

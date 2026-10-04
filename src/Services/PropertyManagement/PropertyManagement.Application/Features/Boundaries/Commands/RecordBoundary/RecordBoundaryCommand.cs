@@ -32,18 +32,25 @@ public sealed record RecordBoundaryCommandResult(Guid Id, int PointCount);
 /// A new survey of the plot. The previous current boundary is kept but stops being current.
 public sealed record RecordBoundaryCommand(Guid PropertyId, BoundaryInput Boundary) : ICommand<Result<RecordBoundaryCommandResult>>;
 
+public class BoundaryInputValidator : AbstractValidator<BoundaryInput>
+{
+  public BoundaryInputValidator()
+  {
+    RuleFor(x => x.BoundaryType).IsInEnum();
+    RuleFor(x => x.Points).NotNull().Must(p => p is { Count: >= 3 }).WithMessage("A boundary needs at least three GPS points.");
+    RuleForEach(x => x.Points).SetValidator(new GeoPointInputValidator());
+    RuleFor(x => x.SlopePercentage).InclusiveBetween(0, PropertyBoundary.MaxSlopePercentage)
+      .When(x => x.SlopePercentage.HasValue)
+      .WithMessage("Slope is a percentage from 0 upwards, e.g. 12.50 for a 12.50% slope.");
+    RuleFor(x => x.SurveySource).MaximumLength(150);
+  }
+}
+
 public class RecordBoundaryCommandValidator : AbstractValidator<RecordBoundaryCommand>
 {
   public RecordBoundaryCommandValidator()
   {
     RuleFor(x => x.PropertyId).NotEmpty();
-    RuleFor(x => x.Boundary).NotNull();
-    RuleFor(x => x.Boundary.BoundaryType).IsInEnum();
-    RuleFor(x => x.Boundary.Points).NotNull().Must(p => p.Count >= 3).WithMessage("A boundary needs at least three GPS points.");
-    RuleForEach(x => x.Boundary.Points).SetValidator(new GeoPointInputValidator());
-    RuleFor(x => x.Boundary.SlopePercentage).InclusiveBetween(0, PropertyBoundary.MaxSlopePercentage)
-      .When(x => x.Boundary.SlopePercentage.HasValue)
-      .WithMessage("Slope is a percentage from 0 upwards, e.g. 12.50 for a 12.50% slope.");
-    RuleFor(x => x.Boundary.SurveySource).MaximumLength(150);
+    RuleFor(x => x.Boundary).NotNull().SetValidator(new BoundaryInputValidator());
   }
 }

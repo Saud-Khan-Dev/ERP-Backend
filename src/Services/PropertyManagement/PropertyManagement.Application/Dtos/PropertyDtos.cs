@@ -34,6 +34,8 @@ public sealed record CodeSequenceDto(
 
 // ---- property core ----
 
+/// TotalAreaSqFt: the current measurement's total area in square feet (null when never measured).
+/// CurrentOwnerCount: owners holding an ACTIVE share. CreatedAt: when the property was registered.
 public sealed record PropertyListItemDto(
   Guid Id,
   string PropertyCode,
@@ -43,7 +45,11 @@ public sealed record PropertyListItemDto(
   MasterRef? Status,
   MasterRef? Classification,
   string? AddressLine,
-  bool IsActive);
+  string? KhasraSurveyNo,
+  decimal? TotalAreaSqFt,
+  int CurrentOwnerCount,
+  bool IsActive,
+  DateTime? CreatedAt);
 
 public sealed record PropertyDto(
   Guid Id,

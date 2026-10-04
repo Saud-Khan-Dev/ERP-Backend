@@ -17,7 +17,7 @@ public enum ViolationStatus { Open, Rectified, Fined, Cancelled, Appealed }
 public enum BoundaryType { Original, Revised, Regularized }
 
 /// property_encroachment.resolution_type
-public enum EncroachmentResolution { Removed, Regularized, Litigated, Other }
+public enum EncroachmentResolution { Removed, Regularized, Litigated }
 
 /// property_litigation.gda_role
 public enum GdaRole { Plaintiff, Defendant, Complainant, Respondent }
@@ -40,6 +40,5 @@ public enum AppealOrderSource
   PropertyLease,
   PropertyRental,
   BuildingPlan,
-  PropertyTransfer,
-  Other
+  PropertyTransfer
 }

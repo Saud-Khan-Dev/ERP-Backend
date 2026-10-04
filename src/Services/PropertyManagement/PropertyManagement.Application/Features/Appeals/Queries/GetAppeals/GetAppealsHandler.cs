@@ -33,7 +33,8 @@ public class GetAppealsHandler(IApplicationDbContext context, PropertyReadServic
   private async Task<List<AppealDto>> ToDtosAsync(IReadOnlyCollection<PropertyAppeal> rows, CancellationToken cancellationToken)
   {
     var owners = await read.OwnerRefsAsync(rows.Select(a => a.AppellantOwnerId), cancellationToken);
+    var properties = await read.PropertyRefsAsync(rows.Select(a => a.PropertyId), cancellationToken);
     var today = DateOnly.FromDateTime(DateTime.UtcNow);
-    return rows.Select(a => a.ToDto(owners, today)).ToList();
+    return rows.Select(a => a.ToDto(owners, properties.GetValueOrDefault(a.PropertyId), today)).ToList();
   }
 }

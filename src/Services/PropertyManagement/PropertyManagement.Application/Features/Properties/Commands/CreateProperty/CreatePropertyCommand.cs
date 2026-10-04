@@ -3,12 +3,16 @@ using FluentValidation;
 public sealed record CreatePropertyCommandResult(Guid Id, string PropertyCode);
 
 /// Registers a property: PROP-00001 is generated, the opening status-history row is written and,
-/// optionally, the first measurement is recorded in the same transaction.
+/// optionally, the first measurement, the first owners, the boundary survey and the custom-field values are
+/// recorded — all in the same save, so either everything is registered or nothing is.
 public sealed record CreatePropertyCommand(
   PropertyInput Property,
   Guid PropertyStatusId,
   DateOnly? StatusEffectiveFrom = null,
-  MeasurementInput? Measurement = null) : ICommand<Result<CreatePropertyCommandResult>>;
+  MeasurementInput? Measurement = null,
+  IReadOnlyList<OwnershipInput>? Owners = null,
+  BoundaryInput? Boundary = null,
+  IReadOnlyList<AttributeValueInput>? Attributes = null) : ICommand<Result<CreatePropertyCommandResult>>;
 
 public class CreatePropertyCommandValidator : AbstractValidator<CreatePropertyCommand>
 {
@@ -17,5 +21,8 @@ public class CreatePropertyCommandValidator : AbstractValidator<CreatePropertyCo
     RuleFor(x => x.Property).NotNull().SetValidator(new PropertyInputValidator());
     RuleFor(x => x.PropertyStatusId).NotEmpty();
     RuleFor(x => x.Measurement!).SetValidator(new MeasurementInputValidator()).When(x => x.Measurement is not null);
+    RuleForEach(x => x.Owners).NotNull().SetValidator(new OwnershipInputValidator());
+    RuleFor(x => x.Boundary!).SetValidator(new BoundaryInputValidator()).When(x => x.Boundary is not null);
+    RuleForEach(x => x.Attributes).NotNull().SetValidator(new AttributeValueInputValidator());
   }
 }
