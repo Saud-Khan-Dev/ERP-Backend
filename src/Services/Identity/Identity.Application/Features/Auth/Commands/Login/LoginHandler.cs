@@ -1,5 +1,4 @@
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Options;
 
 /// Sign-in.
 ///
@@ -11,14 +10,13 @@ public class LoginHandler(
     IPasswordHasher passwordHasher,
     ITokenService tokenService,
     IUserPermissionService permissionService,
-    IOptions<SecurityOptions> securityOptions)
+    ISecuritySettingsProvider securitySettings)
   : ICommandHandler<LoginCommand, Result<LoginCommandResult>>
 {
-  private readonly SecurityOptions _security = securityOptions.Value;
-
   public async Task<Result<LoginCommandResult>> Handle(LoginCommand command, CancellationToken cancellationToken)
   {
     var now = DateTime.UtcNow;
+    var security = await securitySettings.GetAsync(cancellationToken);
     var ip = IpAddress.OfNullable(command.IpAddress);
     var attempted = command.Username?.Trim().ToLowerInvariant() ?? string.Empty;
 
@@ -32,7 +30,7 @@ public class LoginHandler(
     if (verification == PasswordVerificationOutcome.Failed)
     {
       var lockedOutNow = !user.IsLockedOut(now)
-          && user.RegisterFailedLogin(_security.MaxFailedLoginAttempts, _security.LockoutDuration, now);
+          && user.RegisterFailedLogin(security.MaxFailedLoginAttempts, security.LockoutDuration, now);
 
       await FailAsync(
         user.Id,
@@ -61,13 +59,14 @@ public class LoginHandler(
     var resolved = await permissionService.ResolveAsync(user.Id, cancellationToken);
 
     var sessionId = SessionId.Of(Guid.NewGuid());
-    var refresh = tokenService.CreateRefreshToken();
+    var refresh = tokenService.CreateRefreshToken(security.RefreshTokenLifetime);
     var session = Session.Create(sessionId, user.Id, refresh.Hash, ip, command.UserAgent, now, refresh.ExpiresAt);
 
     var access = tokenService.CreateAccessToken(
       user, sessionId,
       resolved.PermissionCodes.ToArray(),
-      resolved.RoleCodes.ToArray());
+      resolved.RoleCodes.ToArray(),
+      security.AccessTokenLifetime);
 
     user.RegisterSuccessfulLogin(ip, now);
 

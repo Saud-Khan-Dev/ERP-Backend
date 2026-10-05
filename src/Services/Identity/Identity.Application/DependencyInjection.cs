@@ -21,6 +21,7 @@ public static class DependencyInjection
     services.AddScoped<IUserPermissionService, UserPermissionService>();
     services.AddScoped<IdentityGuard>();
     services.AddScoped<EmployeeCodeService>();
+    services.AddScoped<ISecuritySettingsProvider, SecuritySettingsProvider>();
 
     return services;
   }

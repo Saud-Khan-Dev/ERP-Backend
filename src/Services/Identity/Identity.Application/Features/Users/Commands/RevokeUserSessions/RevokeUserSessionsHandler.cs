@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 
-public class RevokeUserSessionsHandler(IApplicationDbContext context)
+public class RevokeUserSessionsHandler(IApplicationDbContext context,
+    IActivityRecorder activity)
   : ICommandHandler<RevokeUserSessionsCommand, Result<RevokeUserSessionsCommandResult>>
 {
   public async Task<Result<RevokeUserSessionsCommandResult>> Handle(RevokeUserSessionsCommand command, CancellationToken cancellationToken)
@@ -17,6 +18,10 @@ public class RevokeUserSessionsHandler(IApplicationDbContext context)
 
     foreach (var session in sessions)
       session.Revoke(now, "Revoked by administrator");
+
+    var targetName = await context.Users.IgnoreQueryFilters().AsNoTracking().Where(u => u.Id == userId).Select(u => u.Username.Value).FirstOrDefaultAsync(cancellationToken);
+    await activity.RecordAsync(ActivityAction.SessionsRevoked, ActivityTargetType.User, userId.Value, targetName,
+      $"{sessions.Count} session(s)", cancellationToken);
 
     await context.SaveChangesAsync(cancellationToken);
 

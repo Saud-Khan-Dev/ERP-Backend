@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 
-public class SetUserActivationHandler(IApplicationDbContext context, IdentityGuard guard)
+public class SetUserActivationHandler(IApplicationDbContext context, IdentityGuard guard,
+    IActivityRecorder activity)
   : ICommandHandler<SetUserActivationCommand, Result<SetUserActivationCommandResult>>
 {
   public async Task<Result<SetUserActivationCommandResult>> Handle(SetUserActivationCommand command, CancellationToken cancellationToken)
@@ -29,6 +30,9 @@ public class SetUserActivationHandler(IApplicationDbContext context, IdentityGua
     {
       user.Activate();
     }
+
+    await activity.RecordAsync(command.IsActive ? ActivityAction.UserActivated : ActivityAction.UserDeactivated,
+      ActivityTargetType.User, user.Id.Value, user.Username.Value, null, cancellationToken);
 
     await context.SaveChangesAsync(cancellationToken);
 

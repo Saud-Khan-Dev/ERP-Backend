@@ -54,9 +54,6 @@ public class UserConfiguration : EntityConfiguration<User, UserId>
     builder.Property(x => x.PasswordChangedAt).IsRequired(false);
     builder.Property(x => x.MustChangePassword).IsRequired().HasDefaultValue(false);
 
-    builder.Property(x => x.MfaEnabled).IsRequired().HasDefaultValue(false);
-    builder.Property(x => x.MfaType).HasConversion<string>().HasMaxLength(20).IsRequired(false);
-    builder.Property(x => x.MfaSecret).IsRequired(false);
 
     builder.Property(x => x.LastLoginAt).IsRequired(false);
     builder.Property(x => x.LastLoginIp)

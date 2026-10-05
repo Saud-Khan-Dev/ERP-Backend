@@ -1,11 +1,10 @@
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Options;
 
 public class ChangePasswordHandler(
     IApplicationDbContext context,
     IPasswordHasher passwordHasher,
     ICurrentUser currentUser,
-    IOptions<SecurityOptions> securityOptions)
+    ISecuritySettingsProvider securitySettings)
   : ICommandHandler<ChangePasswordCommand, Result<ChangePasswordCommandResult>>
 {
   public async Task<Result<ChangePasswordCommandResult>> Handle(ChangePasswordCommand command, CancellationToken cancellationToken)
@@ -21,7 +20,8 @@ public class ChangePasswordHandler(
     if (passwordHasher.Verify(user.PasswordHash.Value, command.CurrentPassword) == PasswordVerificationOutcome.Failed)
       return Result<ChangePasswordCommandResult>.Failure("Your current password is incorrect.");
 
-    PasswordPolicy.Validate(command.NewPassword, securityOptions.Value.PasswordPolicy);
+    var policy = (await securitySettings.GetAsync(cancellationToken)).PasswordPolicy;
+    PasswordPolicy.Validate(command.NewPassword, policy);
 
     user.SetPassword(PasswordHash.Of(passwordHasher.Hash(command.NewPassword)), mustChangePassword: false, now);
 

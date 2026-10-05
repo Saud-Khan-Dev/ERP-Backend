@@ -15,7 +15,6 @@ public sealed record UserDto(
   bool IsActive,
   bool IsAuthorizedOfficer,
   bool MustChangePassword,
-  bool MfaEnabled,
   bool IsLockedOut,
   DateTime? LockedUntil,
   int FailedLoginAttempts,
@@ -129,11 +128,35 @@ public sealed record EmployeeCodeTemplateDto(
   string Pattern,
   string NextCode);
 
+public sealed record SecuritySettingsDto(
+  int PasswordMinimumLength,
+  bool PasswordRequireUppercase,
+  bool PasswordRequireLowercase,
+  bool PasswordRequireDigit,
+  bool PasswordRequireNonAlphanumeric,
+  int MaxFailedLoginAttempts,
+  int LockoutMinutes,
+  int AccessTokenMinutes,
+  int RefreshTokenDays);
+
+public sealed record AdminActivityDto(
+  Guid Id,
+  DateTime OccurredAt,
+  Guid ActorUserId,
+  string ActorName,
+  string Action,
+  string TargetType,
+  Guid? TargetId,
+  string? TargetLabel,
+  string? Detail,
+  string? IpAddress,
+  string? UserAgent);
+
 public static class IdentityMappings
 {
   public static UserDto ToDto(this User x, DateTime now) => new(
     x.Id.Value, x.Username.Value, x.Email.Value, x.DisplayName.Value, x.EmployeeId, x.EmployeeCode?.Value, x.IsActive, x.IsAuthorizedOfficer,
-    x.MustChangePassword, x.MfaEnabled, x.IsLockedOut(now), x.LockedUntil, x.FailedLoginAttempts,
+    x.MustChangePassword, x.IsLockedOut(now), x.LockedUntil, x.FailedLoginAttempts,
     x.LastLoginAt, x.LastLoginIp?.Value, x.PasswordChangedAt, x.EmailVerifiedAt, x.CreatedAt, x.CreatedBy);
 
   public static UserListItemDto ToListItemDto(this User x, DateTime now, IReadOnlyList<string> roles) => new(
@@ -157,9 +180,17 @@ public static class IdentityMappings
   public static EmployeeCodeTemplateDto ToDto(this EmployeeCodeTemplate x) => new(
     x.Prefix, x.Separator, x.MinimumDigits, x.NextNumber, x.Pattern, x.NextCode.Value);
 
+  public static SecuritySettingsDto ToDto(this SecuritySettings x) => new(
+    x.PasswordMinimumLength, x.PasswordRequireUppercase, x.PasswordRequireLowercase, x.PasswordRequireDigit, x.PasswordRequireNonAlphanumeric,
+    x.MaxFailedLoginAttempts, x.LockoutMinutes, x.AccessTokenMinutes, x.RefreshTokenDays);
+
   public static LoginAttemptDto ToDto(this LoginAttempt x) => new(
     x.Id.Value, x.UserId?.Value, x.AttemptedUsername, x.Succeeded, x.FailureReason,
     x.IpAddress?.Value, x.UserAgent, x.AttemptedAt);
+
+  public static AdminActivityDto ToDto(this AdminActivity x) => new(
+    x.Id.Value, x.OccurredAt, x.ActorUserId.Value, x.ActorName, x.Action.ToString(), x.TargetType.ToString(),
+    x.TargetId, x.TargetLabel, x.Detail, x.IpAddress?.Value, x.UserAgent);
 
   public static CurrentUserDto ToCurrentUserDto(this User x, PermissionResolver.ResolvedPermissions resolved) => new(
     x.Id.Value, x.Username.Value, x.Email.Value, x.DisplayName.Value, x.EmployeeId, x.EmployeeCode?.Value, x.IsAuthorizedOfficer, x.MustChangePassword,

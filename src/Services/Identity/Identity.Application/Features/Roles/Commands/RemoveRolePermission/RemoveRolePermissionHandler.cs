@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 
-public class RemoveRolePermissionHandler(IApplicationDbContext context, IdentityGuard guard)
+public class RemoveRolePermissionHandler(IApplicationDbContext context, IdentityGuard guard,
+    IActivityRecorder activity)
   : ICommandHandler<RemoveRolePermissionCommand, Result<RemoveRolePermissionCommandResult>>
 {
   public async Task<Result<RemoveRolePermissionCommandResult>> Handle(RemoveRolePermissionCommand command, CancellationToken cancellationToken)
@@ -23,6 +24,8 @@ public class RemoveRolePermissionHandler(IApplicationDbContext context, Identity
       ?? throw new PermissionNotFoundException("That permission is not attached to this role.");
 
     context.RolePermissions.Remove(link);
+    await activity.RecordAsync(ActivityAction.RolePermissionRemoved, ActivityTargetType.Role, role.Id.Value, role.RoleName.Value, null, cancellationToken);
+
     await context.SaveChangesAsync(cancellationToken);
 
     return Result<RemoveRolePermissionCommandResult>.Success(new RemoveRolePermissionCommandResult(true));

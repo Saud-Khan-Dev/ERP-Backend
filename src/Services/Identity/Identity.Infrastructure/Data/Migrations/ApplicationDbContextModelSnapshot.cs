@@ -23,6 +23,98 @@ namespace Identity.Infrastructure.Data.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("AdminActivity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("action");
+
+                    b.Property<string>("ActorName")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("actor_name");
+
+                    b.Property<Guid>("ActorUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("actor_user_id");
+
+                    b.Property<DateTime?>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CreatedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Detail")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("detail");
+
+                    b.Property<string>("IpAddress")
+                        .HasMaxLength(45)
+                        .HasColumnType("character varying(45)")
+                        .HasColumnName("ip_address");
+
+                    b.Property<DateTime?>("LastModified")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_modified");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("last_modified_by");
+
+                    b.Property<DateTime>("OccurredAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("occurred_at");
+
+                    b.Property<Guid?>("TargetId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("target_id");
+
+                    b.Property<string>("TargetLabel")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("target_label");
+
+                    b.Property<string>("TargetType")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("target_type");
+
+                    b.Property<string>("UserAgent")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)")
+                        .HasColumnName("user_agent");
+
+                    b.HasKey("Id")
+                        .HasName("pk_admin_activities");
+
+                    b.HasIndex("Action")
+                        .HasDatabaseName("ix_admin_activities_action");
+
+                    b.HasIndex("ActorUserId")
+                        .HasDatabaseName("ix_admin_activities_actor_user_id");
+
+                    b.HasIndex("OccurredAt")
+                        .HasDatabaseName("ix_admin_activities_occurred_at");
+
+                    b.HasIndex("TargetId")
+                        .HasDatabaseName("ix_admin_activities_target_id");
+
+                    b.ToTable("admin_activities", "auth");
+                });
+
             modelBuilder.Entity("EmployeeCodeTemplate", b =>
                 {
                     b.Property<Guid>("Id")
@@ -389,6 +481,72 @@ namespace Identity.Infrastructure.Data.Migrations
                     b.ToTable("role_permissions", "auth");
                 });
 
+            modelBuilder.Entity("SecuritySettings", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<int>("AccessTokenMinutes")
+                        .HasColumnType("integer")
+                        .HasColumnName("access_token_minutes");
+
+                    b.Property<DateTime?>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CreatedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTime?>("LastModified")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_modified");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("last_modified_by");
+
+                    b.Property<int>("LockoutMinutes")
+                        .HasColumnType("integer")
+                        .HasColumnName("lockout_minutes");
+
+                    b.Property<int>("MaxFailedLoginAttempts")
+                        .HasColumnType("integer")
+                        .HasColumnName("max_failed_login_attempts");
+
+                    b.Property<int>("PasswordMinimumLength")
+                        .HasColumnType("integer")
+                        .HasColumnName("password_minimum_length");
+
+                    b.Property<bool>("PasswordRequireDigit")
+                        .HasColumnType("boolean")
+                        .HasColumnName("password_require_digit");
+
+                    b.Property<bool>("PasswordRequireLowercase")
+                        .HasColumnType("boolean")
+                        .HasColumnName("password_require_lowercase");
+
+                    b.Property<bool>("PasswordRequireNonAlphanumeric")
+                        .HasColumnType("boolean")
+                        .HasColumnName("password_require_non_alphanumeric");
+
+                    b.Property<bool>("PasswordRequireUppercase")
+                        .HasColumnType("boolean")
+                        .HasColumnName("password_require_uppercase");
+
+                    b.Property<int>("RefreshTokenDays")
+                        .HasColumnType("integer")
+                        .HasColumnName("refresh_token_days");
+
+                    b.HasKey("Id")
+                        .HasName("pk_security_settings");
+
+                    b.ToTable("security_settings", "auth");
+                });
+
             modelBuilder.Entity("Session", b =>
                 {
                     b.Property<Guid>("Id")
@@ -554,21 +712,6 @@ namespace Identity.Infrastructure.Data.Migrations
                     b.Property<DateTime?>("LockedUntil")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("locked_until");
-
-                    b.Property<bool>("MfaEnabled")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("boolean")
-                        .HasDefaultValue(false)
-                        .HasColumnName("mfa_enabled");
-
-                    b.Property<string>("MfaSecret")
-                        .HasColumnType("text")
-                        .HasColumnName("mfa_secret");
-
-                    b.Property<string>("MfaType")
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)")
-                        .HasColumnName("mfa_type");
 
                     b.Property<bool>("MustChangePassword")
                         .ValueGeneratedOnAdd()
@@ -758,6 +901,15 @@ namespace Identity.Infrastructure.Data.Migrations
                         .HasFilter("revoked_at IS NULL");
 
                     b.ToTable("user_roles", "auth");
+                });
+
+            modelBuilder.Entity("AdminActivity", b =>
+                {
+                    b.HasOne("User", null)
+                        .WithMany()
+                        .HasForeignKey("ActorUserId")
+                        .OnDelete(DeleteBehavior.SetNull)
+                        .HasConstraintName("fk_admin_activities_users_actor_user_id");
                 });
 
             modelBuilder.Entity("LoginAttempt", b =>

@@ -1,5 +1,4 @@
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Options;
 
 /// The Super Admin provisioning workflow, in one transaction:
 /// create the account → link the employee and give it an employee code → assign roles → hand back a one-time password.
@@ -12,14 +11,15 @@ public class CreateUserHandler(
     IdentityGuard guard,
     EmployeeCodeService employeeCodes,
     ICurrentUser currentUser,
-    IOptions<SecurityOptions> securityOptions)
+    ISecuritySettingsProvider securitySettings,
+    IActivityRecorder activity)
   : ICommandHandler<CreateUserCommand, Result<CreateUserCommandResult>>
 {
   public async Task<Result<CreateUserCommandResult>> Handle(CreateUserCommand command, CancellationToken cancellationToken)
   {
     var now = DateTime.UtcNow;
     var input = command.User;
-    var policy = securityOptions.Value.PasswordPolicy;
+    var policy = (await securitySettings.GetAsync(cancellationToken)).PasswordPolicy;
 
     var username = Username.Of(input.Username);
     var email = EmailAddress.Of(input.Email);
@@ -64,6 +64,9 @@ public class CreateUserHandler(
     foreach (var role in roles)
       await context.UserRoles.AddAsync(
         UserRole.Create(user.Id, role.Id, currentUser.UserId, expiresAt: null, now), cancellationToken);
+
+    await activity.RecordAsync(ActivityAction.UserCreated, ActivityTargetType.User, user.Id.Value, user.Username.Value,
+      roles.Count == 0 ? null : string.Join(", ", roles.Select(r => r.RoleName.Value)), cancellationToken);
 
     await context.SaveChangesAsync(cancellationToken);
 

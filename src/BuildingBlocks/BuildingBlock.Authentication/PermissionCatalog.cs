@@ -146,6 +146,7 @@ public static class PermissionCatalog
   public static class Security
   {
     public const string View = "IAM_SECURITY.VIEW";
+    public const string Edit = "IAM_SECURITY.EDIT";
     public const string Revoke = "IAM_SECURITY.REVOKE";
   }
 
@@ -209,6 +210,7 @@ public static class PermissionCatalog
     permissions.Add(new PermissionDefinition(Permissions.View, Modules.IamPermissions, Actions.View, "View permissions"));
     permissions.Add(new PermissionDefinition(Permissions.Assign, Modules.IamPermissions, Actions.Assign, "Assign permissions"));
     permissions.Add(new PermissionDefinition(Security.View, Modules.IamSecurity, Actions.View, "View security audit"));
+    permissions.Add(new PermissionDefinition(Security.Edit, Modules.IamSecurity, Actions.Edit, "Edit security settings"));
     permissions.Add(new PermissionDefinition(Security.Revoke, Modules.IamSecurity, Actions.Revoke, "Revoke sessions"));
 
     return permissions.ToArray();

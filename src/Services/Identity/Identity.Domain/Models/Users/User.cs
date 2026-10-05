@@ -36,12 +36,6 @@ public class User : Aggregate<UserId>
   public DateTime? PasswordChangedAt { get; private set; }
   public bool MustChangePassword { get; private set; }
 
-  // ---- MFA ----
-  public bool MfaEnabled { get; private set; }
-  public MfaType? MfaType { get; private set; }
-  /// Encrypted at rest by the infrastructure layer; never leaves the service.
-  public string? MfaSecret { get; private set; }
-
   public DateTime? LastLoginAt { get; private set; }
   public IpAddress? LastLoginIp { get; private set; }
 
@@ -196,25 +190,6 @@ public class User : Aggregate<UserId>
     EmailVerifiedAt = now;
   }
 
-  public void EnableMfa(MfaType type, string secret)
-  {
-    EnsureNotDeleted();
-
-    if (string.IsNullOrWhiteSpace(secret))
-      throw new DomainException("An MFA secret is required.");
-
-    MfaEnabled = true;
-    MfaType = type;
-    MfaSecret = secret;
-  }
-
-  public void DisableMfa()
-  {
-    EnsureNotDeleted();
-    MfaEnabled = false;
-    MfaType = null;
-    MfaSecret = null;
-  }
 
   public void SoftDelete(string? deletedBy, DateTime now)
   {

@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 
-public class DeleteUserHandler(IApplicationDbContext context, IdentityGuard guard, ICurrentUser currentUser)
+public class DeleteUserHandler(IApplicationDbContext context, IdentityGuard guard, ICurrentUser currentUser,
+    IActivityRecorder activity)
   : ICommandHandler<DeleteUserCommand, Result<DeleteUserCommandResult>>
 {
   public async Task<Result<DeleteUserCommandResult>> Handle(DeleteUserCommand command, CancellationToken cancellationToken)
@@ -22,6 +23,8 @@ public class DeleteUserHandler(IApplicationDbContext context, IdentityGuard guar
 
     foreach (var session in sessions)
       session.Revoke(now, "Account deleted");
+
+    await activity.RecordAsync(ActivityAction.UserDeleted, ActivityTargetType.User, user.Id.Value, user.Username.Value, null, cancellationToken);
 
     await context.SaveChangesAsync(cancellationToken);
 

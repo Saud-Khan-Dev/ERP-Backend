@@ -1,17 +1,17 @@
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Options;
 
 public class ResetUserPasswordHandler(
     IApplicationDbContext context,
     IPasswordHasher passwordHasher,
     IPasswordGenerator passwordGenerator,
-    IOptions<SecurityOptions> securityOptions)
+    ISecuritySettingsProvider securitySettings,
+    IActivityRecorder activity)
   : ICommandHandler<ResetUserPasswordCommand, Result<ResetUserPasswordCommandResult>>
 {
   public async Task<Result<ResetUserPasswordCommandResult>> Handle(ResetUserPasswordCommand command, CancellationToken cancellationToken)
   {
     var now = DateTime.UtcNow;
-    var policy = securityOptions.Value.PasswordPolicy;
+    var policy = (await securitySettings.GetAsync(cancellationToken)).PasswordPolicy;
 
     var user = await context.Users.FirstOrDefaultAsync(u => u.Id == UserId.Of(command.Id), cancellationToken)
       ?? throw new UserNotFoundException($"User {command.Id} was not found.");
@@ -29,6 +29,8 @@ public class ResetUserPasswordHandler(
 
     foreach (var session in sessions)
       session.Revoke(now, "Password reset by administrator");
+
+    await activity.RecordAsync(ActivityAction.PasswordReset, ActivityTargetType.User, user.Id.Value, user.Username.Value, null, cancellationToken);
 
     await context.SaveChangesAsync(cancellationToken);
 

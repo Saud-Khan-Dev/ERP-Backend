@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 
-public class DeleteRoleHandler(IApplicationDbContext context)
+public class DeleteRoleHandler(IApplicationDbContext context,
+    IActivityRecorder activity)
   : ICommandHandler<DeleteRoleCommand, Result<DeleteRoleCommandResult>>
 {
   public async Task<Result<DeleteRoleCommandResult>> Handle(DeleteRoleCommand command, CancellationToken cancellationToken)
@@ -21,6 +22,8 @@ public class DeleteRoleHandler(IApplicationDbContext context)
         $"{holders} user(s) still hold this role. Remove it from them first, or deactivate the role instead.");
 
     role.SoftDelete(now);
+    await activity.RecordAsync(ActivityAction.RoleDeleted, ActivityTargetType.Role, role.Id.Value, role.RoleName.Value, null, cancellationToken);
+
     await context.SaveChangesAsync(cancellationToken);
 
     return Result<DeleteRoleCommandResult>.Success(new DeleteRoleCommandResult(true));

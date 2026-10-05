@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 
-public class AddRolePermissionsHandler(IApplicationDbContext context, IdentityGuard guard, ICurrentUser currentUser)
+public class AddRolePermissionsHandler(IApplicationDbContext context, IdentityGuard guard, ICurrentUser currentUser,
+    IActivityRecorder activity)
   : ICommandHandler<AddRolePermissionsCommand, Result<AddRolePermissionsCommandResult>>
 {
   public async Task<Result<AddRolePermissionsCommandResult>> Handle(AddRolePermissionsCommand command, CancellationToken cancellationToken)
@@ -30,6 +31,9 @@ public class AddRolePermissionsHandler(IApplicationDbContext context, IdentityGu
     foreach (var permissionId in toAdd)
       await context.RolePermissions.AddAsync(
         RolePermission.Create(roleId, permissionId, currentUser.UserId, now), cancellationToken);
+
+    await activity.RecordAsync(ActivityAction.RolePermissionsAdded, ActivityTargetType.Role, role.Id.Value, role.RoleName.Value,
+      $"{toAdd.Count} permission(s)", cancellationToken);
 
     await context.SaveChangesAsync(cancellationToken);
 

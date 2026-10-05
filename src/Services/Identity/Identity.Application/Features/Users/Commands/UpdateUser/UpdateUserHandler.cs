@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 
-public class UpdateUserHandler(IApplicationDbContext context, EmployeeCodeService employeeCodes)
+public class UpdateUserHandler(IApplicationDbContext context, EmployeeCodeService employeeCodes,
+    IActivityRecorder activity)
   : ICommandHandler<UpdateUserCommand, Result<UpdateUserCommandResult>>
 {
   public async Task<Result<UpdateUserCommandResult>> Handle(UpdateUserCommand command, CancellationToken cancellationToken)
@@ -24,6 +25,8 @@ public class UpdateUserHandler(IApplicationDbContext context, EmployeeCodeServic
       return Result<UpdateUserCommandResult>.Failure(employeeCode.Message!);
 
     user.UpdateProfile(email, Name.Of(input.DisplayName), input.EmployeeId, employeeCode.Value);
+    await activity.RecordAsync(ActivityAction.UserProfileUpdated, ActivityTargetType.User, user.Id.Value, user.Username.Value, null, cancellationToken);
+
     await context.SaveChangesAsync(cancellationToken);
 
     return Result<UpdateUserCommandResult>.Success(new UpdateUserCommandResult(true));

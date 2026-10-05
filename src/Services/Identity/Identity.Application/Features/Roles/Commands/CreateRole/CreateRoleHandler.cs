@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 
-public class CreateRoleHandler(IApplicationDbContext context, ICurrentUser currentUser)
+public class CreateRoleHandler(IApplicationDbContext context, ICurrentUser currentUser,
+    IActivityRecorder activity)
   : ICommandHandler<CreateRoleCommand, Result<CreateRoleCommandResult>>
 {
   public async Task<Result<CreateRoleCommandResult>> Handle(CreateRoleCommand command, CancellationToken cancellationToken)
@@ -23,6 +24,8 @@ public class CreateRoleHandler(IApplicationDbContext context, ICurrentUser curre
     foreach (var permissionId in await ResolvePermissionIdsAsync(input.PermissionIds, cancellationToken))
       await context.RolePermissions.AddAsync(
         RolePermission.Create(role.Id, permissionId, currentUser.UserId, now), cancellationToken);
+
+    await activity.RecordAsync(ActivityAction.RoleCreated, ActivityTargetType.Role, role.Id.Value, role.RoleName.Value, null, cancellationToken);
 
     await context.SaveChangesAsync(cancellationToken);
 

@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 
-public class UpdateRoleHandler(IApplicationDbContext context)
+public class UpdateRoleHandler(IApplicationDbContext context,
+    IActivityRecorder activity)
   : ICommandHandler<UpdateRoleCommand, Result<UpdateRoleCommandResult>>
 {
   public async Task<Result<UpdateRoleCommandResult>> Handle(UpdateRoleCommand command, CancellationToken cancellationToken)
@@ -16,6 +17,8 @@ public class UpdateRoleHandler(IApplicationDbContext context)
 
     // the domain refuses to rename or deactivate a system role
     role.Update(code, Name.Of(command.Name, 100), command.Description, command.IsActive);
+    await activity.RecordAsync(ActivityAction.RoleUpdated, ActivityTargetType.Role, role.Id.Value, role.RoleName.Value, null, cancellationToken);
+
     await context.SaveChangesAsync(cancellationToken);
 
     return Result<UpdateRoleCommandResult>.Success(new UpdateRoleCommandResult(true));

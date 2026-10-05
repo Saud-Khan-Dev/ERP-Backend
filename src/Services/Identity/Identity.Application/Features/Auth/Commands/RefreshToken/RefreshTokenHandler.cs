@@ -8,12 +8,14 @@ using Microsoft.EntityFrameworkCore;
 public class RefreshTokenHandler(
     IApplicationDbContext context,
     ITokenService tokenService,
-    IUserPermissionService permissionService)
+    IUserPermissionService permissionService,
+    ISecuritySettingsProvider securitySettings)
   : ICommandHandler<RefreshTokenCommand, Result<RefreshTokenCommandResult>>
 {
   public async Task<Result<RefreshTokenCommandResult>> Handle(RefreshTokenCommand command, CancellationToken cancellationToken)
   {
     var now = DateTime.UtcNow;
+    var security = await securitySettings.GetAsync(cancellationToken);
     var hash = tokenService.HashRefreshToken(command.RefreshToken);
 
     var session = await context.Sessions.FirstOrDefaultAsync(s => s.RefreshTokenHash == hash, cancellationToken)
@@ -39,7 +41,7 @@ public class RefreshTokenHandler(
     var resolved = await permissionService.ResolveAsync(user.Id, cancellationToken);
 
     var newSessionId = SessionId.Of(Guid.NewGuid());
-    var refresh = tokenService.CreateRefreshToken();
+    var refresh = tokenService.CreateRefreshToken(security.RefreshTokenLifetime);
     var replacement = Session.Create(newSessionId, user.Id, refresh.Hash, ip, command.UserAgent, now, refresh.ExpiresAt);
 
     session.RotateTo(newSessionId, now);
@@ -47,7 +49,8 @@ public class RefreshTokenHandler(
     var access = tokenService.CreateAccessToken(
       user, newSessionId,
       resolved.PermissionCodes.ToArray(),
-      resolved.RoleCodes.ToArray());
+      resolved.RoleCodes.ToArray(),
+      security.AccessTokenLifetime);
 
     await context.Sessions.AddAsync(replacement, cancellationToken);
     await context.SaveChangesAsync(cancellationToken);

@@ -19,13 +19,14 @@ public sealed class JwtTokenService(IOptions<JwtOptions> options) : ITokenServic
       User user,
       SessionId sessionId,
       IReadOnlyCollection<string> permissionCodes,
-      IReadOnlyCollection<string> roleCodes)
+      IReadOnlyCollection<string> roleCodes,
+      TimeSpan lifetime)
   {
     ArgumentNullException.ThrowIfNull(user);
     ArgumentNullException.ThrowIfNull(sessionId);
 
     var now = DateTime.UtcNow;
-    var expiresAt = now.AddMinutes(_options.AccessTokenMinutes);
+    var expiresAt = now.Add(lifetime);
 
     var claims = new List<Claim>
     {
@@ -60,12 +61,12 @@ public sealed class JwtTokenService(IOptions<JwtOptions> options) : ITokenServic
     return new AccessToken(new JwtSecurityTokenHandler().WriteToken(token), expiresAt);
   }
 
-  public RefreshToken CreateRefreshToken()
+  public RefreshToken CreateRefreshToken(TimeSpan lifetime)
   {
     // opaque, not a JWT: it carries no claims and is only ever matched against a stored hash
     var value = Base64UrlEncoder.Encode(RandomNumberGenerator.GetBytes(32));
 
-    return new RefreshToken(value, HashRefreshToken(value), DateTime.UtcNow.AddDays(_options.RefreshTokenDays));
+    return new RefreshToken(value, HashRefreshToken(value), DateTime.UtcNow.Add(lifetime));
   }
 
   /// SHA-256 is right here, unlike for passwords: the token is already 256 bits of entropy, so

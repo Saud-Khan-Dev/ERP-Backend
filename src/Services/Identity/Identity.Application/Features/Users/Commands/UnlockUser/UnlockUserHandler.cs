@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 
-public class UnlockUserHandler(IApplicationDbContext context)
+public class UnlockUserHandler(IApplicationDbContext context,
+    IActivityRecorder activity)
   : ICommandHandler<UnlockUserCommand, Result<UnlockUserCommandResult>>
 {
   public async Task<Result<UnlockUserCommandResult>> Handle(UnlockUserCommand command, CancellationToken cancellationToken)
@@ -9,6 +10,8 @@ public class UnlockUserHandler(IApplicationDbContext context)
       ?? throw new UserNotFoundException($"User {command.Id} was not found.");
 
     user.Unlock();
+    await activity.RecordAsync(ActivityAction.UserUnlocked, ActivityTargetType.User, user.Id.Value, user.Username.Value, null, cancellationToken);
+
     await context.SaveChangesAsync(cancellationToken);
 
     return Result<UnlockUserCommandResult>.Success(new UnlockUserCommandResult(true));

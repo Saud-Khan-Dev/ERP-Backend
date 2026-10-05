@@ -1,7 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 
 /// Revokes rather than deletes, so the grant and its removal both stay in the audit trail.
-public class RemoveRoleFromUserHandler(IApplicationDbContext context, IdentityGuard guard)
+public class RemoveRoleFromUserHandler(IApplicationDbContext context, IdentityGuard guard,
+    IActivityRecorder activity)
   : ICommandHandler<RemoveRoleFromUserCommand, Result<RemoveRoleFromUserCommandResult>>
 {
   public async Task<Result<RemoveRoleFromUserCommandResult>> Handle(RemoveRoleFromUserCommand command, CancellationToken cancellationToken)
@@ -25,6 +26,9 @@ public class RemoveRoleFromUserHandler(IApplicationDbContext context, IdentityGu
       ?? throw new RoleNotFoundException("This user does not hold that role.");
 
     assignment.Revoke(now);
+    var targetName = await context.Users.IgnoreQueryFilters().AsNoTracking().Where(u => u.Id == userId).Select(u => u.Username.Value).FirstOrDefaultAsync(cancellationToken);
+    await activity.RecordAsync(ActivityAction.RoleRemoved, ActivityTargetType.User, userId.Value, targetName, role.RoleName.Value, cancellationToken);
+
     await context.SaveChangesAsync(cancellationToken);
 
     return Result<RemoveRoleFromUserCommandResult>.Success(new RemoveRoleFromUserCommandResult(true));

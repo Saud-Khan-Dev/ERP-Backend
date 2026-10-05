@@ -12,7 +12,9 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
   public DbSet<User> Users => Set<User>();
   public DbSet<Session> Sessions => Set<Session>();
   public DbSet<LoginAttempt> LoginAttempts => Set<LoginAttempt>();
+  public DbSet<AdminActivity> AdminActivities => Set<AdminActivity>();
   public DbSet<EmployeeCodeTemplate> EmployeeCodeTemplates => Set<EmployeeCodeTemplate>();
+  public DbSet<SecuritySettings> SecuritySettings => Set<SecuritySettings>();
 
   // ---- authorization ----
   public DbSet<Role> Roles => Set<Role>();

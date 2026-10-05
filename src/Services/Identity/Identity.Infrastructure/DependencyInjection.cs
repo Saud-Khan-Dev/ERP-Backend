@@ -24,11 +24,10 @@ public static class DependencyInjection
     services.AddScoped<IApplicationDbContext, ApplicationDbContext>();
 
     // ---- security ----
-    services.AddDataProtection();
     services.AddSingleton<IPasswordHasher, Pbkdf2PasswordHasher>();
     services.AddSingleton<IPasswordGenerator, RandomPasswordGenerator>();
-    services.AddSingleton<ISecretProtector, DataProtectionSecretProtector>();
     services.AddScoped<ITokenService, JwtTokenService>();
+    services.AddScoped<IActivityRecorder, ActivityRecorder>();
 
     // ---- bootstrap ----
     services.Configure<SeedOptions>(configuration.GetSection(SeedOptions.SectionName));

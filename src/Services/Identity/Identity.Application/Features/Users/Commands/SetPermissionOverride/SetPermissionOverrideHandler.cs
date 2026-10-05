@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 
-public class SetPermissionOverrideHandler(IApplicationDbContext context, IdentityGuard guard, ICurrentUser currentUser)
+public class SetPermissionOverrideHandler(IApplicationDbContext context, IdentityGuard guard, ICurrentUser currentUser,
+    IActivityRecorder activity)
   : ICommandHandler<SetPermissionOverrideCommand, Result<SetPermissionOverrideCommandResult>>
 {
   public async Task<Result<SetPermissionOverrideCommandResult>> Handle(SetPermissionOverrideCommand command, CancellationToken cancellationToken)
@@ -35,6 +36,10 @@ public class SetPermissionOverrideHandler(IApplicationDbContext context, Identit
       // one row per (user, permission): switching ALLOW to DENY updates in place
       existing.Update(command.Effect, command.ExpiresAt, command.Reason, now);
     }
+
+    var targetName = await context.Users.IgnoreQueryFilters().AsNoTracking().Where(u => u.Id == userId).Select(u => u.Username.Value).FirstOrDefaultAsync(cancellationToken);
+    await activity.RecordAsync(ActivityAction.PermissionOverrideSet, ActivityTargetType.User, userId.Value, targetName,
+      $"{permission.Code.Value} \u00b7 {command.Effect}", cancellationToken);
 
     await context.SaveChangesAsync(cancellationToken);
 

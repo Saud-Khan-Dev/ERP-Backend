@@ -18,10 +18,13 @@ public sealed class IdentitySeeder(
     IPasswordGenerator passwordGenerator,
     IOptions<SeedOptions> seedOptions,
     IOptions<SecurityOptions> securityOptions,
+    IOptions<JwtOptions> jwtOptions,
     IHostEnvironment environment,
     ILogger<IdentitySeeder> logger)
 {
   private readonly SeedOptions _seed = seedOptions.Value;
+  private readonly SecurityOptions _security = securityOptions.Value;
+  private readonly JwtOptions _jwt = jwtOptions.Value;
 
   public async Task SeedAsync(CancellationToken cancellationToken = default)
   {
@@ -36,6 +39,7 @@ public sealed class IdentitySeeder(
     var superAdminRole = await SeedSuperAdminRoleAsync(cancellationToken);
     await SeedSuperAdminUserAsync(superAdminRole, cancellationToken);
     await SeedEmployeeCodeTemplateAsync(cancellationToken);
+    await SeedSecuritySettingsAsync(cancellationToken);
   }
 
   /// Only ever creates the default; an administrator's edits to the template are never overwritten.
@@ -52,6 +56,28 @@ public sealed class IdentitySeeder(
 
     logger.LogInformation("Seeded the employee code template {Pattern}; the first code will be {Code}.",
       template.Pattern, template.NextCode.Value);
+  }
+
+  /// Writes the one security-settings row the first time, from the values in configuration, so the
+  /// running policy is unchanged until an administrator edits it in the app.
+  private async Task SeedSecuritySettingsAsync(CancellationToken cancellationToken)
+  {
+    var id = SecuritySettingsId.Of(SecuritySettings.SingletonId);
+
+    if (await context.SecuritySettings.AnyAsync(s => s.Id == id, cancellationToken))
+      return;
+
+    var settings = SecuritySettings.Create(
+      id,
+      _security.PasswordMinimumLength, _security.PasswordRequireUppercase, _security.PasswordRequireLowercase,
+      _security.PasswordRequireDigit, _security.PasswordRequireNonAlphanumeric,
+      _security.MaxFailedLoginAttempts, _security.LockoutMinutes,
+      _jwt.AccessTokenMinutes, _jwt.RefreshTokenDays);
+
+    await context.SecuritySettings.AddAsync(settings, cancellationToken);
+    await context.SaveChangesAsync(cancellationToken);
+
+    logger.LogInformation("Seeded the security settings.");
   }
 
   private async Task<Dictionary<string, PermissionModuleId>> SeedModulesAsync(CancellationToken cancellationToken)
