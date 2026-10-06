@@ -282,7 +282,8 @@ public class PerformanceHandlers(IApplicationDbContext context, HrLookup lookup,
         alreadyOpen++;
         continue;
       }
-      if (employee.HasLeftService || employee.ProfileStatus != RecordStatus.Active)
+      // someone who left after the period still served it and is appraised for it; only a deactivated profile is skipped
+      if (employee.ProfileStatus != RecordStatus.Active)
         continue;
 
       if (seat.ReportingPostId is not { } reportingPost)

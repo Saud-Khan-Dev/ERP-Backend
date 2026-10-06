@@ -424,13 +424,13 @@ public class AttendanceHandlers(IApplicationDbContext context, WorkCalendar cale
     var date = command.Date;
     AttendanceRecord.EnsureRecordable(date, clock.Today);
 
-    // everyone holding a post that day, still in service, without a record
+    // everyone holding a post that day without a record. Holding the post on the date is what counts, not today's
+    // status: someone who retired or was deputed out later was still serving then (both end the assignment).
     var employeeIds = await context.PositionAssignments.AsNoTracking()
       .Where(a => a.Status == RecordStatus.Active && a.EffectiveFrom <= date && (a.EffectiveTo == null || a.EffectiveTo >= date))
       .Select(a => a.EmployeeId).Distinct()
       .Where(id => !context.AttendanceRecords.Any(r => r.EmployeeId == id && r.AttendanceDate == date))
-      .Where(id => context.Employees.Any(e => e.Id == id && e.ProfileStatus == RecordStatus.Active
-        && (e.EmploymentStatus == EmploymentStatus.Active || e.EmploymentStatus == EmploymentStatus.OnLeave || e.EmploymentStatus == EmploymentStatus.Suspended)))
+      .Where(id => context.Employees.Any(e => e.Id == id && e.ProfileStatus == RecordStatus.Active))
       .ToListAsync(cancellationToken);
 
     var onLeave = (await context.LeaveApplications.AsNoTracking()
