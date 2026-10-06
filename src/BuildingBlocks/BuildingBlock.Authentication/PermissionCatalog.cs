@@ -34,6 +34,9 @@ public static class PermissionCatalog
     public const string IamPermissions = "IAM_PERMISSIONS";
     public const string IamSecurity = "IAM_SECURITY";
     public const string Hr = "HR";
+    public const string HrSetup = "HR_SETUP";
+    public const string Attendance = "ATTENDANCE";
+    public const string Payroll = "PAYROLL";
   }
 
   // ---- permission codes, grouped by module ----
@@ -150,12 +153,49 @@ public static class PermissionCatalog
     public const string Revoke = "IAM_SECURITY.REVOKE";
   }
 
+  /// Employees and everything on their file: personal details, documents, education, posts held, service history,
+  /// HR actions, separations, performance reviews, tasks and requests.
   public static class Hr
   {
     public const string View = "HR.VIEW";
     public const string Create = "HR.CREATE";
     public const string Edit = "HR.EDIT";
     public const string Delete = "HR.DELETE";
+    /// Approve an HR action (appointment, transfer, promotion ...), verify documents, decide employee requests.
+    public const string Approve = "HR.APPROVE";
+  }
+
+  /// HR setup: organization structure, designations, pay scales, sanctioned posts and the HR catalogues.
+  public static class HrSetup
+  {
+    public const string View = "HR_SETUP.VIEW";
+    public const string Create = "HR_SETUP.CREATE";
+    public const string Edit = "HR_SETUP.EDIT";
+    public const string Delete = "HR_SETUP.DELETE";
+  }
+
+  /// Shifts, holidays, attendance, and leave (types, entitlements, applications, the leave ledger).
+  public static class Attendance
+  {
+    public const string View = "ATTENDANCE.VIEW";
+    public const string Create = "ATTENDANCE.CREATE";
+    public const string Edit = "ATTENDANCE.EDIT";
+    public const string Delete = "ATTENDANCE.DELETE";
+    /// Approve or reject leave.
+    public const string Approve = "ATTENDANCE.APPROVE";
+  }
+
+  /// Money: salary components and rules, income tax, loans, GP Fund, bank accounts, payroll runs, pay slips, payments.
+  public static class Payroll
+  {
+    public const string View = "PAYROLL.VIEW";
+    public const string Create = "PAYROLL.CREATE";
+    public const string Edit = "PAYROLL.EDIT";
+    public const string Delete = "PAYROLL.DELETE";
+    /// Approve a payroll run; sanction a loan.
+    public const string Approve = "PAYROLL.APPROVE";
+    /// Finalize (post) or reverse a payroll run and record payments.
+    public const string Post = "PAYROLL.POST";
   }
 
   // =====================================================
@@ -181,6 +221,9 @@ public static class PermissionCatalog
     new ModuleDefinition(Modules.IamPermissions, "Permission Administration"),
     new ModuleDefinition(Modules.IamSecurity, "Security & Audit"),
     new ModuleDefinition(Modules.Hr, "Human Resources"),
+    new ModuleDefinition(Modules.HrSetup, "HR Setup"),
+    new ModuleDefinition(Modules.Attendance, "Attendance & Leave"),
+    new ModuleDefinition(Modules.Payroll, "Payroll"),
   };
 
   public static IReadOnlyList<PermissionDefinition> All { get; } = BuildAll();
@@ -205,7 +248,10 @@ public static class PermissionCatalog
     Crud(Modules.PropertySetup, "property setup");
     Crud(Modules.IamUsers, "user accounts", Actions.Assign);
     Crud(Modules.IamRoles, "roles");
-    Crud(Modules.Hr, "employees");
+    Crud(Modules.Hr, "employees", Actions.Approve);
+    Crud(Modules.HrSetup, "HR setup");
+    Crud(Modules.Attendance, "attendance and leave", Actions.Approve);
+    Crud(Modules.Payroll, "payroll", Actions.Approve, Actions.Post);
 
     permissions.Add(new PermissionDefinition(Permissions.View, Modules.IamPermissions, Actions.View, "View permissions"));
     permissions.Add(new PermissionDefinition(Permissions.Assign, Modules.IamPermissions, Actions.Assign, "Assign permissions"));

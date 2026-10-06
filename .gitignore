@@ -57,6 +57,7 @@ tmp/
 
 # ---- local document storage (dev file server) ----
 **/PropertyManagement.Api/storage/
+**/HRM.Api/storage/
 
 # ---- Claude Code (local agent settings) ----
 .claude/

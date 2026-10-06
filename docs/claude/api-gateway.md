@@ -19,6 +19,7 @@ JWTs itself.
 | `/auth-service/{**catch-all}` | `identity-cluster` | `http://localhost:5142` |
 | `/property-management-service/{**catch-all}` | `property-management-cluster` | `http://localhost:5141` |
 | `/assets-management-service/{**catch-all}` | `assets-management-cluster` | `http://localhost:5139` |
+| `/hrm-service/{**catch-all}` | `hrm-cluster` | `http://localhost:5144` |
 
 Each route has the transform `PathPattern: "{**catch-all}"`, which **strips the prefix**: for example,
 `/auth-service/auth/login` arrives at Identity as `/auth/login`.

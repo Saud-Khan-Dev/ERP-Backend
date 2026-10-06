@@ -14,6 +14,12 @@
     <Project Path="Services/AssetsManagement/AssetsManagement.Domain/AssetsManagement.Domain.csproj" />
     <Project Path="Services/AssetsManagement/AssetsManagement.Infrastructure/AssetsManagement.Infrastructure.csproj" />
   </Folder>
+  <Folder Name="/Services/HRM/">
+    <Project Path="Services/HRM/HRM.Api/HRM.Api.csproj" />
+    <Project Path="Services/HRM/HRM.Application/HRM.Application.csproj" />
+    <Project Path="Services/HRM/HRM.Domain/HRM.Domain.csproj" />
+    <Project Path="Services/HRM/HRM.Infrastructure/HRM.Infrastructure.csproj" />
+  </Folder>
   <Folder Name="/Services/Identity/">
     <Project Path="Services/Identity/Identity.Api/Identity.Api.csproj" />
     <Project Path="Services/Identity/Identity.Application/Identity.Application.csproj" />
@@ -27,6 +33,7 @@
     <Project Path="Services/PropertyManagement/PropertyManagement.Infrastructure/PropertyManagement.Infrastructure.csproj" />
   </Folder>
   <Folder Name="/Tests/">
+    <Project Path="Tests/HRM.Domain.Tests/HRM.Domain.Tests.csproj" />
     <Project Path="Tests/PropertyManagement.Domain.Tests/PropertyManagement.Domain.Tests.csproj" />
   </Folder>
 </Solution>

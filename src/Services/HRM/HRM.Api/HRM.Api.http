@@ -1,0 +1,377 @@
+# HRM: walkthrough of the main flows, from an empty structure to a paid salary and the employee portal.
+#
+# Run top to bottom in VS Code (REST Client), Rider or Visual Studio 17.12+. Named requests (# @name)
+# pass ids forward, e.g. {{registerEmployee.response.body.$.id}}.
+#
+# Seeded ids (BPS grades, unit types, leave types, salary components, loan types, request types) differ per
+# database: copy them once from step 1 into the variables below. Everything created later chains by name.
+#
+# The super admin has every permission. To try maker-checker on payroll, approve with another user, or keep
+# Payroll:RequireSeparateApprover off (it is off in appsettings.Development.json and compose).
+#
+# OpenAPI: {{host}}/openapi/v1.json
+
+@host = http://localhost:5144
+@identity = http://localhost:5142
+@token = {{login.response.body.$.authentication.accessToken}}
+
+# ---- seeded ids (step 1) ----
+@authority = <org-unit-types: AUTH>
+@wing = <org-unit-types: WING>
+@bps17 = <pay-scale-grades: bpsNumber 17>
+@bps18 = <pay-scale-grades: bpsNumber 18>
+@casualLeave = <leave-types: Casual Leave>
+@gdaAllowance = <salary-components: GDA_AUTH>
+@carAdvance = <loan-types: Motor Car Advance (MCA)>
+@transferRequest = <request-types: Transfer Request>
+
+# ---- ids created on the way ----
+@gda = {{createGda.response.body.$.id}}
+@engineering = {{createEngineering.response.body.$.id}}
+@director = {{createDirector.response.body.$.id}}
+@deputyDirector = {{createDeputy.response.body.$.id}}
+@directorPost = {{createDirectorPost.response.body.$.id}}
+@deputyPost = {{createDeputyPost.response.body.$.id}}
+@employee = {{registerEmployee.response.body.$.id}}
+@leave = {{applyLeave.response.body.$.id}}
+@period = {{createPeriod.response.body.$.id}}
+@run = {{createRun.response.body.$.id}}
+
+
+### 0. Sign in (Identity service)
+# @name login
+POST {{identity}}/auth/login
+Content-Type: application/json
+
+{ "username": "superadmin", "password": "SuperAdmin@123" }
+
+
+##############################################################################
+### 1. Seeded catalogues: copy the ids into the variables above
+##############################################################################
+
+### Org unit types (Authority, Department, Wing, Division, Section, Office)
+GET {{host}}/org-unit-types
+Authorization: Bearer {{token}}
+
+### BPS 1-22
+GET {{host}}/pay-scale-grades
+Authorization: Bearer {{token}}
+
+### Leave types, salary components, loan types, request types
+GET {{host}}/leave-types
+Authorization: Bearer {{token}}
+
+###
+GET {{host}}/salary-components
+Authorization: Bearer {{token}}
+
+###
+GET {{host}}/loan-types
+Authorization: Bearer {{token}}
+
+###
+GET {{host}}/request-types
+Authorization: Bearer {{token}}
+
+
+##############################################################################
+### 2. Structure: units, designations, pay scales, sanctioned posts
+##############################################################################
+
+### The authority (root of the tree)
+# @name createGda
+POST {{host}}/org-units
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "code": "GDA", "effectiveFrom": "2020-01-01", "details": { "name": "Galiyat Development Authority", "unitTypeId": "{{authority}}" } }
+
+### A wing under it
+# @name createEngineering
+POST {{host}}/org-units
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "code": "ENG", "effectiveFrom": "2020-01-01", "details": { "name": "Engineering Wing", "unitTypeId": "{{wing}}", "parentUnitId": "{{gda}}" } }
+
+### The tree with seats rolled up
+GET {{host}}/org-units/tree
+Authorization: Bearer {{token}}
+
+### Designations
+# @name createDirector
+POST {{host}}/designations
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "title": "Director", "code": "DIR" }
+
+###
+# @name createDeputy
+POST {{host}}/designations
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "title": "Deputy Director", "code": "DD" }
+
+### Pay scales (stages generated from the annual increment). Example figures: enter the notified ones.
+POST {{host}}/pay-scales
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "versionLabel": "Pay scales 2025 (example)",
+  "notificationRef": "Finance Department notification no. ...",
+  "effectiveFrom": "2025-07-01",
+  "scales": [
+    { "gradeId": "{{bps17}}", "minBasicPay": 45070, "maxBasicPay": 112870, "annualIncrement": 2260 },
+    { "gradeId": "{{bps18}}", "minBasicPay": 58880, "maxBasicPay": 146080, "annualIncrement": 2910 }
+  ]
+}
+
+### Sanctioned posts (codes issued as POST-0001 ... when left blank); the deputy reports to the director
+# @name createDirectorPost
+POST {{host}}/posts
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "postCode": "ENG-DIR-01", "effectiveFrom": "2020-01-01",
+  "details": { "designationId": "{{director}}", "gradeId": "{{bps18}}", "orgUnitId": "{{engineering}}", "employmentType": "regular", "sanctionedCount": 1 } }
+
+###
+# @name createDeputyPost
+POST {{host}}/posts
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "effectiveFrom": "2020-01-01",
+  "details": { "designationId": "{{deputyDirector}}", "gradeId": "{{bps17}}", "orgUnitId": "{{engineering}}", "reportingPostId": "{{directorPost}}",
+               "employmentType": "regular", "sanctionedCount": 2 } }
+
+### Vacant posts
+GET {{host}}/posts?status=vacant
+Authorization: Bearer {{token}}
+
+
+##############################################################################
+### 3. An employee: registration with appointment, service record
+##############################################################################
+
+### One request: master record, contacts and the appointment (service history + assignment + starting pay)
+# @name registerEmployee
+POST {{host}}/employees
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "personal": { "firstName": "Ayesha", "lastName": "Jadoon", "cnic": "1310112345678", "dateOfBirth": "1990-04-12", "gender": "female" },
+  "employmentType": "regular",
+  "employmentMethod": "scheduled_seat",
+  "contacts": [ { "contactType": "mobile", "value": "0300-1234567", "isPrimary": true } ],
+  "appointment": { "postId": "{{deputyPost}}", "effectiveFrom": "2025-07-01", "orderNumber": "GDA/Estt/2025/14", "stageNumber": 2 }
+}
+
+### Profile with the current placement and pay
+GET {{host}}/employees/{{employee}}
+Authorization: Bearer {{token}}
+
+### Service record (append-only)
+GET {{host}}/employees/{{employee}}/service-history
+Authorization: Bearer {{token}}
+
+
+##############################################################################
+### 4. Leave
+##############################################################################
+
+### This year's casual leave for everyone in service
+POST {{host}}/leave-entitlements/grant
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "year": 2026, "leaveTypeId": "{{casualLeave}}" }
+
+### How many days would 19-23 October take? (days off and holidays left out)
+GET {{host}}/employees/{{employee}}/leave-days?startDate=2026-10-19&endDate=2026-10-23
+Authorization: Bearer {{token}}
+
+###
+# @name applyLeave
+POST {{host}}/employees/{{employee}}/leave-applications
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "leaveTypeId": "{{casualLeave}}", "startDate": "2026-10-19", "endDate": "2026-10-20", "reason": "Family wedding" }
+
+### Approve: usage goes to the ledger
+POST {{host}}/leave-applications/{{leave}}/approve
+Authorization: Bearer {{token}}
+
+###
+GET {{host}}/employees/{{employee}}/leave-balances?year=2026
+Authorization: Bearer {{token}}
+
+
+##############################################################################
+### 5. Pay structure: an allowance rule, tax year, GP Fund, salary account
+##############################################################################
+
+### GDA Authority Allowance: 20% of basic pay, at least 1,500 (try it first, then save it)
+POST {{host}}/salary-components/{{gdaAllowance}}/rules/try
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "rule": { "ruleVersion": "2025", "calculationMethod": "formula", "formulaExpression": "max(1500, basic_pay * 0.2)", "priority": 10, "effectiveFrom": "2025-07-01" },
+  "figures": { "basicPay": 49590, "bps": 17, "stage": 2 } }
+
+###
+POST {{host}}/salary-components/{{gdaAllowance}}/rules
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "ruleVersion": "2025", "calculationMethod": "formula", "formulaExpression": "max(1500, basic_pay * 0.2)", "priority": 10, "effectiveFrom": "2025-07-01" }
+
+### Tax year 2026-27 (salaried slabs)
+POST {{host}}/tax-years
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "yearLabel": "2026-27", "startDate": "2026-07-01", "endDate": "2027-06-30",
+  "slabs": [
+    { "slabOrder": 1, "minIncome": 0,       "maxIncome": 600000,  "fixedAmount": 0,      "ratePercentage": 0 },
+    { "slabOrder": 2, "minIncome": 600000,  "maxIncome": 1200000, "fixedAmount": 0,      "ratePercentage": 1 },
+    { "slabOrder": 3, "minIncome": 1200000, "maxIncome": 2200000, "fixedAmount": 6000,   "ratePercentage": 11 },
+    { "slabOrder": 4, "minIncome": 2200000, "maxIncome": 3200000, "fixedAmount": 116000, "ratePercentage": 23 },
+    { "slabOrder": 5, "minIncome": 3200000, "maxIncome": 4100000, "fixedAmount": 346000, "ratePercentage": 30 },
+    { "slabOrder": 6, "minIncome": 4100000, "maxIncome": null,    "fixedAmount": 616000, "ratePercentage": 35 }
+  ]
+}
+
+### GP Fund account with the balance brought from the old register
+POST {{host}}/employees/{{employee}}/gp-fund
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "accountNumber": "GPF-0001", "openedOn": "2025-07-01", "monthlySubscription": 3000, "openingBalance": 150000 }
+
+### Salary account (the IBAN's check digits are verified)
+POST {{host}}/employees/{{employee}}/bank-accounts
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "bankName": "Standard Chartered Bank", "branchName": "Abbottabad", "iban": "PK36SCBL0000001123456702" }
+
+### A motor car advance, recovered from November
+POST {{host}}/employees/{{employee}}/loans
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "loanTypeId": "{{carAdvance}}", "principalAmount": 600000, "installmentsCount": 60, "startDate": "2026-11-01" }
+
+
+##############################################################################
+### 6. Payroll: month, run, calculate, review, approve, finalize, pay
+##############################################################################
+
+###
+# @name createPeriod
+POST {{host}}/payroll-periods
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "year": 2026, "month": 9 }
+
+###
+# @name createRun
+POST {{host}}/payroll-runs
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "periodId": "{{period}}", "runType": "regular", "runLabel": "September 2026 salaries" }
+
+### Work it out (can be repeated until the run is reviewed)
+POST {{host}}/payroll-runs/{{run}}/calculate
+Authorization: Bearer {{token}}
+
+### The pay register: one column per component
+GET {{host}}/payroll-runs/{{run}}/register
+Authorization: Bearer {{token}}
+
+### An arrears adjustment on one slip (the slip is worked out again)
+POST {{host}}/payroll-runs/{{run}}/adjustments
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "employeeId": "{{employee}}", "adjustmentType": "arrears", "amount": 5000, "reason": "Arrears of August" }
+
+###
+POST {{host}}/payroll-runs/{{run}}/review
+Authorization: Bearer {{token}}
+
+###
+POST {{host}}/payroll-runs/{{run}}/approve
+Authorization: Bearer {{token}}
+
+### Posts tax, loan recoveries and GP Fund rows; issues the pay slips; locks the run
+POST {{host}}/payroll-runs/{{run}}/finalize
+Authorization: Bearer {{token}}
+
+### Payments into the salary accounts, the bank advice, then the bank's confirmation
+POST {{host}}/payroll-runs/{{run}}/payments
+Authorization: Bearer {{token}}
+
+###
+GET {{host}}/payroll-runs/{{run}}/bank-advice
+Authorization: Bearer {{token}}
+
+###
+POST {{host}}/payroll-runs/{{run}}/payments/process
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "paymentDate": "2026-09-30", "paymentReference": "SCB-SAL-2609" }
+
+###
+POST {{host}}/payroll-runs/{{run}}/mark-paid
+Authorization: Bearer {{token}}
+
+
+##############################################################################
+### 7. Reports
+##############################################################################
+
+###
+GET {{host}}/reports/establishment
+Authorization: Bearer {{token}}
+
+###
+GET {{host}}/reports/payroll-summary?year=2026
+Authorization: Bearer {{token}}
+
+###
+GET {{host}}/reports/retirements?withinMonths=24
+Authorization: Bearer {{token}}
+
+
+##############################################################################
+### 8. The employee portal (/me)
+##############################################################################
+# Link the employee to an Identity user (POST /employees/{id}/user with { "userId": "..." }), sign in as that
+# user, and use that token here. The token's "emp" claim (or the link) decides whose record /me shows.
+
+### Home page: placement, what is waiting, balances, latest pay slip
+GET {{host}}/me
+Authorization: Bearer {{token}}
+
+###
+GET {{host}}/me/payslips
+Authorization: Bearer {{token}}
+
+###
+POST {{host}}/me/requests
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "requestTypeId": "{{transferRequest}}", "subject": "Transfer to Nathia Gali", "requestedData": { "preferredLocation": "Nathia Gali" } }
