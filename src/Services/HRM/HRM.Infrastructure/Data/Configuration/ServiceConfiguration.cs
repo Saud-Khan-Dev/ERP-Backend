@@ -213,6 +213,7 @@ public class PerformanceGoalConfiguration : EntityConfiguration<PerformanceGoal,
     builder.Property(x => x.Target).Text();
     builder.Property(x => x.Achievement).Text();
     builder.Property(x => x.Score).Numeric(6, 2);
+    builder.Property(x => x.SortOrder).HasDefaultValue(0);
     builder.HasIndex(x => x.PerformanceReviewId).HasDatabaseName("idx_performance_goal_performance_review_id");
   }
 }
@@ -229,6 +230,7 @@ public class PerformanceKpiConfiguration : EntityConfiguration<PerformanceKpi, P
 
     builder.Property(x => x.KpiName).IsRequired();
     builder.Property(x => x.Score).Numeric(6, 2);
+    builder.Property(x => x.SortOrder).HasDefaultValue(0);
     builder.HasIndex(x => x.PerformanceReviewId).HasDatabaseName("idx_performance_kpi_performance_review_id");
   }
 }
@@ -246,6 +248,7 @@ public class PerformanceCompetencyConfiguration : EntityConfiguration<Performanc
     builder.Property(x => x.CompetencyName).IsRequired();
     builder.Property(x => x.Rating).Numeric(4, 2);
     builder.Property(x => x.Remarks).Text();
+    builder.Property(x => x.SortOrder).HasDefaultValue(0);
     builder.HasIndex(x => x.PerformanceReviewId).HasDatabaseName("idx_performance_competency_performance_review_id");
   }
 }

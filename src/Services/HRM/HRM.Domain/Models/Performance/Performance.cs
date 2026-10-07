@@ -113,12 +113,13 @@ public class PerformanceReview : Aggregate<PerformanceReviewId>
     if (goals.Sum(g => g.Weight) > 100)
       throw new DomainException($"Goal weights add up to {goals.Sum(g => g.Weight):0.##}; they may not exceed 100.");
 
+    // each item keeps its place in the form (SortOrder) - the rows are replaced on every save
     _goals.Clear();
-    _goals.AddRange(goals.Select(g => PerformanceGoal.Create(Id, g)));
+    _goals.AddRange(goals.Select((g, i) => PerformanceGoal.Create(Id, g, i)));
     _kpis.Clear();
-    _kpis.AddRange(kpis.Select(k => PerformanceKpi.Create(Id, k)));
+    _kpis.AddRange(kpis.Select((k, i) => PerformanceKpi.Create(Id, k, i)));
     _competencies.Clear();
-    _competencies.AddRange(competencies.Select(c => PerformanceCompetency.Create(Id, c)));
+    _competencies.AddRange(competencies.Select((c, i) => PerformanceCompetency.Create(Id, c, i)));
   }
 
   public void SetRecommendations(bool promotionRecommended, bool trainingRecommended, string? remarks)
@@ -208,11 +209,14 @@ public class PerformanceGoal : Entity<PerformanceGoalId>
   public string? Target { get; private set; }
   public string? Achievement { get; private set; }
   public decimal? Score { get; private set; }
+  /// The goal's place on the form (0-based).
+  public int SortOrder { get; private set; }
 
-  internal static PerformanceGoal Create(PerformanceReviewId reviewId, GoalInput input) => new()
+  internal static PerformanceGoal Create(PerformanceReviewId reviewId, GoalInput input, int sortOrder) => new()
   {
     Id = PerformanceGoalId.New(),
     PerformanceReviewId = reviewId,
+    SortOrder = sortOrder,
     Description = Guard.RequiredText(input.Description, 2000, "Goal"),
     Weight = Guard.Between(input.Weight, 0, 100, "Goal weight"),
     Target = Guard.Text(input.Target, 2000, "Target"),
@@ -228,11 +232,14 @@ public class PerformanceKpi : Entity<PerformanceKpiId>
   public string? TargetValue { get; private set; }
   public string? AchievedValue { get; private set; }
   public decimal? Score { get; private set; }
+  /// The KPI's place on the form (0-based).
+  public int SortOrder { get; private set; }
 
-  internal static PerformanceKpi Create(PerformanceReviewId reviewId, KpiInput input) => new()
+  internal static PerformanceKpi Create(PerformanceReviewId reviewId, KpiInput input, int sortOrder) => new()
   {
     Id = PerformanceKpiId.New(),
     PerformanceReviewId = reviewId,
+    SortOrder = sortOrder,
     KpiName = Guard.RequiredText(input.KpiName, 200, "KPI"),
     TargetValue = Guard.Text(input.TargetValue, 100, "Target value"),
     AchievedValue = Guard.Text(input.AchievedValue, 100, "Achieved value"),
@@ -246,11 +253,14 @@ public class PerformanceCompetency : Entity<PerformanceCompetencyId>
   public string CompetencyName { get; private set; } = default!;
   public decimal? Rating { get; private set; }
   public string? Remarks { get; private set; }
+  /// The competency's place on the form (0-based).
+  public int SortOrder { get; private set; }
 
-  internal static PerformanceCompetency Create(PerformanceReviewId reviewId, CompetencyInput input) => new()
+  internal static PerformanceCompetency Create(PerformanceReviewId reviewId, CompetencyInput input, int sortOrder) => new()
   {
     Id = PerformanceCompetencyId.New(),
     PerformanceReviewId = reviewId,
+    SortOrder = sortOrder,
     CompetencyName = Guard.RequiredText(input.CompetencyName, 200, "Competency"),
     Rating = Guard.Between(input.Rating, 0, 10, "Rating"),
     Remarks = Guard.Text(input.Remarks, 2000, "Remarks")

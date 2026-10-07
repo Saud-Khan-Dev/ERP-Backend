@@ -39,7 +39,7 @@ public static class PerformanceMappings
     x.Remarks,
     x.Goals.Sum(g => g.Weight),
     x.WeightedGoalScore(),
-    x.Goals.Select(g => new PerformanceGoalDto(g.Id.Value, g.Description, g.Weight, g.Target, g.Achievement, g.Score)).ToList(),
-    x.Kpis.Select(k => new PerformanceKpiDto(k.Id.Value, k.KpiName, k.TargetValue, k.AchievedValue, k.Score)).ToList(),
-    x.Competencies.Select(c => new PerformanceCompetencyDto(c.Id.Value, c.CompetencyName, c.Rating, c.Remarks)).ToList());
+    x.Goals.OrderBy(g => g.SortOrder).Select(g => new PerformanceGoalDto(g.Id.Value, g.Description, g.Weight, g.Target, g.Achievement, g.Score)).ToList(),
+    x.Kpis.OrderBy(k => k.SortOrder).Select(k => new PerformanceKpiDto(k.Id.Value, k.KpiName, k.TargetValue, k.AchievedValue, k.Score)).ToList(),
+    x.Competencies.OrderBy(c => c.SortOrder).Select(c => new PerformanceCompetencyDto(c.Id.Value, c.CompetencyName, c.Rating, c.Remarks)).ToList());
 }
