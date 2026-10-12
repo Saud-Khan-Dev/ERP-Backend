@@ -24,8 +24,17 @@ public class UpdateUserHandler(IApplicationDbContext context, EmployeeCodeServic
     if (!employeeCode.IsSuccess)
       return Result<UpdateUserCommandResult>.Failure(employeeCode.Message!);
 
+    var before = (Name: user.DisplayName.Value, Email: user.Email.Value, Code: user.EmployeeCode?.Value, user.EmployeeId);
+
     user.UpdateProfile(email, Name.Of(input.DisplayName), input.EmployeeId, employeeCode.Value);
-    await activity.RecordAsync(ActivityAction.UserProfileUpdated, ActivityTargetType.User, user.Id.Value, user.Username.Value, null, cancellationToken);
+
+    var detail = ActivityDetail.Changes(
+      ("Name", before.Name, user.DisplayName.Value),
+      ("Email", before.Email, user.Email.Value),
+      ("Employee code", before.Code, user.EmployeeCode?.Value),
+      ("Employee link", before.EmployeeId?.ToString(), user.EmployeeId?.ToString()));
+    if (detail is not null)
+      await activity.RecordAsync(ActivityAction.UserProfileUpdated, ActivityTargetType.User, user.Id.Value, user.Username.Value, detail, cancellationToken);
 
     await context.SaveChangesAsync(cancellationToken);
 

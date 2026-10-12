@@ -16,6 +16,16 @@ public class GetAdminActivityHandler(IApplicationDbContext context)
     if (query.TargetId is { } targetId)
       activities = activities.Where(a => a.TargetId == targetId);
 
+    // everything a person did, and everything done to their account
+    if (query.PersonId is { } personId)
+    {
+      var asActor = UserId.Of(personId);
+      activities = activities.Where(a => a.ActorUserId == asActor || a.TargetId == personId);
+    }
+
+    if (!string.IsNullOrWhiteSpace(query.Kind) && ActivityKinds.Actions.TryGetValue(query.Kind, out var kindActions))
+      activities = activities.Where(a => kindActions.Contains(a.Action));
+
     if (!string.IsNullOrWhiteSpace(query.Action) && Enum.TryParse<ActivityAction>(query.Action, ignoreCase: true, out var action))
       activities = activities.Where(a => a.Action == action);
 

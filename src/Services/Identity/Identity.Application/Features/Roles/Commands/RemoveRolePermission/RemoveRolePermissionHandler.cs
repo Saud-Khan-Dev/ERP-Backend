@@ -24,7 +24,8 @@ public class RemoveRolePermissionHandler(IApplicationDbContext context, Identity
       ?? throw new PermissionNotFoundException("That permission is not attached to this role.");
 
     context.RolePermissions.Remove(link);
-    await activity.RecordAsync(ActivityAction.RolePermissionRemoved, ActivityTargetType.Role, role.Id.Value, role.RoleName.Value, null, cancellationToken);
+    await activity.RecordAsync(ActivityAction.RolePermissionRemoved, ActivityTargetType.Role, role.Id.Value, role.RoleName.Value,
+      await RolePermissionDetail.DescribeAsync(context, [], [permissionId], cancellationToken), cancellationToken);
 
     await context.SaveChangesAsync(cancellationToken);
 

@@ -25,9 +25,15 @@ public sealed class ActivityRecorder(
     var activity = AdminActivity.Record(
       UserId.Of(actorId),
       currentUser.Username ?? currentUser.AuditName,
-      action, targetType, targetId, targetLabel, detail,
+      action, targetType, targetId, targetLabel, Fit(detail),
       ip, userAgent, DateTime.UtcNow);
 
     await context.AdminActivities.AddAsync(activity, cancellationToken);
   }
+
+  // the column holds 500 characters; a longer detail must never fail the change it describes
+  private static string? Fit(string? detail) =>
+    detail is { Length: > DetailMaxLength } ? detail[..(DetailMaxLength - 1)] + "\u2026" : detail;
+
+  private const int DetailMaxLength = 500;
 }

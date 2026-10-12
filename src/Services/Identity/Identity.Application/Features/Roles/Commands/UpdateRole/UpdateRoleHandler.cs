@@ -15,9 +15,19 @@ public class UpdateRoleHandler(IApplicationDbContext context,
     if (await context.Roles.AnyAsync(r => r.Id != id && r.Code == code, cancellationToken))
       return Result<UpdateRoleCommandResult>.Failure($"A role with code '{code.Value}' already exists.");
 
+    var before = (Name: role.RoleName.Value, Code: role.Code.Value, role.Description, role.IsActive);
+
     // the domain refuses to rename or deactivate a system role
     role.Update(code, Name.Of(command.Name, 100), command.Description, command.IsActive);
-    await activity.RecordAsync(ActivityAction.RoleUpdated, ActivityTargetType.Role, role.Id.Value, role.RoleName.Value, null, cancellationToken);
+
+    // a save that changed nothing is not a change
+    var detail = ActivityDetail.Changes(
+      ("Name", before.Name, role.RoleName.Value),
+      ("Code", before.Code, role.Code.Value),
+      ("Description", before.Description, role.Description),
+      ("Active", ActivityDetail.YesNo(before.IsActive), ActivityDetail.YesNo(role.IsActive)));
+    if (detail is not null)
+      await activity.RecordAsync(ActivityAction.RoleUpdated, ActivityTargetType.Role, role.Id.Value, role.RoleName.Value, detail, cancellationToken);
 
     await context.SaveChangesAsync(cancellationToken);
 

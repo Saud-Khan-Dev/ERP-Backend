@@ -21,11 +21,13 @@ public class CreateRoleHandler(IApplicationDbContext context, ICurrentUser curre
 
     await context.Roles.AddAsync(role, cancellationToken);
 
-    foreach (var permissionId in await ResolvePermissionIdsAsync(input.PermissionIds, cancellationToken))
+    var permissionIds = await ResolvePermissionIdsAsync(input.PermissionIds, cancellationToken);
+    foreach (var permissionId in permissionIds)
       await context.RolePermissions.AddAsync(
         RolePermission.Create(role.Id, permissionId, currentUser.UserId, now), cancellationToken);
 
-    await activity.RecordAsync(ActivityAction.RoleCreated, ActivityTargetType.Role, role.Id.Value, role.RoleName.Value, null, cancellationToken);
+    await activity.RecordAsync(ActivityAction.RoleCreated, ActivityTargetType.Role, role.Id.Value, role.RoleName.Value,
+      await RolePermissionDetail.DescribeAsync(context, permissionIds, [], cancellationToken), cancellationToken);
 
     await context.SaveChangesAsync(cancellationToken);
 
