@@ -1,0 +1,1202 @@
+// =====================================================================
+//  GDA TAXATION MODULE — Database Schema (DBML for dbdiagram.io)
+//  Status: DESIGN (no service, no migration yet). Companion document:
+//          "GDA Taxation Module - Integration Analysis and ERD v1.0"
+//  Sources: Taxation SRS v1.1 (briefing of 8 Oct 2026 + "Taxation introduction
+//           for DG sb"), docs/gda_property_module.dbml, docs/gda_hrms_schema.dbml
+//           and the Property / HRM / Identity code on main (fd86957).
+//  v1.3, 12 Oct 2026: second pass over the recordings. Notice templates with
+//  confirmed variables, per-head overrides (tax_file_override replaces the
+//  override columns on tax_file), SURCHARGE notice stage, CASH channel, water
+//  facility date, conservancy top-band rule, head flags for the 10 % increase.
+//  Revised 12 Oct 2026 (v1.2) for the recordings of that day: penalty rules, the
+//  constant 1Link reference per property with re-sync, per-property overrides,
+//  litigation hold, agreement step revisions, plan-extension non-utilization.
+//  Rechecked 12 Oct 2026 against the EF model snapshots of main and of
+//  system-administration-(saad) (12f3684, includes hrm-(saad) f79c8ba): every
+//  external table and column below exists with these names and types.
+//
+//  Conventions
+//   - Schema `taxation`, snake_case, uuid PKs (the services use Guid strongly
+//     typed ids; Property's DBML still shows bigint, its code uses uuid).
+//   - Taxation OWNS only what is marked taxation.*. Tables in property.*, hrms.*
+//     and auth.* are shown as stubs with the columns Taxation reads; they are
+//     owned by those services.
+//   - CROSS-SCHEMA REFERENCES ARE LOGICAL: the column holds the other service's
+//     id, there is NO database foreign key, and the value is checked through
+//     that service's API or event stream (see the Ref notes at the end).
+//   - Everything Taxation computes on is copied into Taxation at the moment of
+//     use (tax_file_basis, tax_file_payer, demand snapshot columns), so an
+//     approved demand never changes when Property or HRM data changes later.
+//   - Every rate, factor, band, percentage and interval is data with an
+//     effective date and a Board reference. No hard-coded tariffs.
+//   - Audit columns (created_at/by, updated_at/by) are on every taxation table;
+//     *_by holds the Identity user id (auth.users.id). Omitted below for
+//     brevity except where they carry a business meaning (approved_by, etc.).
+// =====================================================================
+
+Project gda_taxation_module {
+  database_type: 'PostgreSQL'
+  Note: '''
+  Taxation (income) module of the GDA ERP: assessment, demand, notices, PSID
+  challans, receipts, penalties, arrears, clearances and case-by-case fees.
+  Reads property facts and owners from Property Management, staff and the
+  working-day calendar from HRM, and users / permissions from Identity.
+  '''
+}
+
+// =====================================================================
+// 1. ORGANISATION AND JURISDICTION
+// =====================================================================
+
+Table taxation.tax_circle {
+  id                uuid [pk]
+  code              varchar(20) [unique, not null, note: 'C-I, C-II (third circle is an open point)']
+  name              varchar(100) [not null]
+  org_unit_id       uuid [note: 'LOGICAL -> hrms.organization_unit (the circle as an HRM unit, optional)']
+  officer_post_id   uuid [note: 'LOGICAL -> hrms.post: the Taxation Officer post that signs this circle\'s notices']
+  sort_order        int [default: 0]
+  is_active         boolean [not null, default: true]
+  Note: 'Tax administration area. Circles are a Taxation master because they are jurisdiction (towns), not only an organisational unit.'
+}
+
+Table taxation.tax_circle_town {
+  id              uuid [pk]
+  circle_id       uuid [not null]
+  town_id         uuid [not null, note: 'LOGICAL -> property.town (the town master stays in Property)']
+  town_code       varchar(20) [not null, note: 'snapshot of property.town.code']
+  effective_from  date [not null]
+  effective_to    date [note: 'NULL = current. A town can move between circles (TX-003)']
+  indexes {
+    (town_id, effective_from) [unique]
+  }
+}
+
+Table taxation.tax_circle_staff {
+  id              uuid [pk]
+  circle_id       uuid [note: 'NULL = Section-wide (DD Taxation)']
+  post_id         uuid [not null, note: 'LOGICAL -> hrms.post. The person is resolved through hrms.position_assignment on the date']
+  tax_role        varchar(20) [not null, note: 'DD_TAX, TO, ATO, TC']
+  effective_from  date [not null]
+  effective_to    date
+  Note: 'Which sanctioned posts work for which circle. Staffing follows HRM postings automatically; no employee is copied here.'
+}
+
+// =====================================================================
+// 2. RATE MASTERS (Board-controlled configuration)
+// =====================================================================
+
+Table taxation.tax_head {
+  id                       uuid [pk]
+  code                     varchar(30) [unique, not null, note: 'PROPERTY_TAX, CONSERVANCY, WATER, LEASE_MONEY, RENT, TRANSFER_FEE, BPA_FEE, BPA_VIOLATION, NON_UTILIZATION, WATER_CONNECTION, MALBA_SECURITY, ENLISTMENT, REGISTRATION, LICENCE, MISC, S28A_FINE']
+  name                     varchar(100) [not null]
+  head_kind                varchar(10) [not null, note: 'REGULAR (annual demand: PROPERTY_TAX, CONSERVANCY, WATER, RENT; Part 2 03:17-03:29) / OTHER (case by case)']
+  is_refundable            boolean [not null, default: false, note: 'malba security, water connection fee if not feasible']
+  applies_annual_increase  boolean [not null, default: false, note: 'true only for PROPERTY_TAX, CONSERVANCY, WATER (Part 2 01:37-01:41); RENT follows its agreement']
+  is_conditional           boolean [not null, default: false, note: 'WATER: charged only while tax_file.water_facility_from is set (Part 1 16:25-16:41)']
+  override_allowed         boolean [not null, default: true, note: 'may carry a per-property SPECIAL or MINIMUM override (Part 1 05:17-05:38: "put these options with every head")']
+  accounts_head_code       varchar(30) [note: 'income head in the future Accounts module (TX-038)']
+  sort_order               int [default: 0]
+  is_active                boolean [not null, default: true]
+}
+
+Table taxation.category_map {
+  id                uuid [pk]
+  property_type_id  uuid [unique, not null, note: 'LOGICAL -> property.property_type (Residential, Commercial, Industrial, ...)']
+  property_type_code varchar(30) [not null, note: 'RESIDENTIAL, COMMERCIAL, INDUSTRIAL, AGRICULTURAL, INSTITUTIONAL, OPEN_LAND, MIXED_USE']
+  tax_category      varchar(10) [not null, note: 'RES, COM, EXEMPT. Mixed Use / Institutional are open points']
+  Note: 'Maps Property\'s seven property types to the two tax categories the formulas use.'
+}
+
+Table taxation.rate_set {
+  id                   uuid [pk]
+  name                 varchar(150) [not null, note: 'e.g. "BOA 15.06.2023 tariff"']
+  board_reference      varchar(100) [not null]
+  board_decision_date  date
+  effective_from       date [not null]
+  effective_to         date
+  status               varchar(15) [not null, default: 'DRAFT', note: 'DRAFT, APPROVED, SUPERSEDED']
+  approved_by          uuid [note: 'LOGICAL -> auth.users']
+  approved_at          timestamp
+  Note: 'A Board decision. A demand run uses the set in force on 1 July of its year (TX-006).'
+}
+
+Table taxation.ltf_factor {
+  id            uuid [pk]
+  rate_set_id   uuid [not null]
+  town_id       uuid [not null, note: 'LOGICAL -> property.town']
+  tax_category  varchar(10) [not null, note: 'RES / COM']
+  component     varchar(10) [not null, note: 'LAND (sq yd) / COVERED (sq ft)']
+  band_from     decimal(18,4) [not null]
+  band_to       decimal(18,4) [note: 'NULL = no upper limit']
+  factor        decimal(18,4) [not null]
+  indexes {
+    (rate_set_id, town_id, tax_category, component, band_from) [unique]
+  }
+  Note: 'Locality Tax Factor table [PPT 12]. Property tax = land sq yd x LAND factor + covered sq ft x COVERED factor.'
+}
+
+Table taxation.rate_band {
+  id            uuid [pk]
+  rate_set_id   uuid [not null]
+  head_id       uuid [not null]
+  town_id       uuid [note: 'LOGICAL -> property.town. NULL = all towns']
+  tax_category  varchar(10) [note: 'RES / COM / NULL = both']
+  basis         varchar(15) [not null, note: 'ROOMS, KANAL, MARLA, SQFT, SQYD, PERCENT_OF_VALUE, FIXED, PAGE']
+  band_from     decimal(18,4)
+  band_to       decimal(18,4)
+  rate          decimal(18,4) [not null]
+  rate_type     varchar(10) [not null, note: 'FLAT (band amount), PER_UNIT, PERCENT']
+  pro_rata      boolean [not null, default: false, note: 'water: 10 marla = half a kanal']
+  above_top_rule varchar(15) [note: 'on the top band only: TOP_RATE_STAYS or REPEAT_PER_BLOCK (conservancy "36, 36, 36" per further block of 5 rooms, Part 1 01:06-02:18, unclear: open point O-12)']
+  Note: 'Rates of every head other than the LTF: conservancy, water, transfer, BPA, violation, non-utilization, malba, enlistment, registration, licence, misc.'
+}
+
+Table taxation.tax_setting {
+  id              uuid [pk]
+  key             varchar(60) [not null, note: 'ANNUAL_INCREASE_PCT, NOTICE_INTERVAL_DAYS, NOTICE_DAY_COUNTING (WORKING/CALENDAR), CC_GRACE_YEARS, CC_UPLIFT_PCT (default 150), CC_UPLIFT_RATE_BASIS, DUE_DATE_DDMM, CLEARANCE_VALID_DAYS, PSID_MODEL (CONSTANT/PER_ISSUE). Penalty percentages moved to penalty_rule']
+  value           varchar(100) [not null]
+  rate_set_id     uuid [note: 'Board decision it came from']
+  effective_from  date [not null]
+  effective_to    date
+  indexes {
+    (key, effective_from) [unique]
+  }
+}
+
+Table taxation.message_template {
+  id          uuid [pk]
+  code        varchar(40) [not null, note: 'SMS_1JULY, NOTICE_FIRST, NOTICE_SECOND, NOTICE_FINAL, SHOW_CAUSE, PENALTY, PAYMENT_RECEIVED, CLEARANCE. The four PRINT notice templates come from the Section as PDF: fixed header, table + short paragraph, pre-filled variables editable and confirmed before issue, 1Link block like a bill (Part 1 32:50-34:28)']
+  channel     varchar(10) [not null, note: 'SMS / PRINT']
+  language    varchar(5) [not null, default: 'en', note: 'en / ur']
+  body        text [not null, note: 'placeholders: {code} {fy} {amount} {psid} {due}']
+  version_no  int [not null, default: 1]
+  is_active   boolean [not null, default: true]
+}
+
+// =====================================================================
+// 3. PROPERTY TAX FILE (the register) — one per taxable property
+// =====================================================================
+
+Table taxation.tax_file {
+  id                uuid [pk]
+  file_no           varchar(40) [unique, not null, note: 'Section code GDA-NATHIAGALI-COM-001 until Property issues it (see analysis §6)']
+  property_id       uuid [unique, not null, note: 'LOGICAL -> property.property. One tax file per property']
+  property_code     varchar(40) [not null, note: 'snapshot of property.property.property_code']
+  circle_id         uuid [not null, note: 'derived from town through tax_circle_town; stored for scoping']
+  town_id           uuid [not null, note: 'LOGICAL -> property.town (copied)']
+  tax_category      varchar(10) [not null, note: 'RES / COM (from category_map, overridable with reason)']
+  holding_kind      varchar(15) [not null, note: 'GDA_LEASE, GDA_OWNERSHIP, RENTAL, PRIVATE_REGISTERED (derived, see analysis §5.3)']
+  rooms             int [note: 'TAXATION-OWNED: commercial rooms for conservancy and water. Property has no rooms field']
+  psid              varchar(30) [unique, note: 'constant 1Link / 1Bill consumer reference for the property (recording 12 Oct, Part 1 08:11-09:53); the balance behind it is re-synced, see psid_sync']
+  registered_on     date [note: 'date the property was registered with GDA: conservancy runs from this date, no relaxation (Part 1 16:41-17:02)']
+  water_facility_from date [note: 'date the water facility was taken; NULL = no water charges (Part 1 16:25-16:41); set by water_connection.installed_on']
+  uplift_rate_basis varchar(12) [note: 'RESIDENTIAL / COMMERCIAL: which rate the completion-certificate uplift uses for this property (Part 1 17:31-17:44)']
+  uplift_pct        decimal(6,2) [note: 'uplift percentage for this property; NULL = the setting CC_UPLIFT_PCT (Part 1 17:44-18:14)']
+  old_reference_no  varchar(50) [note: 'the Section\'s existing ID (TX-002)']
+  tax_status        varchar(15) [not null, default: 'ACTIVE', note: 'ACTIVE, EXEMPT, SEALED, CLOSED']
+  exemption_reason  varchar(300)
+  opened_on         date [not null]
+  closed_on         date
+  remarks           text
+  indexes {
+    (circle_id, town_id)
+  }
+}
+
+Table taxation.tax_file_basis {
+  id                        uuid [pk]
+  tax_file_id               uuid [not null]
+  land_area_sqyd            decimal(18,4) [note: 'property_measurement.total_area_base / 9']
+  land_area_entered         decimal(18,4) [note: 'as entered in Property, shown on notices (TX-011)']
+  land_area_unit_code       varchar(20)
+  land_area_kanal           decimal(18,4) [note: 'total_area_base / 5445']
+  covered_area_sqft         decimal(18,4) [note: 'approved building_plan.covered_area in sq ft; else measurement.built_up_area_base']
+  covered_area_source       varchar(20) [note: 'APPROVED_PLAN / MEASUREMENT / NONE']
+  regularized_area_sqyd     decimal(18,4) [note: 'sum of REGULARIZED property_area_regularization in force']
+  source_measurement_id     uuid [note: 'LOGICAL -> property.property_measurement']
+  source_building_plan_id   uuid [note: 'LOGICAL -> property.building_plan (the approved plan used)']
+  bpa_date                  date [note: 'building_plan.approval_date of that plan: starts the completion clock']
+  completion_plan_id        uuid [note: 'LOGICAL -> property.building_plan of type COMPLETION_PLAN, status APPROVED']
+  completion_date           date [note: 'its approval_date = completion certificate date']
+  property_type_id          uuid [note: 'LOGICAL -> property.property_type']
+  property_status_code      varchar(30) [note: 'OPEN_PLOT, UNDER_CONSTRUCTION, CONSTRUCTION_COMPLETE, VACANT, OCCUPIED, ENCROACHED, UNDER_LITIGATION. No SEALED value is seeded yet']
+  classification_code       varchar(30) [note: 'GDA_PROPERTY / PRIVATE_PROPERTY (Property seed)']
+  synced_at                 timestamp [not null]
+  source_version            varchar(64) [note: 'Property row version / event id the copy came from']
+  is_current                boolean [not null, default: true]
+  Note: 'Read model of the Property facts the formulas use. Refreshed by sync; each change is a new row, so a demand can point at the exact basis it used.'
+}
+
+Table taxation.tax_file_payer {
+  id               uuid [pk]
+  tax_file_id      uuid [not null]
+  owner_id         uuid [not null, note: 'LOGICAL -> property.property_owner']
+  owner_code       varchar(20) [not null, note: 'snapshot: OWN-00001']
+  payer_role       varchar(10) [not null, note: 'OWNER, LESSEE, TENANT, ALLOTTEE']
+  source_type      varchar(15) [not null, note: 'OWNERSHIP, LEASE, RENTAL, ALLOTMENT']
+  source_id        uuid [not null, note: 'LOGICAL, polymorphic by source_type -> property.property_ownership / property_lease / property_rental / property_allotment (no single Ref)']
+  share_pct        decimal(7,4) [note: 'ownership_share_pct']
+  is_addressee     boolean [not null, default: false, note: 'the payer the demand and notice are addressed to']
+  name             varchar(200) [not null]
+  father_husband_name varchar(200)
+  cnic_ntn         varchar(20)
+  mobile           varchar(30) [note: 'owner_contact (Mobile, primary, active)']
+  postal_address   varchar(400) [note: 'owner_address (primary, MAILING else PERMANENT)']
+  effective_from   date [not null]
+  effective_to     date [note: 'closed when a transfer completes or the agreement ends']
+  synced_at        timestamp [not null]
+  Note: 'Who pays, copied from Property. A completed transfer closes these rows and opens new ones (TX-005).'
+}
+
+Table taxation.tax_file_override {
+  id             uuid [pk]
+  tax_file_id    uuid [not null]
+  head_id        uuid [not null, note: 'the head overridden; one override per head and period']
+  mode           varchar(10) [not null, note: 'SPECIAL = the entered amount replaces the computed value (Part 1 02:18-05:48, e.g. a hotel at Rs 12,00,000 a year); MINIMUM = the computed value may not fall below the entered amount (Part 1 18:14-19:10: Rs 5,00,000 vs computed Rs 4,50,000)']
+  amount         decimal(18,2) [not null, note: 'per year']
+  follows_increase boolean [not null, default: true, note: 'OPEN O-14: whether the 10 % annual increase applies to a SPECIAL amount']
+  reason         varchar(300) [not null]
+  reference      varchar(100) [note: 'Section order / Board reference']
+  effective_from date [not null]
+  effective_to   date
+  approved_by    uuid [note: 'LOGICAL -> auth.users; needs the approval right (NP-P18)']
+  approved_at    timestamp
+  indexes {
+    (tax_file_id, head_id, effective_from) [unique]
+  }
+  Note: 'Per-property, per-head overrides of the formula. Listed on the admin screen; every row is audited.'
+}
+
+Table taxation.notice_template {
+  id              uuid [pk]
+  stage           varchar(15) [unique, not null, note: 'FIRST, SECOND, FINAL, SHOW_CAUSE (the Section\'s four templates, Part 1 32:50-33:11) and SURCHARGE (new)']
+  name            varchar(100) [not null]
+  header_text     text [not null, note: 'fixed: Authority heading, office, circle (Part 1 33:40-33:59)']
+  paragraph_text  text [not null, note: 'fixed text with placeholders: {code} {payer} {fy} {total} {reply_by} {psid}']
+  table_layout    jsonb [not null, note: 'columns of the amounts table: head, basis, rate, amount']
+  footer_text     text [note: 'signature block, copy-to lines']
+  shows_bill_block boolean [not null, default: true, note: '1Link / PSID block printed like a bill (Part 1 33:59-34:16)']
+  source_document varchar(255) [note: 'file name of the PDF the Section supplied']
+  version_no      int [not null, default: 1]
+  effective_from  date [not null]
+  effective_to    date
+  is_active       boolean [not null, default: true]
+  Note: 'Print layout of each notice stage: table plus a short paragraph (Part 1 33:11-33:40). Edited by the Section in Settings, not by a developer.'
+}
+
+Table taxation.agreement_schedule {
+  id                   uuid [pk]
+  tax_file_id          uuid [not null]
+  kind                 varchar(10) [not null, note: 'LEASE / RENTAL']
+  source_id            uuid [not null, note: 'LOGICAL -> property.property_lease or property.property_rental']
+  source_no            varchar(50) [not null, note: 'lease_no / rental_no']
+  base_amount          decimal(18,2) [not null, note: 'lease_amount / rent_amount']
+  frequency            varchar(10) [not null, note: 'ANNUAL, MONTHLY, QUARTERLY, ONE_TIME']
+  start_date           date [not null]
+  end_date             date
+  term_years           int [note: '33 for GDA leases']
+  step_pct             decimal(6,2) [note: 'lease: 10; rental: annual_increase_pct']
+  step_interval_years  int [note: 'lease: 5; rental: 1 or 3 (25 % every 3 years). TAXATION-OWNED: Property has no interval']
+  is_direct_99_year    boolean [not null, default: false, note: 'open point: leases made directly for 99 years']
+  next_renewal_date    date
+  status               varchar(15) [not null, default: 'ACTIVE']
+}
+
+Table taxation.agreement_schedule_line {
+  id             uuid [pk]
+  schedule_id    uuid [not null]
+  period_from    date [not null]
+  period_to      date [not null]
+  amount         decimal(18,2) [not null]
+  Note: 'A period is billed when a demand_line points at it (demand_line.schedule_line_id).'
+}
+
+// =====================================================================
+// 4. DEMAND, NOTICES, PENALTIES, ARREARS
+// =====================================================================
+
+Table taxation.demand_run {
+  id              uuid [pk]
+  fiscal_year     int [not null, note: '2026 = FY 2026-27']
+  circle_id       uuid [note: 'NULL = both circles (TX-017)']
+  rate_set_id     uuid [not null]
+  status          varchar(15) [not null, note: 'COMPUTED, APPROVED, CANCELLED']
+  basis_synced_at timestamp [not null, note: 'Property sync point the run used']
+  property_count  int
+  total_amount    decimal(18,2)
+  exception_count int [note: 'missing area, missing BPA date, payer without mobile']
+  computed_at     timestamp
+  computed_by     uuid [note: 'LOGICAL -> auth.users']
+  approved_at     timestamp
+  approved_by     uuid [note: 'LOGICAL -> auth.users; requires TAX.DEMAND.APPROVE (TX-018)']
+}
+
+Table taxation.demand {
+  id                 uuid [pk]
+  demand_no          varchar(40) [unique, not null]
+  run_id             uuid [not null]
+  tax_file_id        uuid [not null]
+  basis_id           uuid [not null, note: 'the tax_file_basis row used']
+  fiscal_year        int [not null]
+  payer_id           uuid [not null, note: 'tax_file_payer addressed']
+  payer_name         varchar(200) [not null, note: 'snapshot']
+  payer_mobile       varchar(30)
+  payer_address      varchar(400)
+  current_amount     decimal(18,2) [not null]
+  arrears_bf         decimal(18,2) [not null, default: 0]
+  penalty_amount     decimal(18,2) [not null, default: 0]
+  paid_amount        decimal(18,2) [not null, default: 0]
+  balance            decimal(18,2) [not null]
+  status             varchar(15) [not null, note: 'DRAFT, ISSUED, PART_PAID, PAID, DEFAULTED, CANCELLED']
+  stage              varchar(15) [note: 'FIRST, SECOND, FINAL, SHOW_CAUSE, PENALTY, SEALED']
+  issued_on          date
+  due_date           date
+  indexes {
+    (tax_file_id, fiscal_year) [unique]
+  }
+}
+
+Table taxation.demand_line {
+  id               uuid [pk]
+  demand_id        uuid [not null]
+  head_id          uuid [not null]
+  basis_qty        decimal(18,4)
+  basis_unit       varchar(10)
+  ltf_factor_id    uuid [note: 'factor used (property tax)']
+  rate_band_id     uuid [note: 'band used (other heads)']
+  schedule_line_id uuid [note: 'lease / rent period billed']
+  base_amount      decimal(18,2) [not null]
+  increase_amount  decimal(18,2) [not null, default: 0, note: 'annual increase line (TX-008)']
+  uplift_amount    decimal(18,2) [not null, default: 0, note: 'completion-certificate uplift (TX-012)']
+  override_id      uuid [note: 'tax_file_override applied to this line']
+  override_amount  decimal(18,2) [not null, default: 0, note: 'SPECIAL: replaces base_amount; MINIMUM: the top-up to the floor, shown as its own line (NP-P17)']
+  amount           decimal(18,2) [not null]
+  explanation      varchar(500) [note: '"400 sq yd x 5 + 2,500 sq ft x 5"']
+}
+
+Table taxation.arrears {
+  id               uuid [pk]
+  tax_file_id      uuid [not null]
+  head_id          uuid [not null]
+  fiscal_year      int [not null]
+  original_amount  decimal(18,2) [not null]
+  penalty_amount   decimal(18,2) [not null, default: 0]
+  outstanding      decimal(18,2) [not null]
+  source           varchar(10) [not null, note: 'DEMAND / IMPORT (TX-004)']
+  source_demand_id uuid
+  import_row_id    uuid
+}
+
+Table taxation.notice {
+  id                        uuid [pk]
+  notice_no                 varchar(40) [unique, not null]
+  demand_id                 uuid [not null]
+  stage                     varchar(15) [not null, note: 'FIRST, SECOND, FINAL, SHOW_CAUSE, SURCHARGE']
+  template_id               uuid [not null, note: 'notice_template used; its version is frozen on the notice']
+  template_version          int [not null]
+  penalty_run_id            uuid [note: 'for stage SURCHARGE: the run that produced it']
+  variables                 jsonb [not null, note: 'the pre-filled values as confirmed: payer, address, head lines, arrears, surcharge, total, due date, reference (Part 1 33:40-33:59)']
+  edited_fields             jsonb [note: 'which variables the user changed before confirming, with old and new values']
+  confirmed_by              uuid [note: 'LOGICAL -> auth.users; nothing is issued before confirmation (NP-N04)']
+  confirmed_at              timestamp
+  psid                      varchar(30) [not null, note: 'the constant reference printed in the bill block']
+  amount_within_due         decimal(18,2) [not null]
+  amount_after_due          decimal(18,2) [note: 'NULL when the surcharge is discretionary and not yet decided']
+  sms_message_id            uuid [note: 'the SMS sent with this stage']
+  pdf_document_ref          varchar(255) [note: 'stored print of the notice as issued (reprint reproduces it exactly, NP-N20)']
+  issue_date                date [not null]
+  reply_by                  date [note: '+10 working days (HRM holiday calendar)']
+  balance_at_issue          decimal(18,2) [not null]
+  signing_post_id           uuid [note: 'LOGICAL -> hrms.post (circle TO)']
+  signing_employee_id       uuid [note: 'LOGICAL -> hrms.employee resolved on issue_date']
+  signing_officer_name      varchar(200) [note: 'snapshot printed on the notice']
+  served_by_employee_id     uuid [note: 'LOGICAL -> hrms.employee (Tax Collector)']
+  served_on                 date
+  service_mode              varchar(15) [note: 'BY_HAND, POST, AFFIXED, REFUSED']
+}
+
+Table taxation.penalty_rule {
+  id                 uuid [pk]
+  code               varchar(30) [unique, not null, note: 'YEAR_END_10, INTRA_YEAR_SURCHARGE, S28A_FINE, ...']
+  name               varchar(100) [not null]
+  kind               varchar(20) [not null, note: 'INTRA_YEAR (discretionary surcharge), YEAR_END (automatic), S28A_FINE']
+  trigger            varchar(10) [not null, note: 'AUTO (30 June) / MANUAL (Section decides when)']
+  period_value       int [note: 'for INTRA_YEAR: e.g. 3']
+  period_unit        varchar(10) [note: 'MONTHS / DAYS']
+  period_anchor      varchar(15) [note: 'FY_START / DEMAND_ISSUE / DUE_DATE. OPEN: not stated in the recording']
+  rate_type          varchar(10) [not null, note: 'PERCENT / FIXED (Part 2 00:43-00:49)']
+  rate               decimal(18,4) [not null, note: '10 for 10 %; or the fixed amount in Rs']
+  base               varchar(15) [not null, default: 'OUTSTANDING', note: 'outstanding balance of the property (Part 2 00:49-00:56)']
+  target_set         varchar(15) [not null, default: 'ALL_UNPAID', note: 'ALL_UNPAID / DEFAULTERS_ONLY (Part 2 00:18-00:27, 02:19-02:46)']
+  includes_current   boolean [not null, default: true, note: 'unpaid current-year demand is included, not only arrears (Part 2 02:26-02:44)']
+  stacks_with_year_end boolean [note: 'OPEN: whether an intra-year surcharge and the year-end 10 % both apply']
+  rate_set_id        uuid [note: 'Board decision it belongs to']
+  effective_from     date [not null]
+  effective_to       date
+  Note: 'Board-controlled penalty definitions. Two spoken on 12 Oct: a discretionary surcharge after a configurable period at a configurable % or fixed amount, and the automatic 10 % on 30 June.'
+}
+
+Table taxation.penalty_run {
+  id            uuid [pk]
+  rule_id       uuid [not null]
+  fiscal_year   int [not null]
+  circle_id     uuid
+  run_on        date [not null]
+  target_set    varchar(15) [not null]
+  rate_type     varchar(10) [not null]
+  rate          decimal(18,4) [not null]
+  property_count int
+  total_amount  decimal(18,2)
+  approved_by   uuid [note: 'LOGICAL -> auth.users; a MANUAL surcharge needs approval']
+  Note: 'One application of a rule to a set of properties, e.g. "5 % on the defaulters after three months".'
+}
+
+Table taxation.penalty {
+  id           uuid [pk]
+  demand_id    uuid [not null]
+  rule_id      uuid [note: 'the penalty_rule applied']
+  run_id       uuid [note: 'the penalty_run that produced it (NULL for S28A fines)']
+  kind         varchar(15) [not null, note: 'INTRA_YEAR, YEAR_END, S28A_FINE (DAY45 withdrawn by the 12 Oct recording)']
+  base_amount  decimal(18,2) [not null]
+  pct          decimal(6,2)
+  amount       decimal(18,2) [not null]
+  applied_on   date [not null]
+  rule_ref     varchar(100) [note: 'BOA 15.06.2023 / BCR r.102 / Act s.28-A']
+  violation_id uuid [note: 'LOGICAL -> property.agreement_violation for s.28-A fines']
+}
+
+Table taxation.sealing {
+  id                     uuid [pk]
+  tax_file_id            uuid [not null]
+  notice_id              uuid [note: 'the show-cause notice it follows']
+  ordered_by_employee_id uuid [note: 'LOGICAL -> hrms.employee']
+  order_reference        varchar(100)
+  sealed_on              date [not null]
+  de_sealed_on           date
+  remarks                text
+}
+
+// =====================================================================
+// 5. CHALLAN (PSID), PAYMENT, REFUND
+// =====================================================================
+
+Table taxation.challan {
+  id           uuid [pk]
+  challan_no   varchar(40) [unique, not null]
+  psid         varchar(30) [not null, note: 'equals tax_file.psid under the constant-reference model; a per-issue PSID remains possible for one-off fees']
+  demand_id    uuid [note: 'annual demand, or']
+  fee_id       uuid [note: 'a case-by-case fee']
+  amount       decimal(18,2) [not null]
+  amount_after_due decimal(18,2)
+  due_date     date [not null]
+  expiry_date  date
+  status       varchar(10) [not null, note: 'UNPAID, PAID, EXPIRED, CANCELLED']
+}
+
+Table taxation.psid_sync {
+  id           uuid [pk]
+  tax_file_id  uuid [not null]
+  psid         varchar(30) [not null, note: 'the constant reference being re-synced']
+  sync_no      int [not null]
+  reason       varchar(20) [not null, note: 'ANNUAL_DEMAND, PENALTY_ADD_UP, OVERRIDE, PAYMENT, CORRECTION']
+  demand_id    uuid
+  penalty_id   uuid
+  amount_before decimal(18,2) [not null]
+  amount_after  decimal(18,2) [not null, note: '"old data removed, new amount synced" (Part 1 09:33-09:53)']
+  due_date     date
+  synced_at    timestamp [not null]
+  onelink_ack  varchar(60)
+  status       varchar(10) [not null, note: 'PENDING, ACKED, FAILED']
+  Note: 'The amount currently behind the constant reference, one row per change. GDA syncs once a year, plus every "add up".'
+}
+
+Table taxation.payment {
+  id                    uuid [pk]
+  challan_id            uuid [not null]
+  channel               varchar(15) [not null, note: 'ONELINK, ONLINE, BANK_COUNTER, CASH (the Section\'s own receipt, Part 1 07:20-07:35)']
+  receipt_no            varchar(40) [note: 'manual receipt number for BANK_COUNTER and CASH']
+  received_by           uuid [note: 'LOGICAL -> auth.users for manual receipts']
+  bank_code             varchar(20)
+  transaction_ref       varchar(60) [unique, not null, note: '1Link tran_auth_id: makes posting idempotent']
+  paid_at               timestamp [not null]
+  amount                decimal(18,2) [not null]
+  posted_at             timestamp
+  accounts_posted_at    timestamp [note: 'TX-038']
+  status                varchar(10) [not null, note: 'POSTED, REVERSED']
+}
+
+Table taxation.payment_allocation {
+  id             uuid [pk]
+  payment_id     uuid [not null]
+  head_id        uuid [not null]
+  demand_line_id uuid
+  arrears_id     uuid
+  penalty_id     uuid
+  fee_id         uuid
+  amount         decimal(18,2) [not null]
+}
+
+Table taxation.refund {
+  id                 uuid [pk]
+  payment_id         uuid [not null]
+  fee_id             uuid
+  amount             decimal(18,2) [not null]
+  reason             varchar(300) [not null]
+  status             varchar(15) [not null, note: 'RAISED, APPROVED, PAID_BY_ACCOUNTS']
+  accounts_reference varchar(60) [note: 'TX-039']
+}
+
+// =====================================================================
+// 6. CASE-BY-CASE FEES, PARTIES, CLEARANCES
+// =====================================================================
+
+Table taxation.party {
+  id             uuid [pk]
+  party_type     varchar(15) [not null, note: 'OWNER, CONTRACTOR, VENDOR, GUIDE, APPLICANT, EMPLOYEE']
+  owner_id       uuid [note: 'LOGICAL -> property.property_owner when the payer is a registered owner']
+  employee_id    uuid [note: 'LOGICAL -> hrms.employee when the payer is GDA staff (e.g. quarter rent)']
+  name           varchar(200) [not null]
+  cnic_ntn       varchar(20)
+  mobile         varchar(30)
+  address        varchar(400)
+  Note: 'Payers of fees that are not tied to a property: contractors, vendors, guides, RTI applicants.'
+}
+
+Table taxation.fee {
+  id               uuid [pk]
+  fee_no           varchar(40) [unique, not null]
+  head_id          uuid [not null]
+  tax_file_id      uuid [note: 'property-related fee']
+  party_id         uuid [note: 'payer when not a tax file payer']
+  source_type      varchar(20) [note: 'TRANSFER, BUILDING_PLAN, ALLOTMENT, VIOLATION, WATER_CONNECTION, ENLISTMENT, LICENCE, MISC']
+  source_id        uuid [note: 'LOGICAL, polymorphic by source_type -> property.property_transfer / building_plan / property_allotment / agreement_violation, or a taxation row (no single Ref)']
+  source_no        varchar(50) [note: 'TRF-00012, plan_no, ...']
+  basis_qty        decimal(18,4)
+  basis_unit       varchar(10)
+  rate_band_id     uuid
+  amount           decimal(18,2) [not null]
+  exemption_reason varchar(200) [note: 'e.g. gift / inheritance transfer (Property note: decided by the Tax module)']
+  status           varchar(10) [not null, note: 'DUE, PAID, WAIVED, REFUNDED']
+}
+
+Table taxation.water_connection {
+  id                        uuid [pk]
+  tax_file_id               uuid [not null]
+  application_no            varchar(40) [unique, not null]
+  applied_on                date [not null]
+  fee_id                    uuid
+  technical_status          varchar(15) [not null, note: 'APPLIED, FEASIBLE, NOT_FEASIBLE, INSTALLED']
+  inspected_by_employee_id  uuid [note: 'LOGICAL -> hrms.employee (technical staff)']
+  installed_on              date [note: 'water charges start from this date']
+  refund_id                 uuid
+}
+
+Table taxation.non_utilization_case {
+  id                     uuid [pk]
+  tax_file_id            uuid [not null]
+  allotment_id           uuid [not null, note: 'LOGICAL -> property.property_allotment']
+  allotted_on            date [not null, note: 'allotment_date']
+  grace_ends_on          date [not null, note: '+2 years']
+  construction_on        date [note: 'first approved building plan / completion (open point)']
+  charge_basis           varchar(15) [not null, default: 'ALLOTMENT', note: 'ALLOTMENT (2 years after allotment) / PLAN_EXTENSION (only the extension period, Part 1 13:30-13:45)']
+  extension_from         date
+  extension_to           date
+  extension_order_ref    varchar(100) [note: 'approval by the competent authority']
+  area_marla             decimal(18,4) [not null]
+  status                 varchar(10) [not null, note: 'RUNNING, STOPPED']
+}
+
+Table taxation.enlistment_licence {
+  id          uuid [pk]
+  party_id    uuid [not null]
+  kind        varchar(15) [not null, note: 'ENLISTMENT, LICENCE, PERMIT, NOC']
+  category    varchar(60) [note: 'contractor class, horse riding, vendor, guide']
+  valid_from  date [not null]
+  valid_to    date [not null]
+  fee_id      uuid
+  status      varchar(10) [not null]
+}
+
+Table taxation.malba_security {
+  id                 uuid [pk]
+  tax_file_id        uuid [not null]
+  building_plan_id   uuid [note: 'LOGICAL -> property.building_plan']
+  fee_id             uuid [not null]
+  refund_id          uuid
+  status             varchar(10) [not null, note: 'HELD, REFUNDED, FORFEITED']
+}
+
+Table taxation.litigation_hold {
+  id                      uuid [pk]
+  tax_file_id             uuid [not null]
+  source_litigation_id    uuid [note: 'LOGICAL -> property.property_litigation when the case is recorded there']
+  reference               varchar(100)
+  reason                  varchar(300) [not null, note: 'court case, allegation, government restriction']
+  started_on              date [not null]
+  ended_on                date
+  suspends_demand         boolean [not null, default: true, note: 'no tax or fee is levied while the hold is open (Part 1 10:45-11:28)']
+  excludes_completion_clock boolean [not null, default: true, note: 'the held period is not counted toward the 2-year completion period (Part 1 11:31-11:44)']
+  Note: 'Relayed in Part 1 from an earlier presenter; the officer did not contradict it. To be confirmed.'
+}
+
+Table taxation.agreement_step_revision {
+  id                   uuid [pk]
+  schedule_id          uuid [not null]
+  effective_from       date [not null]
+  step_pct             decimal(6,2) [not null]
+  step_interval_years  int [not null]
+  board_reference      varchar(100)
+  Note: 'Mid-term change of a rent or lease increase, past years unchanged: 15 % revised to 7 % after two years (Part 2 04:42-05:05).'
+}
+
+Table taxation.clearance {
+  id                   uuid [pk]
+  clearance_no         varchar(40) [unique, not null]
+  tax_file_id          uuid [not null]
+  purpose              varchar(15) [not null, note: 'TRANSFER / BUILDING_PLAN']
+  property_ref_id      uuid [note: 'LOGICAL -> property.property_transfer or property.building_plan']
+  property_ref_no      varchar(50) [note: 'TRF-00012 / plan_no']
+  outstanding_checked  decimal(18,2) [not null, note: 'must be 0 to issue']
+  fee_id               uuid [note: 'transfer fee / BPA fee charged with the clearance']
+  issued_on            date [not null]
+  valid_until          date [not null]
+  issued_by            uuid [note: 'LOGICAL -> auth.users']
+  consumed_at          timestamp [note: 'set when Property approves the transfer / plan with it']
+  status               varchar(10) [not null, note: 'ISSUED, CONSUMED, EXPIRED, REVOKED']
+}
+
+// =====================================================================
+// 7. MESSAGES, INTEGRATION, IMPORT, AUDIT
+// =====================================================================
+
+Table taxation.sms_message {
+  id              uuid [pk]
+  tax_file_id     uuid
+  demand_id       uuid
+  notice_id       uuid
+  owner_id        uuid [note: 'LOGICAL -> property.property_owner']
+  to_mobile       varchar(30) [not null]
+  template_id     uuid [not null]
+  body            text [not null]
+  queued_at       timestamp [not null]
+  sent_at         timestamp
+  provider_ref    varchar(60)
+  delivery_status varchar(15) [note: 'QUEUED, SENT, DELIVERED, FAILED (TX-019)']
+}
+
+Table taxation.integration_inbox {
+  id            uuid [pk]
+  source        varchar(30) [not null, note: 'property, hrm, onelink']
+  event_type    varchar(80) [not null]
+  event_id      varchar(80) [unique, not null, note: 'makes consumption idempotent']
+  payload       jsonb [not null]
+  received_at   timestamp [not null]
+  processed_at  timestamp
+  error         text
+}
+
+Table taxation.integration_outbox {
+  id            uuid [pk]
+  event_type    varchar(80) [not null, note: 'ClearanceIssued, DemandApproved, PaymentPosted, PropertySealed']
+  payload       jsonb [not null]
+  occurred_at   timestamp [not null]
+  published_at  timestamp
+}
+
+Table taxation.sync_checkpoint {
+  id              uuid [pk]
+  source          varchar(30) [not null]
+  feed            varchar(60) [not null, note: 'property-tax-basis, owners, building-plans, hrm-holidays']
+  last_synced_at  timestamp
+  last_cursor     varchar(100)
+  last_status     varchar(15)
+  indexes {
+    (source, feed) [unique]
+  }
+}
+
+Table taxation.import_batch {
+  id             uuid [pk]
+  file_name      varchar(255) [not null]
+  circle_id      uuid
+  imported_at    timestamp [not null]
+  imported_by    uuid [note: 'LOGICAL -> auth.users']
+  rows_accepted  int
+  rows_rejected  int
+}
+
+Table taxation.import_row {
+  id            uuid [pk]
+  batch_id      uuid [not null]
+  row_no        int [not null]
+  raw           jsonb [not null]
+  matched_property_id uuid [note: 'LOGICAL -> property.property, matched by old ID / khasra / owner CNIC']
+  tax_file_id   uuid
+  status        varchar(10) [not null, note: 'ACCEPTED, REJECTED']
+  reason        varchar(300)
+}
+
+Table taxation.audit_log {
+  id          uuid [pk]
+  entity      varchar(60) [not null]
+  entity_id   uuid [not null]
+  action      varchar(30) [not null]
+  old_values  jsonb
+  new_values  jsonb
+  user_id     uuid [note: 'LOGICAL -> auth.users']
+  user_name   varchar(100)
+  at          timestamp [not null]
+  indexes {
+    (entity, entity_id)
+  }
+}
+
+// =====================================================================
+// 8. EXTERNAL TABLES (stubs) — owned by other services, read only.
+//    Columns listed are the ones Taxation reads. Ids are uuid in code.
+// =====================================================================
+
+Table property.town {
+  id    uuid [pk]
+  code  varchar(20)
+  name  varchar(150)
+  Note: 'OWNED BY Property Management'
+}
+Table property.property_type {
+  id    uuid [pk]
+  code  varchar(30)
+  name  varchar(100)
+  Note: 'OWNED BY Property Management. Residential, Commercial, Industrial, Agricultural, Institutional, Open Land, Mixed Use'
+}
+Table property.property {
+  id                         uuid [pk]
+  property_code              varchar(20)
+  property_name              varchar(200)
+  town_id                    uuid
+  property_type_id           uuid
+  property_status_id         uuid
+  property_classification_id uuid [note: 'GDA_PROPERTY / PRIVATE_PROPERTY']
+  address_line               varchar(300)
+  khasra_survey_no           varchar(100)
+  is_active                  boolean
+  Note: 'OWNED BY Property Management'
+}
+Table property.property_measurement {
+  id                  uuid [pk]
+  property_id         uuid
+  measurement_unit_id uuid [note: 'SQFT (base), SQM, MARLA 272.25, KANAL 5445. No square yard unit yet']
+  total_area          decimal(18,4)
+  built_up_area       decimal(18,4)
+  total_area_base     decimal(18,4) [note: 'sq ft']
+  built_up_area_base  decimal(18,4) [note: 'sq ft']
+  is_current          boolean
+  Note: 'OWNED BY Property Management'
+}
+Table property.property_area_regularization {
+  id                    uuid [pk]
+  property_id           uuid
+  additional_area_base  decimal(18,4)
+  regularization_status varchar(30)
+  effective_from        date
+  effective_to          date
+  Note: 'OWNED BY Property Management'
+}
+Table property.building_plan {
+  id                      uuid [pk]
+  property_id             uuid
+  plan_no                 varchar(50)
+  building_plan_type_id   uuid [note: 'SITE_PLAN, BUILDING_PLAN, REVISED_BUILDING_PLAN, COMPLETION_PLAN']
+  building_plan_status_id uuid [note: 'SUBMITTED, UNDER_REVIEW, APPROVED, REJECTED, REVISED, WITHDRAWN']
+  applicant_owner_id      uuid
+  approval_date           date
+  covered_area            decimal(18,4)
+  measurement_unit_id     uuid
+  floors                  int
+  Note: 'OWNED BY Property Management'
+}
+Table property.property_owner {
+  id             uuid [pk]
+  owner_code     varchar(20)
+  owner_type_id  uuid
+  owner_name     varchar(200)
+  father_husband_name varchar(200)
+  cnic           varchar(15)
+  ntn            varchar(20)
+  email          varchar(150)
+  Note: 'OWNED BY Property Management'
+}
+Table property.owner_contact {
+  id              uuid [pk]
+  owner_id        uuid
+  contact_type_id uuid [note: 'MOBILE, LANDLINE, OFFICE, WHATSAPP']
+  contact_number  varchar(30)
+  is_primary      boolean
+  is_active       boolean
+  Note: 'OWNED BY Property Management'
+}
+Table property.owner_address {
+  id            uuid [pk]
+  owner_id      uuid
+  address_type  varchar(20) [note: 'PERMANENT, PRESENT, MAILING, OFFICE']
+  full_address  varchar(400)
+  is_primary    boolean
+  is_active     boolean
+  Note: 'OWNED BY Property Management'
+}
+Table property.property_ownership {
+  id                  uuid [pk]
+  property_id         uuid
+  owner_id            uuid
+  tenure_type_id      uuid [note: 'OWNED, LEASED, RENTED']
+  ownership_share_pct decimal(7,4)
+  effective_from      date
+  effective_to        date
+  ownership_status    varchar(20) [note: 'ACTIVE, ENDED, DISPUTED']
+  Note: 'OWNED BY Property Management'
+}
+Table property.property_transfer {
+  id                    uuid [pk]
+  property_id           uuid
+  transfer_no           varchar(50)
+  transfer_type_id      uuid
+  transfer_date         date
+  share_transferred_pct decimal(7,4)
+  relationship          varchar(100)
+  transfer_status       varchar(20) [note: 'INITIATED, APPROVED, COMPLETED, CANCELLED']
+  Note: 'OWNED BY Property Management'
+}
+Table property.property_allotment {
+  id                uuid [pk]
+  property_id       uuid
+  allottee_owner_id uuid
+  allotment_no      varchar(50)
+  allotment_date    date
+  cancellation_date date
+  Note: 'OWNED BY Property Management'
+}
+Table property.property_lease {
+  id               uuid [pk]
+  property_id      uuid
+  lessee_owner_id  uuid
+  lease_no         varchar(50)
+  lease_start_date date
+  lease_end_date   date
+  lease_term_years int
+  lease_amount     decimal(18,2)
+  amount_frequency varchar(20) [note: 'ANNUAL, MONTHLY, ONE_TIME']
+  renewed_from_lease_id uuid
+  Note: 'OWNED BY Property Management'
+}
+Table property.property_rental {
+  id                  uuid [pk]
+  property_id         uuid
+  tenant_owner_id     uuid
+  rental_no           varchar(50)
+  rental_start_date   date
+  rental_end_date     date
+  rent_amount         decimal(18,2)
+  rent_frequency      varchar(20) [note: 'MONTHLY, QUARTERLY, ANNUAL']
+  annual_increase_pct decimal(5,2)
+  Note: 'OWNED BY Property Management'
+}
+Table property.property_litigation {
+  id                  uuid [pk]
+  property_id         uuid
+  case_no             varchar(100)
+  litigation_type_id  uuid
+  litigation_status_id uuid
+  filing_date         date
+  decision_date       date
+  Note: 'OWNED BY Property Management. A pending case can open a taxation.litigation_hold'
+}
+Table property.agreement_violation {
+  id                uuid [pk]
+  property_id       uuid
+  violator_owner_id uuid
+  fine_amount       decimal(18,2)
+  fine_status       varchar(20) [note: 'IMPOSED, PAID, WAIVED, RECOVERY_AS_ARREARS']
+  Note: 'OWNED BY Property Management. s.28-A fines: Property imposes, Taxation collects'
+}
+
+Table hrms.organization_unit {
+  id   uuid [pk]
+  code varchar
+  Note: 'OWNED BY HRM (name, parent, head post in organization_unit_version)'
+}
+Table hrms.post {
+  id        uuid [pk]
+  post_code varchar
+  Note: 'OWNED BY HRM (designation, org unit, grade in post_version)'
+}
+Table hrms.employee {
+  id              uuid [pk]
+  employee_number varchar
+  user_id         uuid [note: 'links the Identity account; also the JWT "emp" claim']
+  full_name       varchar
+  cnic            varchar
+  employment_status employment_status_enum [note: 'active, on_leave, suspended, deputed_out, retired, resigned, terminated, deceased']
+  Note: 'OWNED BY HRM'
+}
+Table hrms.position_assignment {
+  id             uuid [pk]
+  post_id        uuid
+  employee_id    uuid
+  assignment_type assignment_type_enum [note: 'regular, acting, additional_charge, look_after']
+  effective_from date
+  effective_to   date
+  status         record_status_enum
+  Note: 'OWNED BY HRM: who holds which post on a date'
+}
+Table hrms.holiday_calendar {
+  id           uuid [pk]
+  holiday_date date
+  name         varchar
+  holiday_type holiday_type_enum
+  location_id  uuid [note: 'NULL = everywhere (gazetted); otherwise only at that location']
+  Note: 'OWNED BY HRM: holidays, used to count working days for notices. Taxation counts location-NULL holidays plus those of the circle office location'
+}
+
+Table auth.users {
+  id        uuid [pk]
+  username  varchar
+  Note: 'OWNED BY Identity'
+}
+
+// =====================================================================
+// RELATIONSHIPS — inside taxation (real foreign keys)
+// =====================================================================
+
+Ref: taxation.tax_circle_town.circle_id > taxation.tax_circle.id
+Ref: taxation.tax_circle_staff.circle_id > taxation.tax_circle.id
+Ref: taxation.rate_set.id < taxation.ltf_factor.rate_set_id
+Ref: taxation.rate_set.id < taxation.rate_band.rate_set_id
+Ref: taxation.rate_band.head_id > taxation.tax_head.id
+Ref: taxation.tax_setting.rate_set_id > taxation.rate_set.id
+Ref: taxation.tax_file.circle_id > taxation.tax_circle.id
+Ref: taxation.tax_file_basis.tax_file_id > taxation.tax_file.id
+Ref: taxation.tax_file_payer.tax_file_id > taxation.tax_file.id
+Ref: taxation.agreement_schedule.tax_file_id > taxation.tax_file.id
+Ref: taxation.agreement_schedule_line.schedule_id > taxation.agreement_schedule.id
+Ref: taxation.demand_line.schedule_line_id - taxation.agreement_schedule_line.id
+Ref: taxation.demand_run.circle_id > taxation.tax_circle.id
+Ref: taxation.demand_run.rate_set_id > taxation.rate_set.id
+Ref: taxation.demand.run_id > taxation.demand_run.id
+Ref: taxation.demand.tax_file_id > taxation.tax_file.id
+Ref: taxation.demand.basis_id > taxation.tax_file_basis.id
+Ref: taxation.demand.payer_id > taxation.tax_file_payer.id
+Ref: taxation.demand_line.demand_id > taxation.demand.id
+Ref: taxation.demand_line.head_id > taxation.tax_head.id
+Ref: taxation.demand_line.ltf_factor_id > taxation.ltf_factor.id
+Ref: taxation.demand_line.rate_band_id > taxation.rate_band.id
+Ref: taxation.arrears.tax_file_id > taxation.tax_file.id
+Ref: taxation.arrears.head_id > taxation.tax_head.id
+Ref: taxation.arrears.source_demand_id > taxation.demand.id
+Ref: taxation.arrears.import_row_id > taxation.import_row.id
+Ref: taxation.notice.demand_id > taxation.demand.id
+Ref: taxation.notice.template_id > taxation.notice_template.id
+Ref: taxation.notice.penalty_run_id > taxation.penalty_run.id
+Ref: taxation.notice.sms_message_id - taxation.sms_message.id
+Ref: taxation.tax_file_override.tax_file_id > taxation.tax_file.id
+Ref: taxation.tax_file_override.head_id > taxation.tax_head.id
+Ref: taxation.demand_line.override_id > taxation.tax_file_override.id
+Ref: taxation.penalty.demand_id > taxation.demand.id
+Ref: taxation.penalty.rule_id > taxation.penalty_rule.id
+Ref: taxation.penalty.run_id > taxation.penalty_run.id
+Ref: taxation.penalty_run.rule_id > taxation.penalty_rule.id
+Ref: taxation.penalty_run.circle_id > taxation.tax_circle.id
+Ref: taxation.penalty_rule.rate_set_id > taxation.rate_set.id
+Ref: taxation.psid_sync.tax_file_id > taxation.tax_file.id
+Ref: taxation.psid_sync.demand_id > taxation.demand.id
+Ref: taxation.psid_sync.penalty_id > taxation.penalty.id
+Ref: taxation.litigation_hold.tax_file_id > taxation.tax_file.id
+Ref: taxation.agreement_step_revision.schedule_id > taxation.agreement_schedule.id
+Ref: taxation.sealing.tax_file_id > taxation.tax_file.id
+Ref: taxation.sealing.notice_id > taxation.notice.id
+Ref: taxation.challan.demand_id > taxation.demand.id
+Ref: taxation.challan.fee_id > taxation.fee.id
+Ref: taxation.payment.challan_id > taxation.challan.id
+Ref: taxation.payment_allocation.payment_id > taxation.payment.id
+Ref: taxation.payment_allocation.head_id > taxation.tax_head.id
+Ref: taxation.payment_allocation.demand_line_id > taxation.demand_line.id
+Ref: taxation.payment_allocation.arrears_id > taxation.arrears.id
+Ref: taxation.payment_allocation.penalty_id > taxation.penalty.id
+Ref: taxation.payment_allocation.fee_id > taxation.fee.id
+Ref: taxation.refund.payment_id > taxation.payment.id
+Ref: taxation.refund.fee_id > taxation.fee.id
+Ref: taxation.fee.head_id > taxation.tax_head.id
+Ref: taxation.fee.tax_file_id > taxation.tax_file.id
+Ref: taxation.fee.party_id > taxation.party.id
+Ref: taxation.fee.rate_band_id > taxation.rate_band.id
+Ref: taxation.water_connection.tax_file_id > taxation.tax_file.id
+Ref: taxation.water_connection.fee_id > taxation.fee.id
+Ref: taxation.water_connection.refund_id > taxation.refund.id
+Ref: taxation.non_utilization_case.tax_file_id > taxation.tax_file.id
+Ref: taxation.enlistment_licence.party_id > taxation.party.id
+Ref: taxation.enlistment_licence.fee_id > taxation.fee.id
+Ref: taxation.malba_security.tax_file_id > taxation.tax_file.id
+Ref: taxation.malba_security.fee_id > taxation.fee.id
+Ref: taxation.malba_security.refund_id > taxation.refund.id
+Ref: taxation.clearance.tax_file_id > taxation.tax_file.id
+Ref: taxation.clearance.fee_id > taxation.fee.id
+Ref: taxation.sms_message.tax_file_id > taxation.tax_file.id
+Ref: taxation.sms_message.demand_id > taxation.demand.id
+Ref: taxation.sms_message.notice_id > taxation.notice.id
+Ref: taxation.sms_message.template_id > taxation.message_template.id
+Ref: taxation.import_row.batch_id > taxation.import_batch.id
+Ref: taxation.import_row.tax_file_id > taxation.tax_file.id
+Ref: taxation.import_batch.circle_id > taxation.tax_circle.id
+
+// =====================================================================
+// RELATIONSHIPS — across services (LOGICAL ONLY: no database FK).
+// Drawn so the diagram shows the dependency. When generating SQL for the
+// taxation schema, drop every Ref below.
+// =====================================================================
+
+Ref: taxation.tax_circle.org_unit_id > hrms.organization_unit.id  // logical
+Ref: taxation.tax_circle.officer_post_id > hrms.post.id  // logical
+Ref: taxation.tax_circle_staff.post_id > hrms.post.id  // logical
+Ref: taxation.tax_circle_town.town_id > property.town.id  // logical
+Ref: taxation.category_map.property_type_id - property.property_type.id  // logical
+Ref: taxation.ltf_factor.town_id > property.town.id  // logical
+Ref: taxation.rate_band.town_id > property.town.id  // logical
+Ref: taxation.tax_file.property_id - property.property.id  // logical
+Ref: taxation.tax_file.town_id > property.town.id  // logical
+Ref: taxation.tax_file_basis.source_measurement_id > property.property_measurement.id  // logical
+Ref: taxation.tax_file_basis.source_building_plan_id > property.building_plan.id  // logical
+Ref: taxation.tax_file_basis.completion_plan_id > property.building_plan.id  // logical
+Ref: taxation.tax_file_basis.property_type_id > property.property_type.id  // logical
+Ref: taxation.tax_file_payer.owner_id > property.property_owner.id  // logical
+Ref: taxation.agreement_schedule.source_id > property.property_lease.id  // logical, when kind = LEASE
+Ref: taxation.non_utilization_case.allotment_id > property.property_allotment.id  // logical
+Ref: taxation.malba_security.building_plan_id > property.building_plan.id  // logical
+Ref: taxation.clearance.property_ref_id > property.property_transfer.id  // logical, when purpose = TRANSFER
+Ref: taxation.penalty.violation_id > property.agreement_violation.id  // logical
+Ref: taxation.litigation_hold.source_litigation_id > property.property_litigation.id  // logical
+Ref: taxation.party.owner_id > property.property_owner.id  // logical
+Ref: taxation.party.employee_id > hrms.employee.id  // logical
+Ref: taxation.sms_message.owner_id > property.property_owner.id  // logical
+Ref: taxation.notice.signing_post_id > hrms.post.id  // logical
+Ref: taxation.notice.signing_employee_id > hrms.employee.id  // logical
+Ref: taxation.notice.served_by_employee_id > hrms.employee.id  // logical
+Ref: taxation.sealing.ordered_by_employee_id > hrms.employee.id  // logical
+Ref: taxation.water_connection.inspected_by_employee_id > hrms.employee.id  // logical
+Ref: taxation.demand_run.approved_by > auth.users.id  // logical
+Ref: taxation.clearance.issued_by > auth.users.id  // logical
+Ref: taxation.audit_log.user_id > auth.users.id  // logical
+Ref: taxation.rate_set.approved_by > auth.users.id  // logical
+Ref: taxation.penalty_run.approved_by > auth.users.id  // logical
+Ref: taxation.tax_file_override.approved_by > auth.users.id  // logical
+Ref: taxation.notice.confirmed_by > auth.users.id  // logical
+Ref: taxation.payment.received_by > auth.users.id  // logical
+Ref: taxation.demand_run.computed_by > auth.users.id  // logical
+Ref: taxation.import_batch.imported_by > auth.users.id  // logical
+Ref: taxation.import_row.matched_property_id > property.property.id  // logical
+
+// External relationships among the stubs (owned and enforced by their services)
+Ref: property.property.town_id > property.town.id
+Ref: property.property.property_type_id > property.property_type.id
+Ref: property.property_measurement.property_id > property.property.id
+Ref: property.property_area_regularization.property_id > property.property.id
+Ref: property.building_plan.property_id > property.property.id
+Ref: property.property_ownership.property_id > property.property.id
+Ref: property.property_ownership.owner_id > property.property_owner.id
+Ref: property.owner_contact.owner_id > property.property_owner.id
+Ref: property.owner_address.owner_id > property.property_owner.id
+Ref: property.property_transfer.property_id > property.property.id
+Ref: property.property_allotment.property_id > property.property.id
+Ref: property.property_lease.property_id > property.property.id
+Ref: property.property_rental.property_id > property.property.id
+Ref: property.agreement_violation.property_id > property.property.id
+Ref: property.property_litigation.property_id > property.property.id
+Ref: hrms.position_assignment.post_id > hrms.post.id
+Ref: hrms.position_assignment.employee_id > hrms.employee.id
+Ref: hrms.employee.user_id - auth.users.id
+
+TableGroup taxation_organisation {
+  taxation.tax_circle
+  taxation.tax_circle_town
+  taxation.tax_circle_staff
+}
+TableGroup taxation_rates {
+  taxation.tax_head
+  taxation.category_map
+  taxation.rate_set
+  taxation.ltf_factor
+  taxation.rate_band
+  taxation.tax_setting
+  taxation.message_template
+  taxation.notice_template
+}
+TableGroup taxation_tax_file {
+  taxation.tax_file
+  taxation.tax_file_basis
+  taxation.tax_file_payer
+  taxation.tax_file_override
+  taxation.agreement_schedule
+  taxation.agreement_schedule_line
+  taxation.agreement_step_revision
+  taxation.litigation_hold
+}
+TableGroup taxation_demand {
+  taxation.demand_run
+  taxation.demand
+  taxation.demand_line
+  taxation.arrears
+  taxation.notice
+  taxation.penalty_rule
+  taxation.penalty_run
+  taxation.penalty
+  taxation.sealing
+}
+TableGroup taxation_payment {
+  taxation.challan
+  taxation.psid_sync
+  taxation.payment
+  taxation.payment_allocation
+  taxation.refund
+}
+TableGroup taxation_fees_clearance {
+  taxation.party
+  taxation.fee
+  taxation.water_connection
+  taxation.non_utilization_case
+  taxation.enlistment_licence
+  taxation.malba_security
+  taxation.clearance
+}
+TableGroup taxation_integration {
+  taxation.sms_message
+  taxation.integration_inbox
+  taxation.integration_outbox
+  taxation.sync_checkpoint
+  taxation.import_batch
+  taxation.import_row
+  taxation.audit_log
+}
+TableGroup external_property {
+  property.town
+  property.property_type
+  property.property
+  property.property_measurement
+  property.property_area_regularization
+  property.building_plan
+  property.property_owner
+  property.owner_contact
+  property.owner_address
+  property.property_ownership
+  property.property_transfer
+  property.property_allotment
+  property.property_lease
+  property.property_rental
+  property.agreement_violation
+  property.property_litigation
+}
+TableGroup external_hrm_identity {
+  hrms.organization_unit
+  hrms.post
+  hrms.employee
+  hrms.position_assignment
+  hrms.holiday_calendar
+  auth.users
+}
