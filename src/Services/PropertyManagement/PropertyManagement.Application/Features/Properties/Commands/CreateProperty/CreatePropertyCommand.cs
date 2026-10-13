@@ -1,6 +1,7 @@
 using FluentValidation;
 
-public sealed record CreatePropertyCommandResult(Guid Id, string PropertyCode);
+/// Warnings: things recorded but worth checking (a boundary slope above 45°, BCR 2026). Never a refusal.
+public sealed record CreatePropertyCommandResult(Guid Id, string PropertyCode, IReadOnlyList<string> Warnings);
 
 /// Registers a property: PROP-00001 is generated, the opening status-history row is written and,
 /// optionally, the first measurement, the first owners, the boundary survey and the custom-field values are
@@ -20,6 +21,8 @@ public class CreatePropertyCommandValidator : AbstractValidator<CreatePropertyCo
   {
     RuleFor(x => x.Property).NotNull().SetValidator(new PropertyInputValidator());
     RuleFor(x => x.PropertyStatusId).NotEmpty();
+    RuleFor(x => x.StatusEffectiveFrom).LessThanOrEqualTo(_ => PropertyWriteGuard.Today())
+      .When(x => x.StatusEffectiveFrom.HasValue).WithMessage("A status cannot start in the future.");
     RuleFor(x => x.Measurement!).SetValidator(new MeasurementInputValidator()).When(x => x.Measurement is not null);
     RuleForEach(x => x.Owners).NotNull().SetValidator(new OwnershipInputValidator());
     RuleFor(x => x.Boundary!).SetValidator(new BoundaryInputValidator()).When(x => x.Boundary is not null);

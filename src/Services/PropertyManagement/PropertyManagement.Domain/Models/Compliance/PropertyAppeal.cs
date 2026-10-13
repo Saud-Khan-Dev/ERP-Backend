@@ -41,24 +41,50 @@ public class PropertyAppeal : Aggregate<AppealId>
       string? DelegatedOfficer,
       string? Remarks);
 
-  public static PropertyAppeal File(AppealId id, Property property, BusinessCode appealNo, Filing filing, out IReadOnlyList<string> warnings)
+  /// otherAppeals: the property's other appeals. One order is appealed once: a second appeal against the same
+  /// order is refused while the first is open, and after it was decided (the decision is final). A withdrawn
+  /// appeal does not block a new one.
+  public static PropertyAppeal File(
+      AppealId id,
+      Property property,
+      BusinessCode appealNo,
+      Filing filing,
+      IReadOnlyCollection<PropertyAppeal> otherAppeals,
+      out IReadOnlyList<string> warnings)
   {
     ArgumentNullException.ThrowIfNull(property);
     ArgumentNullException.ThrowIfNull(appealNo);
+    ArgumentNullException.ThrowIfNull(otherAppeals);
     property.EnsureActive();
 
     var appeal = new PropertyAppeal { Id = id, PropertyId = property.Id, AppealNo = appealNo, AppealStatus = AppealStatus.Filed };
     warnings = appeal.Apply(filing);
+    appeal.EnsureOnlyAppealAgainstOrder(otherAppeals);
     return appeal;
   }
 
-  public IReadOnlyList<string> Update(Filing filing)
+  /// The appealed record (order source) is fixed once filed: changing it would leave the first record marked
+  /// as under appeal. The order reference, dates and authority can be corrected.
+  public IReadOnlyList<string> Update(Filing filing, IReadOnlyCollection<PropertyAppeal> otherAppeals)
   {
-    if (AppealStatus != AppealStatus.Filed)
-      throw new DomainException($"Appeal {AppealNo.Value} is {AppealStatus} and can no longer be edited.");
+    ArgumentNullException.ThrowIfNull(filing);
+    ArgumentNullException.ThrowIfNull(otherAppeals);
 
-    return Apply(filing);
+    if (AppealStatus != AppealStatus.Filed)
+      throw new DomainException($"Appeal {AppealNo.Value} is {Describe(AppealStatus)} and can no longer be edited.");
+
+    if (filing.OrderSourceTable != OrderSourceTable || filing.OrderSourceId != OrderSourceId)
+      throw new DomainException($"The appealed record of appeal {AppealNo.Value} cannot be changed. Withdraw this appeal and file a new one against the other order.");
+
+    var warnings = Apply(filing);
+    EnsureOnlyAppealAgainstOrder(otherAppeals);
+    return warnings;
   }
+
+  public bool IsOpen => AppealStatus is AppealStatus.Filed or AppealStatus.UnderHearing;
+
+  /// The appeal is against this record (e.g. an agreement violation).
+  public bool IsAgainst(AppealOrderSource source, Guid id) => OrderSourceTable == source && OrderSourceId == id;
 
   public void StartHearing()
   {
@@ -98,8 +124,38 @@ public class PropertyAppeal : Aggregate<AppealId>
   private void EnsureOpen()
   {
     if (AppealStatus is AppealStatus.Decided or AppealStatus.Withdrawn)
-      throw new DomainException($"Appeal {AppealNo.Value} is {AppealStatus} and closed.");
+      throw new DomainException($"Appeal {AppealNo.Value} is {Describe(AppealStatus)} and closed.");
   }
+
+  private void EnsureOnlyAppealAgainstOrder(IReadOnlyCollection<PropertyAppeal> otherAppeals)
+  {
+    var earlier = otherAppeals
+        .Where(a => a.Id != Id && a.PropertyId == PropertyId && a.AppealStatus != AppealStatus.Withdrawn && a.AgainstSameOrderAs(this))
+        .OrderByDescending(a => a.IsOpen)
+        .FirstOrDefault();
+
+    if (earlier is null)
+      return;
+
+    if (earlier.IsOpen)
+      throw new DomainException($"Appeal {earlier.AppealNo.Value} against order {earlier.AppealedOrderRef} is still {Describe(earlier.AppealStatus)}. Record its decision, or withdraw it, before filing another appeal against the same order.");
+
+    throw new DomainException($"Appeal {earlier.AppealNo.Value} against order {earlier.AppealedOrderRef} was decided on {earlier.DecisionDate:yyyy-MM-dd}; the decision is final (Act s.32), so the order cannot be appealed again.");
+  }
+
+  /// Same record when both name one; otherwise the same order reference.
+  private bool AgainstSameOrderAs(PropertyAppeal other) =>
+      OrderSourceTable is not null && OrderSourceId is not null && other.OrderSourceTable is not null && other.OrderSourceId is not null
+        ? OrderSourceTable == other.OrderSourceTable && OrderSourceId == other.OrderSourceId
+        : string.Equals(AppealedOrderRef, other.AppealedOrderRef, StringComparison.OrdinalIgnoreCase);
+
+  private static string Describe(AppealStatus status) => status switch
+  {
+    AppealStatus.Filed => "pending",
+    AppealStatus.UnderHearing => "under hearing",
+    AppealStatus.Decided => "decided",
+    _ => "withdrawn"
+  };
 
   private IReadOnlyList<string> Apply(Filing filing)
   {

@@ -24,8 +24,22 @@ public class PropertyAuction : Aggregate<AuctionId>
   public string? Venue { get; private set; }
   public string? ReferenceNo { get; private set; }
   public string? Remarks { get; private set; }
+  /// For a re-auction: the unsuccessful or cancelled auction it repeats.
+  public AuctionId? PreviousAuctionId { get; private set; }
 
   public IReadOnlyList<AuctionBid> Bids => _bids.AsReadOnly();
+
+  public const int ReferenceMaxLength = 100;
+  public const int VenueMaxLength = 200;
+  public const int RemarksMaxLength = 4000;
+
+  /// Awarded, unsuccessful and cancelled auctions are over: no bids, award, edit or status change.
+  public static readonly IReadOnlyList<string> ClosedStatusCodes = new[]
+  {
+    SystemMasterCodes.Awarded, SystemMasterCodes.Unsuccessful, SystemMasterCodes.Cancelled
+  };
+
+  public static bool IsClosedStatus(AuctionStatus status) => ClosedStatusCodes.Any(status.Is);
 
   public sealed record Details(
       AuctionType AuctionType,
@@ -56,15 +70,22 @@ public class PropertyAuction : Aggregate<AuctionId>
     Apply(details);
   }
 
-  /// Announced, Conducted, Successful, Unsuccessful ... Awarding and cancelling have their own steps.
+  /// Announced, Conducted, Unsuccessful ... Awarding and cancelling have their own steps, and an auction
+  /// becomes successful only by being awarded (which records the winner, amount and date).
   public void ChangeStatus(AuctionStatus currentStatus, AuctionStatus status)
   {
     ArgumentNullException.ThrowIfNull(status);
     EnsureOpen(currentStatus);
     status.EnsureActive();
 
-    if (status.Is(SystemMasterCodes.Awarded) || status.Is(SystemMasterCodes.Cancelled))
-      throw new DomainException("Use award / cancel for these statuses.");
+    if (status.Is(SystemMasterCodes.Awarded) || status.Is(SystemMasterCodes.Successful))
+      throw new DomainException("Use award: it records the winner, the winning amount and the award date.");
+
+    if (status.Is(SystemMasterCodes.Cancelled))
+      throw new DomainException("Use cancel, so the reason is recorded.");
+
+    if (status.Id == AuctionStatusId)
+      throw new DomainException($"Auction {AuctionNo.Value} is already {status.Name.Value}.");
 
     AuctionStatusId = status.Id;
   }
@@ -85,7 +106,8 @@ public class PropertyAuction : Aggregate<AuctionId>
   }
 
   /// Awards the auction. With recorded bids the winner is one of them (the highest by default);
-  /// without bids the successful bidder and amount are given directly.
+  /// without bids the successful bidder and amount are given directly. The award is dated on or after the
+  /// auction, and not in the future.
   public void Award(
       AuctionStatus currentStatus,
       AuctionStatus awardedStatus,
@@ -93,23 +115,33 @@ public class PropertyAuction : Aggregate<AuctionId>
       PropertyOwner? successfulBidder,
       decimal? winningAmount,
       DateOnly awardDate,
-      string? awardReferenceNo)
+      string? awardReferenceNo,
+      DateOnly today)
   {
     EnsureOpen(currentStatus);
     awardedStatus.EnsureIs(SystemMasterCodes.Awarded);
 
+    if (AuctionDate is not { } held)
+      throw new DomainException($"Record the date auction {AuctionNo.Value} was held before awarding it.");
+
+    if (awardDate < held)
+      throw new DomainException($"The award cannot be dated before the auction was held ({held:yyyy-MM-dd}).");
+
+    if (awardDate > today)
+      throw new DomainException("An award cannot be dated in the future.");
+
+    AuctionBid? winningBid = null;
     OwnerId winner;
     decimal amount;
 
     if (_bids.Count > 0)
     {
-      var bid = winningBidId is null
+      winningBid = winningBidId is null
         ? _bids.OrderBy(b => b.BidRank).First()
         : _bids.FirstOrDefault(b => b.Id == winningBidId) ?? throw new DomainException("The winning bid does not belong to this auction.");
 
-      _bids.ForEach(b => b.SetWinning(b.Id == bid.Id));
-      winner = bid.BidderOwnerId;
-      amount = bid.BidAmount;
+      winner = winningBid.BidderOwnerId;
+      amount = winningBid.BidAmount;
     }
     else
     {
@@ -124,13 +156,11 @@ public class PropertyAuction : Aggregate<AuctionId>
     if (BaseReservePrice is { } reserve && amount < reserve)
       throw new DomainException($"The winning bid ({amount:N2}) is below the base reserve price ({reserve:N2}).");
 
-    if (AuctionDate is { } held && awardDate < held)
-      throw new DomainException("An auction cannot be awarded before it was held.");
-
+    _bids.ForEach(b => b.SetWinning(b.Id == winningBid?.Id));
     SuccessfulBidderOwnerId = winner;
     WinningBidAmount = amount;
     AwardDate = awardDate;
-    AwardReferenceNo = Guard.Text(awardReferenceNo, 100, "Award reference no.");
+    AwardReferenceNo = Guard.Text(awardReferenceNo, ReferenceMaxLength, "Award reference no.");
     AuctionStatusId = awardedStatus.Id;
   }
 
@@ -139,7 +169,51 @@ public class PropertyAuction : Aggregate<AuctionId>
     EnsureOpen(currentStatus);
     cancelledStatus.EnsureIs(SystemMasterCodes.Cancelled);
     AuctionStatusId = cancelledStatus.Id;
-    Remarks = Guard.Text(remarks, 4000, "Remarks") ?? Remarks;
+    Remarks = Guard.Text(remarks, RemarksMaxLength, "Remarks") ?? Remarks;
+  }
+
+  /// Plans the re-auction of an unsuccessful or cancelled auction: a new PLANNED auction of type RE_AUCTION on
+  /// the same property, pointing back through previous_auction_id. The reserve price and venue carry over
+  /// unless given. An auction is re-auctioned once; if the re-auction also fails, re-auction that one.
+  public PropertyAuction ReAuction(
+      AuctionStatus currentStatus,
+      Property property,
+      AuctionId newId,
+      BusinessCode newAuctionNo,
+      AuctionStatus plannedStatus,
+      AuctionType reAuctionType,
+      DateOnly auctionDate,
+      decimal? baseReservePrice,
+      string? auctionCommitteeRef,
+      PropertyAuction? existingReAuction)
+  {
+    ArgumentNullException.ThrowIfNull(currentStatus);
+    ArgumentNullException.ThrowIfNull(property);
+    ArgumentNullException.ThrowIfNull(reAuctionType);
+
+    if (currentStatus.Id != AuctionStatusId)
+      throw new DomainException("The supplied status does not match the auction.");
+
+    if (!currentStatus.Is(SystemMasterCodes.Unsuccessful) && !currentStatus.Is(SystemMasterCodes.Cancelled))
+      throw new DomainException($"Auction {AuctionNo.Value} is {currentStatus.Name.Value}; only an unsuccessful or cancelled auction can be re-auctioned.");
+
+    if (property.Id != PropertyId)
+      throw new DomainException("A re-auction is held on the same property.");
+
+    reAuctionType.EnsureIs(SystemMasterCodes.AuctionReAuction);
+
+    if (existingReAuction is not null)
+      throw new DomainException($"Auction {AuctionNo.Value} was already re-auctioned as {existingReAuction.AuctionNo.Value}. If that one also fails, re-auction it instead.");
+
+    if (AuctionDate is { } held && auctionDate <= held)
+      throw new DomainException($"The re-auction must be held after the auction it repeats ({held:yyyy-MM-dd}).");
+
+    var reAuction = Plan(newId, property, newAuctionNo, plannedStatus, new Details(
+      reAuctionType, AnnouncementDate: null, auctionDate, baseReservePrice ?? BaseReservePrice, auctionCommitteeRef, Venue,
+      ReferenceNo: null, Remarks: $"Re-auction of {AuctionNo.Value}."));
+
+    reAuction.PreviousAuctionId = Id;
+    return reAuction;
   }
 
   /// Highest bid ranks 1.
@@ -157,9 +231,13 @@ public class PropertyAuction : Aggregate<AuctionId>
     if (currentStatus.Id != AuctionStatusId)
       throw new DomainException("The supplied status does not match the auction.");
 
-    if (currentStatus.Is(SystemMasterCodes.Awarded) || currentStatus.Is(SystemMasterCodes.Cancelled))
+    if (currentStatus.Is(SystemMasterCodes.Unsuccessful) || currentStatus.Is(SystemMasterCodes.Cancelled))
+      throw new DomainException($"Auction {AuctionNo.Value} is {currentStatus.Name.Value} and closed. Plan a re-auction to offer the property again.");
+
+    if (IsClosedStatus(currentStatus))
       throw new DomainException($"Auction {AuctionNo.Value} is {currentStatus.Name.Value} and closed.");
   }
+
 
   private void Apply(Details details)
   {

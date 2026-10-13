@@ -17,21 +17,32 @@ public class FileLitigationHandler(IApplicationDbContext context, MasterLookup m
       ? await masters.GetAsync<LitigationStatus>(statusId, cancellationToken)
       : await masters.GetByCodeAsync<LitigationStatus>(SystemMasterCodes.Pending, cancellationToken);
 
+    var details = await input.Details.ToDetailsAsync(masters, cancellationToken);
+
+    // Act s.30: a criminal complaint is filed by the signed-in authorized officer (403 for anyone else)
+    Guid? filingOfficer = details.LitigationType.Is(SystemMasterCodes.LitigationCriminalComplaint) ? currentUser.RequireAuthorizedOfficer() : null;
+
+    var parent = input.ParentLitigationId is { } p ? await context.LoadLitigationAsync(p, cancellationToken) : null;
+    var parentStatus = parent is null ? null : await masters.GetAsync<LitigationStatus>(parent.LitigationStatusId.Value, cancellationToken);
+
     var related = new PropertyLitigation.Related(
       input.RelatedEncroachmentId is { } e ? await context.LoadEncroachmentAsync(e, cancellationToken) : null,
       input.RelatedAllotmentId is { } a ? await context.LoadAllotmentAsync(a, cancellationToken) : null,
       input.RelatedLeaseId is { } l ? await context.LoadLeaseAsync(l, cancellationToken) : null,
-      input.ParentLitigationId is { } p ? await context.LoadLitigationAsync(p, cancellationToken) : null);
+      parent, parentStatus);
 
     var parties = new List<PropertyLitigation.PartyInput>();
     foreach (var party in input.Parties ?? Array.Empty<LitigationPartyInput>())
       parties.Add(await party.ToPartyAsync(context, cancellationToken));
 
-    var litigation = PropertyLitigation.File(
-      LitigationId.New(), property, caseNo, court, status,
-      await input.Details.ToDetailsAsync(masters, currentUser, cancellationToken), related, parties);
+    var litigation = PropertyLitigation.File(LitigationId.New(), property, caseNo, court, status, details, related, parties, filingOfficer);
 
-    related.Parent?.MarkAppealed(await masters.GetByCodeAsync<LitigationStatus>(SystemMasterCodes.Appealed, cancellationToken), court);
+    // an appeal to a higher court: the (decided) lower-court case is now APPEALED
+    if (parent is not null)
+      parent.MarkAppealed(parentStatus!, await masters.GetByCodeAsync<LitigationStatus>(SystemMasterCodes.Appealed, cancellationToken), court);
+
+    // the encroachment the case is about is now under litigation (unless already resolved)
+    related.Encroachment?.MarkUnderLitigation(await masters.GetByCodeAsync<EncroachmentStatus>(SystemMasterCodes.UnderLitigation, cancellationToken));
 
     await context.Litigations.AddAsync(litigation, cancellationToken);
     await context.SaveChangesAsync(cancellationToken);

@@ -21,7 +21,8 @@ public sealed record MasterDto(
   decimal? FactorToBase,
   bool? IsBase,
   string? StorageFolder,
-  bool? RequiresRelationship);
+  bool? RequiresRelationship,
+  DocumentScope? AppliesTo);
 
 public sealed record CodeSequenceDto(
   string Key,
@@ -34,8 +35,14 @@ public sealed record CodeSequenceDto(
 
 // ---- property core ----
 
+/// The holders of a property in one line: the first holder (largest share, then name) and how many there are,
+/// so a register row can read "Ali Khan + 2".
+public sealed record OwnerSummaryDto(string FirstHolderName, int HolderCount);
+
 /// TotalAreaSqFt: the current measurement's total area in square feet (null when never measured).
-/// CurrentOwnerCount: owners holding an ACTIVE share. CreatedAt: when the property was registered.
+/// CurrentOwnerCount: owners holding a current share (ACTIVE or DISPUTED). OwnerSummary: null when nobody holds a
+/// share. AllotteeName: when nobody holds a share but an allotment is in force, the allottee ("Allotted to ...").
+/// CreatedAt: when the property was registered.
 public sealed record PropertyListItemDto(
   Guid Id,
   string PropertyCode,
@@ -48,6 +55,8 @@ public sealed record PropertyListItemDto(
   string? KhasraSurveyNo,
   decimal? TotalAreaSqFt,
   int CurrentOwnerCount,
+  OwnerSummaryDto? OwnerSummary,
+  string? AllotteeName,
   bool IsActive,
   DateTime? CreatedAt);
 
@@ -122,6 +131,7 @@ public sealed record AreaSummaryDto(
 
 // ---- owners ----
 
+/// CurrentHoldingCount: the owner's current shares (ACTIVE or DISPUTED rows) on active properties.
 public sealed record OwnerListItemDto(
   Guid Id,
   string OwnerCode,
@@ -131,8 +141,10 @@ public sealed record OwnerListItemDto(
   string? Cnic,
   string? Ntn,
   string? PrimaryContact,
+  int CurrentHoldingCount,
   bool IsActive);
 
+/// CnicDocumentId: the owner's current CNIC copy (latest active, latest-version CNIC_COPY owner document).
 public sealed record OwnerDto(
   Guid Id,
   string OwnerCode,
@@ -141,7 +153,6 @@ public sealed record OwnerDto(
   string? FatherHusbandName,
   string? Cnic,
   string? Ntn,
-  string? RegistrationNo,
   string? Email,
   Guid? CnicDocumentId,
   string? Remarks,
@@ -167,6 +178,11 @@ public sealed record OwnerAddressDto(
 
 // ---- ownership ----
 
+/// Status: ACTIVE and DISPUTED are both held (a disputed share counts toward the 100% but cannot be
+/// transferred). HoldingSince: the start of the owner's continuous holding of this property — earlier rows of the
+/// same owner that ended exactly where the next began (a share changed by a transfer, a remainder after a
+/// partial sale) — so it can be earlier than EffectiveFrom. AcquiredViaTransferNo / AcquiredViaAllotmentNo: the
+/// codes of the transfer / allotment the row came from (a remainder keeps its original row's).
 public sealed record OwnershipDto(
   Guid Id,
   PropertyRef? Property,
@@ -179,10 +195,21 @@ public sealed record OwnershipDto(
   MasterRef? AcquisitionTransferType,
   Guid? AcquiredViaTransferId,
   string? ReferenceNo,
-  string? Remarks);
+  string? Remarks,
+  DateOnly HoldingSince,
+  string? AcquiredViaTransferNo,
+  Guid? AcquiredViaAllotmentId,
+  string? AcquiredViaAllotmentNo);
+
+/// Read-side facts about an ownership row that need other rows: see OwnershipDto.
+public sealed record OwnershipLinks(DateOnly HoldingSince, string? TransferNo, string? AllotmentNo);
 
 public sealed record TransferPartyDto(OwnerRef? Owner, TransferPartyRole Role, decimal SharePct);
 
+/// Status: INITIATED (waiting for approval), COMPLETED (approved and registered), REJECTED, CANCELLED, or APPROVED
+/// for a row approved before approval and completion became one step (complete it).
+/// CompletedOn / CompletedBy: when and by whom the ownership register was changed. ClosedOn / ClosedBy /
+/// ClosingReason: the rejection or cancellation.
 public sealed record TransferDto(
   Guid Id,
   PropertyRef? Property,
@@ -199,7 +226,13 @@ public sealed record TransferDto(
   string? Remarks,
   IReadOnlyList<TransferPartyDto> Parties,
   DateTime? CreatedAt,
-  Guid? CreatedBy);
+  Guid? CreatedBy,
+  string? ApprovalOrderRef,
+  DateOnly? CompletedOn,
+  string? CompletedBy,
+  DateOnly? ClosedOn,
+  string? ClosedBy,
+  string? ClosingReason);
 
 public sealed record EncumbranceDto(
   Guid Id,
@@ -218,9 +251,10 @@ public sealed record EncumbranceDto(
 
 // ---- documents ----
 
+/// PropertyId: null for an owner's own paper (EntityType Owner, EntityId = the owner's id).
 public sealed record DocumentDto(
   Guid Id,
-  Guid PropertyId,
+  Guid? PropertyId,
   MasterRef? DocumentType,
   DocumentEntityType EntityType,
   Guid EntityId,

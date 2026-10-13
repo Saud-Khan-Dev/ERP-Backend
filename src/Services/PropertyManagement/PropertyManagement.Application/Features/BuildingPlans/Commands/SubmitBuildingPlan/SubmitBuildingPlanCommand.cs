@@ -19,6 +19,7 @@ public class BuildingPlanInputValidator : AbstractValidator<BuildingPlanInput>
     RuleFor(x => x.MeasurementUnitId).NotEmpty().When(x => x.CoveredArea.HasValue).WithMessage("A covered area needs its measurement unit.");
     RuleFor(x => x.Floors).GreaterThanOrEqualTo(0).When(x => x.Floors.HasValue);
     RuleFor(x => x.ArchitectName).MaximumLength(150);
+    RuleFor(x => x.Remarks).MaximumLength(4000);
   }
 }
 

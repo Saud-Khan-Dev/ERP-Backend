@@ -21,6 +21,7 @@ public class AppealInputValidator : AbstractValidator<AppealInput>
     RuleFor(x => x.OrderSourceTable).IsInEnum().When(x => x.OrderSourceTable.HasValue);
     RuleFor(x => x.AppellateAuthority).MaximumLength(150);
     RuleFor(x => x.DelegatedOfficer).MaximumLength(150);
+    RuleFor(x => x.Remarks).MaximumLength(4000);
   }
 }
 

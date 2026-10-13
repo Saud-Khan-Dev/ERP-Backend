@@ -26,5 +26,9 @@ public class RentalTermsInputValidator : AbstractValidator<RentalTermsInput>
     RuleFor(x => x.RentFrequency).IsInEnum();
     RuleFor(x => x.AnnualIncreasePct).InclusiveBetween(0, 999.99m).When(x => x.AnnualIncreasePct.HasValue);
     RuleFor(x => x.AgreementReference).MaximumLength(100);
+    RuleFor(x => x.RentalEndDate).GreaterThanOrEqualTo(x => x.RentalStartDate).When(x => x.RentalEndDate.HasValue)
+      .WithMessage("Rental end date cannot be before Rental start date.");
+    RuleFor(x => x.SecurityDeposit).GreaterThanOrEqualTo(0).When(x => x.SecurityDeposit.HasValue);
+    RuleFor(x => x.Remarks).MaximumLength(4000);
   }
 }

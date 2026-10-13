@@ -15,8 +15,7 @@ public class UploadDocumentVersionHandler(IApplicationDbContext context, Documen
     var version = await documents.CreateVersionAsync(current, documentType, command.File, cancellationToken);
 
     // keep an owner's CNIC pointer on the newest copy
-    var owner = await context.Owners.FirstOrDefaultAsync(o => o.CnicDocumentId == current.Id, cancellationToken);
-    owner?.AttachCnicDocument(version.Id);
+    await documents.RefreshOwnerCnicAsync(version, cancellationToken);
 
     await context.SaveChangesAsync(cancellationToken);
     return Result<UploadDocumentVersionCommandResult>.Success(

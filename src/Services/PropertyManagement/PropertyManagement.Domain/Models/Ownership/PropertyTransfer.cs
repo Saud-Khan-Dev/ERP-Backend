@@ -1,8 +1,10 @@
 /// One transfer event — sale, gift, inheritance, exchange ... — with its parties.
 ///
-/// Lifecycle: Initiated → Approved → Completed (or Cancelled before completion). Completing it is what
-/// changes ownership: every party's current ownership row is closed and a new row with the resulting
-/// share is opened, pointing back at this transfer (schema guide, "Owners and ownership").
+/// Lifecycle: Initiated → (approve) Completed, or Initiated → Rejected / Cancelled. Approving a transfer IS the
+/// mutation: in the same step every party's current ownership row is closed and a new row with the resulting
+/// share is opened, pointing back at this transfer (schema guide, "Owners and ownership"), so the register never
+/// shows an approved transfer whose old owners are still in place. Approved is kept only for rows approved
+/// before that change; they are completed with Complete.
 public class PropertyTransfer : Aggregate<TransferId>
 {
   private readonly List<PropertyTransferParty> _parties = new();
@@ -22,16 +24,30 @@ public class PropertyTransfer : Aggregate<TransferId>
   public string? Relationship { get; private set; }
   public string? ApprovedBy { get; private set; }
   public DateOnly? ApprovalDate { get; private set; }
+  /// The approving order / sanction no.
+  public string? ApprovalOrderRef { get; private set; }
+  /// The day the ownership register was changed (server date) and the signed-in user who did it.
+  public DateOnly? CompletedOn { get; private set; }
+  public string? CompletedBy { get; private set; }
+  /// Rejected or cancelled: the day, the signed-in user and the reason.
+  public DateOnly? ClosedOn { get; private set; }
+  public string? ClosedBy { get; private set; }
+  public string? ClosingReason { get; private set; }
   public TransferStatus TransferStatus { get; private set; }
   public string? Remarks { get; private set; }
 
   public IReadOnlyList<PropertyTransferParty> Parties => _parties.AsReadOnly();
 
+  /// Waiting for a decision: still holds the givers' shares.
+  public bool IsPending => TransferStatus is TransferStatus.Initiated or TransferStatus.Approved;
+
   public sealed record PartyInput(OwnerId OwnerId, TransferPartyRole Role, decimal SharePct);
 
+  /// Starts a transfer. Nothing changes hands until it is approved. The transfer may be dated in the future
+  /// (it can then be approved from that date); every other rule is checked now so a waiting transfer is one
+  /// that can be approved as it stands.
   public static PropertyTransfer Initiate(
       TransferId id,
-      Property property,
       BusinessCode transferNo,
       TransferType transferType,
       DateOnly transferDate,
@@ -40,13 +56,13 @@ public class PropertyTransfer : Aggregate<TransferId>
       string? relationship,
       string? remarks,
       IReadOnlyCollection<PartyInput> parties,
-      IReadOnlyCollection<PropertyOwnership> currentOwnerships)
+      OwnershipRecord record)
   {
-    ArgumentNullException.ThrowIfNull(property);
     ArgumentNullException.ThrowIfNull(transferNo);
     ArgumentNullException.ThrowIfNull(transferType);
     ArgumentNullException.ThrowIfNull(parties);
-    property.EnsureActive();
+    ArgumentNullException.ThrowIfNull(record);
+    record.Property.EnsureActive();
     transferType.EnsureActive();
 
     relationship = Guard.Text(relationship, 100, "Relationship");
@@ -56,7 +72,7 @@ public class PropertyTransfer : Aggregate<TransferId>
     var transfer = new PropertyTransfer
     {
       Id = id,
-      PropertyId = property.Id,
+      PropertyId = record.Property.Id,
       TransferNo = transferNo,
       TransferTypeId = transferType.Id,
       TransferDate = transferDate,
@@ -70,55 +86,157 @@ public class PropertyTransfer : Aggregate<TransferId>
     foreach (var party in parties)
       transfer._parties.Add(PropertyTransferParty.Create(TransferPartyId.New(), id, party.OwnerId, party.Role, party.SharePct));
 
-    transfer.ValidateParties(currentOwnerships);
+    transfer.Validate(record, atApproval: false);
     transfer.ShareTransferredPct = transfer.Given().Values.Sum();
 
     return transfer;
   }
 
-  public void Approve(string approvedBy, DateOnly approvalDate)
+  /// Enters a transfer that already happened (e.g. from the paper register) as COMPLETED in one step, under the
+  /// same rules as initiate + approve. It cannot be dated in the future.
+  public static (PropertyTransfer Transfer, OwnershipChange Change) RecordCompleted(
+      TransferId id,
+      BusinessCode transferNo,
+      TransferType transferType,
+      DateOnly transferDate,
+      string? transferReferenceNo,
+      decimal? considerationAmount,
+      string? relationship,
+      string? remarks,
+      IReadOnlyCollection<PartyInput> parties,
+      string approvedBy,
+      DateOnly? approvalDate,
+      string? approvalOrderRef,
+      string completedBy,
+      OwnershipRecord record,
+      TenureType newTenureType)
   {
-    if (TransferStatus != TransferStatus.Initiated)
-      throw new DomainException($"Only an initiated transfer can be approved; this one is {TransferStatus}.");
+    ArgumentNullException.ThrowIfNull(record);
 
-    if (approvalDate < TransferDate)
-      throw new DomainException("A transfer cannot be approved before its transfer date.");
+    if (transferDate > record.Today)
+      throw new DomainException(
+        $"A transfer that already happened cannot be dated in the future ({transferDate:yyyy-MM-dd}); today is {record.Today:yyyy-MM-dd}. Initiate it instead.");
 
-    ApprovedBy = Guard.RequiredText(approvedBy, 150, "Approved by");
-    ApprovalDate = approvalDate;
-    TransferStatus = TransferStatus.Approved;
+    var transfer = Initiate(id, transferNo, transferType, transferDate, transferReferenceNo, considerationAmount, relationship, remarks, parties, record);
+    var change = transfer.Approve(approvedBy, approvalDate ?? transferDate, approvalOrderRef, completedBy, record, newTenureType);
+    return (transfer, change);
   }
 
-  public void Cancel(string? reason)
+  /// Approves AND completes the transfer in one step: the rules are checked again against the record as it
+  /// stands now, then the givers' rows are closed and the resulting rows opened.
+  public OwnershipChange Approve(
+      string approvedBy,
+      DateOnly approvalDate,
+      string? approvalOrderRef,
+      string completedBy,
+      OwnershipRecord record,
+      TenureType newTenureType)
   {
-    if (TransferStatus is TransferStatus.Completed or TransferStatus.Cancelled)
-      throw new DomainException($"A {TransferStatus.ToString().ToLowerInvariant()} transfer cannot be cancelled.");
+    ArgumentNullException.ThrowIfNull(record);
 
-    TransferStatus = TransferStatus.Cancelled;
-    Remarks = Guard.Text(reason, 4000, "Reason") ?? Remarks;
+    switch (TransferStatus)
+    {
+      case TransferStatus.Initiated:
+        break;
+      case TransferStatus.Approved:
+        throw new DomainException($"{TransferNo.Value} was approved earlier but not completed; complete it to register the change.");
+      default:
+        throw new DomainException($"{TransferNo.Value} is {Describe(TransferStatus)} and can no longer be approved.");
+    }
+
+    EnsureDue(record.Today);
+
+    if (approvalDate > record.Today)
+      throw new DomainException($"The approval date cannot be in the future ({approvalDate:yyyy-MM-dd}); today is {record.Today:yyyy-MM-dd}.");
+
+    if (approvalDate < TransferDate)
+      throw new DomainException($"A transfer cannot be approved before its transfer date ({TransferDate:yyyy-MM-dd}).");
+
+    var approver = Guard.RequiredText(approvedBy, 150, "Approved by");
+    var orderRef = Guard.Text(approvalOrderRef, 100, "Approval order ref");
+
+    var change = Apply(record, newTenureType, completedBy);
+
+    ApprovedBy = approver;
+    ApprovalDate = approvalDate;
+    ApprovalOrderRef = orderRef;
+    return change;
+  }
+
+  /// Registers a transfer approved before approval and completion became one step (status APPROVED).
+  public OwnershipChange Complete(string completedBy, string? approvalOrderRef, OwnershipRecord record, TenureType newTenureType)
+  {
+    ArgumentNullException.ThrowIfNull(record);
+
+    switch (TransferStatus)
+    {
+      case TransferStatus.Approved:
+        break;
+      case TransferStatus.Initiated:
+        throw new DomainException($"{TransferNo.Value} is waiting for approval; approving it registers the change.");
+      default:
+        throw new DomainException($"{TransferNo.Value} is {Describe(TransferStatus)} and cannot be completed.");
+    }
+
+    EnsureDue(record.Today);
+
+    var orderRef = Guard.Text(approvalOrderRef, 100, "Approval order ref");
+    var change = Apply(record, newTenureType, completedBy);
+
+    ApprovalOrderRef = orderRef ?? ApprovalOrderRef;
+    return change;
+  }
+
+  /// The approving officer refuses the transfer. Nothing changes hands.
+  public void Reject(Property property, string reason, string rejectedBy, DateOnly today)
+  {
+    EnsureOn(property);
+
+    if (TransferStatus != TransferStatus.Initiated)
+      throw new DomainException($"Only a transfer waiting for approval can be rejected; {TransferNo.Value} is {Describe(TransferStatus)}.");
+
+    Close(TransferStatus.Rejected, reason, "Rejection reason", rejectedBy, today);
+  }
+
+  /// Withdraws a transfer that has not changed ownership yet. A completed transfer is history: reverse it
+  /// with a new transfer.
+  public void Cancel(Property property, string reason, string cancelledBy, DateOnly today)
+  {
+    EnsureOn(property);
+
+    if (TransferStatus == TransferStatus.Completed)
+      throw new DomainException($"{TransferNo.Value} is completed and cannot be cancelled; record a new transfer to reverse it.");
+
+    if (!IsPending)
+      throw new DomainException($"{TransferNo.Value} is already {Describe(TransferStatus)}.");
+
+    Close(TransferStatus.Cancelled, reason, "Cancellation reason", cancelledBy, today);
   }
 
   public sealed record OwnershipChange(IReadOnlyList<PropertyOwnership> Closed, IReadOnlyList<PropertyOwnership> Opened);
 
   /// Applies the transfer to the property's current ownership.
   ///
-  /// For every party the net change is worked out (received − given). Their current row(s) are closed on
-  /// the transfer date and, if they still hold something, one new row with the resulting share is opened.
+  /// For every party the net change is worked out (received − given):
+  /// - a net giver's rows are closed on the transfer date; if they keep part of the share, a remainder row is
+  ///   opened that keeps the closed row's acquisition details ("Remainder after TRF-…");
+  /// - a net receiver's free rows (active and not charged) are closed and one row with the resulting share is
+  ///   opened, pointing at this transfer. A disputed or charged row of a receiver is left as it is, so the
+  ///   dispute or the charge stays on the share it concerns.
   /// Parties who owned nothing before get newTenureType; existing owners keep their tenure.
-  public OwnershipChange Complete(IReadOnlyCollection<PropertyOwnership> currentOwnerships, TenureType newTenureType)
+  private OwnershipChange Apply(OwnershipRecord record, TenureType newTenureType, string completedBy)
   {
-    ArgumentNullException.ThrowIfNull(currentOwnerships);
     ArgumentNullException.ThrowIfNull(newTenureType);
 
-    if (TransferStatus != TransferStatus.Approved)
-      throw new DomainException($"Only an approved transfer can be completed; this one is {TransferStatus}.");
-
-    // ownership may have changed since the transfer was initiated
-    ValidateParties(currentOwnerships);
+    Validate(record, atApproval: true);
+    var completer = Guard.RequiredText(completedBy, 150, "Completed by");
 
     var given = Given();
-    var received = _parties.Where(p => p.PartyRole == TransferPartyRole.Transferee)
-        .GroupBy(p => p.OwnerId).ToDictionary(g => g.Key, g => g.Sum(p => p.SharePct));
+    var received = Received();
+
+    // a newcomer gets the default tenure: check it before any row is touched
+    if (received.Keys.Any(id => !record.CurrentRowsOf(id).Any()))
+      newTenureType.EnsureActive();
 
     var closed = new List<PropertyOwnership>();
     var opened = new List<PropertyOwnership>();
@@ -129,15 +247,13 @@ public class PropertyTransfer : Aggregate<TransferId>
       if (delta == 0)
         continue;
 
-      var rows = currentOwnerships.Where(o => o.OwnerId == ownerId && o.IsCurrent).ToList();
-      var newShare = rows.Sum(r => r.OwnershipSharePct) + delta;
-
-      if (rows.Any(r => r.EffectiveFrom == TransferDate))
-        throw new DomainException(
-          $"An ownership row for this owner already starts on {TransferDate:yyyy-MM-dd}; record the transfer on a later date.");
-
-      if (!newTenureType.IsActive && rows.Count == 0)
-        newTenureType.EnsureActive();
+      var current = record.CurrentRowsOf(ownerId).ToList();
+      var rows = delta < 0
+        ? current
+        : current.Where(r => r.IsTransferable && record.ChargeOn(r) is null).ToList();
+      var held = rows.Sum(r => r.OwnershipSharePct);
+      var newShare = held + delta;
+      var basis = rows.OrderBy(r => r.EffectiveFrom).FirstOrDefault();
 
       foreach (var row in rows)
       {
@@ -145,25 +261,51 @@ public class PropertyTransfer : Aggregate<TransferId>
         closed.Add(row);
       }
 
-      if (newShare > 0)
+      if (newShare <= 0)
+        continue;
+
+      if (delta < 0 && basis is not null)
+      {
         opened.Add(PropertyOwnership.New(
-          OwnershipId.New(), PropertyId, ownerId,
-          rows.FirstOrDefault()?.TenureTypeId ?? newTenureType.Id,
-          newShare, TransferDate, TransferTypeId, Id, TransferReferenceNo,
-          remarks: $"Created by transfer {TransferNo.Value}."));
+          OwnershipId.New(), PropertyId, ownerId, basis.TenureTypeId, newShare, TransferDate,
+          basis.AcquisitionTransferTypeId, basis.AcquiredViaTransferId, basis.AcquiredViaAllotmentId, basis.ReferenceNo,
+          remarks: $"Remainder after {TransferNo.Value}."));
+        continue;
+      }
+
+      var tenureId = basis?.TenureTypeId ?? current.FirstOrDefault()?.TenureTypeId;
+
+      opened.Add(PropertyOwnership.New(
+        OwnershipId.New(), PropertyId, ownerId, tenureId ?? newTenureType.Id, newShare, TransferDate,
+        TransferTypeId, Id, acquiredViaAllotmentId: null, TransferReferenceNo,
+        remarks: held > 0
+          ? $"Created by transfer {TransferNo.Value}: {held:0.####}% already held + {delta:0.####}% received."
+          : $"Created by transfer {TransferNo.Value}."));
     }
 
     TransferStatus = TransferStatus.Completed;
+    CompletedOn = record.Today;
+    CompletedBy = completer;
     return new OwnershipChange(closed, opened);
   }
 
-  private Dictionary<OwnerId, decimal> Given() =>
-      _parties.Where(p => p.PartyRole == TransferPartyRole.Transferor)
-        .GroupBy(p => p.OwnerId).ToDictionary(g => g.Key, g => g.Sum(p => p.SharePct));
+  private Dictionary<OwnerId, decimal> Given() => Side(TransferPartyRole.Transferor);
 
-  private void ValidateParties(IReadOnlyCollection<PropertyOwnership> currentOwnerships)
+  private Dictionary<OwnerId, decimal> Received() => Side(TransferPartyRole.Transferee);
+
+  private Dictionary<OwnerId, decimal> Side(TransferPartyRole role) =>
+      _parties.Where(p => p.PartyRole == role).GroupBy(p => p.OwnerId).ToDictionary(g => g.Key, g => g.Sum(p => p.SharePct));
+
+  /// Every rule a transfer must meet, at initiation and again at approval (the record may have changed since).
+  private void Validate(OwnershipRecord record, bool atApproval)
   {
-    ArgumentNullException.ThrowIfNull(currentOwnerships);
+    ArgumentNullException.ThrowIfNull(record);
+
+    if (record.Property.Id != PropertyId)
+      throw new DomainException("The ownership record belongs to another property.");
+
+    record.Property.EnsureActive();
+    var code = record.Property.PropertyCode.Value;
 
     if (_parties.All(p => p.PartyRole != TransferPartyRole.Transferor) || _parties.All(p => p.PartyRole != TransferPartyRole.Transferee))
       throw new DomainException("A transfer needs at least one transferor and one transferee.");
@@ -172,26 +314,98 @@ public class PropertyTransfer : Aggregate<TransferId>
       throw new DomainException("An owner can appear only once on each side of a transfer.");
 
     var given = Given();
-
-    foreach (var (ownerId, share) in given)
-    {
-      var held = currentOwnerships.Where(o => o.PropertyId == PropertyId && o.OwnerId == ownerId && o.IsCurrent)
-          .Sum(o => o.OwnershipSharePct);
-
-      if (held == 0)
-        throw new DomainException("Every transferor must be a current owner of the property.");
-
-      if (share > held)
-        throw new DomainException($"A transferor cannot give {share:0.####}% while holding {held:0.####}%.");
-    }
+    var received = Received();
 
     var totalGiven = given.Values.Sum();
-    var totalReceived = _parties.Where(p => p.PartyRole == TransferPartyRole.Transferee).Sum(p => p.SharePct);
-
+    var totalReceived = received.Values.Sum();
     if (totalGiven != totalReceived)
       throw new DomainException(
         $"Transferors give {totalGiven:0.####}% but transferees receive {totalReceived:0.####}%; the two sides must match.");
+
+    var changing = given.Keys.Union(received.Keys)
+        .Where(id => received.GetValueOrDefault(id) - given.GetValueOrDefault(id) != 0)
+        .ToList();
+
+    if (changing.Count == 0)
+      throw new DomainException("This transfer moves no share.");
+
+    // every party is a registered, active owner record
+    foreach (var ownerId in given.Keys.Union(received.Keys))
+    {
+      var owner = record.Owner(ownerId)
+        ?? throw new DomainException("A party of this transfer is not a registered owner.");
+
+      if (!owner.IsActive)
+        throw new DomainException($"{owner.OwnerName.Value} ({owner.OwnerCode.Value}) is inactive; reactivate the owner record before using it in a transfer.");
+    }
+
+    // a charge on the whole property stops every transfer
+    if (record.PropertyCharge is { } propertyCharge)
+      throw new DomainException($"{code} is under {propertyCharge.Describe()} on the whole property; release it before any transfer.");
+
+    foreach (var (ownerId, share) in given)
+    {
+      var name = record.NameOf(ownerId);
+      var current = record.CurrentRowsOf(ownerId).ToList();
+
+      if (current.Count == 0)
+        throw new DomainException($"{name} is not a current owner of {code}; only a current owner can give a share.");
+
+      var disputed = current.Where(r => !r.IsTransferable).Sum(r => r.OwnershipSharePct);
+      if (disputed > 0)
+        throw new DomainException($"{name}'s {disputed:0.####}% is disputed; resolve the dispute before transferring it.");
+
+      var held = current.Sum(r => r.OwnershipSharePct);
+      if (share > held)
+        throw new DomainException(atApproval
+          ? $"{name} now holds {held:0.####}% of {code}, not the {share:0.####}% this transfer gives; cancel {TransferNo.Value} and initiate a new transfer."
+          : $"{name} cannot give {share:0.####}% while holding {held:0.####}%.");
+
+      var others = record.PendingTransfersGivenBy(ownerId, except: Id).ToList();
+      var committed = others.Sum(t => t._parties.Where(p => p.OwnerId == ownerId && p.PartyRole == TransferPartyRole.Transferor).Sum(p => p.SharePct));
+      if (committed + share > held)
+        throw new DomainException(
+          $"{name} holds {held:0.####}%, of which {committed:0.####}% is already being transferred in {string.Join(", ", others.Select(t => t.TransferNo.Value))}; cancel or approve that first.");
+
+      if (current.Select(record.ChargeOn).FirstOrDefault(c => c is not null) is { } charge)
+        throw new DomainException($"{name}'s share is under {charge.Describe()}; release it before the share is transferred.");
+    }
+
+    // the new rows start on the transfer date: it must come after every party's earlier entries
+    foreach (var ownerId in changing)
+      OwnershipHistory.EnsureCanStart(record.NameOf(ownerId), record.RowsOf(ownerId), TransferDate, "the transfer");
   }
+
+  private void EnsureDue(DateOnly today)
+  {
+    if (TransferDate > today)
+      throw new DomainException($"{TransferNo.Value} can be approved on or after {TransferDate:yyyy-MM-dd}.");
+  }
+
+  private void EnsureOn(Property property)
+  {
+    ArgumentNullException.ThrowIfNull(property);
+
+    if (property.Id != PropertyId)
+      throw new DomainException("The transfer belongs to another property.");
+
+    property.EnsureActive();
+  }
+
+  private void Close(TransferStatus status, string reason, string reasonField, string closedBy, DateOnly today)
+  {
+    ClosingReason = Guard.RequiredText(reason, 4000, reasonField);
+    ClosedBy = Guard.RequiredText(closedBy, 150, "Closed by");
+    ClosedOn = today;
+    TransferStatus = status;
+  }
+
+  private static string Describe(TransferStatus status) => status switch
+  {
+    TransferStatus.Initiated => "waiting for approval",
+    TransferStatus.Approved => "approved but not completed",
+    _ => status.ToString().ToLowerInvariant()
+  };
 }
 
 /// One person on one side of a transfer. Supports multi-party transfers such as

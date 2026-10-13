@@ -10,15 +10,17 @@ public static class Mappings
     (x as MeasurementUnit)?.FactorToBase,
     (x as MeasurementUnit)?.IsBase,
     (x as DocumentType)?.StorageFolder,
-    (x as TransferType)?.RequiresRelationship);
+    (x as TransferType)?.RequiresRelationship,
+    (x as DocumentType)?.AppliesTo);
 
   public static CodeSequenceDto ToDto(this CodeSequence x) => new(
     x.Key.Value, x.Prefix, x.Separator, x.MinimumDigits, x.NextNumber, x.Pattern, x.NextCode.Value);
 
-  public static PropertyListItemDto ToListItemDto(this Property x, MasterRefs refs, decimal? totalAreaSqFt, int currentOwnerCount) => new(
+  public static PropertyListItemDto ToListItemDto(this Property x, MasterRefs refs, decimal? totalAreaSqFt, OwnerSummaryDto? owners, string? allotteeName) => new(
     x.Id.Value, x.PropertyCode.Value, x.PropertyName.Value,
     refs[x.TownId], refs[x.PropertyTypeId], refs[x.PropertyStatusId], refs[x.PropertyClassificationId],
-    x.AddressLine, x.KhasraSurveyNo, totalAreaSqFt, currentOwnerCount, x.IsActive, x.CreatedAt);
+    x.AddressLine, x.KhasraSurveyNo, totalAreaSqFt, owners?.HolderCount ?? 0, owners, owners is null ? allotteeName : null,
+    x.IsActive, x.CreatedAt);
 
   public static PropertyDto ToDto(this Property x, MasterRefs refs, AreaSummaryDto area, IReadOnlyList<OwnershipDto> currentOwners) => new(
     x.Id.Value, x.PropertyCode.Value, x.PropertyName.Value,
@@ -38,30 +40,35 @@ public static class Mappings
     x.ApplicationDate, x.RegularizationDate, x.OrderReferenceNo, x.ApprovedBy, x.EffectiveFrom, x.EffectiveTo,
     x.CountsTowardArea(today), x.Remarks, x.IsActive);
 
-  public static OwnerListItemDto ToListItemDto(this PropertyOwner x, MasterRefs refs) => new(
+  public static OwnerListItemDto ToListItemDto(this PropertyOwner x, MasterRefs refs, int currentHoldingCount) => new(
     x.Id.Value, x.OwnerCode.Value, refs[x.OwnerTypeId], x.OwnerName.Value, x.FatherHusbandName, x.Cnic?.Value, x.Ntn,
-    x.Contacts.FirstOrDefault(c => c.IsPrimary)?.ContactNumber, x.IsActive);
+    x.Contacts.FirstOrDefault(c => c.IsPrimary)?.ContactNumber, currentHoldingCount, x.IsActive);
 
   public static OwnerDto ToDto(this PropertyOwner x, MasterRefs refs) => new(
     x.Id.Value, x.OwnerCode.Value, refs[x.OwnerTypeId], x.OwnerName.Value, x.FatherHusbandName, x.Cnic?.Value, x.Ntn,
-    x.RegistrationNo, x.Email?.Value, x.CnicDocumentId?.Value, x.Remarks, x.IsActive,
+    x.Email?.Value, x.CnicDocumentId?.Value, x.Remarks, x.IsActive,
     x.Contacts.OrderByDescending(c => c.IsActive).ThenByDescending(c => c.IsPrimary)
       .Select(c => new OwnerContactDto(c.Id.Value, refs[c.ContactTypeId], c.ContactNumber, c.IsPrimary, c.IsActive, c.Remarks)).ToList(),
     x.Addresses.OrderByDescending(a => a.IsActive).ThenByDescending(a => a.IsPrimary)
       .Select(a => new OwnerAddressDto(a.Id.Value, a.AddressType, a.FullAddress, a.CityTown, a.District, a.Province, a.Country, a.PostalCode, a.IsPrimary, a.IsActive)).ToList(),
     x.CreatedAt, x.CreatedBy);
 
-  public static OwnershipDto ToDto(this PropertyOwnership x, MasterRefs refs, IReadOnlyDictionary<PropertyId, PropertyRef> properties, IReadOnlyDictionary<OwnerId, OwnerRef> owners) => new(
+  /// Links: what the read side worked out for the row (holding since, transfer and allotment codes).
+  public static OwnershipDto ToDto(
+      this PropertyOwnership x, MasterRefs refs, IReadOnlyDictionary<PropertyId, PropertyRef> properties,
+      IReadOnlyDictionary<OwnerId, OwnerRef> owners, OwnershipLinks links) => new(
     x.Id.Value, properties.GetValueOrDefault(x.PropertyId), owners.GetValueOrDefault(x.OwnerId), refs[x.TenureTypeId],
     x.OwnershipSharePct, x.EffectiveFrom, x.EffectiveTo, x.OwnershipStatus,
     x.AcquisitionTransferTypeId is null ? null : refs[x.AcquisitionTransferTypeId],
-    x.AcquiredViaTransferId?.Value, x.ReferenceNo, x.Remarks);
+    x.AcquiredViaTransferId?.Value, x.ReferenceNo, x.Remarks,
+    links.HoldingSince, links.TransferNo, x.AcquiredViaAllotmentId?.Value, links.AllotmentNo);
 
   public static TransferDto ToDto(this PropertyTransfer x, MasterRefs refs, PropertyRef? property, IReadOnlyDictionary<OwnerId, OwnerRef> owners) => new(
     x.Id.Value, property, x.TransferNo.Value, refs[x.TransferTypeId], x.TransferDate, x.TransferReferenceNo,
     x.ShareTransferredPct, x.ConsiderationAmount, x.Relationship, x.ApprovedBy, x.ApprovalDate, x.TransferStatus, x.Remarks,
     x.Parties.OrderBy(p => p.PartyRole).Select(p => new TransferPartyDto(owners.GetValueOrDefault(p.OwnerId), p.PartyRole, p.SharePct)).ToList(),
-    x.CreatedAt, x.CreatedBy);
+    x.CreatedAt, x.CreatedBy,
+    x.ApprovalOrderRef, x.CompletedOn, x.CompletedBy, x.ClosedOn, x.ClosedBy, x.ClosingReason);
 
   public static EncumbranceDto ToDto(this PropertyEncumbrance x, MasterRefs refs, IReadOnlyDictionary<OwnerId, OwnerRef> owners) => new(
     x.Id.Value, refs[x.EncumbranceTypeId], x.OwnershipId?.Value, x.HolderName,
@@ -69,7 +76,7 @@ public static class Mappings
     x.ReferenceNo, x.Amount, x.StartDate, x.EndDate, x.ReleaseDate, x.ReleaseReferenceNo, x.Status, x.Remarks);
 
   public static DocumentDto ToDto(this PropertyDocument x, MasterRefs refs, bool isLatest) => new(
-    x.Id.Value, x.PropertyId.Value, refs[x.DocumentTypeId], x.EntityType, x.EntityId, x.Title, x.OriginalFileName,
+    x.Id.Value, x.PropertyId?.Value, refs[x.DocumentTypeId], x.EntityType, x.EntityId, x.Title, x.OriginalFileName,
     x.MimeType, x.FileSizeBytes, x.ChecksumSha256, x.DocumentDate, x.ReferenceNo, x.VersionNo,
     x.SupersedesDocumentId?.Value, isLatest, x.Description, x.IsConfidential, x.IsActive, x.UploadedAt, x.UploadedBy);
 

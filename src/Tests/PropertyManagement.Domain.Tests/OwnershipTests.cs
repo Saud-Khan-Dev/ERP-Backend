@@ -1,16 +1,12 @@
 using static Fixture;
+using static OwnershipFixture;
 
 public class OwnershipTests
 {
-  private static readonly TenureType Owned = Master<TenureType>("OWNED");
-
-  private static PropertyOwnership Own(Property property, PropertyOwner owner, decimal share, string from = "2020-01-01") =>
-      PropertyOwnership.Register(OwnershipId.New(), property, owner, Owned, share, D(from), null, null, null);
-
   [Fact]
   public void Rule1_active_shares_may_not_exceed_100()
   {
-    var property = Property();
+    var (property, _) = NewPlot();
     var current = new[] { Own(property, Owner(), 60) };
 
     Assert.Throws<DomainException>(() => OwnershipShares.EnsureRoomFor(current, 50));
@@ -18,26 +14,41 @@ public class OwnershipTests
   }
 
   [Fact]
-  public void Disputed_and_ended_shares_do_not_count()
+  public void Rule1_a_disputed_share_is_still_held_and_counts_toward_100()
   {
-    var property = Property();
+    var (property, _) = NewPlot();
     var disputed = Own(property, Owner(), 60);
-    disputed.MarkDisputed(null);
+    disputed.MarkDisputed(property, "Heirs contest the will.");
 
-    Assert.Equal(0, OwnershipShares.Total(new[] { disputed }));
+    Assert.True(disputed.IsCurrent);
+    Assert.False(disputed.IsTransferable);
+    Assert.Equal(60, OwnershipShares.Total(new[] { disputed }));
+    Assert.Throws<DomainException>(() => OwnershipShares.EnsureRoomFor(new[] { disputed }, 50));
+  }
+
+  [Fact]
+  public void Ended_shares_do_not_count()
+  {
+    var (property, _) = NewPlot();
+    var ended = Own(property, Owner(), 60);
+    ended.End(D("2024-01-01"));
+
+    Assert.Equal(0, OwnershipShares.Total(new[] { ended }));
   }
 
   [Fact]
   public void Share_must_be_above_zero_and_at_most_100()
   {
-    Assert.Throws<DomainException>(() => Own(Property(), Owner(), 0));
-    Assert.Throws<DomainException>(() => Own(Property(), Owner(), 100.5m));
+    var (property, _) = NewPlot();
+    Assert.Throws<DomainException>(() => Own(property, Owner(), 0));
+    Assert.Throws<DomainException>(() => Own(property, Owner(), 100.5m));
   }
 
   [Fact]
   public void Ownership_cannot_end_before_it_started()
   {
-    var ownership = Own(Property(), Owner(), 100, "2024-01-01");
+    var (property, _) = NewPlot();
+    var ownership = Own(property, Owner(), 100, "2024-01-01");
 
     Assert.Throws<DomainException>(() => ownership.End(D("2023-12-31")));
   }
@@ -45,10 +56,9 @@ public class OwnershipTests
   [Fact]
   public void Allotment_confirmation_links_the_ownership_to_the_allotment()
   {
-    var property = Property();
+    var (property, classification) = NewPlot();
     var allottee = Owner("Allottee");
-    var allotment = PropertyAllotment.Allot(AllotmentId.New(), property, allottee, BusinessCode.Of("ALT-00001"),
-      Master<AllotmentType>("PLOT"), Master<AllotmentStatus>("ACTIVE"), D("2026-01-01"), null, null, null, null, null);
+    var allotment = Allot(property, classification, allottee, "2026-01-01");
 
     var ownership = PropertyOwnership.FromAllotment(OwnershipId.New(), property, allotment, allottee, Owned, 100, D("2026-02-01"), null, null);
 
@@ -60,32 +70,21 @@ public class OwnershipTests
 
 public class TransferTests
 {
-  private static readonly TenureType Owned = Master<TenureType>("OWNED");
-  private static readonly TransferType Sale = Master<TransferType>("SALE");
   private static readonly TransferType Gift = Master<TransferType>("GIFT", new MasterExtras(RequiresRelationship: true));
-
-  private static PropertyTransfer.PartyInput Party(PropertyOwner owner, TransferPartyRole role, decimal share) => new(owner.Id, role, share);
 
   [Fact]
   public void Guide_example_B_plus_C_to_C_plus_D_moves_net_shares_and_keeps_history()
   {
-    var property = Property();
+    var (property, _) = NewPlot();
     PropertyOwner b = Owner("B"), c = Owner("C"), d = Owner("D");
-    var ownB = PropertyOwnership.Register(OwnershipId.New(), property, b, Owned, 60, D("2020-01-01"), null, null, null);
-    var ownC = PropertyOwnership.Register(OwnershipId.New(), property, c, Owned, 40, D("2020-01-01"), null, null, null);
-    var current = new[] { ownB, ownC };
+    var ownB = Own(property, b, 60);
+    var ownC = Own(property, c, 40);
+    var record = Record(property, new[] { ownB, ownC }, new[] { b, c, d });
 
-    var transfer = PropertyTransfer.Initiate(TransferId.New(), property, BusinessCode.Of("TRF-00001"), Sale, D("2026-07-01"),
-      "MUT-1", null, null, null,
-      new[] { Party(b, TransferPartyRole.Transferor, 60), Party(c, TransferPartyRole.Transferor, 20),
-              Party(c, TransferPartyRole.Transferee, 30), Party(d, TransferPartyRole.Transferee, 50) },
-      current);
-
+    var transfer = Initiate(record, "2026-07-01", "TRF-00001", Gives(b, 60), Gives(c, 20), Gets(c, 30), Gets(d, 50));
     Assert.Equal(80, transfer.ShareTransferredPct);
-    Assert.Throws<DomainException>(() => transfer.Complete(current, Owned)); // not approved yet
 
-    transfer.Approve("officer", D("2026-07-02"));
-    var change = transfer.Complete(current, Owned);
+    var change = Approve(transfer, record, "2026-07-02");
 
     Assert.Equal(2, change.Closed.Count);
     Assert.All(change.Closed, o => Assert.Equal(OwnershipStatus.Ended, o.OwnershipStatus));
@@ -99,13 +98,12 @@ public class TransferTests
   [Fact]
   public void Gift_needs_the_relationship()
   {
-    var property = Property();
-    var b = Owner("B");
-    var current = new[] { PropertyOwnership.Register(OwnershipId.New(), property, b, Owned, 100, D("2020-01-01"), null, null, null) };
+    var (property, _) = NewPlot();
+    PropertyOwner b = Owner("B"), son = Owner("Son");
+    var record = Record(property, new[] { Own(property, b, 100) }, new[] { b, son });
 
-    Assert.Throws<DomainException>(() => PropertyTransfer.Initiate(TransferId.New(), property, BusinessCode.Of("TRF-00001"), Gift,
-      D("2026-01-01"), null, null, null, null,
-      new[] { Party(b, TransferPartyRole.Transferor, 100), Party(Owner("Son"), TransferPartyRole.Transferee, 100) }, current));
+    Assert.Throws<DomainException>(() => PropertyTransfer.Initiate(TransferId.New(), BusinessCode.Of("TRF-00001"), Gift,
+      D("2026-01-01"), null, null, null, null, new[] { Gives(b, 100), Gets(son, 100) }, record));
   }
 
   [Theory]
@@ -113,22 +111,22 @@ public class TransferTests
   [InlineData(60, 50)] // sides do not match
   public void Invalid_share_movements_are_refused(decimal given, decimal received)
   {
-    var property = Property();
-    var b = Owner("B");
-    var current = new[] { PropertyOwnership.Register(OwnershipId.New(), property, b, Owned, 60, D("2020-01-01"), null, null, null) };
+    var (property, _) = NewPlot();
+    PropertyOwner b = Owner("B"), d = Owner("D");
+    var record = Record(property, new[] { Own(property, b, 60) }, new[] { b, d });
 
-    Assert.Throws<DomainException>(() => PropertyTransfer.Initiate(TransferId.New(), property, BusinessCode.Of("TRF-00001"), Sale,
-      D("2026-01-01"), null, null, null, null,
-      new[] { Party(b, TransferPartyRole.Transferor, given), Party(Owner("D"), TransferPartyRole.Transferee, received) }, current));
+    Assert.Throws<DomainException>(() => Initiate(record, "2026-01-01", "TRF-00001", Gives(b, given), Gets(d, received)));
   }
 
   [Fact]
   public void A_non_owner_cannot_transfer()
   {
-    Assert.Throws<DomainException>(() => PropertyTransfer.Initiate(TransferId.New(), Property(), BusinessCode.Of("TRF-00001"), Sale,
-      D("2026-01-01"), null, null, null, null,
-      new[] { Party(Owner("Stranger"), TransferPartyRole.Transferor, 10), Party(Owner("D"), TransferPartyRole.Transferee, 10) },
-      Array.Empty<PropertyOwnership>()));
+    var (property, _) = NewPlot();
+    PropertyOwner stranger = Owner("Stranger"), d = Owner("D");
+    var record = Record(property, Array.Empty<PropertyOwnership>(), new[] { stranger, d });
+
+    var message = Message(() => Initiate(record, "2026-01-01", "TRF-00001", Gives(stranger, 10), Gets(d, 10)));
+    Assert.Contains("not a current owner", message);
   }
 }
 

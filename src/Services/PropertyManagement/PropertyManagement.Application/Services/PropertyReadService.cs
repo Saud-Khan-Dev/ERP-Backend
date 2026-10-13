@@ -60,17 +60,19 @@ public class PropertyReadService(IApplicationDbContext context, MasterLookup mas
       .ToDictionary(g => g.Key, g => g.OrderByDescending(m => m.CreatedAt).First().TotalAreaBase);
   }
 
-  /// Current (ACTIVE) ownership rows per property.
+  /// Current ownership rows per property: ACTIVE + DISPUTED (a disputed share is still held).
   public async Task<Dictionary<PropertyId, List<PropertyOwnership>>> CurrentOwnershipsAsync(IReadOnlyCollection<PropertyId> propertyIds, CancellationToken cancellationToken)
   {
     var ids = propertyIds.Distinct().ToList();
     return (await context.Ownerships.AsNoTracking()
-        .Where(o => ids.Contains(o.PropertyId) && o.OwnershipStatus == OwnershipStatus.Active)
+        .Where(o => ids.Contains(o.PropertyId) && (o.OwnershipStatus == OwnershipStatus.Active || o.OwnershipStatus == OwnershipStatus.Disputed))
         .ToListAsync(cancellationToken))
       .GroupBy(o => o.PropertyId)
       .ToDictionary(g => g.Key, g => g.OrderByDescending(o => o.OwnershipSharePct).ToList());
   }
 
+  /// Ownership rows as DTOs, with each row's HoldingSince (read from the same owner's earlier rows on the
+  /// property) and the codes of the transfer / allotment it came from.
   public async Task<List<OwnershipDto>> OwnershipDtosAsync(IReadOnlyCollection<PropertyOwnership> ownerships, CancellationToken cancellationToken)
   {
     var refs = await masters.Refs()
@@ -81,7 +83,31 @@ public class PropertyReadService(IApplicationDbContext context, MasterLookup mas
     var properties = await PropertyRefsAsync(ownerships.Select(o => o.PropertyId), cancellationToken);
     var owners = await OwnerRefsAsync(ownerships.Select(o => o.OwnerId), cancellationToken);
 
-    return ownerships.Select(o => o.ToDto(refs, properties, owners)).ToList();
+    // every row of the same owners on the same properties, to walk each holding back to its start
+    var propertyIds = ownerships.Select(o => o.PropertyId).Distinct().ToList();
+    var ownerIds = ownerships.Select(o => o.OwnerId).Distinct().ToList();
+    var history = (await context.Ownerships.AsNoTracking()
+        .Where(o => propertyIds.Contains(o.PropertyId) && ownerIds.Contains(o.OwnerId))
+        .ToListAsync(cancellationToken))
+      .ToLookup(o => (o.PropertyId, o.OwnerId));
+
+    var transferIds = ownerships.Where(o => o.AcquiredViaTransferId != null).Select(o => o.AcquiredViaTransferId!).Distinct().ToList();
+    var transferNos = transferIds.Count == 0
+      ? new Dictionary<TransferId, string>()
+      : (await context.Transfers.AsNoTracking().Where(t => transferIds.Contains(t.Id)).Select(t => new { t.Id, t.TransferNo }).ToListAsync(cancellationToken))
+          .ToDictionary(t => t.Id, t => t.TransferNo.Value);
+
+    var allotmentIds = ownerships.Where(o => o.AcquiredViaAllotmentId != null).Select(o => o.AcquiredViaAllotmentId!).Distinct().ToList();
+    var allotmentNos = allotmentIds.Count == 0
+      ? new Dictionary<AllotmentId, string>()
+      : (await context.Allotments.AsNoTracking().Where(a => allotmentIds.Contains(a.Id)).Select(a => new { a.Id, a.AllotmentNo }).ToListAsync(cancellationToken))
+          .ToDictionary(a => a.Id, a => a.AllotmentNo.Value);
+
+    return ownerships.Select(o => o.ToDto(refs, properties, owners, new OwnershipLinks(
+        OwnershipHistory.HoldingSince(o, history[(o.PropertyId, o.OwnerId)]),
+        o.AcquiredViaTransferId is null ? null : transferNos.GetValueOrDefault(o.AcquiredViaTransferId),
+        o.AcquiredViaAllotmentId is null ? null : allotmentNos.GetValueOrDefault(o.AcquiredViaAllotmentId))))
+      .ToList();
   }
 
   public async Task<Dictionary<OwnerId, OwnerRef>> OwnerRefsAsync(IEnumerable<OwnerId?> ids, CancellationToken cancellationToken)

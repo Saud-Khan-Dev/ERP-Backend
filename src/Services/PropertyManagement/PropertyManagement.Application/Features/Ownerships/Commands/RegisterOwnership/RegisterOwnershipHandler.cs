@@ -8,19 +8,12 @@ public class RegisterOwnershipHandler(IApplicationDbContext context, MasterLooku
     var owner = await context.LoadOwnerAsync(input.OwnerId, cancellationToken);
     var tenure = await masters.GetAsync<TenureType>(input.TenureTypeId, cancellationToken);
     var acquiredBy = await masters.GetOptionalAsync<TransferType>(input.AcquisitionTransferTypeId, cancellationToken);
+    var record = await context.LoadOwnershipRecordAsync(property, new[] { owner.Id }, cancellationToken);
 
-    var current = await context.CurrentOwnershipsAsync(property.Id, cancellationToken);
-
-    if (current.Any(o => o.OwnerId == owner.Id))
-      return Result<RegisterOwnershipCommandResult>.Failure(
-        $"{owner.OwnerName.Value} already holds a current share of {property.PropertyCode.Value}. Record a transfer to change it.");
-
-    // rule 1: active shares may total at most 100%
-    OwnershipShares.EnsureRoomFor(current, input.OwnershipSharePct);
-
-    var ownership = PropertyOwnership.Register(
-      OwnershipId.New(), property, owner, tenure, input.OwnershipSharePct, input.EffectiveFrom,
-      acquiredBy, input.ReferenceNo, input.Remarks);
+    // one current share per owner, rule 1 (at most 100% held), no future start, no overlap with the owner's history
+    var ownership = PropertyOwnership.AddOwner(
+      OwnershipId.New(), owner, tenure, input.OwnershipSharePct, input.EffectiveFrom,
+      acquiredBy, input.ReferenceNo, input.Remarks, record);
 
     await context.Ownerships.AddAsync(ownership, cancellationToken);
     await context.SaveChangesAsync(cancellationToken);

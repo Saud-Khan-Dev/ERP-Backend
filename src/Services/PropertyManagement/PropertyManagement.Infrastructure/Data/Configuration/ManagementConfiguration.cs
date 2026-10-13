@@ -27,6 +27,7 @@ public class PropertyAllotmentConfiguration : EntityConfiguration<PropertyAllotm
     builder.Property(x => x.CancellationReason);
     builder.Property(x => x.CancellationOrderRef).HasMaxLength(100);
     builder.Property(x => x.RestorationOrderRef).HasMaxLength(100);
+    builder.Property(x => x.SurrenderDate);
     builder.Property(x => x.IsActive).IsRequired().HasDefaultValue(true);
 
     builder.HasIndex(x => x.AllotmentNo).IsUnique();
@@ -148,6 +149,8 @@ public class AgreementViolationConfiguration : EntityConfiguration<AgreementViol
     builder.Property(x => x.LedToCancellation).IsRequired().HasDefaultValue(false);
     // OPEN (default), RECTIFIED, FINED, CANCELLED, APPEALED
     builder.Property(x => x.ViolationStatus).HasUpperSnakeEnum(20).IsRequired().HasDefaultValue(ViolationStatus.Open);
+    // the status before a pending appeal (s.32), restored when the appeal is dismissed or withdrawn
+    builder.Property(x => x.PreAppealStatus).HasNullableUpperSnakeEnum(20);
 
     builder.HasIndex(x => new { x.PropertyId, x.ViolationDate });
     builder.HasIndex(x => x.LeaseId);
@@ -183,14 +186,18 @@ public class PropertyAuctionConfiguration : EntityConfiguration<PropertyAuction,
     builder.Property(x => x.AuctionCommitteeRef).HasMaxLength(100);
     builder.Property(x => x.Venue).HasMaxLength(200);
     builder.Property(x => x.ReferenceNo).HasMaxLength(100);
+    // a re-auction points at the unsuccessful / cancelled auction it repeats
+    builder.Property(x => x.PreviousAuctionId).HasConversion(id => id!.Value, value => AuctionId.Of(value));
 
     builder.HasIndex(x => x.AuctionNo).IsUnique();
     builder.HasIndex(x => new { x.PropertyId, x.AuctionStatusId });
+    builder.HasIndex(x => x.PreviousAuctionId);
 
     builder.HasOne<Property>().WithMany().HasForeignKey(x => x.PropertyId).OnDelete(DeleteBehavior.Restrict);
     builder.HasOne<AuctionType>().WithMany().HasForeignKey(x => x.AuctionTypeId).OnDelete(DeleteBehavior.Restrict);
     builder.HasOne<AuctionStatus>().WithMany().HasForeignKey(x => x.AuctionStatusId).OnDelete(DeleteBehavior.Restrict);
     builder.HasOne<PropertyOwner>().WithMany().HasForeignKey(x => x.SuccessfulBidderOwnerId).OnDelete(DeleteBehavior.Restrict);
+    builder.HasOne<PropertyAuction>().WithMany().HasForeignKey(x => x.PreviousAuctionId).OnDelete(DeleteBehavior.Restrict);
 
     builder.HasMany(x => x.Bids).WithOne().HasForeignKey(b => b.AuctionId).OnDelete(DeleteBehavior.Restrict);
     builder.Navigation(x => x.Bids).UsePropertyAccessMode(PropertyAccessMode.Field);

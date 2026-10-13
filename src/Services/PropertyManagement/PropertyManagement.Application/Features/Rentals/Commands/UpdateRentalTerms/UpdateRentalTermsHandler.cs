@@ -4,6 +4,7 @@ public class UpdateRentalTermsHandler(IApplicationDbContext context, MasterLooku
   public async Task<Result<UpdateRentalTermsCommandResult>> Handle(UpdateRentalTermsCommand command, CancellationToken cancellationToken)
   {
     var rental = await context.LoadRentalAsync(command.Id, cancellationToken);
+    await context.EnsurePropertyActiveAsync(rental.PropertyId, cancellationToken);
     var current = await masters.GetAsync<RentalStatus>(rental.RentalStatusId.Value, cancellationToken);
 
     rental.UpdateTerms(current, await command.Terms.ToTermsAsync(masters, cancellationToken));

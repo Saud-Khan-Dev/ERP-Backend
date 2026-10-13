@@ -32,7 +32,14 @@ public class AddLitigationPartyCommandValidator : AbstractValidator<AddLitigatio
 
 public class RecordHearingCommandValidator : AbstractValidator<RecordHearingCommand>
 {
-  public RecordHearingCommandValidator() => RuleFor(x => x.AttendedBy).MaximumLength(150);
+  public RecordHearingCommandValidator()
+  {
+    RuleFor(x => x.AttendedBy).MaximumLength(LitigationHearing.AttendedByMaxLength);
+    RuleFor(x => x.Proceedings).MaximumLength(PropertyLitigation.TextMaxLength);
+    RuleFor(x => x.OrderPassed).MaximumLength(PropertyLitigation.TextMaxLength);
+    RuleFor(x => x.NextHearingDate).GreaterThan(x => x.HearingDate).When(x => x.NextHearingDate.HasValue)
+      .WithMessage("The next hearing must be after this one.");
+  }
 }
 
 public class DecideLitigationCommandValidator : AbstractValidator<DecideLitigationCommand>

@@ -19,6 +19,13 @@ public static class PropertyQueryParsing
         .Distinct()
         .ToList();
 
+  /// A repeatable text parameter: ?status=ACTIVE&status=DRAFT (a comma list ?status=ACTIVE,DRAFT works too).
+  public static List<string> ParseList(IEnumerable<string?>? values) =>
+      (values ?? [])
+        .SelectMany(v => (v ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .ToList();
+
   /// sortDir=asc|desc; null when not given, so each list keeps its own default direction.
   public static bool? ParseDescending(string? sortDir) => sortDir?.Trim().ToLowerInvariant() switch
   {
@@ -45,12 +52,17 @@ public sealed record PropertyFilterParameters(
   [FromQuery(Name = "ownerId")] Guid? OwnerId = null,
   [FromQuery(Name = "hasOpenEncroachment")] bool? HasOpenEncroachment = null,
   [FromQuery(Name = "hasOpenCase")] bool? HasOpenCase = null,
+  [FromQuery(Name = "steepSlope")] bool? SteepSlope = null,
   [FromQuery(Name = "sortBy")] string? SortBy = null,
   [FromQuery(Name = "sortDir")] string? SortDir = null)
 {
-  public GetPropertiesQuery ToQuery(PaginationRequest pagination) => new(
-    pagination, Search, TownId, PropertyTypeId, PropertyStatusId, PropertyClassificationId, IncludeInactive ?? false,
-    RegisteredFrom, RegisteredTo, AreaMin, AreaMax, OwnerId, HasOpenEncroachment, HasOpenCase,
-    PropertyQueryParsing.ParseEnum<PropertySort>(SortBy, "sortBy") ?? PropertySort.Code,
-    PropertyQueryParsing.ParseDescending(SortDir) ?? false);
+  /// sortBy=registered without a sortDir lists the newest first; every other sort is ascending by default.
+  public GetPropertiesQuery ToQuery(PaginationRequest pagination)
+  {
+    var sort = PropertyQueryParsing.ParseEnum<PropertySort>(SortBy, "sortBy") ?? PropertySort.Code;
+    return new(
+      pagination, Search, TownId, PropertyTypeId, PropertyStatusId, PropertyClassificationId, IncludeInactive ?? false,
+      RegisteredFrom, RegisteredTo, AreaMin, AreaMax, OwnerId, HasOpenEncroachment, HasOpenCase,
+      sort, PropertyQueryParsing.ParseDescending(SortDir) ?? sort == PropertySort.Registered, SteepSlope);
+  }
 }

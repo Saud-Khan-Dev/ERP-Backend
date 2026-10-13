@@ -10,6 +10,32 @@ public static class MasterDataSeed
   private static Value[] List(params string[] names) =>
       names.Select(n => new Value(MasterCode.Of(n.Replace('/', ' ').Replace('.', ' ')).Value, n)).ToArray();
 
+  private static MasterExtras Owner(string folder) => new(StorageFolder: folder, AppliesTo: DocumentScope.Owner);
+
+  /// The kinds of paper an owner files about themselves (applies_to OWNER, stored under /owner-documents/OWN-xxxxx/).
+  /// CNIC_COPY is a system code (cnic_document_id points at it); the rest are ordinary values GDA may rename or
+  /// retire. Declared before BySlug, which includes them (static initializers run in order).
+  public static Value[] OwnerDocumentTypes { get; } =
+  [
+    new(SystemMasterCodes.DocumentCnicCopy, "CNIC Copy", Owner("cnic")),
+    new("NICOP_COPY", "NICOP Copy", Owner("nicop")),
+    new("PASSPORT_COPY", "Passport Copy", Owner("passport")),
+    new("NTN_CERTIFICATE", "NTN Certificate", Owner("ntn")),
+    new("SECP_INCORPORATION", "SECP Certificate of Incorporation", Owner("incorporation")),
+    new("MEMORANDUM_ARTICLES", "Memorandum & Articles of Association", Owner("memorandum-articles")),
+    new("BOARD_RESOLUTION", "Board Resolution / Authority to Sign", Owner("board-resolutions")),
+    new("PARTNERSHIP_DEED", "Partnership Deed", Owner("partnership-deeds")),
+    new("TRUST_DEED", "Trust Deed", Owner("trust-deeds")),
+    new("SUCCESSION_CERTIFICATE", "Succession Certificate", Owner("succession")),
+    new("FAMILY_REGISTRATION_CERT", "NADRA Family Registration Certificate", Owner("frc")),
+    new("DEATH_CERTIFICATE", "Death Certificate", Owner("death-certificates")),
+    new("POWER_OF_ATTORNEY", "Power of Attorney", Owner("power-of-attorney")),
+    new("GUARDIANSHIP_CERTIFICATE", "Guardianship Certificate", Owner("guardianship")),
+    new("DOMICILE_CERTIFICATE", "Domicile Certificate", Owner("domicile")),
+    new("PHOTOGRAPH", "Photograph", Owner("photographs")),
+    new("GOVERNMENT_AUTHORITY_LETTER", "Government Authority Letter", Owner("authority-letters")),
+  ];
+
   public static IReadOnlyDictionary<string, Value[]> BySlug { get; } = new Dictionary<string, Value[]>
   {
     ["property-types"] = List("Residential", "Commercial", "Industrial", "Agricultural", "Institutional", "Open Land", "Mixed Use"),
@@ -64,16 +90,26 @@ public static class MasterDataSeed
     ["building-plan-types"] = List("Site Plan", "Building Plan", "Revised Building Plan", "Completion Plan"),
     ["building-plan-statuses"] = List("Submitted", "Under Review", "Approved", "Rejected", "Revised", "Withdrawn"),
 
-    ["document-types"] = new[]
-    {
+    ["document-types"] =
+    [
+      // a property's papers (applies_to PROPERTY)
       new Value("NOTESHEET", "Notesheet", new MasterExtras(StorageFolder: "notesheets")),
       new Value("OWNERSHIP_DOCUMENT", "Ownership Document", new MasterExtras(StorageFolder: "ownership")),
       new Value("SITE_BUILDING_PLAN", "Site/Building Plan", new MasterExtras(StorageFolder: "plans")),
       new Value("NOTICE_LETTER", "Notice/Letter", new MasterExtras(StorageFolder: "notices")),
-      new Value(SystemMasterCodes.DocumentCnicCopy, "CNIC Copy", new MasterExtras(StorageFolder: "cnic")),
       new Value("AGREEMENT", "Agreement", new MasterExtras(StorageFolder: "agreements")),
       new Value("COURT_ORDER", "Court Order", new MasterExtras(StorageFolder: "litigation")),
-    },
+      // an owner's own papers (applies_to OWNER)
+      .. OwnerDocumentTypes,
+    ],
     ["attribute-groups"] = List("General"),
+  };
+
+  /// Values added after the first release: unlike the lists above (written only into an empty table), each is
+  /// added by code to databases seeded before it existed. One already there - even renamed or deactivated by
+  /// an administrator - is left as it is.
+  public static IReadOnlyDictionary<string, Value[]> AddedLater { get; } = new Dictionary<string, Value[]>
+  {
+    ["document-types"] = OwnerDocumentTypes,
   };
 }

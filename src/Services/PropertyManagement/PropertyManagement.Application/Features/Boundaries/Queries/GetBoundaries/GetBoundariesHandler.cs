@@ -10,7 +10,7 @@ public class GetBoundariesHandler(IApplicationDbContext context)
 
     var rows = await context.Boundaries.AsNoTracking().Include(b => b.Points)
         .Where(b => b.PropertyId == propertyId && (!query.CurrentOnly || b.IsCurrent))
-        .OrderByDescending(b => b.IsCurrent).ThenByDescending(b => b.CreatedAt)
+        .OrderByDescending(b => b.IsCurrent).ThenByDescending(b => b.SurveyDate).ThenByDescending(b => b.CreatedAt)
         .ToListAsync(cancellationToken);
 
     return Result<GetBoundariesQueryResult>.Success(new GetBoundariesQueryResult(rows.Select(b => b.ToDto()).ToList()));

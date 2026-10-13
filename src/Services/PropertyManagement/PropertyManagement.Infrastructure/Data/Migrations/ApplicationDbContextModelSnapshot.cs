@@ -132,6 +132,11 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
                         .HasDefaultValue((short)1)
                         .HasColumnName("occurrence_no");
 
+                    b.Property<string>("PreAppealStatus")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("pre_appeal_status");
+
                     b.Property<Guid>("PropertyId")
                         .HasColumnType("uuid")
                         .HasColumnName("property_id");
@@ -970,6 +975,14 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid")
                         .HasColumnName("id");
+
+                    b.Property<string>("AppliesTo")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasDefaultValue("PROPERTY")
+                        .HasColumnName("applies_to");
 
                     b.Property<string>("Code")
                         .IsRequired()
@@ -1874,6 +1887,10 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
                         .HasColumnType("character varying(100)")
                         .HasColumnName("restoration_order_ref");
 
+                    b.Property<DateOnly?>("SurrenderDate")
+                        .HasColumnType("date")
+                        .HasColumnName("surrender_date");
+
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_at");
@@ -2231,6 +2248,10 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("created_by");
 
+                    b.Property<Guid?>("PreviousAuctionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("previous_auction_id");
+
                     b.Property<Guid>("PropertyId")
                         .HasColumnType("uuid")
                         .HasColumnName("property_id");
@@ -2279,6 +2300,9 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
                     b.HasIndex("AuctionTypeId")
                         .HasDatabaseName("ix_property_auction_auction_type_id");
 
+                    b.HasIndex("PreviousAuctionId")
+                        .HasDatabaseName("ix_property_auction_previous_auction_id");
+
                     b.HasIndex("SuccessfulBidderOwnerId")
                         .HasDatabaseName("ix_property_auction_successful_bidder_owner_id");
 
@@ -2324,10 +2348,10 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
                         .HasColumnType("text")
                         .HasColumnName("remarks");
 
-                    b.Property<decimal?>("SlopePercentage")
-                        .HasPrecision(8, 4)
-                        .HasColumnType("numeric(8,4)")
-                        .HasColumnName("slope_percentage");
+                    b.Property<decimal?>("SlopeDegrees")
+                        .HasPrecision(6, 2)
+                        .HasColumnType("numeric(6,2)")
+                        .HasColumnName("slope_degrees");
 
                     b.Property<DateOnly?>("SurveyDate")
                         .HasColumnType("date")
@@ -2454,7 +2478,7 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
                         .HasColumnType("character varying(255)")
                         .HasColumnName("original_file_name");
 
-                    b.Property<Guid>("PropertyId")
+                    b.Property<Guid?>("PropertyId")
                         .HasColumnType("uuid")
                         .HasColumnName("property_id");
 
@@ -3268,11 +3292,6 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("owner_type_id");
 
-                    b.Property<string>("RegistrationNo")
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)")
-                        .HasColumnName("registration_no");
-
                     b.Property<string>("Remarks")
                         .HasColumnType("text")
                         .HasColumnName("remarks");
@@ -3661,10 +3680,37 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
                         .HasColumnType("date")
                         .HasColumnName("approval_date");
 
+                    b.Property<string>("ApprovalOrderRef")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("approval_order_ref");
+
                     b.Property<string>("ApprovedBy")
                         .HasMaxLength(150)
                         .HasColumnType("character varying(150)")
                         .HasColumnName("approved_by");
+
+                    b.Property<string>("ClosedBy")
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("closed_by");
+
+                    b.Property<DateOnly?>("ClosedOn")
+                        .HasColumnType("date")
+                        .HasColumnName("closed_on");
+
+                    b.Property<string>("ClosingReason")
+                        .HasColumnType("text")
+                        .HasColumnName("closing_reason");
+
+                    b.Property<string>("CompletedBy")
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("completed_by");
+
+                    b.Property<DateOnly?>("CompletedOn")
+                        .HasColumnType("date")
+                        .HasColumnName("completed_on");
 
                     b.Property<decimal?>("ConsiderationAmount")
                         .HasPrecision(18, 2)
@@ -4378,6 +4424,12 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
                         .IsRequired()
                         .HasConstraintName("fk_property_auction_auction_type_auction_type_id");
 
+                    b.HasOne("PropertyAuction", null)
+                        .WithMany()
+                        .HasForeignKey("PreviousAuctionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_property_auction_property_auction_previous_auction_id");
+
                     b.HasOne("Property", null)
                         .WithMany()
                         .HasForeignKey("PropertyId")
@@ -4415,7 +4467,6 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
                         .WithMany()
                         .HasForeignKey("PropertyId")
                         .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired()
                         .HasConstraintName("fk_property_document_property_property_id");
 
                     b.HasOne("PropertyDocument", null)

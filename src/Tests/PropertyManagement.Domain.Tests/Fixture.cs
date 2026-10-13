@@ -15,9 +15,18 @@ internal static class Fixture
 
   private static int _owners;
 
-  public static PropertyOwner Owner(string name = "Owner") =>
-      PropertyOwner.Create(OwnerId.New(), BusinessCode.Of($"OWN-{++_owners:00000}"), Master<OwnerType>("INDIVIDUAL"),
-        Name.Of(name), null, null, null, null, null, null);
+  /// An individual with a CNIC of their own (an INDIVIDUAL needs one): 35202-000000n-1.
+  public static PropertyOwner Owner(string name = "Owner")
+  {
+    var number = ++_owners;
+    return PropertyOwner.Create(OwnerId.New(), BusinessCode.Of($"OWN-{number:00000}"), Master<OwnerType>(SystemMasterCodes.OwnerTypeIndividual),
+      Name.Of(name), null, Cnic.Of($"35202{number:0000000}1"), null, null, null);
+  }
+
+  /// A company (no CNIC, identified by its NTN).
+  public static PropertyOwner Company(string name = "Company Ltd", string? ntn = null) =>
+      PropertyOwner.Create(OwnerId.New(), BusinessCode.Of($"OWN-{++_owners:00000}"), Master<OwnerType>(SystemMasterCodes.OwnerTypeCompany),
+        Name.Of(name), null, null, Ntn.OfNullable(ntn), null, null);
 
   public static DateOnly D(string iso) => DateOnly.Parse(iso);
 }

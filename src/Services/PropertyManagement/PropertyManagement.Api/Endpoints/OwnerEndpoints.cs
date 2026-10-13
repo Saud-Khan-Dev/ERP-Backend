@@ -14,15 +14,25 @@ public class OwnerEndpoints : ICarterModule
       .Produces<CreateOwnerCommandResult>(StatusCodes.Status201Created)
       .ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Register Owner")
-      .WithDescription("OWN-00001 is generated. Refused when the CNIC or NTN is already registered — search first with GET /owners?cnic=...");
+      .WithDescription("OWN-00001 is generated. An INDIVIDUAL needs a CNIC; a COMPANY, TRUST, GOVERNMENT body or JOINT_ENTITY has no CNIC and no father / husband name. "
+        + "CNIC: 13 digits, not starting with 0. NTN: 1234567-8 or a 13-digit CNIC-based number; both are stored in the dashed form. "
+        + "Refused when the CNIC or NTN is already registered (the message names that owner and whether it is inactive) — look up first with "
+        + "GET /owners?cnic=...&includeInactive=true or ?ntn=...");
 
-    owners.MapGet("/", async (ISender sender, int? pageIndex, int? pageSize, string? search, string? cnic, string? ntn, Guid? ownerTypeId, bool? includeInactive) =>
-        (await sender.Send(new GetOwnersQuery(new PaginationRequest(pageIndex ?? 0, pageSize ?? 20), search, cnic, ntn, ownerTypeId, includeInactive ?? false))).ToOk())
+    owners.MapGet("/", async (ISender sender, int? pageIndex, int? pageSize, string? search, string? cnic, string? ntn, Guid? ownerTypeId, bool? includeInactive,
+        bool? hasHoldings, string? sortBy, string? sortDir) =>
+        (await sender.Send(new GetOwnersQuery(new PaginationRequest(pageIndex ?? 0, pageSize ?? 20), search, cnic, ntn, ownerTypeId, includeInactive ?? false,
+          hasHoldings, PropertyQueryParsing.ParseEnum<OwnerSort>(sortBy, "sortBy") ?? OwnerSort.Code,
+          PropertyQueryParsing.ParseDescending(sortDir) ?? false))).ToOk())
       .RequirePermission(PermissionCatalog.Property.View)
       .WithName("GetOwners")
       .Produces<GetOwnersQueryResult>()
+      .ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Get Owners")
-      .WithDescription("search matches owner code or CNIC exactly and the name partially.");
+      .WithDescription("Paged (pageSize 1-200). search matches the exact owner code, a CNIC (13 digits or its first 5 or more, dashes optional), an NTN "
+        + "(either form) or part of the name. cnic / ntn: exact lookup in any written form (with includeInactive=true for the duplicate check). "
+        + "hasHoldings: true = holds at least one current share, false = none. Each row has currentHoldingCount (active or disputed shares on active properties). "
+        + "sortBy = code | name | type | holdings (default code), sortDir = asc | desc.");
 
     owners.MapGet("/{id:guid}", async (Guid id, ISender sender) => (await sender.Send(new GetOwnerQuery(id))).ToOk())
       .RequirePermission(PermissionCatalog.Property.View)
@@ -54,7 +64,8 @@ public class OwnerEndpoints : ICarterModule
       .Produces<SetOwnerActivationCommandResult>()
       .ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Deactivate Owner")
-      .WithDescription("Refused while the owner still holds a current ownership share.");
+      .WithDescription("Refused, with the list, while the owner holds an active or disputed share, is a party to a pending (initiated or approved) transfer, "
+        + "or holds an allotment, lease (also a draft), rental or contract in force. Records on deactivated properties do not count.");
 
     // ---- contacts & addresses ----
 

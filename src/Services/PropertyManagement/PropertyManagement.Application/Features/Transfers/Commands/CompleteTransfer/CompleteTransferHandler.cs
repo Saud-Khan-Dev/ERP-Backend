@@ -1,18 +1,14 @@
-public class CompleteTransferHandler(IApplicationDbContext context, MasterLookup masters)
+public class CompleteTransferHandler(IApplicationDbContext context, MasterLookup masters, ICurrentUser currentUser)
   : ICommandHandler<CompleteTransferCommand, Result<CompleteTransferCommandResult>>
 {
   public async Task<Result<CompleteTransferCommandResult>> Handle(CompleteTransferCommand command, CancellationToken cancellationToken)
   {
     var transfer = await context.LoadTransferAsync(command.Id, cancellationToken);
     var property = await context.LoadPropertyAsync(transfer.PropertyId.Value, cancellationToken);
-    property.EnsureActive();
+    var record = await context.LoadOwnershipRecordAsync(property, transfer.Parties.Select(p => p.OwnerId), cancellationToken);
+    var tenure = await TransferRegistration.NewcomerTenureAsync(masters, command.TenureTypeId, cancellationToken);
 
-    var tenure = command.TenureTypeId is { } tenureId
-      ? await masters.GetAsync<TenureType>(tenureId, cancellationToken)
-      : await masters.GetByCodeAsync<TenureType>(SystemMasterCodes.TenureOwned, cancellationToken);
-
-    var current = await context.CurrentOwnershipsAsync(property.Id, cancellationToken);
-    var change = transfer.Complete(current, tenure);
+    var change = transfer.Complete(TransferRegistration.ActorName(currentUser), command.ApprovalOrderRef, record, tenure);
 
     await context.Ownerships.AddRangeAsync(change.Opened, cancellationToken);
     await context.SaveChangesAsync(cancellationToken);

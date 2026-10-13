@@ -69,8 +69,10 @@ public class PropertyRental : Aggregate<RentalId>
     activeStatus.EnsureIs(SystemMasterCodes.Active);
     tenant.EnsureActive();
 
-    if (newTerms.RentalStartDate < RentalStartDate)
-      throw new DomainException("The renewal cannot start before the rental it renews.");
+    ArgumentNullException.ThrowIfNull(newTerms);
+
+    if (newTerms.RentalStartDate <= RentalStartDate)
+      throw new DomainException($"The renewal must start after {RentalNo.Value} started ({RentalStartDate:yyyy-MM-dd}).");
 
     var renewal = new PropertyRental
     {
@@ -84,8 +86,32 @@ public class PropertyRental : Aggregate<RentalId>
 
     renewal.Apply(newTerms);
     RentalStatusId = endedStatus.Id;
-    RentalEndDate ??= newTerms.RentalStartDate;
+
+    // the two rentals never overlap: this one ends the day before the renewal starts
+    var lastDay = newTerms.RentalStartDate.AddDays(-1);
+    if (RentalEndDate is null || RentalEndDate > lastDay)
+      RentalEndDate = lastDay;
+
     return renewal;
+  }
+
+  /// An appeal set aside the violation that cancelled this rental (Act s.32): the rental is in force again.
+  public void Reinstate(RentalStatus currentStatus, RentalStatus activeStatus, string appealNo)
+  {
+    ArgumentNullException.ThrowIfNull(currentStatus);
+    activeStatus.EnsureIs(SystemMasterCodes.Active);
+
+    if (currentStatus.Id != RentalStatusId)
+      throw new DomainException("The supplied status does not match the rental.");
+
+    if (!currentStatus.Is(SystemMasterCodes.Cancelled))
+      throw new DomainException($"{RentalNo.Value} is {currentStatus.Name.Value}; only a cancelled rental can be reinstated.");
+
+    var cancelledOn = TerminationDate;
+    RentalStatusId = activeStatus.Id;
+    TerminationDate = null;
+    TerminationReason = null;
+    Remarks = RemarkText.Append(Remarks, $"Reinstated by appeal {appealNo} (cancellation of {cancelledOn:yyyy-MM-dd} set aside).");
   }
 
   public void Terminate(RentalStatus currentStatus, RentalStatus endedStatus, DateOnly terminationDate, string reason)

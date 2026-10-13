@@ -13,7 +13,8 @@ public class GetDocumentsHandler(IApplicationDbContext context, MasterLookup mas
       if (!await context.Properties.AnyAsync(x => x.Id == propertyId, cancellationToken))
         throw new PropertyNotFoundException($"Property {p} was not found.");
 
-      rows = rows.Where(d => d.PropertyId == propertyId);
+      // an owner's own papers are not part of a property's file
+      rows = rows.Where(d => d.PropertyId == propertyId && d.EntityType != DocumentEntityType.Owner);
     }
 
     if (query.OwnerId is { } ownerId)

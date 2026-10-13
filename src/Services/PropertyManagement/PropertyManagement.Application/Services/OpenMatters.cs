@@ -13,10 +13,7 @@ using Microsoft.EntityFrameworkCore;
 ///                  agreement is disposed of)
 public static class OpenMatters
 {
-  public static readonly IReadOnlyList<string> ClosedCaseStatusCodes = new[]
-  {
-    SystemMasterCodes.Decided, SystemMasterCodes.Appealed, "WITHDRAWN", "SETTLED", "CLOSED"
-  };
+  public static readonly IReadOnlyList<string> ClosedCaseStatusCodes = PropertyLitigation.ClosedStatusCodes;
 
   public static readonly Expression<Func<PropertyEncroachment, bool>> EncroachmentIsOpen = e => e.ResolutionDate == null;
 

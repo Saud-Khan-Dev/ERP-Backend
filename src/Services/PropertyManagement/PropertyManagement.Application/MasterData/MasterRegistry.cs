@@ -43,7 +43,7 @@ public static class MasterRegistry
     MasterDescriptor.Of<BuildingPlanStatus>("building-plan-statuses", "building_plan_status", "Building plan status"),
 
     // ---- documents & custom fields ----
-    MasterDescriptor.Of<DocumentType>("document-types", "document_type", "Document type", MasterExtraColumns.StorageFolder),
+    MasterDescriptor.Of<DocumentType>("document-types", "document_type", "Document type", MasterExtraColumns.StorageFolder | MasterExtraColumns.AppliesTo),
     MasterDescriptor.Of<AttributeGroup>("attribute-groups", "attribute_group", "Custom field group"),
   };
 
@@ -68,7 +68,8 @@ public enum MasterExtraColumns
   FactorToBase = 1,
   IsBase = 2,
   StorageFolder = 4,
-  RequiresRelationship = 8
+  RequiresRelationship = 8,
+  AppliesTo = 16
 }
 
 /// How to reach one master table without knowing its CLR type at compile time. Every query is built

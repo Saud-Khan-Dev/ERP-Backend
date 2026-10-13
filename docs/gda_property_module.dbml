@@ -182,7 +182,7 @@ Table auction_status {
   name varchar(100) [not null]
   sort_order int [default: 0]
   is_active boolean [default: true]
-  Note: 'Planned, Announced, Conducted, Successful, Unsuccessful, Cancelled, Awarded'
+  Note: 'Planned, Announced, Conducted, Successful, Unsuccessful, Cancelled, Awarded. AWARDED, UNSUCCESSFUL and CANCELLED close an auction (system codes, with RE_AUCTION in auction_type)'
 }
 
 Table outsourcing_type {
@@ -208,7 +208,7 @@ Table encroachment_status {
   name varchar(100) [not null]
   sort_order int [default: 0]
   is_active boolean [default: true]
-  Note: 'Active, Under Notice, Regularized, Resolved / Removed, Under Litigation'
+  Note: 'Active, Under Notice, Regularized, Resolved / Removed, Under Litigation. A notice moves ACTIVE to UNDER_NOTICE; a court case filed about it moves an unresolved one to UNDER_LITIGATION (system codes)'
 }
 
 Table litigation_type {
@@ -226,7 +226,7 @@ Table litigation_status {
   name varchar(100) [not null]
   sort_order int [default: 0]
   is_active boolean [default: true]
-  Note: 'Pending, Decided, Withdrawn, Settled, Appealed, Closed, Other'
+  Note: 'Pending, Decided, Withdrawn, Settled, Appealed, Closed, Other. DECIDED, APPEALED, WITHDRAWN, SETTLED and CLOSED close a case (system codes)'
 }
 
 Table building_plan_type {
@@ -244,17 +244,23 @@ Table building_plan_status {
   name varchar(100) [not null]
   sort_order int [default: 0]
   is_active boolean [default: true]
-  Note: 'Submitted, Under Review, Approved, Rejected, Revised, Withdrawn'
+  Note: 'Submitted, Under Review, Approved, Rejected, Revised, Withdrawn. APPROVED, REJECTED, REVISED and WITHDRAWN close a plan revision (system codes)'
 }
 
 Table document_type {
   id bigint [pk, increment]
   code varchar(30) [unique, not null]
   name varchar(100) [not null]
-  storage_folder varchar(50) [note: 'e.g. ownership, notesheets, plans, notices, litigation, leases, transfers']
+  storage_folder varchar(50) [note: 'e.g. ownership, notesheets, plans, notices, litigation, leases, transfers, cnic']
+  applies_to varchar(20) [not null, default: 'PROPERTY', note: 'PROPERTY | OWNER: whose papers this kind is. OWNER kinds are filed on the owner, without a property; CNIC_COPY is always OWNER. Fixed once documents of the type exist']
   sort_order int [default: 0]
   is_active boolean [default: true]
-  Note: 'Notesheet, Ownership Document, Site/Building Plan, Notice/Letter, CNIC Copy, Agreement, Court Order, Other'
+  Note: '''
+  PROPERTY: Notesheet, Ownership Document, Site/Building Plan, Notice/Letter, Agreement, Court Order.
+  OWNER: CNIC Copy, NICOP Copy, Passport Copy, NTN Certificate, SECP Certificate of Incorporation, Memorandum & Articles of Association,
+  Board Resolution / Authority to Sign, Partnership Deed, Trust Deed, Succession Certificate, NADRA Family Registration Certificate,
+  Death Certificate, Power of Attorney, Guardianship Certificate, Domicile Certificate, Photograph, Government Authority Letter.
+  '''
 }
 
 Table measurement_unit {
@@ -396,12 +402,12 @@ Table property_boundary {
   boundary_type   varchar(30) [default: 'ORIGINAL', note: 'ORIGINAL, REVISED, REGULARIZED']
   survey_date     date
   survey_source   varchar(150)
-  slope_percentage decimal(8,4) [note: 'ground slope of the surveyed plot as a percentage: 12.50 = 12.50% slope (not degrees)']
-  is_current      boolean [default: true]
+  slope_degrees   numeric(6,2) [note: 'ground slope of the surveyed plot in degrees, 0 to 90. Above 45 the survey is recorded with a warning (Building & Construction Regulations 2026). Was slope_percentage decimal(8,4); converted with degrees = atan(pct/100) in degrees, rounded to 2']
+  is_current      boolean [default: true, note: 'the latest dated survey; an older survey is stored with false and does not supersede']
   remarks         text
   created_at timestamp [default: `now()`]
   created_by bigint
-  Note: 'One polygon per row; points in boundary_point. Slope of the surveyed plot is stored here as a percentage. Optional (req. §25).'
+  Note: 'One polygon per row; points in boundary_point. Slope of the surveyed plot is stored here in degrees. Optional (req. §25).'
 }
 
 Table boundary_point {
@@ -425,12 +431,11 @@ Table property_owner {
   owner_code      varchar(20) [unique, not null, note: 'OWN-00001']
   owner_type_id   bigint [not null]
   owner_name      varchar(200) [not null]
-  father_husband_name varchar(200) [note: 'for individuals']
-  cnic            varchar(15) [note: '13-digit CNIC (individuals)']
-  ntn             varchar(20) [note: 'NTN (companies / trusts)']
-  registration_no varchar(50) [note: 'SECP / trust registration where applicable']
+  father_husband_name varchar(200) [note: 'individuals only: refused for COMPANY / TRUST / GOVERNMENT / JOINT_ENTITY']
+  cnic            varchar(15) [note: '13-digit CNIC stored 12345-1234567-1, never starting with 0; required for INDIVIDUAL, refused for COMPANY / TRUST / GOVERNMENT / JOINT_ENTITY']
+  ntn             varchar(20) [note: 'NTN stored 1234567-8 (FBR 7+1) or 12345-1234567-1 (CNIC-based); unique on its digits']
   email           varchar(150)
-  cnic_document_id bigint [note: 'FK -> property_document (CNIC copy, PDF)']
+  cnic_document_id bigint [note: 'FK -> property_document: the latest active, latest-version CNIC_COPY document filed on this owner']
   remarks         text
   is_active       boolean [default: true]
   created_at timestamp [default: `now()`]
@@ -488,7 +493,7 @@ Table property_ownership {
   ownership_share_pct decimal(7,4) [not null, default: 100, note: '0 < share <= 100']
   effective_from      date [not null]
   effective_to        date [note: 'NULL = current']
-  ownership_status    varchar(20) [not null, default: 'ACTIVE', note: 'ACTIVE, ENDED, DISPUTED']
+  ownership_status    varchar(20) [not null, default: 'ACTIVE', note: 'ACTIVE, ENDED, DISPUTED (still held, cannot be transferred)']
   acquisition_transfer_type_id bigint [note: 'how this owner acquired (FK transfer_type)']
   acquired_via_transfer_id     bigint [note: 'FK property_transfer that created this record']
   acquired_via_allotment_id    bigint [note: 'FK property_allotment if ownership arises from allotment']
@@ -505,8 +510,10 @@ Table property_ownership {
     (property_id, owner_id, effective_from) [unique]
   }
   Note: '''
-  Validation (app/trigger): SUM(ownership_share_pct) WHERE property_id=? AND ownership_status='ACTIVE' <= 100
+  Validation (app/trigger): SUM(ownership_share_pct) WHERE property_id=? AND ownership_status IN ('ACTIVE','DISPUTED') <= 100
   (== 100 if GDA mandates fully-owned totals). Old rows are closed (effective_to) never deleted.
+  A partial seller's remainder row keeps the closed row's acquisition_transfer_type_id, acquired_via_transfer_id,
+  acquired_via_allotment_id and reference_no (remarks "Remainder after TRF-…").
   '''
 }
 
@@ -522,7 +529,13 @@ Table property_transfer {
   relationship          varchar(100) [note: 'e.g. Father -> Son; required for Gift / Inheritance. Tax exemption decided by Tax Module (req. §17)']
   approved_by           varchar(150)
   approval_date         date
-  transfer_status       varchar(20) [default: 'COMPLETED', note: 'INITIATED, APPROVED, COMPLETED, CANCELLED']
+  approval_order_ref    varchar(100) [note: 'approving order / sanction no.']
+  completed_on          date [note: 'day the ownership register was changed']
+  completed_by          varchar(150) [note: 'user who registered it']
+  closed_on             date [note: 'day it was rejected or cancelled']
+  closed_by             varchar(150)
+  closing_reason        text [note: 'why it was rejected or cancelled']
+  transfer_status       varchar(20) [default: 'COMPLETED', note: 'INITIATED, APPROVED (legacy: approved before approve = complete), COMPLETED, CANCELLED, REJECTED']
   remarks               text
   created_at timestamp [default: `now()`]
   created_by bigint
@@ -532,7 +545,7 @@ Table property_transfer {
   indexes {
     (property_id, transfer_date)
   }
-  Note: 'Header. Parties in property_transfer_party. Completing a transfer closes old property_ownership rows and inserts new ones.'
+  Note: 'Header. Parties in property_transfer_party. Approving an INITIATED transfer completes it in the same step: old property_ownership rows are closed and new ones inserted.'
 }
 
 Table property_transfer_party {
@@ -570,6 +583,7 @@ Table property_encumbrance {
   created_by bigint
   updated_at timestamp
   updated_by bigint
+  Note: 'App rules: registered only against a current ownership row. While ACTIVE the charged share (or, with no ownership_id, every share) cannot be transferred or ended.'
 }
 
 // ---------------------------------------------------------------------
@@ -592,6 +606,7 @@ Table property_allotment {
   cancellation_order_ref varchar(100)
   restoration_date    date
   restoration_order_ref varchar(100)
+  surrender_date      date [note: 'set when the allotment is SURRENDERED']
   remarks             text
   is_active           boolean [default: true]
   created_at timestamp [default: `now()`]
@@ -603,7 +618,11 @@ Table property_allotment {
     (property_id, allotment_status_id)
     (allottee_owner_id)
   }
-  Note: 'Separate from ownership (req. §15). cancel / restore per Act s.6(4)(c); an appeal against cancellation -> property_appeal'
+  Note: '''
+  Separate from ownership (req. §15). cancel / restore per Act s.6(4)(c); an appeal against cancellation -> property_appeal.
+  App rules: only GDA_PROPERTY is allotted; at most one allotment in force (ACTIVE / RESTORED, is_active) per property;
+  cancelling or surrendering ends the ownership confirmed through it; EXPIRED only after expiry_date (or on a recorded one).
+  '''
 }
 
 // ---------------------------------------------------------------------
@@ -687,7 +706,7 @@ Table agreement_violation {
   violator_owner_id   bigint [not null, note: 'FK property_owner']
   violation_date      date [not null]
   violation_description text [not null, note: 'breach of terms, default in lease money / levy / taxes, rule violation']
-  occurrence_no       smallint [not null, default: 1, note: '1st, 2nd = fine; 3rd within notice period = cancellation']
+  occurrence_no       smallint [not null, default: 1, note: 'this agreement''s violations dated on or before this one. 1st, 2nd = fine; 3rd within the period of a notice on an earlier violation (notice_date <= violation_date <= notice_deadline) = cancellation']
   notice_no           varchar(50)
   notice_date         date
   notice_deadline     date [note: '"time specified in the notice"']
@@ -697,6 +716,7 @@ Table agreement_violation {
   led_to_cancellation boolean [default: false]
   cancellation_date   date
   violation_status    varchar(20) [default: 'OPEN', note: 'OPEN, RECTIFIED, FINED, CANCELLED, APPEALED']
+  pre_appeal_status   varchar(20) [note: 'the violation_status when an appeal (s.32) was filed against it; restored when the appeal is dismissed / remanded / modified / withdrawn; null when no appeal is pending']
   remarks             text
   created_at timestamp [default: `now()`]
   created_by bigint
@@ -731,6 +751,7 @@ Table property_auction {
   venue               varchar(200)
   reference_no        varchar(100)
   remarks             text
+  previous_auction_id bigint [note: 'FK property_auction: for a re-auction (type RE_AUCTION), the unsuccessful / cancelled auction it repeats']
   created_at timestamp [default: `now()`]
   created_by bigint
   updated_at timestamp
@@ -738,8 +759,9 @@ Table property_auction {
 
   indexes {
     (property_id, auction_status_id)
+    (previous_auction_id)
   }
-  Note: 'Award may lead to property_transfer / property_allotment / property_lease depending on what was auctioned.'
+  Note: 'Award may lead to property_transfer / property_allotment / property_lease depending on what was auctioned. AWARDED, UNSUCCESSFUL and CANCELLED auctions are closed; an unsuccessful or cancelled one may be re-auctioned once.'
 }
 
 Table auction_bid {
@@ -954,19 +976,19 @@ Table building_plan {
 // ---------------------------------------------------------------------
 Table property_document {
   id                  bigint [pk, increment]
-  property_id         bigint [not null, note: 'always set, even when attached to a sub-record']
+  property_id         bigint [note: 'set for a property paper (the property or one of its records); NULL exactly when entity_type = OWNER (an owner paper)']
   document_type_id    bigint [not null]
   entity_type         varchar(40) [not null, default: 'PROPERTY', note: 'PROPERTY, OWNER, OWNERSHIP, TRANSFER, ALLOTMENT, LEASE, RENTAL, AUCTION, OUTSOURCING, ENCROACHMENT, LITIGATION, APPEAL, BUILDING_PLAN, ENCUMBRANCE, VIOLATION, REGULARIZATION']
   entity_id           bigint [note: 'PK of the row in entity_type table (polymorphic; enforce in app layer)']
   title               varchar(200)
   original_file_name  varchar(255) [not null]
   stored_file_name    varchar(255) [not null]
-  relative_path       varchar(500) [not null, note: '/property-documents/PROP-00125/ownership/...']
+  relative_path       varchar(500) [not null, note: '/property-documents/PROP-00125/ownership/... or /owner-documents/OWN-00012/cnic/...']
   mime_type           varchar(100) [not null]
   file_size_bytes     bigint [not null]
   checksum_sha256     char(64)
   document_date       date [note: 'date on the document itself']
-  reference_no        varchar(100) [note: 'notesheet no., letter no., etc.']
+  reference_no        varchar(100) [note: 'notesheet no., letter no.; on an owner paper the CNIC / passport / NTN / certificate no.']
   version_no          int [default: 1]
   supersedes_document_id bigint [note: 'self FK']
   description         text
@@ -981,7 +1003,9 @@ Table property_document {
   }
   Note: '''
   Main types: Notesheet, Ownership Document, Site/Building Plan, Notice/Letter (req. §30)
-  plus CNIC copies, agreements, court orders, auction notices, etc.
+  plus agreements, court orders, auction notices, etc.
+  An owner's own papers (CNIC copy, NTN certificate ...) have entity_type OWNER, no property_id and a document type with
+  applies_to OWNER; every other document has a property_id and a PROPERTY document type.
   DB never stores file bytes (req. §31).
   '''
 }
@@ -1067,6 +1091,7 @@ Ref: property_auction.property_id > property.id
 Ref: property_auction.auction_type_id > auction_type.id
 Ref: property_auction.auction_status_id > auction_status.id
 Ref: property_auction.successful_bidder_owner_id > property_owner.id
+Ref: property_auction.previous_auction_id > property_auction.id
 Ref: auction_bid.auction_id > property_auction.id
 Ref: auction_bid.bidder_owner_id > property_owner.id
 

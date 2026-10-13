@@ -1,10 +1,14 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
-/// Uploads, versions and resolves documents.
+/// Uploads, versions and resolves documents - one pipeline for a property's papers and an owner's own papers.
 ///
-/// Rule 10: entity_type + entity_id cannot be a foreign key, so before a row is saved this checks that
-/// the record exists and belongs to the same property.
+/// A property's papers are filed under /property-documents/{PROP code}/{type folder}/ with property_id set; rule 10:
+/// entity_type + entity_id cannot be a foreign key, so before a row is saved this checks that the record exists
+/// and belongs to the same property. An owner's papers (OWNER document types) are filed under
+/// /owner-documents/{OWN code}/{type folder}/ with no property.
+///
+/// Every check runs BEFORE the file is written, so a refused upload never leaves an orphan file in storage.
 public class DocumentService(
     IApplicationDbContext context,
     IFileStorage storage,
@@ -12,31 +16,22 @@ public class DocumentService(
     IOptions<DocumentOptions> options)
 {
   private const string PropertyRoot = "property-documents";
+  private const string OwnerRoot = "owner-documents";
 
   public sealed record Upload(Stream Content, string FileName, string? ContentType, long Length);
 
-  /// Where a document goes: its property and the folder its file is stored under.
-  public sealed record Target(PropertyId PropertyId, DocumentEntityType EntityType, Guid EntityId, string RootFolder);
+  /// Where a document goes: its property (none for an owner's paper), the record it belongs to and the folder
+  /// its file is stored under.
+  public sealed record Target(PropertyId? PropertyId, DocumentEntityType EntityType, Guid EntityId, string RootFolder);
 
-  /// property_id is always set (schema guide), so even an owner's own paper — a CNIC copy — is filed in
-  /// the file of a property the owner is connected to.
-  public async Task<Target> ResolveTargetAsync(PropertyId? propertyId, DocumentEntityType entityType, Guid? entityId, CancellationToken cancellationToken)
+  /// A paper filed in a property's file: on the property itself or on one of its records. Owner papers are
+  /// filed on the owner (OwnerTargetAsync).
+  public async Task<Target> PropertyTargetAsync(PropertyId propertyId, DocumentEntityType entityType, Guid? entityId, CancellationToken cancellationToken)
   {
-    if (propertyId is null)
-      throw new DomainException(entityType == DocumentEntityType.Owner
-        ? "An owner's document is filed under a property: give the propertyId whose file it belongs to."
-        : $"A {entityType} document must belong to a property.");
+    if (entityType == DocumentEntityType.Owner)
+      throw new DomainException("An owner's paper is filed on the owner (Owners > Documents), not on a property.");
 
     var folder = await PropertyFolderAsync(propertyId, cancellationToken);
-
-    if (entityType == DocumentEntityType.Owner)
-    {
-      var ownerId = OwnerId.Of(entityId ?? Guid.Empty);
-      if (!await context.Owners.AnyAsync(o => o.Id == ownerId, cancellationToken))
-        throw new OwnerNotFoundException($"Owner {entityId} was not found.");
-
-      return new Target(propertyId, entityType, ownerId.Value, folder);
-    }
     var id = entityType == DocumentEntityType.Property ? propertyId.Value : entityId ?? Guid.Empty;
 
     if (id == Guid.Empty)
@@ -68,6 +63,10 @@ public class DocumentService(
     return new Target(propertyId, entityType, id, folder);
   }
 
+  /// An owner's own paper: the owner must exist and be active.
+  public async Task<Target> OwnerTargetAsync(OwnerId ownerId, CancellationToken cancellationToken) =>
+      new(null, DocumentEntityType.Owner, ownerId.Value, await OwnerFolderAsync(ownerId, cancellationToken));
+
   public async Task<PropertyDocument> CreateAsync(
       Target target,
       DocumentType documentType,
@@ -75,6 +74,8 @@ public class DocumentService(
       PropertyDocument.Details details,
       CancellationToken cancellationToken)
   {
+    // refuse before anything is written to storage
+    PropertyDocument.EnsureCanFile(target.PropertyId, documentType, target.EntityType, target.EntityId);
     var file = await StoreAsync(target.RootFolder, documentType, upload, cancellationToken);
 
     var document = PropertyDocument.Create(
@@ -87,13 +88,43 @@ public class DocumentService(
 
   public async Task<PropertyDocument> CreateVersionAsync(PropertyDocument current, DocumentType documentType, Upload upload, CancellationToken cancellationToken)
   {
-    var folder = await PropertyFolderAsync(current.PropertyId, cancellationToken);
+    if (!current.IsActive)
+      throw new DomainException("This document is inactive.");
+
+    var folder = current.PropertyId is { } propertyId
+      ? await PropertyFolderAsync(propertyId, cancellationToken)
+      : await OwnerFolderAsync(OwnerId.Of(current.EntityId), cancellationToken);
 
     var file = await StoreAsync(folder, documentType, upload, cancellationToken);
     var version = current.NewVersion(DocumentId.New(), upload.FileName, file, UploadedBy(), DateTime.UtcNow);
 
     await context.Documents.AddAsync(version, cancellationToken);
     return version;
+  }
+
+  /// Keeps property_owner.cnic_document_id on the owner's current CNIC copy after one of the owner's documents was
+  /// uploaded, versioned, (de)activated or re-typed. Call it after the change and before saving: it reads the
+  /// owner's documents as tracked (so unsaved changes and new rows count). A property document is ignored.
+  public async Task RefreshOwnerCnicAsync(PropertyDocument changed, CancellationToken cancellationToken)
+  {
+    if (!changed.IsOwnerDocument)
+      return;
+
+    var ownerId = OwnerId.Of(changed.EntityId);
+    var owner = await context.Owners.FirstOrDefaultAsync(o => o.Id == ownerId, cancellationToken);
+    if (owner is null)
+      return;
+
+    var cnicCode = MasterCode.Of(SystemMasterCodes.DocumentCnicCopy);
+    var cnicCopy = await context.Set<DocumentType>().AsNoTracking()
+        .FirstOrDefaultAsync(t => t.Code == cnicCode, cancellationToken)
+      ?? throw new DomainException($"Document type {SystemMasterCodes.DocumentCnicCopy} is missing; restart the service so it is seeded again.");
+
+    // tracked on purpose: rows already loaded keep their unsaved changes, and Local adds the new ones
+    await context.Documents.Where(d => d.EntityType == DocumentEntityType.Owner && d.EntityId == ownerId.Value).LoadAsync(cancellationToken);
+    var documents = context.Documents.Local.Where(d => d.EntityType == DocumentEntityType.Owner && d.EntityId == ownerId.Value).ToList();
+
+    owner.RefreshCnicDocument(documents, cnicCopy);
   }
 
   /// Confidential documents are only listed or served to callers who may edit property records.
@@ -113,6 +144,9 @@ public class DocumentService(
     if (!settings.AllowedExtensions.Contains(extension, StringComparer.OrdinalIgnoreCase))
       throw new DomainException($"Files of type '{extension}' are not accepted. Allowed: {string.Join(", ", settings.AllowedExtensions)}.");
 
+    // the uploading user is checked before the file is written, too
+    UploadedBy();
+
     var stored = await storage.SaveAsync(upload.Content, $"{rootFolder}/{documentType.StorageFolder}", extension, cancellationToken);
 
     var mimeType = string.IsNullOrWhiteSpace(upload.ContentType) ? "application/octet-stream" : upload.ContentType;
@@ -126,6 +160,17 @@ public class DocumentService(
 
     property.EnsureActive();
     return $"/{PropertyRoot}/{property.PropertyCode.Value}";
+  }
+
+  private async Task<string> OwnerFolderAsync(OwnerId ownerId, CancellationToken cancellationToken)
+  {
+    var owner = await context.Owners.AsNoTracking().FirstOrDefaultAsync(o => o.Id == ownerId, cancellationToken)
+      ?? throw new OwnerNotFoundException($"Owner {ownerId.Value} was not found.");
+
+    if (!owner.IsActive)
+      throw new DomainException($"Owner {owner.OwnerCode.Value} is inactive. Reactivate the owner before filing documents.");
+
+    return $"/{OwnerRoot}/{owner.OwnerCode.Value}";
   }
 
   private Guid UploadedBy() =>

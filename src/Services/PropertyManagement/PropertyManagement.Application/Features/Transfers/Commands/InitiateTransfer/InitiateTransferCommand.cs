@@ -13,7 +13,8 @@ public sealed record TransferInput(
 
 public sealed record InitiateTransferCommandResult(Guid Id, string TransferNo);
 
-/// Starts a transfer (TRF-00001 is generated). Nothing changes hands until it is approved and completed.
+/// Starts a transfer (TRF-00001 is generated). Nothing changes hands until it is approved; approval registers it.
+/// The transfer date may be in the future (it can be approved from that date).
 public sealed record InitiateTransferCommand(Guid PropertyId, TransferInput Transfer) : ICommand<Result<InitiateTransferCommandResult>>;
 
 public class TransferInputValidator : AbstractValidator<TransferInput>

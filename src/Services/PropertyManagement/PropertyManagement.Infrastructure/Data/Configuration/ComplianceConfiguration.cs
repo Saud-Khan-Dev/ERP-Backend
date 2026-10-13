@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 // Columns, sizes and indexes follow docs/gda_property_module.dbml.
 // =====================================================================
 
-/// property_boundary — one surveyed polygon, with the plot's slope as a percentage.
+/// property_boundary — one surveyed polygon, with the plot's slope in degrees.
 /// The ERD gives it created_at / created_by only.
 public class PropertyBoundaryConfiguration : EntityConfiguration<PropertyBoundary, BoundaryId>
 {
@@ -23,8 +23,8 @@ public class PropertyBoundaryConfiguration : EntityConfiguration<PropertyBoundar
     // ORIGINAL (default), REVISED, REGULARIZED
     builder.Property(x => x.BoundaryType).HasUpperSnakeEnum(30).IsRequired().HasDefaultValue(BoundaryType.Original);
     builder.Property(x => x.SurveySource).HasMaxLength(150);
-    // ground slope as a percentage: 12.5000 = 12.50% slope (not degrees)
-    builder.Property(x => x.SlopePercentage).HasPrecision(8, 4);
+    // ground slope in degrees, 0-90 (above 45 the domain warns: BCR 2026)
+    builder.Property(x => x.SlopeDegrees).HasPrecision(6, 2);
     builder.Property(x => x.IsCurrent).IsRequired().HasDefaultValue(true);
 
     builder.HasOne<Property>().WithMany().HasForeignKey(x => x.PropertyId).OnDelete(DeleteBehavior.Restrict);

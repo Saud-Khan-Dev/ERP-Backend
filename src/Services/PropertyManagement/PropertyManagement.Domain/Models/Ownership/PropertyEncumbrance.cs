@@ -40,6 +40,7 @@ public class PropertyEncumbrance : Aggregate<EncumbranceId>
   }
 
   public void Update(
+      Property property,
       EncumbranceType encumbranceType,
       PropertyOwnership? ownership,
       string holderName,
@@ -50,16 +51,21 @@ public class PropertyEncumbrance : Aggregate<EncumbranceId>
       DateOnly? endDate,
       string? remarks)
   {
+    EnsureOn(property);
     EnsureActive();
     Apply(encumbranceType, ownership, holderName, holder, referenceNo, amount, startDate, endDate, remarks);
   }
 
-  public void Release(DateOnly releaseDate, string? releaseReferenceNo)
+  public void Release(Property property, DateOnly releaseDate, string? releaseReferenceNo, DateOnly today)
   {
+    EnsureOn(property);
     EnsureActive();
 
     if (releaseDate < StartDate)
       throw new DomainException("An encumbrance cannot be released before it started.");
+
+    if (releaseDate > today)
+      throw new DomainException($"The release date cannot be in the future ({releaseDate:yyyy-MM-dd}); today is {today:yyyy-MM-dd}.");
 
     ReleaseDate = releaseDate;
     ReleaseReferenceNo = Guard.Text(releaseReferenceNo, 100, "Release reference no.");
@@ -67,11 +73,26 @@ public class PropertyEncumbrance : Aggregate<EncumbranceId>
   }
 
   /// The holder exercised the charge (e.g. the bank foreclosed).
-  public void Enforce(string? remarks)
+  public void Enforce(Property property, string? remarks)
   {
+    EnsureOn(property);
     EnsureActive();
     Status = EncumbranceStatus.Enforced;
     Remarks = Guard.Text(remarks, 4000, "Remarks") ?? Remarks;
+  }
+
+  /// "the charge held by Bank of Khyber (ref MRT-1)", for messages that name the charge in the way.
+  public string Describe() =>
+      $"the charge held by {HolderName}{(ReferenceNo is null ? "" : $" (ref {ReferenceNo})")}";
+
+  private void EnsureOn(Property property)
+  {
+    ArgumentNullException.ThrowIfNull(property);
+
+    if (property.Id != PropertyId)
+      throw new DomainException("The encumbrance belongs to another property.");
+
+    property.EnsureActive();
   }
 
   private void EnsureActive()
@@ -98,6 +119,11 @@ public class PropertyEncumbrance : Aggregate<EncumbranceId>
 
     if (ownership is not null && ownership.PropertyId != PropertyId)
       throw new DomainException("The encumbered ownership belongs to another property.");
+
+    // a charge sits on a share that is held now; an ended row is history (also when an edit re-links it)
+    if (ownership is not null && ownership.Id != OwnershipId && !ownership.IsCurrent)
+      throw new DomainException(
+        $"That ownership ended on {ownership.EffectiveTo:yyyy-MM-dd}; register the charge against the owner's current share.");
 
     Guard.DateOrder(startDate, endDate, "Start date", "End date");
 

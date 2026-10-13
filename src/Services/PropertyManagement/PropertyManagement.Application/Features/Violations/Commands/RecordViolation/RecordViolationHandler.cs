@@ -16,6 +16,7 @@ public class RecordViolationHandler(IApplicationDbContext context, MasterLookup 
     var rental = input.RentalId is { } rentalId ? await context.LoadRentalAsync(rentalId, cancellationToken) : null;
     var transfer = input.TransferId is { } transferId ? await context.LoadTransferAsync(transferId, cancellationToken) : null;
 
+    // the agreement's other violations; the domain counts only those dated on or before this one
     var earlier = context.Violations.AsNoTracking().Where(v => v.PropertyId == property.Id);
     if (lease is not null) earlier = earlier.Where(v => v.LeaseId == lease.Id);
     if (rental is not null) earlier = earlier.Where(v => v.RentalId == rental.Id);
@@ -31,7 +32,7 @@ public class RecordViolationHandler(IApplicationDbContext context, MasterLookup 
       new AgreementViolation.Agreement(lease, rental, transfer),
       violator, input.ViolationDate, input.ViolationDescription,
       new AgreementViolation.Notice(input.NoticeNo, input.NoticeDate, input.NoticeDeadline),
-      earlierViolations, inForce, input.Remarks);
+      earlierViolations, inForce, input.Remarks, PropertyWriteGuard.Today(), out var warnings);
 
     if (violation.LedToCancellation)
     {
@@ -48,6 +49,6 @@ public class RecordViolationHandler(IApplicationDbContext context, MasterLookup 
     await context.SaveChangesAsync(cancellationToken);
 
     return Result<RecordViolationCommandResult>.Success(
-      new RecordViolationCommandResult(violation.Id.Value, violation.OccurrenceNo, violation.LedToCancellation));
+      new RecordViolationCommandResult(violation.Id.Value, violation.OccurrenceNo, violation.LedToCancellation, warnings));
   }
 }

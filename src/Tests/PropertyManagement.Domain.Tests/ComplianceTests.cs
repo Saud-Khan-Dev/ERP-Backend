@@ -9,28 +9,23 @@ public class BoundaryTests
   };
 
   [Fact]
-  public void Boundary_stores_slope_as_a_percentage_and_ordered_points()
+  public void Boundary_stores_slope_in_degrees_and_ordered_points()
   {
-    var boundary = PropertyBoundary.Record(BoundaryId.New(), Property(), BoundaryType.Original, null, null, 12.5m, null, Square);
+    var boundary = PropertyBoundary.Record(BoundaryId.New(), Property(), BoundaryType.Original, null, null, 12.5m, null, Square,
+      D("2026-12-31"), Array.Empty<PropertyBoundary>(), out var warnings);
 
-    Assert.Equal(12.5m, boundary.SlopePercentage);
+    Assert.Equal(12.5m, boundary.SlopeDegrees);
+    Assert.False(boundary.IsSteep);
+    Assert.Empty(warnings);
     Assert.Equal(new[] { 1, 2, 3, 4 }, boundary.Points.Select(p => p.SequenceNo));
     Assert.True(boundary.IsCurrent);
-  }
-
-  [Theory]
-  [InlineData(-0.01)]
-  [InlineData(10000)]
-  public void Slope_outside_decimal_8_4_percentage_range_is_refused(decimal slope)
-  {
-    Assert.Throws<DomainException>(() => PropertyBoundary.Record(BoundaryId.New(), Property(), BoundaryType.Original, null, null, slope, null, Square));
   }
 
   [Fact]
   public void Polygon_needs_three_distinct_points()
   {
     Assert.Throws<DomainException>(() => PropertyBoundary.Record(BoundaryId.New(), Property(), BoundaryType.Original, null, null, null, null,
-      new[] { Square[0], Square[1], Square[0] }));
+      new[] { Square[0], Square[1], Square[0] }, D("2026-12-31"), Array.Empty<PropertyBoundary>(), out _));
   }
 
   [Theory]
@@ -46,7 +41,7 @@ public class EncroachmentTests
 {
   private static PropertyEncroachment Encroachment() => PropertyEncroachment.Record(EncroachmentId.New(), Property(), BusinessCode.Of("ENC-00001"),
     5, Unit("MARLA", 272.25m), Master<EncroachmentStatus>("ACTIVE"), D("2026-06-01"),
-    new PropertyEncroachment.Details("Kiosk", null, null, null, null), null);
+    new PropertyEncroachment.Details("Kiosk", null, null, null, null), null, D("2026-12-31"));
 
   [Fact]
   public void Encroached_area_is_kept_in_square_feet()
@@ -82,7 +77,7 @@ public class AppealTests
   private static PropertyAppeal File(string orderDate, string? received, string appealDate, out IReadOnlyList<string> warnings) =>
       PropertyAppeal.File(AppealId.New(), Property(), BusinessCode.Of("APL-00001"),
         new PropertyAppeal.Filing(Owner("Appellant"), "DG/7", D(orderDate), received is null ? null : D(received), null, null, D(appealDate), null, null, null),
-        out warnings);
+        Array.Empty<PropertyAppeal>(), out warnings);
 
   [Fact]
   public void Rule6_decision_due_is_appeal_date_plus_120_days()
@@ -152,7 +147,7 @@ public class LitigationTests
     var complaint = Master<LitigationType>("CRIMINAL_COMPLAINT");
 
     Assert.Throws<DomainException>(() => PropertyLitigation.File(LitigationId.New(), Property(), "CC-1", "District & Sessions Judge Abbottabad",
-      Master<LitigationStatus>("PENDING"), new PropertyLitigation.Details("Complaint", complaint, null, null, null, null, null),
+      Master<LitigationStatus>("PENDING"), new PropertyLitigation.Details("Complaint", complaint, null, null, null, null),
       new PropertyLitigation.Related(null, null, null, null), Array.Empty<PropertyLitigation.PartyInput>()));
   }
 
@@ -162,7 +157,7 @@ public class LitigationTests
     var pending = Master<LitigationStatus>("PENDING");
     var decided = Master<LitigationStatus>("DECIDED");
     var litigation = PropertyLitigation.File(LitigationId.New(), Property(), "CS-1", "Civil Judge", pending,
-      new PropertyLitigation.Details("GDA vs X", Master<LitigationType>("CIVIL_SUIT"), D("2026-06-05"), GdaRole.Plaintiff, null, null, null),
+      new PropertyLitigation.Details("GDA vs X", Master<LitigationType>("CIVIL_SUIT"), D("2026-06-05"), GdaRole.Plaintiff, null, null),
       new PropertyLitigation.Related(null, null, null, null), Array.Empty<PropertyLitigation.PartyInput>());
 
     litigation.RecordHearing(pending, D("2026-07-10"), null, "Adjourned", D("2026-08-10"), null);
@@ -179,10 +174,10 @@ public class DocumentTests
   private static readonly PropertyDocument.StoredFile File = new("a.pdf", "/property-documents/PROP-00001/notices/a.pdf", "application/pdf", 10, new string('a', 64));
 
   [Fact]
-  public void Document_always_belongs_to_a_property()
+  public void Property_record_document_always_belongs_to_a_property()
   {
-    Assert.Throws<ArgumentNullException>(() => PropertyDocument.Create(DocumentId.New(), null!, Master<DocumentType>("NOTICE_LETTER"),
-      DocumentEntityType.Owner, Guid.NewGuid(), "cnic.pdf", File, new PropertyDocument.Details(null, null, null, null, false), Guid.NewGuid(), DateTime.UtcNow));
+    Assert.Throws<DomainException>(() => PropertyDocument.Create(DocumentId.New(), null, Master<DocumentType>("NOTICE_LETTER"),
+      DocumentEntityType.Lease, Guid.NewGuid(), "notice.pdf", File, new PropertyDocument.Details(null, null, null, null, false), Guid.NewGuid(), DateTime.UtcNow));
   }
 
   [Fact]

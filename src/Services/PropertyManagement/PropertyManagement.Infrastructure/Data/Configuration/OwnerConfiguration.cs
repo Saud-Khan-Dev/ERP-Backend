@@ -19,10 +19,9 @@ public class PropertyOwnerConfiguration : EntityConfiguration<PropertyOwner, Own
 
     builder.Property(x => x.FatherHusbandName).HasMaxLength(200);
     builder.Property(x => x.Cnic)
-      .HasConversion(c => c!.Value, value => Cnic.Of(value))
+      .HasConversion(c => c!.Value, value => Cnic.FromStored(value))
       .HasMaxLength(Cnic.MaxLength);
     builder.Property(x => x.Ntn).HasMaxLength(PropertyOwner.NtnMaxLength);
-    builder.Property(x => x.RegistrationNo).HasMaxLength(50);
     builder.Property(x => x.Email)
       .HasConversion(e => e!.Value, value => EmailAddress.Of(value))
       .HasMaxLength(EmailAddress.MaxLength);

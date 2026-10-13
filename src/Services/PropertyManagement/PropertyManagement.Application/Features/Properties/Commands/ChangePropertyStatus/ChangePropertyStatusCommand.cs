@@ -17,5 +17,7 @@ public class ChangePropertyStatusCommandValidator : AbstractValidator<ChangeProp
     RuleFor(x => x.PropertyStatusId).NotEmpty();
     RuleFor(x => x.Reason).MaximumLength(300);
     RuleFor(x => x.ReferenceNo).MaximumLength(100);
+    RuleFor(x => x.EffectiveFrom).LessThanOrEqualTo(_ => PropertyWriteGuard.Today())
+      .When(x => x.EffectiveFrom.HasValue).WithMessage("A status cannot start in the future.");
   }
 }

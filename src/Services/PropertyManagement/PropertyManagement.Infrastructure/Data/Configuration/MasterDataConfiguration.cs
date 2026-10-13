@@ -50,6 +50,8 @@ public sealed class MasterDataConfiguration<T>(string table) : EntityConfigurati
 
       case EntityTypeBuilder<DocumentType> documentType:
         documentType.Property(x => x.StorageFolder).HasMaxLength(DocumentType.StorageFolderMaxLength).IsRequired();
+        // PROPERTY | OWNER: whose papers this kind is (owner kinds are filed on the owner, without a property)
+        documentType.Property(x => x.AppliesTo).HasUpperSnakeEnum(20).IsRequired().HasDefaultValue(DocumentScope.Property);
         break;
 
       case EntityTypeBuilder<TransferType> transferType:

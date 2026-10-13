@@ -24,6 +24,7 @@ public class AuctionDetailsInputValidator : AbstractValidator<AuctionDetailsInpu
     RuleFor(x => x.AuctionCommitteeRef).MaximumLength(100);
     RuleFor(x => x.Venue).MaximumLength(200);
     RuleFor(x => x.ReferenceNo).MaximumLength(100);
+    RuleFor(x => x.Remarks).MaximumLength(4000);
   }
 }
 

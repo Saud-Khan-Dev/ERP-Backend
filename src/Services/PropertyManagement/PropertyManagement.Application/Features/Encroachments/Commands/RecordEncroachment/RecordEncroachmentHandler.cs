@@ -10,13 +10,15 @@ public class RecordEncroachmentHandler(IApplicationDbContext context, MasterLook
       ? await masters.GetAsync<EncroachmentStatus>(statusId, cancellationToken)
       : await masters.GetByCodeAsync<EncroachmentStatus>(SystemMasterCodes.Active, cancellationToken);
 
+    // a notice given with the case moves it to UNDER_NOTICE; a notice date without its number is refused
+    var hasNotice = !string.IsNullOrWhiteSpace(input.NoticeNo) || input.NoticeDate is not null;
+    var underNotice = hasNotice ? await masters.GetByCodeAsync<EncroachmentStatus>(SystemMasterCodes.UnderNotice, cancellationToken) : null;
+
     var encroachment = PropertyEncroachment.Record(
       EncroachmentId.New(), property, await codes.NextAsync(CodeSequenceKeys.Encroachment, cancellationToken),
       input.EncroachmentArea, await masters.GetAsync<MeasurementUnit>(input.MeasurementUnitId, cancellationToken), status,
-      input.DetectionDate, await input.Details.ToDetailsAsync(context, cancellationToken), input.Points.ToGeoPoints());
-
-    if (!string.IsNullOrWhiteSpace(input.NoticeNo))
-      encroachment.IssueNotice(input.NoticeNo, input.NoticeDate ?? input.DetectionDate);
+      input.DetectionDate, await input.Details.ToDetailsAsync(context, cancellationToken), input.Points.ToGeoPoints(),
+      PropertyWriteGuard.Today(), new PropertyEncroachment.Notice(input.NoticeNo, input.NoticeDate), underNotice);
 
     await context.Encroachments.AddAsync(encroachment, cancellationToken);
     await context.SaveChangesAsync(cancellationToken);

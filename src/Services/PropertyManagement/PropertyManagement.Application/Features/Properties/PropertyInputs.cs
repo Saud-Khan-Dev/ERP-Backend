@@ -40,7 +40,12 @@ public class MeasurementInputValidator : AbstractValidator<MeasurementInput>
     RuleFor(x => x.MeasurementUnitId).NotEmpty();
     RuleFor(x => x.TotalArea).GreaterThan(0);
     RuleFor(x => x.BuiltUpArea).GreaterThanOrEqualTo(0);
-    RuleFor(x => x.MeasurementSource).MaximumLength(150);
+    RuleFor(x => x.BuiltUpArea).LessThanOrEqualTo(x => x.TotalArea).When(x => x.TotalArea > 0)
+      .WithMessage("Built-up area cannot be more than the total area.");
+    RuleFor(x => x.MeasuredOn).LessThanOrEqualTo(_ => PropertyWriteGuard.Today()).When(x => x.MeasuredOn.HasValue)
+      .WithMessage("The measurement date cannot be in the future.");
+    RuleFor(x => x.MeasurementSource).MaximumLength(PropertyMeasurement.SourceMaxLength);
+    RuleFor(x => x.Remarks).MaximumLength(PropertyMeasurement.RemarksMaxLength);
   }
 }
 

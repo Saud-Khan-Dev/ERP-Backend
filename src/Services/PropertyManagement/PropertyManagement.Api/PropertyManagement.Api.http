@@ -186,8 +186,19 @@ Content-Type: application/json
 
 { "owner": { "ownerTypeId": "{{individual}}", "ownerName": "Owner D", "cnic": "3333333333333" } }
 
-### Look up by CNIC
-GET {{host}}/owners?cnic=12345-1234567-1
+### A company — no CNIC and no father / husband name; the NTN is stored as 1234567-8
+POST {{host}}/owners
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "owner": { "ownerTypeId": "{{company}}", "ownerName": "Galiyat Builders (Pvt) Ltd", "ntn": "12345678" } }
+
+### Look up by CNIC before registering (inactive owners too)
+GET {{host}}/owners?cnic=1234512345671&includeInactive=true
+Authorization: Bearer {{token}}
+
+### Search (code, CNIC or its first 5+ digits, NTN, name), owners holding a share, most holdings first
+GET {{host}}/owners?search=12345&hasHoldings=true&sortBy=holdings&sortDir=desc
 Authorization: Bearer {{token}}
 
 
@@ -227,19 +238,13 @@ Content-Type: application/json
   ]
 }
 
-### Approve (approvedBy defaults to the signed-in user)
+### Approve = register: old ownership rows are closed on the transfer date and new ones opened in the same step
+### (approvedBy defaults to the signed-in user, approvalDate to today). Reject instead: POST /transfers/{id}/reject { "reason": "…" }
 POST {{host}}/transfers/{{transfer.response.body.$.id}}/approve
 Authorization: Bearer {{token}}
 Content-Type: application/json
 
-{ "approvalDate": "2026-07-02" }
-
-### Complete — old ownership rows are closed on the transfer date, new ones opened
-POST {{host}}/transfers/{{transfer.response.body.$.id}}/complete
-Authorization: Bearer {{token}}
-Content-Type: application/json
-
-{}
+{ "approvalDate": "2026-07-02", "approvalOrderRef": "DG/EST/2026/114" }
 
 ### Current owners (add ?includeHistory=true for the closed rows)
 GET {{host}}/properties/{{createProperty.response.body.$.id}}/ownerships
@@ -327,7 +332,8 @@ Content-Type: application/pdf
 %PDF-1.4 mutation
 --GdaBoundary--
 
-### Owner's CNIC copy — propertyId says whose file it goes in; the owner's cnicDocumentId is set
+### Owner's CNIC copy — an owner's own paper (an OWNER document type), filed on the owner with no property;
+### stored under /owner-documents/OWN-00001/cnic/ and the owner's cnicDocumentId points at it
 POST {{host}}/owners/{{ownerB.response.body.$.id}}/documents
 Authorization: Bearer {{token}}
 Content-Type: multipart/form-data; boundary=GdaBoundary
@@ -337,9 +343,9 @@ Content-Disposition: form-data; name="documentTypeId"
 
 {{cnicCopy}}
 --GdaBoundary
-Content-Disposition: form-data; name="propertyId"
+Content-Disposition: form-data; name="referenceNo"
 
-{{createProperty.response.body.$.id}}
+12345-1234567-1
 --GdaBoundary
 Content-Disposition: form-data; name="file"; filename="cnic.jpg"
 Content-Type: image/jpeg
@@ -414,7 +420,9 @@ Authorization: Bearer {{token}}
 ### 8. Management records
 ##############################################################################
 
-### Allotment — ALT-00001 (an allotment is not ownership)
+### Allotment — ALT-00001 (an allotment is not ownership; GDA_PROPERTY only, one allotment in force per property)
+### Confirm the allottee as owner: POST /allotments/{id}/confirm-ownership { "effectiveFrom": "…" }. Surrender / expire:
+### POST /allotments/{id}/status { "statusId": "<SURRENDERED or EXPIRED>", "date": "…" }.
 # @name allotment
 POST {{host}}/properties/{{createProperty.response.body.$.id}}/allotments
 Authorization: Bearer {{token}}
@@ -524,14 +532,14 @@ Content-Type: application/json
 ### 9. Compliance records
 ##############################################################################
 
-### Boundary: latitude / longitude points in order, slope as a percentage (12.5 = 12.5%)
+### Boundary: latitude / longitude points in order, slope in degrees (0-90; above 45 the result carries a BCR 2026 warning)
 # @name boundary
 POST {{host}}/properties/{{createProperty.response.body.$.id}}/boundaries
 Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
-  "surveyDate": "2026-02-01", "surveySource": "GPS survey", "slopePercentage": 12.5,
+  "surveyDate": "2026-02-01", "surveySource": "GPS survey", "slopeDegrees": 12.5,
   "points": [
     { "latitude": 34.0781234, "longitude": 73.3871234 },
     { "latitude": 34.0782234, "longitude": 73.3872234 },

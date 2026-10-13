@@ -5,8 +5,9 @@ public class CreateOwnerHandler(IApplicationDbContext context, MasterLookup mast
   {
     var input = command.Owner;
     var cnic = Cnic.OfNullable(input.Cnic);
+    var ntn = Ntn.OfNullable(input.Ntn);
 
-    var duplicate = await OwnerDuplicates.FindAsync(context, cnic, input.Ntn, null, cancellationToken);
+    var duplicate = await OwnerDuplicates.FindAsync(context, cnic, ntn, null, cancellationToken);
     if (duplicate is not null)
       return Result<CreateOwnerCommandResult>.Failure(duplicate);
 
@@ -15,7 +16,7 @@ public class CreateOwnerHandler(IApplicationDbContext context, MasterLookup mast
       await codes.NextAsync(CodeSequenceKeys.Owner, cancellationToken),
       await masters.GetAsync<OwnerType>(input.OwnerTypeId, cancellationToken),
       Name.Of(input.OwnerName, PropertyOwner.NameMaxLength),
-      input.FatherHusbandName, cnic, input.Ntn, input.RegistrationNo,
+      input.FatherHusbandName, cnic, ntn,
       EmailAddress.OfNullable(input.Email), input.Remarks);
 
     foreach (var contact in command.Contacts ?? Array.Empty<ContactInput>())

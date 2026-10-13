@@ -13,7 +13,7 @@ public sealed class RegisterScope
   public string? Upper { get; private init; }
   public string? Lower { get; private init; }
 
-  /// Properties whose code or name matches the search, and owners whose code or name does.
+  /// Properties whose code or name matches the search, and owners whose code, name, CNIC or NTN does.
   public IQueryable<PropertyId> SearchProperties { get; private init; } = default!;
   public IQueryable<OwnerId> SearchOwners { get; private init; } = default!;
 
@@ -46,6 +46,10 @@ public sealed class RegisterScope
     var upper = search.Trim().ToUpperInvariant();
     var lower = search.Trim().ToLowerInvariant();
 
+    // an owner is also found by CNIC (13 digits or the first 5 or more, dashes optional) or NTN (either form)
+    var cnicPrefix = Cnic.NormalizePrefix(search);
+    var ntnDigits = Ntn.Normalize(search) is { } ntn ? Ntn.Digits(ntn) : null;
+
     // codes are value-converted BusinessCodes: the cast through object lets EF match part of the column text
     return new RegisterScope
     {
@@ -56,7 +60,9 @@ public sealed class RegisterScope
         .Where(p => ((string)(object)p.PropertyCode).Contains(upper) || p.PropertyName.Value.ToLower().Contains(lower))
         .Select(p => p.Id),
       SearchOwners = context.Owners
-        .Where(o => ((string)(object)o.OwnerCode).Contains(upper) || o.OwnerName.Value.ToLower().Contains(lower))
+        .Where(o => ((string)(object)o.OwnerCode).Contains(upper) || o.OwnerName.Value.ToLower().Contains(lower)
+          || (cnicPrefix != null && o.Cnic != null && ((string)(object)o.Cnic).StartsWith(cnicPrefix))
+          || (ntnDigits != null && o.Ntn != null && o.Ntn.Replace("-", "").Replace(" ", "") == ntnDigits))
         .Select(o => o.Id)
     };
   }

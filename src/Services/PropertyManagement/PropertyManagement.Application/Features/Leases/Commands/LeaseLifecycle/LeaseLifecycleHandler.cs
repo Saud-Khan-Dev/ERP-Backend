@@ -7,6 +7,7 @@ public class LeaseLifecycleHandler(IApplicationDbContext context, MasterLookup m
   public async Task<Result<LeaseLifecycleResult>> Handle(ActivateLeaseCommand command, CancellationToken cancellationToken)
   {
     var lease = await context.LoadLeaseAsync(command.Id, cancellationToken);
+    await context.EnsurePropertyActiveAsync(lease.PropertyId, cancellationToken);
     lease.Activate(await Current(lease, cancellationToken), await Status(SystemMasterCodes.Active, cancellationToken));
     return await SaveAsync(lease, cancellationToken);
   }
@@ -14,13 +15,15 @@ public class LeaseLifecycleHandler(IApplicationDbContext context, MasterLookup m
   public async Task<Result<LeaseLifecycleResult>> Handle(ExpireLeaseCommand command, CancellationToken cancellationToken)
   {
     var lease = await context.LoadLeaseAsync(command.Id, cancellationToken);
-    lease.Expire(await Current(lease, cancellationToken), await Status(SystemMasterCodes.Expired, cancellationToken));
+    await context.EnsurePropertyActiveAsync(lease.PropertyId, cancellationToken);
+    lease.Expire(await Current(lease, cancellationToken), await Status(SystemMasterCodes.Expired, cancellationToken), PropertyWriteGuard.Today());
     return await SaveAsync(lease, cancellationToken);
   }
 
   public async Task<Result<LeaseLifecycleResult>> Handle(TerminateLeaseCommand command, CancellationToken cancellationToken)
   {
     var lease = await context.LoadLeaseAsync(command.Id, cancellationToken);
+    await context.EnsurePropertyActiveAsync(lease.PropertyId, cancellationToken);
     lease.Terminate(await Current(lease, cancellationToken), await Status(SystemMasterCodes.Terminated, cancellationToken),
       command.TerminationDate, command.Reason);
     return await SaveAsync(lease, cancellationToken);
@@ -29,6 +32,7 @@ public class LeaseLifecycleHandler(IApplicationDbContext context, MasterLookup m
   public async Task<Result<RenewLeaseCommandResult>> Handle(RenewLeaseCommand command, CancellationToken cancellationToken)
   {
     var lease = await context.LoadLeaseAsync(command.Id, cancellationToken);
+    await context.EnsurePropertyActiveAsync(lease.PropertyId, cancellationToken);
     var lessee = await context.LoadOwnerAsync(command.LesseeOwnerId ?? lease.LesseeOwnerId.Value, cancellationToken);
 
     var renewal = lease.Renew(

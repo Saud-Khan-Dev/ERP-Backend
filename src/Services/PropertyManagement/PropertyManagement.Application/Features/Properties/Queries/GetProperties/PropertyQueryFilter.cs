@@ -4,6 +4,10 @@ using Microsoft.EntityFrameworkCore;
 /// report (GET /property-reports/register), so a report always lists exactly what the register shows.
 public static class PropertyQueryFilter
 {
+  /// A current share: ACTIVE or DISPUTED (a disputed share is still held until the dispute is resolved).
+  public static IQueryable<PropertyOwnership> CurrentHoldings(IApplicationDbContext context) =>
+      context.Ownerships.AsNoTracking().Where(o => o.OwnershipStatus == OwnershipStatus.Active || o.OwnershipStatus == OwnershipStatus.Disputed);
+
   public static async Task<IQueryable<Property>> ApplyAsync(IApplicationDbContext context, GetPropertiesQuery query, CancellationToken cancellationToken)
   {
     var properties = context.Properties.AsNoTracking();
@@ -47,8 +51,8 @@ public static class PropertyQueryFilter
     if (query.OwnerId is { } ownerGuid)
     {
       var ownerId = OwnerId.Of(ownerGuid);
-      var ownerships = context.Ownerships.AsNoTracking();
-      properties = properties.Where(p => ownerships.Any(o => o.PropertyId == p.Id && o.OwnerId == ownerId && o.OwnershipStatus == OwnershipStatus.Active));
+      var holdings = CurrentHoldings(context);
+      properties = properties.Where(p => holdings.Any(o => o.PropertyId == p.Id && o.OwnerId == ownerId));
     }
 
     // open matters: see OpenMatters
@@ -58,6 +62,15 @@ public static class PropertyQueryFilter
       properties = hasOpenEncroachment
         ? properties.Where(p => open.Any(e => e.PropertyId == p.Id))
         : properties.Where(p => !open.Any(e => e.PropertyId == p.Id));
+    }
+
+    if (query.SteepSlope is { } steep)
+    {
+      var steepBoundaries = context.Boundaries.AsNoTracking()
+        .Where(b => b.IsCurrent && b.SlopeDegrees > PropertyBoundary.SteepSlopeDegrees);
+      properties = steep
+        ? properties.Where(p => steepBoundaries.Any(b => b.PropertyId == p.Id))
+        : properties.Where(p => !steepBoundaries.Any(b => b.PropertyId == p.Id));
     }
 
     if (query.HasOpenCase is { } hasOpenCase)
@@ -74,13 +87,21 @@ public static class PropertyQueryFilter
       var upper = query.Search.Trim().ToUpperInvariant();
       var lower = query.Search.Trim().ToLowerInvariant();
 
+      // current holders whose name contains the term, or whose CNIC is the term (13 digits, dashes optional)
+      var cnic = Cnic.Normalize(query.Search) is { } normalized ? Cnic.FromStored(normalized) : null;
+      var holders = context.Owners.AsNoTracking()
+        .Where(o => o.OwnerName.Value.ToLower().Contains(lower) || (cnic != null && o.Cnic == cnic))
+        .Select(o => o.Id);
+      var holdings = CurrentHoldings(context);
+
       // The code is a value-converted BusinessCode. Casting it through object makes EF read the column as plain
       // text (property_code::text LIKE '%…%'), so "prop-1" or "00012" match part of it; codes are stored upper-case.
       properties = properties.Where(p =>
           ((string)(object)p.PropertyCode).Contains(upper)
           || p.PropertyName.Value.ToLower().Contains(lower)
           || (p.KhasraSurveyNo != null && p.KhasraSurveyNo.ToLower().Contains(lower))
-          || (p.AddressLine != null && p.AddressLine.ToLower().Contains(lower)));
+          || (p.AddressLine != null && p.AddressLine.ToLower().Contains(lower))
+          || holdings.Any(h => h.PropertyId == p.Id && holders.Contains(h.OwnerId)));
     }
 
     return properties;
@@ -91,6 +112,8 @@ public static class PropertyQueryFilter
     var measurements = context.PropertyMeasurements.AsNoTracking();
     var towns = context.Set<Town>().AsNoTracking();
     var statuses = context.Set<PropertyStatus>().AsNoTracking();
+    var types = context.Set<PropertyType>().AsNoTracking();
+    var holdings = CurrentHoldings(context);
     var desc = query.SortDescending;
 
     IOrderedQueryable<Property> ordered = query.SortBy switch
@@ -109,6 +132,13 @@ public static class PropertyQueryFilter
       PropertySort.Status => desc
         ? properties.OrderByDescending(p => statuses.Where(s => s.Id == p.PropertyStatusId).Select(s => s.Name).FirstOrDefault())
         : properties.OrderBy(p => statuses.Where(s => s.Id == p.PropertyStatusId).Select(s => s.Name).FirstOrDefault()),
+      PropertySort.Type => desc
+        ? properties.OrderByDescending(p => types.Where(t => t.Id == p.PropertyTypeId).Select(t => t.Name).FirstOrDefault())
+        : properties.OrderBy(p => types.Where(t => t.Id == p.PropertyTypeId).Select(t => t.Name).FirstOrDefault()),
+      // how many owners hold a current share
+      PropertySort.Owners => desc
+        ? properties.OrderByDescending(p => holdings.Where(h => h.PropertyId == p.Id).Select(h => h.OwnerId).Distinct().Count())
+        : properties.OrderBy(p => holdings.Where(h => h.PropertyId == p.Id).Select(h => h.OwnerId).Distinct().Count()),
       _ => desc ? properties.OrderByDescending(p => p.PropertyCode) : properties.OrderBy(p => p.PropertyCode),
     };
 

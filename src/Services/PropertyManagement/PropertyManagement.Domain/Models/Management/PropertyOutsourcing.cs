@@ -59,8 +59,9 @@ public class PropertyOutsourcing : Aggregate<OutsourcingId>
     Apply(terms);
   }
 
-  /// Expired or any other admin-defined status. Termination has its own step.
-  public void ChangeStatus(ContractStatus currentStatus, ContractStatus status)
+  /// Expired or any other admin-defined status. Termination has its own step. A contract is marked expired
+  /// only once its end date has passed; an open-ended contract never expires (terminate it instead).
+  public void ChangeStatus(ContractStatus currentStatus, ContractStatus status, DateOnly today)
   {
     ArgumentNullException.ThrowIfNull(status);
     EnsureInForce(currentStatus);
@@ -68,6 +69,18 @@ public class PropertyOutsourcing : Aggregate<OutsourcingId>
 
     if (status.Is(SystemMasterCodes.Terminated))
       throw new DomainException("Use terminate, so the date and reason are recorded.");
+
+    if (status.Id == ContractStatusId)
+      throw new DomainException($"Contract {ContractNo.Value} is already {status.Name.Value}.");
+
+    if (status.Is(SystemMasterCodes.Expired))
+    {
+      if (ContractEndDate is not { } end)
+        throw new DomainException($"{ContractNo.Value} has no end date, so it cannot expire. Terminate it instead, or give it an end date.");
+
+      if (today <= end)
+        throw new DomainException($"{ContractNo.Value} ends on {end:yyyy-MM-dd}; it can be marked expired after that.");
+    }
 
     ContractStatusId = status.Id;
   }

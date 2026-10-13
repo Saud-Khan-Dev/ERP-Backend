@@ -44,3 +44,6 @@ public class BuildingPlanNotFoundException(string message) : NotFoundException(m
 
 /// GDA Act s.2(a-i): the action is reserved for an officer authorized by the DG (fines s.28, complaints s.30).
 public class AuthorizedOfficerRequiredException(string message) : Exception(message);
+
+/// The signed-in user lacks the permission this particular act needs (decided from the record, not the route).
+public class PermissionRequiredException(string message) : Exception(message);

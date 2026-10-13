@@ -4,7 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 public sealed class UploadDocumentForm
 {
   public IFormFile? File { get; set; }
-  /// Owner uploads only: the property whose file the paper goes in (property_id is always set).
+  /// Not used: an owner's paper belongs to no property, so an owner upload that sends it is refused (400).
   public Guid? PropertyId { get; set; }
   public Guid DocumentTypeId { get; set; }
   /// PROPERTY (default), OWNERSHIP, TRANSFER, ENCUMBRANCE, REGULARIZATION ... on a property upload.
@@ -12,6 +12,7 @@ public sealed class UploadDocumentForm
   public Guid? EntityId { get; set; }
   public string? Title { get; set; }
   public DateOnly? DocumentDate { get; set; }
+  /// The number on the paper: notesheet / letter no., or the CNIC / passport / NTN / certificate no. of an owner's paper.
   public string? ReferenceNo { get; set; }
   public string? Description { get; set; }
   public bool IsConfidential { get; set; }
@@ -46,7 +47,9 @@ public class DocumentEndpoints : ICarterModule
       .Produces<UploadDocumentCommandResult>(StatusCodes.Status201Created)
       .ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Upload Property Document")
-      .WithDescription("Files a document under the property, or under one of its records via entityType + entityId (checked to exist on this property). Stored at /property-documents/{code}/{document type folder}/.");
+      .WithDescription("Files a document under the property, or under one of its records via entityType + entityId (checked to exist on this property). "
+        + "The document type must apply to PROPERTY; entityType OWNER is refused (owner papers go to POST /owners/{id}/documents). "
+        + "Stored at /property-documents/{code}/{document type folder}/.");
 
     app.MapGet("/properties/{id:guid}/documents", async (
         Guid id, DocumentEntityType? entityType, Guid? entityId, Guid? documentTypeId, bool? includeSuperseded, bool? includeInactive, ISender sender) =>
@@ -73,7 +76,9 @@ public class DocumentEndpoints : ICarterModule
       .Produces<UploadDocumentCommandResult>(StatusCodes.Status201Created)
       .ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Upload Owner Document")
-      .WithDescription("An owner's own paper, filed in the file of the property given in propertyId (property_document.property_id is always set). With the CNIC Copy document type it also becomes the owner's CNIC document.");
+      .WithDescription("An owner's own paper (CNIC copy, NTN certificate ...). It belongs to no property: sending propertyId is refused. The document type must "
+        + "apply to OWNER and the owner must be active; both are checked before the file is stored. Stored at /owner-documents/{OWN code}/{document type folder}/. "
+        + "The owner's latest active CNIC Copy becomes the owner's cnicDocumentId.");
 
     app.MapGet("/owners/{id:guid}/documents", async (Guid id, bool? includeSuperseded, bool? includeInactive, ISender sender) =>
         (await sender.Send(new GetDocumentsQuery(null, id, null, null, null, includeSuperseded ?? false, includeInactive ?? false))).ToOk())
@@ -81,7 +86,9 @@ public class DocumentEndpoints : ICarterModule
       .WithTags("Documents")
       .WithName("GetOwnerDocuments")
       .Produces<GetDocumentsQueryResult>()
-      .WithSummary("Get Owner Documents");
+      .ProducesProblem(StatusCodes.Status404NotFound)
+      .WithSummary("Get Owner Documents")
+      .WithDescription("The owner's own papers, latest versions only unless includeSuperseded=true; inactive ones only with includeInactive=true.");
 
     var documents = app.MapGroup("/documents").WithTags("Documents");
 
@@ -112,7 +119,8 @@ public class DocumentEndpoints : ICarterModule
       .Produces<UpdateDocumentDetailsCommandResult>()
       .ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Update Document Details")
-      .WithDescription("Metadata only. A different file is uploaded as a new version.");
+      .WithDescription("Metadata only. A different file is uploaded as a new version. The document type can change only to another of the same scope "
+        + "(PROPERTY or OWNER).");
 
     documents.MapPost("/{id:guid}/versions", async (Guid id, [FromForm] UploadVersionForm form, ISender sender) =>
     {

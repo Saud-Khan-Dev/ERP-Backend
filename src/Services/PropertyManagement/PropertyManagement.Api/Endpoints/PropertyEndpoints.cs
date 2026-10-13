@@ -89,7 +89,7 @@ public class PropertyEndpoints : ICarterModule
       .Produces<ChangePropertyStatusCommandResult>()
       .ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Change Property Status")
-      .WithDescription("Closes the current status period and opens a new one (e.g. Occupied → Encroached).");
+      .WithDescription("Closes the current status period and opens a new one (e.g. Occupied → Encroached). The new status starts on or before today and not before the current one.");
 
     properties.MapGet("/{id:guid}/status-history", async (Guid id, ISender sender) =>
         (await sender.Send(new GetStatusHistoryQuery(id))).ToOk())
@@ -107,7 +107,7 @@ public class PropertyEndpoints : ICarterModule
       .Produces<RecordMeasurementCommandResult>()
       .ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Record Measurement")
-      .WithDescription("A new survey of total and built-up area. The previous measurement is kept as history; square-feet values are computed from the unit.");
+      .WithDescription("A survey of total and built-up area (built-up at most the total; measured date not in the future). The latest dated survey is the current one: a newer or same-day survey supersedes the current measurement, an older one is kept as history (isCurrent = false, with a warning). Square-feet values are computed from the unit.");
 
     properties.MapGet("/{id:guid}/measurements", async (Guid id, ISender sender) =>
         (await sender.Send(new GetMeasurementsQuery(id))).ToOk())
@@ -133,11 +133,12 @@ public class PropertyEndpoints : ICarterModule
       .WithSummary("Open Area Regularization Case");
 
     properties.MapGet("/{id:guid}/regularizations", async (Guid id, bool? includeInactive, ISender sender) =>
-        (await sender.Send(new GetRegularizationsQuery(id, includeInactive ?? false))).ToOk())
+        (await sender.Send(new GetRegularizationsQuery(id, includeInactive ?? true))).ToOk())
       .RequirePermission(PermissionCatalog.Property.View)
       .WithName("GetRegularizations")
       .Produces<GetRegularizationsQueryResult>()
-      .WithSummary("Get Area Regularizations");
+      .WithSummary("Get Area Regularizations")
+      .WithDescription("Every case, withdrawn ones included as history (isActive = false). includeInactive=false lists only the cases not withdrawn.");
 
     var regularizations = app.MapGroup("/regularizations").WithTags("Properties");
 
@@ -155,6 +156,8 @@ public class PropertyEndpoints : ICarterModule
       .RequirePermission(PermissionCatalog.Property.Edit)
       .WithName("DeactivateRegularization")
       .Produces<DeactivateRegularizationCommandResult>()
-      .WithSummary("Withdraw Area Regularization Case");
+      .ProducesProblem(StatusCodes.Status400BadRequest)
+      .WithSummary("Withdraw Area Regularization Case")
+      .WithDescription("Withdraws a case entered in error; it stays listed as history. A case already withdrawn is refused.");
   }
 }

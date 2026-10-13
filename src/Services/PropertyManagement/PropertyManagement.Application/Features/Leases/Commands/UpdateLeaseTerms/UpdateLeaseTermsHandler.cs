@@ -4,6 +4,7 @@ public class UpdateLeaseTermsHandler(IApplicationDbContext context, MasterLookup
   public async Task<Result<UpdateLeaseTermsCommandResult>> Handle(UpdateLeaseTermsCommand command, CancellationToken cancellationToken)
   {
     var lease = await context.LoadLeaseAsync(command.Id, cancellationToken);
+    await context.EnsurePropertyActiveAsync(lease.PropertyId, cancellationToken);
     var current = await masters.GetAsync<LeaseStatus>(lease.LeaseStatusId.Value, cancellationToken);
 
     lease.UpdateTerms(current, await command.Terms.ToTermsAsync(masters, cancellationToken));

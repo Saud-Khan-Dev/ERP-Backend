@@ -1,5 +1,3 @@
-using Microsoft.EntityFrameworkCore;
-
 public class InitiateTransferHandler(IApplicationDbContext context, MasterLookup masters, CodeGenerator codes)
   : ICommandHandler<InitiateTransferCommand, Result<InitiateTransferCommandResult>>
 {
@@ -9,19 +7,12 @@ public class InitiateTransferHandler(IApplicationDbContext context, MasterLookup
     var property = await context.LoadPropertyAsync(command.PropertyId, cancellationToken);
     var transferType = await masters.GetAsync<TransferType>(input.TransferTypeId, cancellationToken);
 
-    // every party must be a registered, active owner record
-    var partyIds = input.Parties.Select(p => OwnerId.Of(p.OwnerId)).Distinct().ToList();
-    var owners = await context.Owners.AsNoTracking().Where(o => partyIds.Contains(o.Id)).ToListAsync(cancellationToken);
-
-    var missing = partyIds.Except(owners.Select(o => o.Id)).FirstOrDefault();
-    if (missing is not null)
-      throw new OwnerNotFoundException($"Owner {missing.Value} was not found.");
-
-    owners.ForEach(o => o.EnsureActive());
+    // every party must be a registered owner record (the domain checks they are active)
+    var partyIds = await context.EnsureOwnersExistAsync(input.Parties.Select(p => p.OwnerId), cancellationToken);
+    var record = await context.LoadOwnershipRecordAsync(property, partyIds, cancellationToken);
 
     var transfer = PropertyTransfer.Initiate(
       TransferId.New(),
-      property,
       await codes.NextAsync(CodeSequenceKeys.Transfer, cancellationToken),
       transferType,
       input.TransferDate,
@@ -30,7 +21,7 @@ public class InitiateTransferHandler(IApplicationDbContext context, MasterLookup
       input.Relationship,
       input.Remarks,
       input.Parties.Select(p => new PropertyTransfer.PartyInput(OwnerId.Of(p.OwnerId), p.Role, p.SharePct)).ToList(),
-      await context.CurrentOwnershipsAsync(property.Id, cancellationToken));
+      record);
 
     await context.Transfers.AddAsync(transfer, cancellationToken);
     await context.SaveChangesAsync(cancellationToken);

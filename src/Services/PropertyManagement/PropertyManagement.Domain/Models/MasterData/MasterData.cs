@@ -74,7 +74,8 @@ public sealed record MasterExtras(
     decimal? FactorToBase = null,
     bool? IsBase = null,
     string? StorageFolder = null,
-    bool? RequiresRelationship = null)
+    bool? RequiresRelationship = null,
+    DocumentScope? AppliesTo = null)
 {
   public static MasterExtras None { get; } = new();
 }

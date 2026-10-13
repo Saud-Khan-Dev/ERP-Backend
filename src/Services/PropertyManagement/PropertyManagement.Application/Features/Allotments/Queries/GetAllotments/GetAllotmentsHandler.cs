@@ -29,7 +29,16 @@ public class GetAllotmentsHandler(IApplicationDbContext context, MasterLookup ma
         .Add<AllotmentStatus>(rows.Select(a => a.AllotmentStatusId))
         .LoadAsync(cancellationToken);
     var owners = await read.OwnerRefsAsync(rows.Select(a => a.AllotteeOwnerId), cancellationToken);
+    var inForce = await context.InForceAllotmentStatusIdsAsync(cancellationToken);
 
-    return rows.Select(a => a.ToDto(refs, owners)).ToList();
+    var ids = rows.Select(a => (AllotmentId?)a.Id).ToList();
+    var confirmations = (await context.Ownerships.AsNoTracking()
+        .Where(o => o.AcquiredViaAllotmentId != null && ids.Contains(o.AcquiredViaAllotmentId))
+        .ToListAsync(cancellationToken))
+      .ToLookup(o => o.AcquiredViaAllotmentId!);
+
+    return rows.Select(a => a.ToDto(refs, owners,
+        a.IsActive && inForce.Contains(a.AllotmentStatusId),
+        a.ConfirmedOwnership(confirmations[a.Id])?.Id.Value)).ToList();
   }
 }

@@ -1,16 +1,27 @@
-using System.Text.RegularExpressions;
-
 /// The single people-and-organizations table: one row per person, company, trust or government body,
 /// whether they act as owner, allottee, lessee, tenant, bidder or contractor.
 ///
 /// Contacts and addresses belong to the aggregate so "at most one primary of each" (schema guide,
 /// rule 3) is enforced in one place.
+///
+/// What an owner must carry depends on the owner type (by system code): an INDIVIDUAL needs a CNIC; a COMPANY,
+/// TRUST, GOVERNMENT body or JOINT_ENTITY is identified by its NTN and has neither a CNIC nor a father / husband
+/// name. Owner types an administrator adds have no such rule.
 public class PropertyOwner : Aggregate<OwnerId>
 {
   public const int NameMaxLength = 200;
-  public const int NtnMaxLength = 20;
+  public const int FatherHusbandNameMaxLength = 200;
+  public const int NtnMaxLength = global::Ntn.MaxLength;
+  public const int RemarksMaxLength = 4000;
 
-  private static readonly Regex NtnPattern = new(@"^[A-Z0-9][A-Z0-9\-]*$", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+  /// The organization owner types, with how a message names them ("A company has no CNIC ...").
+  private static readonly Dictionary<string, string> Organizations = new()
+  {
+    [SystemMasterCodes.OwnerTypeCompany] = "A company",
+    [SystemMasterCodes.OwnerTypeTrust] = "A trust",
+    [SystemMasterCodes.OwnerTypeGovernment] = "A government body",
+    [SystemMasterCodes.OwnerTypeJointEntity] = "A joint entity",
+  };
 
   private readonly List<OwnerContact> _contacts = new();
   private readonly List<OwnerAddress> _addresses = new();
@@ -22,12 +33,11 @@ public class PropertyOwner : Aggregate<OwnerId>
   public string? FatherHusbandName { get; private set; }
   /// Individuals.
   public Cnic? Cnic { get; private set; }
-  /// Companies / trusts.
+  /// Organizations (and individuals who have one): 1234567-8 or 12345-1234567-1 (see Ntn).
   public string? Ntn { get; private set; }
-  /// SECP / trust registration where applicable.
-  public string? RegistrationNo { get; private set; }
   public EmailAddress? Email { get; private set; }
-  /// The scanned CNIC copy, a property_document row.
+  /// The owner's current CNIC copy: the latest active, latest-version CNIC_COPY document filed on this owner
+  /// (kept by RefreshCnicDocument).
   public DocumentId? CnicDocumentId { get; private set; }
   public string? Remarks { get; private set; }
   public bool IsActive { get; private set; }
@@ -42,15 +52,14 @@ public class PropertyOwner : Aggregate<OwnerId>
       Name ownerName,
       string? fatherHusbandName,
       Cnic? cnic,
-      string? ntn,
-      string? registrationNo,
+      Ntn? ntn,
       EmailAddress? email,
       string? remarks)
   {
     ArgumentNullException.ThrowIfNull(ownerCode);
 
     var owner = new PropertyOwner { Id = id, OwnerCode = ownerCode, IsActive = true };
-    owner.Apply(ownerType, ownerName, fatherHusbandName, cnic, ntn, registrationNo, email, remarks);
+    owner.Apply(ownerType, ownerName, fatherHusbandName, cnic, ntn, email, remarks);
     return owner;
   }
 
@@ -59,23 +68,71 @@ public class PropertyOwner : Aggregate<OwnerId>
       Name ownerName,
       string? fatherHusbandName,
       Cnic? cnic,
-      string? ntn,
-      string? registrationNo,
+      Ntn? ntn,
       EmailAddress? email,
       string? remarks)
   {
     EnsureActive();
-    Apply(ownerType, ownerName, fatherHusbandName, cnic, ntn, registrationNo, email, remarks);
+    Apply(ownerType, ownerName, fatherHusbandName, cnic, ntn, email, remarks);
   }
 
-  public void AttachCnicDocument(DocumentId documentId)
+  /// Points cnic_document_id at the owner's current CNIC copy: of the CNIC_COPY documents filed on this owner,
+  /// the active ones that no later version supersedes, the most recently uploaded. None left = no pointer.
+  /// Run after every upload, new version, (de)activation or re-type of one of the owner's documents.
+  public void RefreshCnicDocument(IEnumerable<PropertyDocument> ownerDocuments, DocumentType cnicCopy)
   {
-    ArgumentNullException.ThrowIfNull(documentId);
-    EnsureActive();
-    CnicDocumentId = documentId;
+    ArgumentNullException.ThrowIfNull(ownerDocuments);
+    ArgumentNullException.ThrowIfNull(cnicCopy);
+    cnicCopy.EnsureIs(SystemMasterCodes.DocumentCnicCopy);
+
+    var documents = ownerDocuments
+        .Where(d => d.EntityType == DocumentEntityType.Owner && d.EntityId == Id.Value)
+        .DistinctBy(d => d.Id)
+        .ToList();
+
+    var superseded = documents.Where(d => d.SupersedesDocumentId is not null).Select(d => d.SupersedesDocumentId!).ToHashSet();
+
+    CnicDocumentId = documents
+        .Where(d => d.IsActive && d.DocumentTypeId == cnicCopy.Id && !superseded.Contains(d.Id))
+        .OrderByDescending(d => d.UploadedAt)
+        .ThenByDescending(d => d.VersionNo)
+        .Select(d => d.Id)
+        .FirstOrDefault();
   }
 
-  public void Deactivate() => IsActive = false;
+  /// What still ties an owner to the register, each as a short label ("PROP-00007 (40%)", "TRF-00041", "LSE-00005").
+  /// Shares: active or disputed shares on active properties. Pending transfers: initiated or approved, not yet
+  /// registered. Agreements: allotments, leases, rentals and contracts in force (or a lease still in draft).
+  public sealed record Commitments(IReadOnlyList<string> Shares, IReadOnlyList<string> PendingTransfers, IReadOnlyList<string> Agreements)
+  {
+    public static Commitments None { get; } = new([], [], []);
+
+    public bool Any => Shares.Count > 0 || PendingTransfers.Count > 0 || Agreements.Count > 0;
+  }
+
+  /// An owner leaves the registry only once nothing ties them to a property any more; the message lists what does.
+  public void Deactivate(Commitments commitments)
+  {
+    ArgumentNullException.ThrowIfNull(commitments);
+
+    if (commitments.Any)
+    {
+      var reasons = new List<string>();
+      if (commitments.Shares.Count > 0)
+        reasons.Add($"holds a share in {string.Join(", ", commitments.Shares)}");
+      if (commitments.PendingTransfers.Count > 0)
+        reasons.Add($"is a party to pending transfer {string.Join(", ", commitments.PendingTransfers)}");
+      if (commitments.Agreements.Count > 0)
+        reasons.Add($"holds {string.Join(", ", commitments.Agreements)}");
+
+      throw new DomainException(
+        $"{OwnerCode.Value} ({OwnerName.Value}) cannot be deactivated while the owner {string.Join("; ", reasons)}. "
+        + "End, transfer or cancel these first.");
+    }
+
+    IsActive = false;
+  }
+
   public void Activate() => IsActive = true;
 
   public void EnsureActive()
@@ -208,8 +265,7 @@ public class PropertyOwner : Aggregate<OwnerId>
       Name ownerName,
       string? fatherHusbandName,
       Cnic? cnic,
-      string? ntn,
-      string? registrationNo,
+      Ntn? ntn,
       EmailAddress? email,
       string? remarks)
   {
@@ -222,17 +278,26 @@ public class PropertyOwner : Aggregate<OwnerId>
     if (ownerName.Value.Length > NameMaxLength)
       throw new DomainException($"Owner name cannot exceed {NameMaxLength} characters.");
 
-    ntn = Guard.Text(ntn, NtnMaxLength, "NTN")?.ToUpperInvariant();
-    if (ntn is not null && !NtnPattern.IsMatch(ntn))
-      throw new DomainException("NTN may only contain letters, digits and '-'.");
+    var fatherHusband = Guard.Text(fatherHusbandName, FatherHusbandNameMaxLength, "Father / husband name");
+
+    if (ownerType.Is(SystemMasterCodes.OwnerTypeIndividual) && cnic is null)
+      throw new DomainException("An individual needs a CNIC (13 digits, e.g. 12345-1234567-1).");
+
+    if (Organizations.TryGetValue(ownerType.Code.Value, out var organization))
+    {
+      if (cnic is not null)
+        throw new DomainException($"{organization} has no CNIC - use its NTN.");
+
+      if (fatherHusband is not null)
+        throw new DomainException($"{organization} has no father / husband name - leave it empty.");
+    }
 
     OwnerTypeId = ownerType.Id;
     OwnerName = ownerName;
-    FatherHusbandName = Guard.Text(fatherHusbandName, 200, "Father / husband name");
+    FatherHusbandName = fatherHusband;
     Cnic = cnic;
-    Ntn = ntn;
-    RegistrationNo = Guard.Text(registrationNo, 50, "Registration no.");
+    Ntn = ntn?.Value;
     Email = email;
-    Remarks = Guard.Text(remarks, 4000, "Remarks");
+    Remarks = Guard.Text(remarks, RemarksMaxLength, "Remarks");
   }
 }

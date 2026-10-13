@@ -28,7 +28,25 @@ public sealed class PropertySeeder(ApplicationDbContext context, ILogger<Propert
       logger.LogInformation("Seeded {Count} {Master} value(s).", values.Length, descriptor.Table);
     }
 
-    // save the starting values first: the check below queries the database, and must see them
+    // save the starting values first: the checks below query the database, and must see them
+    await context.SaveChangesAsync(cancellationToken);
+
+    // values added after the first release (the owner document kinds ...): added by code where missing
+    foreach (var (slug, values) in MasterDataSeed.AddedLater)
+    {
+      var descriptor = MasterRegistry.Get(slug);
+      foreach (var value in values)
+      {
+        var code = MasterCode.Of(value.Code);
+        if (await descriptor.CodeExistsAsync(context, code, cancellationToken))
+          continue;
+
+        var master = descriptor.Create(MasterId.New(), code, Name.Of(value.Name, MasterData.NameMaxLength), null, 500, value.Extras ?? MasterExtras.None);
+        await descriptor.AddAsync(context, master, cancellationToken);
+        logger.LogInformation("Added {Master} value {Code}.", descriptor.Table, value.Code);
+      }
+    }
+
     await context.SaveChangesAsync(cancellationToken);
 
     // Statuses the workflows move records into (CANCELLED rental, TERMINATED contract ...) must exist even

@@ -58,21 +58,27 @@ public class Property : Aggregate<PropertyId>
   }
 
   /// Opening row of the status history, written when the property is registered.
-  public PropertyStatusHistory OpenStatusHistory(DateOnly effectiveFrom, string? reason) =>
-      PropertyStatusHistory.Open(PropertyStatusHistoryId.New(), Id, PropertyStatusId, effectiveFrom, reason, referenceNo: null);
+  public PropertyStatusHistory OpenStatusHistory(DateOnly effectiveFrom, string? reason, DateOnly today)
+  {
+    EnsureNotFuture(effectiveFrom, today);
+    return PropertyStatusHistory.Open(PropertyStatusHistoryId.New(), Id, PropertyStatusId, effectiveFrom, reason, referenceNo: null);
+  }
 
   /// Moves the property to a new status: closes the current history row and returns the new one
-  /// (schema guide, rule 2 — history is never overwritten).
+  /// (schema guide, rule 2 — history is never overwritten). A status records what is, so it cannot start
+  /// in the future, nor before the current one.
   public PropertyStatusHistory ChangeStatus(
       PropertyStatus newStatus,
       PropertyStatusHistory? currentHistory,
       DateOnly effectiveFrom,
       string? reason,
-      string? referenceNo)
+      string? referenceNo,
+      DateOnly today)
   {
     ArgumentNullException.ThrowIfNull(newStatus);
     EnsureActive();
     newStatus.EnsureActive();
+    EnsureNotFuture(effectiveFrom, today);
 
     if (newStatus.Id == PropertyStatusId)
       throw new DomainException($"The property is already '{newStatus.Name.Value}'.");
@@ -100,11 +106,18 @@ public class Property : Aggregate<PropertyId>
 
   public void Activate() => IsActive = true;
 
-  /// Child records (measurements, ownership, documents ...) may only be added to an active property.
+  /// Child records (measurements, ownership, leases, cases, documents ...) may only be added to or changed
+  /// on an active property.
   public void EnsureActive()
   {
     if (!IsActive)
-      throw new DomainException($"Property {PropertyCode.Value} is inactive.");
+      throw new DomainException($"Property {PropertyCode.Value} is inactive. Reactivate it before changing its records.");
+  }
+
+  private static void EnsureNotFuture(DateOnly effectiveFrom, DateOnly today)
+  {
+    if (effectiveFrom > today)
+      throw new DomainException("A status cannot start in the future.");
   }
 
   private void Apply(

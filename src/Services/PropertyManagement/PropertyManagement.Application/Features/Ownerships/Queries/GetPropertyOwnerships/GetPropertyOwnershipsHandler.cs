@@ -26,8 +26,9 @@ public class GetPropertyOwnershipsHandler(IApplicationDbContext context, Propert
 
   private async Task<Result<GetOwnershipsQueryResult>> BuildAsync(IQueryable<PropertyOwnership> ownerships, bool includeHistory, bool withTotal, CancellationToken cancellationToken)
   {
+    // current = held now: ACTIVE and DISPUTED (a disputed share still counts)
     if (!includeHistory)
-      ownerships = ownerships.Where(o => o.OwnershipStatus == OwnershipStatus.Active);
+      ownerships = ownerships.Where(o => o.OwnershipStatus == OwnershipStatus.Active || o.OwnershipStatus == OwnershipStatus.Disputed);
 
     var rows = await ownerships.AsNoTracking()
         .OrderBy(o => o.OwnershipStatus).ThenByDescending(o => o.EffectiveFrom)
