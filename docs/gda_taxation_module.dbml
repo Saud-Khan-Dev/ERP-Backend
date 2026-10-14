@@ -1,6 +1,7 @@
 // =====================================================================
 //  GDA TAXATION MODULE — Database Schema (DBML for dbdiagram.io)
-//  Status: DESIGN (no service, no migration yet). Companion document:
+//  Status: IMPLEMENTED by src/Services/Taxation (migration InitialTaxationSchema), except the
+//          tables whose note says NOT BUILT YET. Companion document:
 //          "GDA Taxation Module - Integration Analysis and ERD v1.0"
 //  Sources: Taxation SRS v1.1 (briefing of 8 Oct 2026 + "Taxation introduction
 //           for DG sb"), docs/gda_property_module.dbml, docs/gda_hrms_schema.dbml
@@ -12,6 +13,14 @@
 //  the To block (ID, name, plot no., town, address line, days, paragraph) is entered when
 //  the notice is created and kept in notice.variables; the creator chooses whether the
 //  paragraph and the table are printed (notice.shows_paragraph, notice.shows_table).
+//  v1.11, 14 Oct 2026: in step with the Taxation service as built. Widened to fit their own
+//  values: rate_band.basis and above_top_rule (PERCENT_OF_VALUE, REPEAT_PER_BLOCK) and
+//  tax_file.holding_kind (PRIVATE_REGISTERED) to varchar(20). arrears.fiscal_year may be NULL
+//  (old-register amounts of unknown year). Every charge is a tax_head: the "other" charges
+//  LEASE_MONEY, SECURITY, SURCHARGE, WHT_236A, MISC and the fee heads, so arrears, allocations
+//  and the notice table rows (notice_table_row_source.source_code) all carry head codes.
+//  Settings: PSID_PREFIX. SMS codes: YEAR_END. notice.sms_message_id is kept without a
+//  foreign key (sms_message.notice_id points back). Tables not built yet are marked.
 //  v1.10, 14 Oct 2026: checked field by field against the Tax Dummy prototype. Added what it
 //  keeps and the ERD did not: town short code (NG) printed on notices, separate notice day
 //  settings and residential / commercial uplift, notice.status, demand CARRIED with the amount
@@ -121,7 +130,7 @@ Table taxation.tax_circle_staff {
 
 Table taxation.tax_head {
   id                       uuid [pk]
-  code                     varchar(30) [unique, not null, note: 'PROPERTY_TAX, CONSERVANCY, WATER, LEASE_MONEY, RENT, TRANSFER_FEE, BPA_FEE, BPA_VIOLATION, NON_UTILIZATION, WATER_CONNECTION, MALBA_SECURITY, ENLISTMENT, REGISTRATION, LICENCE, MISC, S28A_FINE']
+  code                     varchar(30) [unique, not null, note: 'regular: PROPERTY_TAX, RENT (built in), CONSERVANCY, WATER and the heads the admin adds (SIGNBOARD_FEE); other: LEASE_MONEY, SECURITY, SURCHARGE, WHT_236A, MISC (an other charge, described); fees: TRANSFER_FEE, BPA_FEE, BPA_VIOLATION, NON_UTILIZATION, WATER_CONNECTION, MALBA_SECURITY, ENLISTMENT, REGISTRATION, LICENCE, DOCUMENT_COPIES; S28A_FINE (later)']
   name                     varchar(100) [not null]
   head_kind                varchar(10) [not null, note: 'REGULAR (annual demand: PROPERTY_TAX, CONSERVANCY, WATER, RENT; Part 2 03:17-03:29) / OTHER (case by case)']
   is_refundable            boolean [not null, default: false, note: 'malba security, water connection fee if not feasible']
@@ -184,7 +193,7 @@ Table taxation.rate_band {
   head_id       uuid [not null]
   town_id       uuid [note: 'LOGICAL -> property.town. NULL = all towns']
   tax_category  varchar(10) [note: 'RES / COM / NULL = both']
-  basis         varchar(15) [not null, note: 'ROOMS, KANAL, MARLA, SQFT (covered), SQYD (land), CUSTOM (a quantity entered per property), PERCENT_OF_VALUE, FIXED, PAGE']
+  basis         varchar(20) [not null, note: 'ROOMS, KANAL, MARLA, SQFT (covered), SQYD (land), CUSTOM (a quantity entered per property), PERCENT_OF_VALUE, FIXED, PAGE. A FORMULA head keeps its formula on tax_head; its one row only names what QTY counts (rate 0)']
   unit_label    varchar(60) [note: 'name of a CUSTOM quantity, e.g. sq ft of signboard']
   round_up      boolean [not null, default: false, note: 'count a fraction as the next whole unit (1.3 kanal = 2)']
   block_size    decimal(18,4) [note: 'for above_top_rule REPEAT_PER_BLOCK']
@@ -193,13 +202,13 @@ Table taxation.rate_band {
   rate          decimal(18,4) [not null]
   rate_type     varchar(10) [not null, note: 'FLAT (band amount), PER_UNIT, PERCENT']
   pro_rata      boolean [not null, default: false, note: 'water: 10 marla = half a kanal']
-  above_top_rule varchar(15) [note: 'on the top band only: TOP_RATE_STAYS or REPEAT_PER_BLOCK (conservancy "36, 36, 36" per further block of 5 rooms, Part 1 01:06-02:18, unclear: open point O-12)']
+  above_top_rule varchar(20) [note: 'on the top band only: TOP_RATE_STAYS or REPEAT_PER_BLOCK (conservancy "36, 36, 36" per further block of 5 rooms, Part 1 01:06-02:18, unclear: open point O-12)']
   Note: 'Rates of every head other than the LTF: conservancy, water, transfer, BPA, violation, non-utilization, malba, enlistment, registration, licence, misc.'
 }
 
 Table taxation.tax_setting {
   id              uuid [pk]
-  key             varchar(60) [not null, note: 'ANNUAL_INCREASE_PCT, NOTICE_SECOND_DAYS, NOTICE_FINAL_DAYS, NOTICE_SHOW_CAUSE_DAYS (days after the first notice), NOTICE_DAY_COUNTING (WORKING/CALENDAR), CC_GRACE_YEARS, CC_UPLIFT_PCT_RES, CC_UPLIFT_PCT_COM (default 150), CC_UPLIFT_RATE_BASIS, DUE_DATE_DDMM, CLEARANCE_VALID_DAYS, PSID_MODEL (CONSTANT/PER_ISSUE), PAY_VIA_DEFAULT (ONELINK/QR/BOTH), QR_SCHEME, QR_GUID, QR_MERCHANT_ID, QR_MERCHANT_NAME, QR_CITY, QR_MCC. Penalty percentages moved to penalty_rule']
+  key             varchar(60) [not null, note: 'ANNUAL_INCREASE_PCT, NOTICE_SECOND_DAYS, NOTICE_FINAL_DAYS, NOTICE_SHOW_CAUSE_DAYS (days after the first notice), NOTICE_DAY_COUNTING (WORKING/CALENDAR), CC_GRACE_YEARS, CC_UPLIFT_PCT_RES, CC_UPLIFT_PCT_COM (default 150), CC_UPLIFT_RATE_BASIS, DUE_DATE_DDMM, CLEARANCE_VALID_DAYS, PSID_MODEL (CONSTANT; PER_ISSUE not supported yet), PSID_PREFIX (6011), PAY_VIA_DEFAULT (ONELINK/QR/BOTH), QR_SCHEME, QR_GUID, QR_MERCHANT_ID, QR_MERCHANT_NAME, QR_CITY, QR_MCC. Penalty percentages moved to penalty_rule']
   value           varchar(100) [not null]
   rate_set_id     uuid [note: 'Board decision it came from']
   effective_from  date [not null]
@@ -211,7 +220,7 @@ Table taxation.tax_setting {
 
 Table taxation.message_template {
   id          uuid [pk]
-  code        varchar(40) [not null, note: 'SMS_1JULY, NOTICE_FIRST, NOTICE_SECOND, NOTICE_FINAL, SHOW_CAUSE, PENALTY, PAYMENT_RECEIVED, CLEARANCE. The four PRINT notice templates come from the Section as PDF: fixed header, table + short paragraph, pre-filled variables editable and confirmed before issue, 1Link block like a bill (Part 1 32:50-34:28)']
+  code        varchar(40) [not null, note: 'SMS: NOTICE_FIRST, NOTICE_SECOND, NOTICE_FINAL, SHOW_CAUSE, PENALTY (surcharge notice), YEAR_END, PAYMENT_RECEIVED, CLEARANCE. The four PRINT notice templates come from the Section as PDF: fixed header, table + short paragraph, pre-filled variables editable and confirmed before issue, 1Link block like a bill (Part 1 32:50-34:28)']
   channel     varchar(10) [not null, note: 'SMS / PRINT']
   language    varchar(5) [not null, default: 'en', note: 'en / ur']
   body        text [not null, note: 'placeholders: {code} {fy} {amount} {psid} {due}']
@@ -231,7 +240,7 @@ Table taxation.tax_file {
   circle_id         uuid [not null, note: 'derived from town through tax_circle_town; stored for scoping']
   town_id           uuid [not null, note: 'LOGICAL -> property.town (copied)']
   tax_category      varchar(10) [not null, note: 'RES / COM (from category_map, overridable with reason)']
-  holding_kind      varchar(15) [not null, note: 'GDA_LEASE, GDA_OWNERSHIP, RENTAL, PRIVATE_REGISTERED (derived, see analysis §5.3)']
+  holding_kind      varchar(20) [not null, note: 'GDA_LEASE, GDA_OWNERSHIP, RENTAL, PRIVATE_REGISTERED (derived, see analysis §5.3)']
   rooms             int [note: 'TAXATION-OWNED: commercial rooms for conservancy and water. Property has no rooms field']
   psid              varchar(30) [unique, note: 'constant 1Link / 1Bill consumer reference for the property (recording 12 Oct, Part 1 08:11-09:53); the balance behind it is re-synced, see psid_sync']
   registered_on     date [note: 'date the property was registered with GDA: conservancy runs from this date, no relaxation (Part 1 16:41-17:02)']
@@ -381,7 +390,7 @@ Table taxation.agreement_schedule_line {
   period_from    date [not null]
   period_to      date [not null]
   amount         decimal(18,2) [not null]
-  Note: 'A period is billed when a demand_line points at it (demand_line.schedule_line_id).'
+  Note: 'NOT BUILT YET in the Taxation service. A period is billed when a demand_line points at it (demand_line.schedule_line_id).'
 }
 
 // =====================================================================
@@ -458,7 +467,7 @@ Table taxation.arrears {
   id               uuid [pk]
   tax_file_id      uuid [not null]
   head_id          uuid [not null]
-  fiscal_year      int [not null]
+  fiscal_year      int [note: 'NULL = an old-register amount of unknown year']
   original_amount  decimal(18,2) [not null]
   penalty_amount   decimal(18,2) [not null, default: 0]
   outstanding      decimal(18,2) [not null]
@@ -510,7 +519,7 @@ Table taxation.notice_table_row {
 
 Table taxation.notice_table_row_source {
   row_id      uuid [not null]
-  source_code varchar(40) [not null, note: 'tax_head.code, or LEASE, SECURITY, SURCHARGE, WHT_236A, OTHER. A charge is in at most one row of a layout']
+  source_code varchar(40) [not null, note: 'a tax_head.code (PROPERTY_TAX, WATER, LEASE_MONEY, SECURITY, SURCHARGE, WHT_236A ...). A head is in at most one row of a layout; a head in no row prints on other_label']
   indexes {
     (row_id, source_code) [pk]
   }
@@ -629,6 +638,7 @@ Table taxation.sealing {
   sealed_on              date [not null]
   de_sealed_on           date
   remarks                text
+  Note: 'NOT BUILT YET in the Taxation service.'
 }
 
 // =====================================================================
@@ -646,6 +656,7 @@ Table taxation.challan {
   due_date     date [not null]
   expiry_date  date
   status       varchar(10) [not null, note: 'UNPAID, PAID, EXPIRED, CANCELLED']
+  Note: 'NOT BUILT YET in the Taxation service.'
 }
 
 Table taxation.psid_sync {
@@ -702,6 +713,7 @@ Table taxation.refund {
   reason             varchar(300) [not null]
   status             varchar(15) [not null, note: 'RAISED, APPROVED, PAID_BY_ACCOUNTS']
   accounts_reference varchar(60) [note: 'TX-039']
+  Note: 'NOT BUILT YET in the Taxation service.'
 }
 
 // =====================================================================
@@ -747,6 +759,7 @@ Table taxation.water_connection {
   inspected_by_employee_id  uuid [note: 'LOGICAL -> hrms.employee (technical staff)']
   installed_on              date [note: 'water charges start from this date']
   refund_id                 uuid
+  Note: 'NOT BUILT YET in the Taxation service.'
 }
 
 Table taxation.non_utilization_case {
@@ -762,6 +775,7 @@ Table taxation.non_utilization_case {
   extension_order_ref    varchar(100) [note: 'approval by the competent authority']
   area_marla             decimal(18,4) [not null]
   status                 varchar(10) [not null, note: 'RUNNING, STOPPED']
+  Note: 'NOT BUILT YET in the Taxation service.'
 }
 
 Table taxation.enlistment_licence {
@@ -773,6 +787,7 @@ Table taxation.enlistment_licence {
   valid_to    date [not null]
   fee_id      uuid
   status      varchar(10) [not null]
+  Note: 'NOT BUILT YET in the Taxation service.'
 }
 
 Table taxation.malba_security {
@@ -782,6 +797,7 @@ Table taxation.malba_security {
   fee_id             uuid [not null]
   refund_id          uuid
   status             varchar(10) [not null, note: 'HELD, REFUNDED, FORFEITED']
+  Note: 'NOT BUILT YET in the Taxation service.'
 }
 
 Table taxation.litigation_hold {
@@ -851,6 +867,7 @@ Table taxation.integration_inbox {
   received_at   timestamp [not null]
   processed_at  timestamp
   error         text
+  Note: 'NOT BUILT YET in the Taxation service.'
 }
 
 Table taxation.integration_outbox {
@@ -859,6 +876,7 @@ Table taxation.integration_outbox {
   payload       jsonb [not null]
   occurred_at   timestamp [not null]
   published_at  timestamp
+  Note: 'NOT BUILT YET in the Taxation service.'
 }
 
 Table taxation.sync_checkpoint {
@@ -871,6 +889,7 @@ Table taxation.sync_checkpoint {
   indexes {
     (source, feed) [unique]
   }
+  Note: 'NOT BUILT YET in the Taxation service.'
 }
 
 Table taxation.import_batch {
@@ -881,6 +900,7 @@ Table taxation.import_batch {
   imported_by    uuid [note: 'LOGICAL -> auth.users']
   rows_accepted  int
   rows_rejected  int
+  Note: 'NOT BUILT YET in the Taxation service.'
 }
 
 Table taxation.import_row {
@@ -892,6 +912,7 @@ Table taxation.import_row {
   tax_file_id   uuid
   status        varchar(10) [not null, note: 'ACCEPTED, REJECTED']
   reason        varchar(300)
+  Note: 'NOT BUILT YET in the Taxation service.'
 }
 
 Table taxation.audit_log {
@@ -907,6 +928,7 @@ Table taxation.audit_log {
   indexes {
     (entity, entity_id)
   }
+  Note: 'NOT BUILT YET in the Taxation service.'
 }
 
 // =====================================================================
@@ -1135,7 +1157,7 @@ Ref: taxation.tax_file_basis.tax_file_id > taxation.tax_file.id
 Ref: taxation.tax_file_payer.tax_file_id > taxation.tax_file.id
 Ref: taxation.agreement_schedule.tax_file_id > taxation.tax_file.id
 Ref: taxation.agreement_schedule_line.schedule_id > taxation.agreement_schedule.id
-Ref: taxation.demand_line.schedule_line_id - taxation.agreement_schedule_line.id
+Ref: taxation.demand_line.schedule_line_id - taxation.agreement_schedule_line.id  // not built yet
 Ref: taxation.demand_run.circle_id > taxation.tax_circle.id
 Ref: taxation.demand_run.rate_set_id > taxation.rate_set.id
 Ref: taxation.demand.run_id > taxation.demand_run.id
@@ -1149,7 +1171,7 @@ Ref: taxation.demand_line.rate_band_id > taxation.rate_band.id
 Ref: taxation.arrears.tax_file_id > taxation.tax_file.id
 Ref: taxation.arrears.head_id > taxation.tax_head.id
 Ref: taxation.arrears.source_demand_id > taxation.demand.id
-Ref: taxation.arrears.import_row_id > taxation.import_row.id
+Ref: taxation.arrears.import_row_id > taxation.import_row.id  // not built yet
 Ref: taxation.arrears.added_to_demand_id > taxation.demand.id
 Ref: taxation.notice.demand_id > taxation.demand.id
 Ref: taxation.notice.template_id > taxation.notice_template.id
@@ -1159,7 +1181,7 @@ Ref: taxation.notice_table_row.layout_id > taxation.notice_table_layout.id
 Ref: taxation.notice_table_row_source.row_id > taxation.notice_table_row.id
 Ref: taxation.notice_table_column.layout_id > taxation.notice_table_layout.id
 Ref: taxation.notice.penalty_run_id > taxation.penalty_run.id
-Ref: taxation.notice.sms_message_id - taxation.sms_message.id
+Ref: taxation.notice.sms_message_id - taxation.sms_message.id  // logical: no FK (sms_message.notice_id points back, both written in one save)
 Ref: taxation.tax_file_override.tax_file_id > taxation.tax_file.id
 Ref: taxation.tax_file_override.head_id > taxation.tax_head.id
 Ref: taxation.tax_file_head_value.tax_file_id > taxation.tax_file.id
@@ -1183,7 +1205,7 @@ Ref: taxation.sealing.tax_file_id > taxation.tax_file.id
 Ref: taxation.sealing.notice_id > taxation.notice.id
 Ref: taxation.challan.demand_id > taxation.demand.id
 Ref: taxation.challan.fee_id > taxation.fee.id
-Ref: taxation.payment.challan_id > taxation.challan.id
+Ref: taxation.payment.challan_id > taxation.challan.id  // not built yet
 Ref: taxation.payment.tax_file_id > taxation.tax_file.id
 Ref: taxation.demand.carried_to_demand_id > taxation.demand.id
 Ref: taxation.payment_allocation.payment_id > taxation.payment.id

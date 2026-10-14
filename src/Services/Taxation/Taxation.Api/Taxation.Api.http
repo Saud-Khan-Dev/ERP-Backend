@@ -1,0 +1,297 @@
+# Taxation: walkthrough of the main flow, from the seeded setup to a demand, its notice, a surcharge, a payment and a
+# clearance.
+#
+# Run top to bottom in VS Code (REST Client), Rider or Visual Studio 17.12+. Named requests (# @name) pass ids forward.
+# Identity (5142), Property (5141) and HRM (5144) must be running too: Taxation reads properties and owners from Property
+# and holidays from HRM with your token, so the user needs PROPERTY.VIEW as well as TAX / TAX_SETUP (the super admin has all).
+#
+# Before step 2: a town in Property's master data (POST {{property}}/masters/towns) and a property with a measurement,
+# an owner and, ideally, an approved building plan (see PropertyManagement.Api.http). Copy their ids below.
+#
+# OpenAPI: {{host}}/openapi/v1.json
+
+@host = http://localhost:5146
+@identity = http://localhost:5142
+@property = http://localhost:5141
+@token = {{login.response.body.$.authentication.accessToken}}
+
+# ---- ids from Property ----
+@townId = <Property: masters/towns id>
+@propertyId = <Property: properties id>
+
+# ---- seeded ids (step 1) ----
+@circleI = <tax-circles: code C-I>
+@draftRateSet = <rate-sets: the Draft "Initial tariff (BOA 15.06.2023)">
+
+# ---- ids created on the way ----
+@file = {{openFile.response.body.$.id}}
+@run = {{computeRun.response.body.$.runId}}
+@psid = <GET tax-files/{{file}}: psid>
+
+### Sign in
+# @name login
+POST {{identity}}/auth/login
+Content-Type: application/json
+
+{ "username": "superadmin", "password": "SuperAdmin@123" }
+
+
+##############################################################################
+### 1. Setup: circles, the rate set, settings
+##############################################################################
+
+### Circles (seeded C-I and C-II)
+GET {{host}}/tax-circles
+Authorization: Bearer {{token}}
+
+### Put the town in circle C-I from 1 July 2025; NG is printed as "Town" on notices
+POST {{host}}/tax-circles/{{circleI}}/towns
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "townId": "{{townId}}", "shortCode": "NG", "effectiveFrom": "2025-07-01" }
+
+### Heads: regular (the annual demand) and other (fees, charges added on a notice)
+GET {{host}}/tax-heads
+Authorization: Bearer {{token}}
+
+### Rate sets: the seeded draft has conservancy, water and fee rates
+GET {{host}}/rate-sets
+Authorization: Bearer {{token}}
+
+### Locality factors of the town (four tables: res / com x land / covered)
+PUT {{host}}/rate-sets/{{draftRateSet}}/ltf-factors
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "townId": "{{townId}}", "taxCategory": "res", "component": "land", "bands": [ { "upTo": 500, "value": 5 }, { "upTo": null, "value": 6 } ] }
+
+###
+PUT {{host}}/rate-sets/{{draftRateSet}}/ltf-factors
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "townId": "{{townId}}", "taxCategory": "res", "component": "covered", "bands": [ { "upTo": 3000, "value": 5 }, { "upTo": null, "value": 6 } ] }
+
+###
+PUT {{host}}/rate-sets/{{draftRateSet}}/ltf-factors
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "townId": "{{townId}}", "taxCategory": "com", "component": "land", "bands": [ { "upTo": 310, "value": 10 }, { "upTo": null, "value": 12 } ] }
+
+###
+PUT {{host}}/rate-sets/{{draftRateSet}}/ltf-factors
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "townId": "{{townId}}", "taxCategory": "com", "component": "covered",
+  "bands": [ { "upTo": 1500, "value": 14 }, { "upTo": 3000, "value": 16 }, { "upTo": 4500, "value": 18 }, { "upTo": 6000, "value": 20 }, { "upTo": 7500, "value": 22 }, { "upTo": null, "value": 24 } ] }
+
+### The transfer fee is per town: kanal x Rs 450,000 (residential)
+PUT {{host}}/rate-sets/{{draftRateSet}}/head-rates
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "headId": "<tax-heads: TRANSFER_FEE id>", "taxCategory": "res", "townId": "{{townId}}", "rates": { "basis": "kanal", "rateType": "per_unit", "rate": 450000, "roundUp": false } }
+
+### Approve: needs factors for every town in a circle and rates for every configured head
+POST {{host}}/rate-sets/{{draftRateSet}}/approve
+Authorization: Bearer {{token}}
+
+### Settings in force (defaults until changed)
+GET {{host}}/tax-settings
+Authorization: Bearer {{token}}
+
+### Change settings from a date (the notice days must rise)
+PUT {{host}}/tax-settings
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "effectiveFrom": "2026-11-01", "values": { "QR_MERCHANT_ID": "GDA-ABL-000777" } }
+
+
+##############################################################################
+### 2. The tax file
+##############################################################################
+
+### Open it from Property: facts, payers and agreements are read there; the 1Link reference is issued
+# @name openFile
+POST {{host}}/tax-files
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "propertyId": "{{propertyId}}", "registeredOn": "2015-01-01", "oldReferenceNo": "NA/R/01", "plotNo": "64" }
+
+### The file: basis, payers, head values, overrides, holds, agreements, dues
+GET {{host}}/tax-files/{{file}}
+Authorization: Bearer {{token}}
+
+### Water is charged once the connection is taken
+PUT {{host}}/tax-files/{{file}}/head-values/<tax-heads: WATER id>
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "facilityFrom": "2025-07-01" }
+
+### What FY 2026-27 would charge, head by head (nothing is saved)
+GET {{host}}/tax-files/{{file}}/assessment?fiscalYear=2026
+Authorization: Bearer {{token}}
+
+### Opening arrears of the old register (before the first demand)
+POST {{host}}/tax-files/{{file}}/opening-arrears
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "rows": [ { "headCode": "PROPERTY_TAX", "fiscalYear": 2024, "amount": 12000, "description": "Old register" } ] }
+
+
+##############################################################################
+### 3. The annual demand and its notices
+##############################################################################
+
+### Compute FY 2026-27: drafts for every active file
+# @name computeRun
+POST {{host}}/demand-runs
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "fiscalYear": 2026 }
+
+### Approve: earlier balances carried, first notices issued with their SMS, references re-synced
+POST {{host}}/demand-runs/{{run}}/approve
+Authorization: Bearer {{token}}
+
+### The demands of the year
+GET {{host}}/demands?fiscalYear=2026
+Authorization: Bearer {{token}}
+
+### The issued notices (open one for everything it prints)
+# @name notices
+GET {{host}}/notices?fiscalYear=2026
+Authorization: Bearer {{token}}
+
+###
+GET {{host}}/notices/{{notices.response.body.$.notices.data[0].id}}
+Authorization: Bearer {{token}}
+
+### Record service by the Tax Collector
+POST {{host}}/notices/{{notices.response.body.$.notices.data[0].id}}/serve
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "servedOn": "2026-10-14", "mode": "by_hand" }
+
+### Prepare the notices whose day has come (second, final, show cause), for confirmation
+POST {{host}}/notices/escalate
+Authorization: Bearer {{token}}
+
+### A notice by hand: the form's context
+GET {{host}}/tax-files/{{file}}/notice-context?fiscalYear=2026
+Authorization: Bearer {{token}}
+
+### ... and the notice: a second notice adding unpaid water of 2023-24, printed with its own address line, QR only
+# @name manualNotice
+POST {{host}}/tax-files/{{file}}/notices
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "fiscalYear": 2026, "stage": "second", "reason": "Found in the old register",
+  "rows": [ { "fiscalYear": 2023, "headCode": "WATER", "description": "2 quarters unpaid", "amount": 12000 } ],
+  "options": { "addressLine": "Asif Jadoon S/O Muhammad Jadoon, 84 Arif Jan Road, Lahore Cantt", "payVia": "qr", "showsTable": true, "showsParagraph": true },
+  "issueNow": false
+}
+
+### Review: a changed printed field needs the reason; then issue
+POST {{host}}/notices/{{manualNotice.response.body.$.noticeId}}/confirm
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "plotNo": "64-A", "reason": "Plot number from the allotment file" }
+
+
+##############################################################################
+### 4. Surcharges
+##############################################################################
+
+### Who an in-year surcharge of 2 % on defaulters would touch today
+POST {{host}}/penalty-runs/preview
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "fiscalYear": 2026, "targetSet": "defaulters_only", "includesCurrent": true, "rateType": "percent", "rate": 2 }
+
+### Apply it (surcharge notices wait for confirmation)
+POST {{host}}/penalty-runs
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "fiscalYear": 2026, "targetSet": "defaulters_only", "includesCurrent": true, "rateType": "percent", "rate": 2, "reference": "Section decision" }
+
+### Issue every pending notice dated today or earlier
+POST {{host}}/notices/confirm-pending
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{}
+
+### The automatic year-end surcharge on past years (safe to run daily)
+POST {{host}}/penalties/year-end
+Authorization: Bearer {{token}}
+
+
+##############################################################################
+### 5. Payments, fees, clearance, report
+##############################################################################
+
+### What is behind the reference (bill inquiry)
+GET {{host}}/references/{{psid}}
+Authorization: Bearer {{token}}
+
+### A 1Link payment (posting the same transactionRef again changes nothing)
+POST {{host}}/payments
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "psid": "{{psid}}", "amount": 30000, "channel": "onelink", "transactionRef": "1L-000001" }
+
+### Cash at the Section (receipt MR-00001 is issued)
+POST {{host}}/payments
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "psid": "{{psid}}", "amount": 1000, "channel": "cash" }
+
+### The reference syncs and the SMS
+GET {{host}}/reference-syncs?taxFileId={{file}}
+Authorization: Bearer {{token}}
+
+###
+GET {{host}}/sms-messages?taxFileId={{file}}
+Authorization: Bearer {{token}}
+
+### A fee quote: building plan fee for 2,500 sq ft
+POST {{host}}/fees/quote
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "headCode": "BPA_FEE", "taxFileId": "{{file}}", "quantity": 2500 }
+
+### The water connection fee, paid: starts the water charges from today
+POST {{host}}/fees
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "basis": { "headCode": "WATER_CONNECTION", "taxFileId": "{{file}}" }, "paid": true }
+
+### A clearance (refused while anything is due)
+POST {{host}}/clearances
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "taxFileId": "{{file}}", "purpose": "transfer" }
+
+### The year at a glance
+GET {{host}}/tax-reports/collection?fiscalYear=2026
+Authorization: Bearer {{token}}

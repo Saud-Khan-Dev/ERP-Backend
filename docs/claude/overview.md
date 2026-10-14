@@ -8,6 +8,7 @@ Read this first, then the file for the service you are working on:
 | `src/Services/PropertyManagement` | [property-management.md](property-management.md) |
 | `src/Services/AssetsManagement` | [assets-management.md](assets-management.md) |
 | `src/Services/HRM` | [hrm.md](hrm.md) |
+| `src/Services/Taxation` | [taxation.md](taxation.md) |
 | `src/ApiGateway` | [api-gateway.md](api-gateway.md) |
 | `src/BuildingBlocks` | this file, "Building blocks" |
 
@@ -22,10 +23,13 @@ PostgreSQL database:
 | Property Management | 5141 | `poperty-management-api` 5141:8080 (sic) | `/property-management-service/` | `property` |
 | Assets Management | 5139 | `assets-management-api` 5139:8080 | `/assets-management-service/` | `assets` |
 | HRM (employees, posts, attendance, leave, performance, payroll, employee portal) | 5144 | `hrm-api` 5144:8080 | `/hrm-service/` | `hrms` |
+| Taxation (tax files, demands, notices, surcharges, payments, fees, clearances) | 5146 | `taxation-api` 5146:8080 | `/taxation-service/` | `taxation` |
 | YARP API gateway | 5195 | `yarpapigateway` 5000:8080 | n/a | n/a |
 | PostgreSQL 17 | 5432 | `postgres` | n/a | db `ERP_DB` |
 
-`src/Services/HRM` is the newest service: HR records, attendance and leave, performance, payroll and the employee portal (see hrm.md).
+`src/Services/Taxation` is the newest service: the annual property tax demand, notices, surcharges, payments against the
+1Link reference, fees and clearances (see taxation.md). It is the first service that calls others: it reads properties and
+owners from Property and holidays and post holders from HRM over HTTP, passing the caller's token on.
 
 ## Running it
 
@@ -35,12 +39,13 @@ PostgreSQL database:
   `Host=localhost;Port=5432;Database=ERP_DB;Username=postgres;Password=YourStrongPassword123!`.
 - Services migrate themselves on startup (`Database:AutoMigrate`, default on in Development), so you never need
   `dotnet ef database update` by hand. Identity and Property also seed (the admin user, permissions, master data);
-  HRM seeds BPS 1–22, its system pay components and starter catalogues; Assets seeds nothing, so its lookups start empty.
+  HRM seeds BPS 1–22, its system pay components and starter catalogues; Taxation seeds its heads, circles, templates,
+  penalty rules and a draft rate set; Assets seeds nothing, so its lookups start empty.
 - Log in with `POST http://localhost:5142/auth/login` and `{"username":"superadmin","password":"SuperAdmin@123"}`.
   Send `Authorization: Bearer <accessToken>` to the other services.
-- Each service serves OpenAPI at `/openapi/v1.json`; there is no Swagger UI. Property and HRM have step-by-step
-  `.http` walkthroughs (`PropertyManagement.Api.http`, `HRM.Api.http`).
-- `dotnet build src/ERP.slnx` and `dotnet test src/ERP.slnx`. The tests are the Property and HRM domain tests in `src/Tests`.
+- Each service serves OpenAPI at `/openapi/v1.json`; there is no Swagger UI. Property, HRM and Taxation have step-by-step
+  `.http` walkthroughs (`PropertyManagement.Api.http`, `HRM.Api.http`, `Taxation.Api.http`).
+- `dotnet build src/ERP.slnx` and `dotnet test src/ERP.slnx`. The tests are the Property, HRM and Taxation domain tests in `src/Tests`.
 
 ## Architecture (the same in every service)
 
@@ -61,7 +66,8 @@ X.Api             Carter endpoint modules, exception handler, Program.cs, Depend
   ProblemDetails with `ValidationErrors: [{propertyName, errorMessage}]`.
 - **Endpoints**: Carter `ICarterModule` calling `ISender.Send`.
 - **Errors**: each service has its own `IExceptionHandler` (`PropertyExceptionHandler`, `IdentityExceptionHandler`,
-  `AssetExceptionHandler`) producing ProblemDetails with these statuses:
+  `AssetExceptionHandler`, `TaxationExceptionHandler`) producing ProblemDetails with these statuses (Taxation adds 503 when
+  Property or HRM does not answer):
   - 400: validation or domain error
   - 404: `NotFoundException`
   - 409: DB update or concurrency conflict
@@ -110,8 +116,9 @@ X.Api             Carter endpoint modules, exception handler, Program.cs, Depend
 Identity issues short-lived HS256 JWTs (15 min by default, editable in the security settings) carrying `perm` claims (effective permissions) and `role`, `sub`, `username`
 and `ao` (authorized officer). Every service validates them with the **same** `Jwt:SigningKey`, issuer `erp-identity`
 and audience `erp`. The dev key is in each `appsettings.Development.json`, and compose passes `Jwt__SigningKey`.
-Endpoints declare `.RequirePermission(...)`. **Identity, Property and HRM enforce this, but Assets does not yet: its
-endpoints are anonymous.** A token for an account linked to an HRM employee also carries `emp` (the employee id),
+Endpoints declare `.RequirePermission(...)`. **Identity, Property, HRM and Taxation enforce this, but Assets does not yet:
+its endpoints are anonymous.** Taxation calls Property and HRM with the caller's own token, so its users need
+`PROPERTY.VIEW` too. A token for an account linked to an HRM employee also carries `emp` (the employee id),
 which HRM's self-service (`/me`) uses. Adding auth to Assets means referencing BuildingBlock.Authentication in its csproj, adding
 `AddErpAuthentication`, `UseAuthentication/UseAuthorization` and `RequirePermission` on routes, copying all of
 `BuildingBlocks/` in its Dockerfile, and setting `Jwt__SigningKey` in compose.

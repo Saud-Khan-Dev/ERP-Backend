@@ -88,6 +88,36 @@ services:
     - "5144:8080"
 
 
+# Taxation API (tax files, demands, notices, penalties, payments, fees, clearances)
+  taxation-api:
+    image: taxation-api
+    build:
+      context: ./src
+      dockerfile: Services/Taxation/Taxation.Api/Dockerfile
+
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__Database: "Host=postgres;Port=5432;Database=ERP_DB;Username=postgres;Password=YourStrongPassword123!"
+      # must match the Identity service; override in any environment that is not a developer machine
+      Jwt__SigningKey: "dev-only-signing-key-change-me-at-least-32-bytes-long"
+      # property facts and owners are read from Property, holidays and post holders from HRM (with the caller's token)
+      Services__PropertyBaseUrl: "http://poperty-management-api:8080"
+      Services__HrmBaseUrl: "http://hrm-api:8080"
+      # uploaded letterhead logos; mounted below so they survive a container rebuild
+      FileStorage__RootPath: "/data/taxation-files"
+
+    volumes:
+      - taxation-files:/data/taxation-files
+
+    depends_on:
+      - postgres
+      - poperty-management-api
+      - hrm-api
+
+    ports:
+    - "5146:8080"
+
+
 # Identity (authentication & authorization)
   identity-api:
     image: identity-api
@@ -122,11 +152,13 @@ services:
       ReverseProxy__Clusters__assets-management-cluster__Destinations__assets-management-api__Address: "http://assets-management-api:8080"
       ReverseProxy__Clusters__identity-cluster__Destinations__identity-api__Address: "http://identity-api:8080"
       ReverseProxy__Clusters__hrm-cluster__Destinations__hrm-api__Address: "http://hrm-api:8080"
+      ReverseProxy__Clusters__taxation-cluster__Destinations__taxation-api__Address: "http://taxation-api:8080"
     depends_on:
       - poperty-management-api
       - assets-management-api
       - identity-api
       - hrm-api
+      - taxation-api
     ports:
       - "5000:8080"
 
@@ -135,3 +167,4 @@ volumes:
   property-files:
   asset-files:
   hrm-files:
+  taxation-files:

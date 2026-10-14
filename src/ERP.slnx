@@ -32,8 +32,15 @@
     <Project Path="Services/PropertyManagement/PropertyManagement.Domain/PropertyManagement.Domain.csproj" />
     <Project Path="Services/PropertyManagement/PropertyManagement.Infrastructure/PropertyManagement.Infrastructure.csproj" />
   </Folder>
+  <Folder Name="/Services/Taxation/">
+    <Project Path="Services/Taxation/Taxation.Api/Taxation.Api.csproj" />
+    <Project Path="Services/Taxation/Taxation.Application/Taxation.Application.csproj" />
+    <Project Path="Services/Taxation/Taxation.Domain/Taxation.Domain.csproj" />
+    <Project Path="Services/Taxation/Taxation.Infrastructure/Taxation.Infrastructure.csproj" />
+  </Folder>
   <Folder Name="/Tests/">
     <Project Path="Tests/HRM.Domain.Tests/HRM.Domain.Tests.csproj" />
     <Project Path="Tests/PropertyManagement.Domain.Tests/PropertyManagement.Domain.Tests.csproj" />
+    <Project Path="Tests/Taxation.Domain.Tests/Taxation.Domain.Tests.csproj" />
   </Folder>
 </Solution>
