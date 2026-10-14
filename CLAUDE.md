@@ -1,7 +1,7 @@
 # GDA ERP
 
 .NET 10 microservices ERP for GDA (Galiyat Development Authority): Identity, Property Management, Assets Management,
-HRM and a YARP gateway over one PostgreSQL database (`ERP_DB`, one schema per service).
+HRM, Taxation and a YARP gateway over one PostgreSQL database (`ERP_DB`, one schema per service).
 
 @docs/claude/overview.md
 
@@ -11,6 +11,7 @@ HRM and a YARP gateway over one PostgreSQL database (`ERP_DB`, one schema per se
 - Property Management (property register, GDA Act rules): `docs/claude/property-management.md`
 - Assets Management (fixed-asset register): `docs/claude/assets-management.md`
 - HRM (employees, posts, attendance, leave, performance, payroll, employee portal): `docs/claude/hrm.md`
+- Taxation (tax files, demands, notices, surcharges, payments, fees, clearances): `docs/claude/taxation.md`
 - API gateway (YARP): `docs/claude/api-gateway.md`
 
 ## Ground rules
@@ -19,7 +20,8 @@ HRM and a YARP gateway over one PostgreSQL database (`ERP_DB`, one schema per se
   endpoints, no `namespace` lines, 2-space indentation.
 - Business rules belong in domain methods, not in handlers or endpoints.
 - Schema changes go through an EF migration in that service's Infrastructure project. For Property, keep
-  `docs/gda_property_module.dbml` in step with the schema; for HRM, keep `docs/gda_hrms_schema.sql` in step.
+  `docs/gda_property_module.dbml` in step with the schema; for HRM, keep `docs/gda_hrms_schema.sql` in step; for
+  Taxation, keep `docs/gda_taxation_module.dbml` in step.
 - Build with `dotnet build src/ERP.slnx` and test with `dotnet test src/ERP.slnx` before saying a change is done.
 - Work on a feature branch. Don't push to `main` unless the user asks.
 - When code and these docs disagree, trust the code and update the doc in the same change.

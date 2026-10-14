@@ -37,6 +37,8 @@ public static class PermissionCatalog
     public const string HrSetup = "HR_SETUP";
     public const string Attendance = "ATTENDANCE";
     public const string Payroll = "PAYROLL";
+    public const string Tax = "TAX";
+    public const string TaxSetup = "TAX_SETUP";
   }
 
   // ---- permission codes, grouped by module ----
@@ -198,6 +200,32 @@ public static class PermissionCatalog
     public const string Post = "PAYROLL.POST";
   }
 
+  /// Taxation: tax files (property facts, payers, overrides, holds, agreements), demands and demand runs, notices,
+  /// surcharges, payments against the 1Link reference, fees and clearances.
+  public static class Tax
+  {
+    public const string View = "TAX.VIEW";
+    public const string Create = "TAX.CREATE";
+    public const string Edit = "TAX.EDIT";
+    public const string Delete = "TAX.DELETE";
+    /// Approve a demand run or a surcharge run; set overrides, holds and categories; issue notices in bulk and clearances.
+    public const string Approve = "TAX.APPROVE";
+    /// Post payments received against a reference, and fee receipts.
+    public const string Post = "TAX.POST";
+  }
+
+  /// Taxation setup: circles, heads, rate sets, settings, special policies, penalty rules, notice templates, letterhead
+  /// and the notice table.
+  public static class TaxSetup
+  {
+    public const string View = "TAX_SETUP.VIEW";
+    public const string Create = "TAX_SETUP.CREATE";
+    public const string Edit = "TAX_SETUP.EDIT";
+    public const string Delete = "TAX_SETUP.DELETE";
+    /// Approve a rate set (the Board's tariff).
+    public const string Approve = "TAX_SETUP.APPROVE";
+  }
+
   // =====================================================
   // REGISTRY — what the Identity seeder reads
   // =====================================================
@@ -224,6 +252,8 @@ public static class PermissionCatalog
     new ModuleDefinition(Modules.HrSetup, "HR Setup"),
     new ModuleDefinition(Modules.Attendance, "Attendance & Leave"),
     new ModuleDefinition(Modules.Payroll, "Payroll"),
+    new ModuleDefinition(Modules.Tax, "Taxation"),
+    new ModuleDefinition(Modules.TaxSetup, "Taxation Setup"),
   };
 
   public static IReadOnlyList<PermissionDefinition> All { get; } = BuildAll();
@@ -252,6 +282,8 @@ public static class PermissionCatalog
     Crud(Modules.HrSetup, "HR setup");
     Crud(Modules.Attendance, "attendance and leave", Actions.Approve);
     Crud(Modules.Payroll, "payroll", Actions.Approve, Actions.Post);
+    Crud(Modules.Tax, "taxation records", Actions.Approve, Actions.Post);
+    Crud(Modules.TaxSetup, "taxation setup", Actions.Approve);
 
     permissions.Add(new PermissionDefinition(Permissions.View, Modules.IamPermissions, Actions.View, "View permissions"));
     permissions.Add(new PermissionDefinition(Permissions.Assign, Modules.IamPermissions, Actions.Assign, "Assign permissions"));

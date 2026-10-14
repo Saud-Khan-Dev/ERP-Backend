@@ -1,0 +1,169 @@
+using FluentValidation;
+using Microsoft.EntityFrameworkCore;
+
+public sealed record RateSetInput(string Name, string BoardReference, DateOnly? BoardDecisionDate, DateOnly EffectiveFrom);
+
+public sealed record GetRateSetsQueryResult(IReadOnlyList<RateSetSummaryDto> RateSets);
+public sealed record GetRateSetsQuery : IQuery<Result<GetRateSetsQueryResult>>;
+public sealed record GetRateSetQueryResult(RateSetDto RateSet);
+public sealed record GetRateSetQuery(Guid Id) : IQuery<Result<GetRateSetQueryResult>>;
+
+/// A new draft, empty or starting from another set's factors and rates.
+public sealed record CreateRateSetCommand(RateSetInput RateSet, Guid? CopyFromId) : ICommand<Result<CreatedResult>>;
+public sealed record UpdateRateSetCommand(Guid Id, RateSetInput RateSet) : ICommand<Result<UpdatedResult>>;
+public sealed record DeleteRateSetCommand(Guid Id) : ICommand<Result<UpdatedResult>>;
+
+/// A town's locality factors for one category and component, as bands (upTo null = "and above").
+public sealed record SetLtfFactorsCommand(Guid Id, Guid TownId, TaxCategory TaxCategory, LtfComponent Component, IReadOnlyList<BandInput> Bands) : ICommand<Result<UpdatedResult>>;
+public sealed record RemoveTownFactorsCommand(Guid Id, Guid TownId) : ICommand<Result<UpdatedResult>>;
+
+/// A head's rates for one category (null = both, for fees) and town (null = all towns).
+public sealed record SetHeadRatesCommand(Guid Id, Guid HeadId, TaxCategory? TaxCategory, Guid? TownId, HeadRateInput Rates) : ICommand<Result<UpdatedResult>>;
+public sealed record RemoveHeadRatesCommand(Guid Id, Guid HeadId, TaxCategory? TaxCategory, Guid? TownId) : ICommand<Result<UpdatedResult>>;
+
+/// Approves a draft: it takes effect from its date and the set it replaces ends the day before.
+public sealed record ApproveRateSetCommand(Guid Id) : ICommand<Result<UpdatedResult>>;
+
+public class RateSetInputValidator : AbstractValidator<RateSetInput>
+{
+  public RateSetInputValidator()
+  {
+    RuleFor(x => x.Name).NotEmpty().MaximumLength(150);
+    RuleFor(x => x.BoardReference).NotEmpty().MaximumLength(100);
+  }
+}
+
+public class CreateRateSetCommandValidator : AbstractValidator<CreateRateSetCommand>
+{
+  public CreateRateSetCommandValidator() => RuleFor(x => x.RateSet).NotNull().SetValidator(new RateSetInputValidator());
+}
+
+public class UpdateRateSetCommandValidator : AbstractValidator<UpdateRateSetCommand>
+{
+  public UpdateRateSetCommandValidator() => RuleFor(x => x.RateSet).NotNull().SetValidator(new RateSetInputValidator());
+}
+
+public class SetLtfFactorsCommandValidator : AbstractValidator<SetLtfFactorsCommand>
+{
+  public SetLtfFactorsCommandValidator()
+  {
+    RuleFor(x => x.TownId).NotEmpty();
+    RuleFor(x => x.Bands).NotNull();
+  }
+}
+
+public class SetHeadRatesCommandValidator : AbstractValidator<SetHeadRatesCommand>
+{
+  public SetHeadRatesCommandValidator()
+  {
+    RuleFor(x => x.HeadId).NotEmpty();
+    RuleFor(x => x.Rates).NotNull();
+    RuleFor(x => x.Rates.UnitLabel).MaximumLength(60);
+  }
+}
+
+public class RateSetHandlers(IApplicationDbContext context, IPropertyDirectory property, ICurrentUser currentUser, IClock clock) :
+  IQueryHandler<GetRateSetsQuery, Result<GetRateSetsQueryResult>>,
+  IQueryHandler<GetRateSetQuery, Result<GetRateSetQueryResult>>,
+  ICommandHandler<CreateRateSetCommand, Result<CreatedResult>>,
+  ICommandHandler<UpdateRateSetCommand, Result<UpdatedResult>>,
+  ICommandHandler<DeleteRateSetCommand, Result<UpdatedResult>>,
+  ICommandHandler<SetLtfFactorsCommand, Result<UpdatedResult>>,
+  ICommandHandler<RemoveTownFactorsCommand, Result<UpdatedResult>>,
+  ICommandHandler<SetHeadRatesCommand, Result<UpdatedResult>>,
+  ICommandHandler<RemoveHeadRatesCommand, Result<UpdatedResult>>,
+  ICommandHandler<ApproveRateSetCommand, Result<UpdatedResult>>
+{
+  public async Task<Result<GetRateSetsQueryResult>> Handle(GetRateSetsQuery query, CancellationToken cancellationToken)
+  {
+    var sets = await context.RateSets.AsNoTracking().Include(s => s.LtfFactors).Include(s => s.RateBands).AsSplitQuery()
+      .OrderByDescending(s => s.EffectiveFrom).ToListAsync(cancellationToken);
+    return Result<GetRateSetsQueryResult>.Success(new(sets.Select(s => s.ToSummary()).ToList()));
+  }
+
+  public async Task<Result<GetRateSetQueryResult>> Handle(GetRateSetQuery query, CancellationToken cancellationToken)
+  {
+    var set = await context.LoadRateSetAsync(query.Id, cancellationToken);
+    var heads = await context.TaxHeads.AsNoTracking().ToDictionaryAsync(h => h.Id, cancellationToken);
+    var towns = (await context.CircleTowns.AsNoTracking().ToListAsync(cancellationToken))
+      .GroupBy(t => t.TownId).ToDictionary(g => g.Key, g => g.OrderByDescending(t => t.EffectiveFrom).First().TownCode);
+    return Result<GetRateSetQueryResult>.Success(new(set.ToDto(heads, towns)));
+  }
+
+  public async Task<Result<CreatedResult>> Handle(CreateRateSetCommand command, CancellationToken cancellationToken)
+  {
+    var r = command.RateSet;
+    var set = RateSet.Create(RateSetId.New(), r.Name, r.BoardReference, r.BoardDecisionDate, r.EffectiveFrom);
+    if (command.CopyFromId is { } sourceId)
+      set.CopyRatesFrom(await context.LoadRateSetAsync(sourceId, cancellationToken));
+    context.RateSets.Add(set);
+    await context.SaveChangesAsync(cancellationToken);
+    return CommandResults.Created(set.Id);
+  }
+
+  public async Task<Result<UpdatedResult>> Handle(UpdateRateSetCommand command, CancellationToken cancellationToken)
+  {
+    var set = await context.LoadRateSetAsync(command.Id, cancellationToken);
+    var r = command.RateSet;
+    set.UpdateDetails(r.Name, r.BoardReference, r.BoardDecisionDate, r.EffectiveFrom);
+    await context.SaveChangesAsync(cancellationToken);
+    return CommandResults.Updated();
+  }
+
+  public async Task<Result<UpdatedResult>> Handle(DeleteRateSetCommand command, CancellationToken cancellationToken)
+  {
+    var set = await context.LoadRateSetAsync(command.Id, cancellationToken);
+    if (set.Status != RateSetStatus.Draft)
+      return Result<UpdatedResult>.Failure($"'{set.Name}' is approved; approved rates are kept.");
+    context.RateSets.Remove(set);
+    await context.SaveChangesAsync(cancellationToken);
+    return CommandResults.Updated();
+  }
+
+  public async Task<Result<UpdatedResult>> Handle(SetLtfFactorsCommand command, CancellationToken cancellationToken)
+  {
+    var set = await context.LoadRateSetAsync(command.Id, cancellationToken);
+    if (!await context.CircleTowns.AnyAsync(t => t.TownId == command.TownId, cancellationToken) && await property.TownAsync(command.TownId, cancellationToken) is null)
+      throw new DomainException("Property has no such town.");
+    set.SetLtfFactors(command.TownId, command.TaxCategory, command.Component, command.Bands);
+    await context.SaveChangesAsync(cancellationToken);
+    return CommandResults.Updated();
+  }
+
+  public async Task<Result<UpdatedResult>> Handle(RemoveTownFactorsCommand command, CancellationToken cancellationToken)
+  {
+    var set = await context.LoadRateSetAsync(command.Id, cancellationToken);
+    set.RemoveTownFactors(command.TownId);
+    await context.SaveChangesAsync(cancellationToken);
+    return CommandResults.Updated();
+  }
+
+  public async Task<Result<UpdatedResult>> Handle(SetHeadRatesCommand command, CancellationToken cancellationToken)
+  {
+    var set = await context.LoadRateSetAsync(command.Id, cancellationToken);
+    var head = await context.LoadHeadAsync(command.HeadId, cancellationToken);
+    set.SetHeadRates(head, command.TaxCategory, command.TownId, command.Rates);
+    await context.SaveChangesAsync(cancellationToken);
+    return CommandResults.Updated();
+  }
+
+  public async Task<Result<UpdatedResult>> Handle(RemoveHeadRatesCommand command, CancellationToken cancellationToken)
+  {
+    var set = await context.LoadRateSetAsync(command.Id, cancellationToken);
+    set.RemoveHeadRates(TaxHeadId.Of(command.HeadId), command.TaxCategory, command.TownId);
+    await context.SaveChangesAsync(cancellationToken);
+    return CommandResults.Updated();
+  }
+
+  public async Task<Result<UpdatedResult>> Handle(ApproveRateSetCommand command, CancellationToken cancellationToken)
+  {
+    var set = await context.LoadRateSetAsync(command.Id, cancellationToken);
+    var heads = await context.TaxHeads.Where(h => h.HeadKind == HeadKind.Regular).ToListAsync(cancellationToken);
+    var towns = (await context.CircleTowns.Where(t => t.EffectiveTo == null || t.EffectiveTo >= set.EffectiveFrom).ToListAsync(cancellationToken))
+      .GroupBy(t => t.TownId).Select(g => (g.Key, g.First().TownCode)).ToList();
+    var approved = await context.RateSets.Where(s => s.Status != RateSetStatus.Draft && s.Id != set.Id).ToListAsync(cancellationToken);
+    set.Approve(Guard.Actor(currentUser.UserId, "approve a rate set"), clock.UtcNow, heads, towns, approved);
+    await context.SaveChangesAsync(cancellationToken);
+    return CommandResults.Updated();
+  }
+}
