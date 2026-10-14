@@ -5,6 +5,35 @@
 //  Sources: Taxation SRS v1.1 (briefing of 8 Oct 2026 + "Taxation introduction
 //           for DG sb"), docs/gda_property_module.dbml, docs/gda_hrms_schema.dbml
 //           and the Property / HRM / Identity code on main (fd86957).
+//  v1.8, 13 Oct 2026: notices print in the Section's format (2nd notice of 16/09/2026):
+//  letterhead per period (notice_letterhead) and office address, fax and phone per circle;
+//  template title; notice keeps its endorsement number and the table of particulars as
+//  printed (notice.endst_no, notice.particulars); tax_file.plot_no printed on the notice;
+//  the To block (ID, name, plot no., town, address line, days, paragraph) is entered when
+//  the notice is created and kept in notice.variables; the creator chooses whether the
+//  paragraph and the table are printed (notice.shows_paragraph, notice.shows_table).
+//  v1.10, 14 Oct 2026: checked field by field against the Tax Dummy prototype. Added what it
+//  keeps and the ERD did not: town short code (NG) printed on notices, separate notice day
+//  settings and residential / commercial uplift, notice.status, demand CARRIED with the amount
+//  and the demand it went to, a demand created with a manual notice (no run), payment against
+//  the constant reference without a challan, penalty_run includes_current and reference, the
+//  note on a reference sync. notice_template loses the columns now held elsewhere.
+//  v1.9, 14 Oct 2026: the table of particulars is laid out by the admin (notice_table_layout with
+//  its rows, the charges each row adds up, and its columns); the creator of a notice chooses the
+//  columns it prints (notice.columns). The barcode is dropped; the notice number is printed as text.
+//  v1.7, 13 Oct 2026: a notice says how it is paid (notice.pay_via: 1Link reference, QR
+//  code, or both); the QR is a dynamic EMVCo payment QR with the 1Link reference as bill
+//  number, so QR payments (payment.channel QR_CODE) post against the same reference.
+//  v1.6, 13 Oct 2026: tax heads are defined by the admin (dynamic): tax_head says how the
+//  head is calculated (bands, rate, fixed, formula, or built in), what it applies to and
+//  when it is charged; per-property facility dates and quantities in tax_file_head_value.
+//  v1.5, 13 Oct 2026: special tax policies (special_policy), set by the admin: the
+//  "special" column of a head. A property gets one by default through
+//  tax_file_override.policy_id; a notice can switch each head Normal / Special,
+//  recorded on demand_line (line_mode, policy_id, normal_amount).
+//  v1.4, 13 Oct 2026: a notice can be created by hand for one property (notice.origin
+//  MANUAL) and can add earlier years' dues or other charges by year and head
+//  (arrears.source MANUAL, with who entered them and why).
 //  v1.3, 12 Oct 2026: second pass over the recordings. Notice templates with
 //  confirmed variables, per-head overrides (tax_file_override replaces the
 //  override columns on tax_file), SURCHARGE notice stage, CASH channel, water
@@ -55,6 +84,9 @@ Table taxation.tax_circle {
   name              varchar(100) [not null]
   org_unit_id       uuid [note: 'LOGICAL -> hrms.organization_unit (the circle as an HRM unit, optional)']
   officer_post_id   uuid [note: 'LOGICAL -> hrms.post: the Taxation Officer post that signs this circle\'s notices']
+  office_address    varchar(300) [note: 'printed under the letterhead: Taxation Office (Circle-I) 2nd Floor ZTBL Building Mansehra Road Abbottabad']
+  office_fax        varchar(30)
+  office_phone      varchar(30)
   sort_order        int [default: 0]
   is_active         boolean [not null, default: true]
   Note: 'Tax administration area. Circles are a Taxation master because they are jurisdiction (towns), not only an organisational unit.'
@@ -65,6 +97,7 @@ Table taxation.tax_circle_town {
   circle_id       uuid [not null]
   town_id         uuid [not null, note: 'LOGICAL -> property.town (the town master stays in Property)']
   town_code       varchar(20) [not null, note: 'snapshot of property.town.code']
+  short_code      varchar(5) [note: 'TAXATION-OWNED: short code printed as "Town" on notices (NG = Nathiagali, TH, DG, KS, GD, CG, KG)']
   effective_from  date [not null]
   effective_to    date [note: 'NULL = current. A town can move between circles (TX-003)']
   indexes {
@@ -92,6 +125,15 @@ Table taxation.tax_head {
   name                     varchar(100) [not null]
   head_kind                varchar(10) [not null, note: 'REGULAR (annual demand: PROPERTY_TAX, CONSERVANCY, WATER, RENT; Part 2 03:17-03:29) / OTHER (case by case)']
   is_refundable            boolean [not null, default: false, note: 'malba security, water connection fee if not feasible']
+  calc_method              varchar(10) [note: 'REGULAR heads: LTF (property tax, built in), AGREEMENT (rent, built in), BANDS, RATE, FIXED, FORMULA']
+  is_builtin               boolean [not null, default: false]
+  applies_to               varchar(5) [not null, default: 'BOTH', note: 'BOTH, RES, COM']
+  charged_from             varchar(15) [not null, default: 'ALWAYS', note: 'ALWAYS, REGISTRATION (from the registration date), FACILITY (only once the facility is taken)']
+  facility_label           varchar(60) [note: 'e.g. water connection; a date per property in tax_file_head_value']
+  formula_com              varchar(500) [note: 'FORMULA heads; variables A, B, KANAL, MARLA, ROOMS, LTF_LAND, LTF_COVERED, QTY']
+  formula_res              varchar(500)
+  effective_from           date
+  board_reference          varchar(100)
   applies_annual_increase  boolean [not null, default: false, note: 'true only for PROPERTY_TAX, CONSERVANCY, WATER (Part 2 01:37-01:41); RENT follows its agreement']
   is_conditional           boolean [not null, default: false, note: 'WATER: charged only while tax_file.water_facility_from is set (Part 1 16:25-16:41)']
   override_allowed         boolean [not null, default: true, note: 'may carry a per-property SPECIAL or MINIMUM override (Part 1 05:17-05:38: "put these options with every head")']
@@ -142,7 +184,10 @@ Table taxation.rate_band {
   head_id       uuid [not null]
   town_id       uuid [note: 'LOGICAL -> property.town. NULL = all towns']
   tax_category  varchar(10) [note: 'RES / COM / NULL = both']
-  basis         varchar(15) [not null, note: 'ROOMS, KANAL, MARLA, SQFT, SQYD, PERCENT_OF_VALUE, FIXED, PAGE']
+  basis         varchar(15) [not null, note: 'ROOMS, KANAL, MARLA, SQFT (covered), SQYD (land), CUSTOM (a quantity entered per property), PERCENT_OF_VALUE, FIXED, PAGE']
+  unit_label    varchar(60) [note: 'name of a CUSTOM quantity, e.g. sq ft of signboard']
+  round_up      boolean [not null, default: false, note: 'count a fraction as the next whole unit (1.3 kanal = 2)']
+  block_size    decimal(18,4) [note: 'for above_top_rule REPEAT_PER_BLOCK']
   band_from     decimal(18,4)
   band_to       decimal(18,4)
   rate          decimal(18,4) [not null]
@@ -154,7 +199,7 @@ Table taxation.rate_band {
 
 Table taxation.tax_setting {
   id              uuid [pk]
-  key             varchar(60) [not null, note: 'ANNUAL_INCREASE_PCT, NOTICE_INTERVAL_DAYS, NOTICE_DAY_COUNTING (WORKING/CALENDAR), CC_GRACE_YEARS, CC_UPLIFT_PCT (default 150), CC_UPLIFT_RATE_BASIS, DUE_DATE_DDMM, CLEARANCE_VALID_DAYS, PSID_MODEL (CONSTANT/PER_ISSUE). Penalty percentages moved to penalty_rule']
+  key             varchar(60) [not null, note: 'ANNUAL_INCREASE_PCT, NOTICE_SECOND_DAYS, NOTICE_FINAL_DAYS, NOTICE_SHOW_CAUSE_DAYS (days after the first notice), NOTICE_DAY_COUNTING (WORKING/CALENDAR), CC_GRACE_YEARS, CC_UPLIFT_PCT_RES, CC_UPLIFT_PCT_COM (default 150), CC_UPLIFT_RATE_BASIS, DUE_DATE_DDMM, CLEARANCE_VALID_DAYS, PSID_MODEL (CONSTANT/PER_ISSUE), PAY_VIA_DEFAULT (ONELINK/QR/BOTH), QR_SCHEME, QR_GUID, QR_MERCHANT_ID, QR_MERCHANT_NAME, QR_CITY, QR_MCC. Penalty percentages moved to penalty_rule']
   value           varchar(100) [not null]
   rate_set_id     uuid [note: 'Board decision it came from']
   effective_from  date [not null]
@@ -192,8 +237,9 @@ Table taxation.tax_file {
   registered_on     date [note: 'date the property was registered with GDA: conservancy runs from this date, no relaxation (Part 1 16:41-17:02)']
   water_facility_from date [note: 'date the water facility was taken; NULL = no water charges (Part 1 16:25-16:41); set by water_connection.installed_on']
   uplift_rate_basis varchar(12) [note: 'RESIDENTIAL / COMMERCIAL: which rate the completion-certificate uplift uses for this property (Part 1 17:31-17:44)']
-  uplift_pct        decimal(6,2) [note: 'uplift percentage for this property; NULL = the setting CC_UPLIFT_PCT (Part 1 17:44-18:14)']
-  old_reference_no  varchar(50) [note: 'the Section\'s existing ID (TX-002)']
+  uplift_pct        decimal(6,2) [note: 'uplift percentage for this property; NULL = the setting CC_UPLIFT_PCT_RES / CC_UPLIFT_PCT_COM (Part 1 17:44-18:14)']
+  old_reference_no  varchar(50) [note: 'the Section\'s existing ID (TX-002); printed as "ID" on the notice']
+  plot_no           varchar(30) [note: 'TAXATION-OWNED: plot number printed on the notice. Property has no plot number field']
   tax_status        varchar(15) [not null, default: 'ACTIVE', note: 'ACTIVE, EXEMPT, SEALED, CLOSED']
   exemption_reason  varchar(300)
   opened_on         date [not null]
@@ -249,12 +295,41 @@ Table taxation.tax_file_payer {
   Note: 'Who pays, copied from Property. A completed transfer closes these rows and opens new ones (TX-005).'
 }
 
+Table taxation.special_policy {
+  id               uuid [pk]
+  code             varchar(30) [unique]
+  name             varchar(150) [not null]
+  head_id          uuid [not null, note: 'the head it replaces the normal formula for (tax_head.override_allowed)']
+  method           varchar(20) [not null, note: 'FIXED (a year), PER_MONTH (× 12), PERCENT_OF_NORMAL, PER_ROOM, PER_SQFT, PER_KANAL']
+  value            decimal(18,4) [not null, note: 'Rs, or the percentage for PERCENT_OF_NORMAL']
+  applies_to       varchar(5) [not null, default: 'BOTH', note: 'BOTH, RES, COM']
+  annual_increase  boolean [not null, default: false, note: 'the 10 % annual increase applies from the policy start (not for PERCENT_OF_NORMAL, which follows the normal tax)']
+  effective_from   date [not null]
+  effective_to     date
+  board_reference  varchar(100)
+  is_active        boolean [not null, default: false]
+  Note: 'The special column of a head, set by the admin (recording 12 Oct, Part 1 02:18-05:48, 17:44). Approved demands keep the amount they were issued with.'
+}
+
+Table taxation.tax_file_head_value {
+  id            uuid [pk]
+  tax_file_id   uuid [not null]
+  head_id       uuid [not null]
+  facility_from date [note: 'date the facility of a FACILITY head was taken (e.g. water connection); NULL = not charged']
+  quantity      decimal(18,4) [note: 'the CUSTOM quantity of the head for this property (e.g. 40 sq ft of signboard)']
+  indexes {
+    (tax_file_id, head_id) [unique]
+  }
+  Note: 'Per-property values the admin-defined heads need: a facility date or a quantity.'
+}
+
 Table taxation.tax_file_override {
   id             uuid [pk]
   tax_file_id    uuid [not null]
   head_id        uuid [not null, note: 'the head overridden; one override per head and period']
   mode           varchar(10) [not null, note: 'SPECIAL = the entered amount replaces the computed value (Part 1 02:18-05:48, e.g. a hotel at Rs 12,00,000 a year); MINIMUM = the computed value may not fall below the entered amount (Part 1 18:14-19:10: Rs 5,00,000 vs computed Rs 4,50,000)']
-  amount         decimal(18,2) [not null, note: 'per year']
+  policy_id      uuid [note: 'SPECIAL by a special_policy; amount is then not used']
+  amount         decimal(18,2) [note: 'per year, for a fixed SPECIAL or a MINIMUM']
   follows_increase boolean [not null, default: true, note: 'OPEN O-14: whether the 10 % annual increase applies to a SPECIAL amount']
   reason         varchar(300) [not null]
   reference      varchar(100) [note: 'Section order / Board reference']
@@ -272,11 +347,8 @@ Table taxation.notice_template {
   id              uuid [pk]
   stage           varchar(15) [unique, not null, note: 'FIRST, SECOND, FINAL, SHOW_CAUSE (the Section\'s four templates, Part 1 32:50-33:11) and SURCHARGE (new)']
   name            varchar(100) [not null]
-  header_text     text [not null, note: 'fixed: Authority heading, office, circle (Part 1 33:40-33:59)']
-  paragraph_text  text [not null, note: 'fixed text with placeholders: {code} {payer} {fy} {total} {reply_by} {psid}']
-  table_layout    jsonb [not null, note: 'columns of the amounts table: head, basis, rate, amount']
-  footer_text     text [note: 'signature block, copy-to lines']
-  shows_bill_block boolean [not null, default: true, note: '1Link / PSID block printed like a bill (Part 1 33:59-34:16)']
+  title_text      varchar(200) [not null, note: 'printed underlined under the letterhead: 2nd NOTICE REGARDING CLEARANCE OF ARREARS OF TAX/DUES']
+  paragraph_text  text [not null, note: 'fixed text with placeholders: {amount} {days} {fy} {surcharge} {total} {reply_by} {psid} {code} {circle}']
   source_document varchar(255) [note: 'file name of the PDF the Section supplied']
   version_no      int [not null, default: 1]
   effective_from  date [not null]
@@ -335,12 +407,13 @@ Table taxation.demand_run {
 Table taxation.demand {
   id                 uuid [pk]
   demand_no          varchar(40) [unique, not null]
-  run_id             uuid [not null]
+  run_id             uuid [note: 'NULL when the demand was created with a manual notice for one property (notice.origin MANUAL)']
   tax_file_id        uuid [not null]
   basis_id           uuid [not null, note: 'the tax_file_basis row used']
   fiscal_year        int [not null]
   payer_id           uuid [not null, note: 'tax_file_payer addressed']
   payer_name         varchar(200) [not null, note: 'snapshot']
+  payer_cnic         varchar(20)
   payer_mobile       varchar(30)
   payer_address      varchar(400)
   current_amount     decimal(18,2) [not null]
@@ -348,10 +421,13 @@ Table taxation.demand {
   penalty_amount     decimal(18,2) [not null, default: 0]
   paid_amount        decimal(18,2) [not null, default: 0]
   balance            decimal(18,2) [not null]
-  status             varchar(15) [not null, note: 'DRAFT, ISSUED, PART_PAID, PAID, DEFAULTED, CANCELLED']
+  status             varchar(15) [not null, note: 'DRAFT, ISSUED, PART_PAID, PAID, DEFAULTED, CARRIED (unpaid balance moved into the next year as arrears), CANCELLED']
   stage              varchar(15) [note: 'FIRST, SECOND, FINAL, SHOW_CAUSE, PENALTY, SEALED']
   issued_on          date
   due_date           date
+  paid_on            date [note: 'date the balance reached zero']
+  carried_amount     decimal(18,2) [note: 'for CARRIED: the balance moved forward']
+  carried_to_demand_id uuid [note: 'for CARRIED: the next year\'s demand that took it as arrears (arrears.source DEMAND)']
   indexes {
     (tax_file_id, fiscal_year) [unique]
   }
@@ -370,6 +446,9 @@ Table taxation.demand_line {
   increase_amount  decimal(18,2) [not null, default: 0, note: 'annual increase line (TX-008)']
   uplift_amount    decimal(18,2) [not null, default: 0, note: 'completion-certificate uplift (TX-012)']
   override_id      uuid [note: 'tax_file_override applied to this line']
+  line_mode        varchar(10) [not null, default: 'NORMAL', note: 'NORMAL, POLICY (special policy), SPECIAL (fixed special charge), MINIMUM, MANUAL (entered on a notice)']
+  policy_id        uuid [note: 'special_policy used when line_mode = POLICY']
+  normal_amount    decimal(18,2) [note: 'what the normal formula gives, kept so the head can be switched back']
   override_amount  decimal(18,2) [not null, default: 0, note: 'SPECIAL: replaces base_amount; MINIMUM: the top-up to the floor, shown as its own line (NP-P17)']
   amount           decimal(18,2) [not null]
   explanation      varchar(500) [note: '"400 sq yd x 5 + 2,500 sq ft x 5"']
@@ -383,21 +462,94 @@ Table taxation.arrears {
   original_amount  decimal(18,2) [not null]
   penalty_amount   decimal(18,2) [not null, default: 0]
   outstanding      decimal(18,2) [not null]
-  source           varchar(10) [not null, note: 'DEMAND / IMPORT (TX-004)']
+  source           varchar(10) [not null, note: 'DEMAND (unpaid balance of an earlier demand, carried) / IMPORT (old register, TX-004) / MANUAL (entered when a notice is created)']
   source_demand_id uuid
   import_row_id    uuid
+  added_to_demand_id uuid [note: 'the demand this row is billed on (its arrears breakup)']
+  description      varchar(300) [note: 'detail; required for head OTHER']
+  entered_by       uuid [note: 'LOGICAL -> auth.users, for MANUAL rows']
+  entered_at       timestamp
+  reason           varchar(300) [note: 'why the amount was entered, for MANUAL rows']
+  Note: 'Dues by year and head. fiscal_year may be NULL for old-register amounts of unknown year; a row for the notice year itself is an other charge of that year.'
+}
+
+Table taxation.notice_letterhead {
+  id              uuid [pk]
+  government_line varchar(150) [not null, note: 'GOVERNMENT OF KHYBER PAKHTUNKHWA']
+  authority_line  varchar(150) [not null, note: 'GALIYAT DEVELOPMENT AUTHORITY ABBOTTABAD']
+  motto           varchar(200) [note: 'printed in quotes under the title']
+  notes           jsonb [not null, note: 'numbered Note lines (three on the Section\'s notice)']
+  cc_lines        jsonb [not null, note: 'Cc lines under ENDST NO. & DATE EVEN']
+  qr_text         varchar(200) [note: 'printed beside the QR']
+  qr_bank_name    varchar(60) [note: 'printed under the QR (Allied Bank)']
+  logo_left_ref   varchar(255) [note: 'stored file: GDA logo, uploaded by the Section; also the watermark']
+  logo_right_ref  varchar(255) [note: 'stored file: Government of Khyber Pakhtunkhwa emblem, uploaded by the Section']
+  watermark       boolean [not null, default: true]
+  board_reference varchar(100) [not null, note: 'reference given for the change']
+  effective_from  date [not null]
+  effective_to    date
+  Note: 'Common parts of every printed notice (2nd notice of 16/09/2026). A change starts a new row; issued notices keep the row they were printed with.'
+}
+
+Table taxation.notice_table_layout {
+  id              uuid [pk]
+  other_label     varchar(100) [not null, default: 'Other charges / earlier dues', note: 'row for any charge that is in no row; printed only when not zero, so the grand total always equals the amount due']
+  hide_zero_rows  boolean [not null, default: false]
+  board_reference varchar(100) [not null]
+  effective_from  date [not null]
+  effective_to    date
+  Note: 'Layout of the table of particulars, set by the admin. A change starts a new row; issued notices keep the layout they were printed with.'
+}
+
+Table taxation.notice_table_row {
+  id          uuid [pk]
+  layout_id   uuid [not null]
+  label       varchar(100) [not null, note: 'Particular as printed: Property Tax, Water Charges, Annual Rent / G .Rent, Security, ...']
+  sort_order  int [not null]
+}
+
+Table taxation.notice_table_row_source {
+  row_id      uuid [not null]
+  source_code varchar(40) [not null, note: 'tax_head.code, or LEASE, SECURITY, SURCHARGE, WHT_236A, OTHER. A charge is in at most one row of a layout']
+  indexes {
+    (row_id, source_code) [pk]
+  }
+}
+
+Table taxation.notice_table_column {
+  id                 uuid [pk]
+  layout_id          uuid [not null]
+  column_key         varchar(15) [not null, note: 'SNO, PARTICULAR, BASIS, ARREARS, CURRENT, RECEIVED, PAYABLE; at least one amount column']
+  heading            varchar(100) [not null, note: '{fy} = the year, | = new line: "Current {fy}|Payable"']
+  printed_by_default boolean [not null, default: true, note: 'PARTICULAR is always printed']
+  sort_order         int [not null]
+  indexes {
+    (layout_id, column_key) [unique]
+  }
 }
 
 Table taxation.notice {
   id                        uuid [pk]
-  notice_no                 varchar(40) [unique, not null]
+  notice_no                 varchar(40) [unique, not null, note: 'GDA-TAX-YYYY-XXXX, printed as text at the top right']
+  endst_no                  varchar(40) [unique, note: 'endorsement number TAX/C-I/2026-27/00001, per circle and year']
+  letterhead_id             uuid [not null, note: 'notice_letterhead printed on it']
+  shows_paragraph           boolean [not null, default: true, note: 'the paragraph (body) is printed; chosen when the notice is created or reviewed']
+  table_layout_id           uuid [note: 'notice_table_layout used for the particulars']
+  columns                   jsonb [note: 'columns printed on this notice, chosen by the creator from the layout\'s columns (key and heading); NULL = the layout\'s defaults']
+  shows_table               boolean [not null, default: true, note: 'the table of particulars is printed; without it the amount payable prints on one line. At least one of the two is true']
+  particulars               jsonb [not null, note: 'the table as printed, per row: particular, arrears, current, received, payable, and the grand total; kept so a reprint is identical']
   demand_id                 uuid [not null]
   stage                     varchar(15) [not null, note: 'FIRST, SECOND, FINAL, SHOW_CAUSE, SURCHARGE']
+  origin                    varchar(10) [not null, default: 'CYCLE', note: 'CYCLE (demand run, escalation, surcharge run) / MANUAL (created by hand for one property)']
+  pay_via                   varchar(10) [not null, default: 'BOTH', note: 'ONELINK (1Link / 1Bill bill block), QR (payment QR code), BOTH; default from tax_setting PAY_VIA_DEFAULT']
+  qr_payload                varchar(512) [note: 'the EMVCo QR string printed (merchant, amount in PKR, bill no. = psid, notice no.), kept so a reprint is identical']
+  sms_sent                  boolean [not null, default: true, note: 'the creator may issue a notice without its SMS']
   template_id               uuid [not null, note: 'notice_template used; its version is frozen on the notice']
   template_version          int [not null]
   penalty_run_id            uuid [note: 'for stage SURCHARGE: the run that produced it']
-  variables                 jsonb [not null, note: 'the pre-filled values as confirmed: payer, address, head lines, arrears, surcharge, total, due date, reference (Part 1 33:40-33:59)']
+  variables                 jsonb [not null, note: 'the pre-filled values as confirmed: payer, address, head lines, arrears, surcharge, total, due date, reference (Part 1 33:40-33:59); and as printed under the letterhead, entered or corrected by the creator: ID, name, plot no., town, the address line, the days to pay and the paragraph']
   edited_fields             jsonb [note: 'which variables the user changed before confirming, with old and new values']
+  status                    varchar(10) [not null, default: 'PENDING', note: 'PENDING (prepared, awaiting confirmation), ISSUED, CANCELLED']
   confirmed_by              uuid [note: 'LOGICAL -> auth.users; nothing is issued before confirmation (NP-N04)']
   confirmed_at              timestamp
   psid                      varchar(30) [not null, note: 'the constant reference printed in the bill block']
@@ -446,6 +598,8 @@ Table taxation.penalty_run {
   target_set    varchar(15) [not null]
   rate_type     varchar(10) [not null]
   rate          decimal(18,4) [not null]
+  includes_current boolean [not null, default: true, note: 'the current year\'s demand is in the base, not only arrears']
+  reference     varchar(100) [note: 'the Section\'s decision for this run']
   property_count int
   total_amount  decimal(18,2)
   approved_by   uuid [note: 'LOGICAL -> auth.users; a MANUAL surcharge needs approval']
@@ -507,14 +661,17 @@ Table taxation.psid_sync {
   due_date     date
   synced_at    timestamp [not null]
   onelink_ack  varchar(60)
+  note         varchar(300) [note: 'what changed, e.g. "Rs 58,500 added with notice GDA-TAX-2026-54BN"']
   status       varchar(10) [not null, note: 'PENDING, ACKED, FAILED']
   Note: 'The amount currently behind the constant reference, one row per change. GDA syncs once a year, plus every "add up".'
 }
 
 Table taxation.payment {
   id                    uuid [pk]
-  challan_id            uuid [not null]
-  channel               varchar(15) [not null, note: 'ONELINK, ONLINE, BANK_COUNTER, CASH (the Section\'s own receipt, Part 1 07:20-07:35)']
+  tax_file_id           uuid [not null]
+  psid                  varchar(30) [not null, note: 'the constant reference paid against; allocated to the oldest year first']
+  challan_id            uuid [note: 'only for a one-off challan (fee with its own PSID); NULL for payments against the constant reference']
+  channel               varchar(15) [not null, note: 'ONELINK, QR_CODE (Raast / bank payment QR), ONLINE, BANK_COUNTER, CASH (the Section\'s own receipt, Part 1 07:20-07:35)']
   receipt_no            varchar(40) [note: 'manual receipt number for BANK_COUNTER and CASH']
   received_by           uuid [note: 'LOGICAL -> auth.users for manual receipts']
   bank_code             varchar(20)
@@ -993,12 +1150,23 @@ Ref: taxation.arrears.tax_file_id > taxation.tax_file.id
 Ref: taxation.arrears.head_id > taxation.tax_head.id
 Ref: taxation.arrears.source_demand_id > taxation.demand.id
 Ref: taxation.arrears.import_row_id > taxation.import_row.id
+Ref: taxation.arrears.added_to_demand_id > taxation.demand.id
 Ref: taxation.notice.demand_id > taxation.demand.id
 Ref: taxation.notice.template_id > taxation.notice_template.id
+Ref: taxation.notice.letterhead_id > taxation.notice_letterhead.id
+Ref: taxation.notice.table_layout_id > taxation.notice_table_layout.id
+Ref: taxation.notice_table_row.layout_id > taxation.notice_table_layout.id
+Ref: taxation.notice_table_row_source.row_id > taxation.notice_table_row.id
+Ref: taxation.notice_table_column.layout_id > taxation.notice_table_layout.id
 Ref: taxation.notice.penalty_run_id > taxation.penalty_run.id
 Ref: taxation.notice.sms_message_id - taxation.sms_message.id
 Ref: taxation.tax_file_override.tax_file_id > taxation.tax_file.id
 Ref: taxation.tax_file_override.head_id > taxation.tax_head.id
+Ref: taxation.tax_file_head_value.tax_file_id > taxation.tax_file.id
+Ref: taxation.tax_file_head_value.head_id > taxation.tax_head.id
+Ref: taxation.tax_file_override.policy_id > taxation.special_policy.id
+Ref: taxation.special_policy.head_id > taxation.tax_head.id
+Ref: taxation.demand_line.policy_id > taxation.special_policy.id
 Ref: taxation.demand_line.override_id > taxation.tax_file_override.id
 Ref: taxation.penalty.demand_id > taxation.demand.id
 Ref: taxation.penalty.rule_id > taxation.penalty_rule.id
@@ -1016,6 +1184,8 @@ Ref: taxation.sealing.notice_id > taxation.notice.id
 Ref: taxation.challan.demand_id > taxation.demand.id
 Ref: taxation.challan.fee_id > taxation.fee.id
 Ref: taxation.payment.challan_id > taxation.challan.id
+Ref: taxation.payment.tax_file_id > taxation.tax_file.id
+Ref: taxation.demand.carried_to_demand_id > taxation.demand.id
 Ref: taxation.payment_allocation.payment_id > taxation.payment.id
 Ref: taxation.payment_allocation.head_id > taxation.tax_head.id
 Ref: taxation.payment_allocation.demand_line_id > taxation.demand_line.id
@@ -1084,6 +1254,7 @@ Ref: taxation.water_connection.inspected_by_employee_id > hrms.employee.id  // l
 Ref: taxation.demand_run.approved_by > auth.users.id  // logical
 Ref: taxation.clearance.issued_by > auth.users.id  // logical
 Ref: taxation.audit_log.user_id > auth.users.id  // logical
+Ref: taxation.arrears.entered_by > auth.users.id  // logical
 Ref: taxation.rate_set.approved_by > auth.users.id  // logical
 Ref: taxation.penalty_run.approved_by > auth.users.id  // logical
 Ref: taxation.tax_file_override.approved_by > auth.users.id  // logical
@@ -1127,11 +1298,18 @@ TableGroup taxation_rates {
   taxation.tax_setting
   taxation.message_template
   taxation.notice_template
+  taxation.notice_letterhead
+  taxation.notice_table_layout
+  taxation.notice_table_row
+  taxation.notice_table_row_source
+  taxation.notice_table_column
+  taxation.special_policy
 }
 TableGroup taxation_tax_file {
   taxation.tax_file
   taxation.tax_file_basis
   taxation.tax_file_payer
+  taxation.tax_file_head_value
   taxation.tax_file_override
   taxation.agreement_schedule
   taxation.agreement_schedule_line
