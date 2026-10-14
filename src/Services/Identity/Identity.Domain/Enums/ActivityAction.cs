@@ -25,6 +25,8 @@ public enum ActivityAction
   RoleDeleted,
   RolePermissionsAdded,
   RolePermissionRemoved,
+  /// The role editor's save: every permission added and removed, in one line.
+  RolePermissionsChanged,
 
   // ---- configuration ----
   EmployeeCodeTemplateUpdated,

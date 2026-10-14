@@ -17,7 +17,9 @@ public class RemovePermissionOverrideHandler(IApplicationDbContext context, Iden
 
     context.UserPermissionOverrides.Remove(existing);
     var targetName = await context.Users.IgnoreQueryFilters().AsNoTracking().Where(u => u.Id == userId).Select(u => u.Username.Value).FirstOrDefaultAsync(cancellationToken);
-    await activity.RecordAsync(ActivityAction.PermissionOverrideRemoved, ActivityTargetType.User, userId.Value, targetName, null, cancellationToken);
+    var code = await context.Permissions.AsNoTracking().Where(p => p.Id == permissionId).Select(p => p.Code).FirstOrDefaultAsync(cancellationToken);
+    await activity.RecordAsync(ActivityAction.PermissionOverrideRemoved, ActivityTargetType.User, userId.Value, targetName,
+      code is null ? null : $"{code.Value} \u00b7 {existing.Effect}", cancellationToken);
 
     await context.SaveChangesAsync(cancellationToken);
 

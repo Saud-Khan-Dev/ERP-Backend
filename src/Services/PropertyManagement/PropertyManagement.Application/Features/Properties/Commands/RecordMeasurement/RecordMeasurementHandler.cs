@@ -9,19 +9,18 @@ public class RecordMeasurementHandler(IApplicationDbContext context, MasterLooku
     var input = command.Measurement;
     var unit = await masters.GetAsync<MeasurementUnit>(input.MeasurementUnitId, cancellationToken);
 
-    var measurement = PropertyMeasurement.Record(
-      PropertyMeasurementId.New(), property, unit, input.TotalArea, input.BuiltUpArea,
-      input.MeasuredOn, input.MeasurementSource, input.Remarks);
-
-    var previous = await context.PropertyMeasurements
+    var current = await context.PropertyMeasurements
         .Where(m => m.PropertyId == property.Id && m.IsCurrent)
         .ToListAsync(cancellationToken);
 
-    previous.ForEach(m => m.Supersede());
+    // the domain decides whether this survey is the latest (supersedes the current one) or history
+    var measurement = PropertyMeasurement.Record(
+      PropertyMeasurementId.New(), property, unit, input.TotalArea, input.BuiltUpArea,
+      input.MeasuredOn, input.MeasurementSource, input.Remarks, PropertyWriteGuard.Today(), current, out var warnings);
 
     await context.PropertyMeasurements.AddAsync(measurement, cancellationToken);
     await context.SaveChangesAsync(cancellationToken);
 
-    return Result<RecordMeasurementCommandResult>.Success(new RecordMeasurementCommandResult(measurement.Id.Value));
+    return Result<RecordMeasurementCommandResult>.Success(new RecordMeasurementCommandResult(measurement.Id.Value, measurement.IsCurrent, warnings));
   }
 }

@@ -1,9 +1,11 @@
 public sealed record EndOwnershipRequest(DateOnly EffectiveTo, string? Remarks = null);
 public sealed record RemarksRequest(string? Remarks = null);
-public sealed record ApproveTransferRequest(string? ApprovedBy = null, DateOnly? ApprovalDate = null);
-public sealed record CompleteTransferRequest(Guid? TenureTypeId = null);
-public sealed record CancelTransferRequest(string? Reason = null);
-public sealed record RecordCompletedTransferRequest(TransferInput Transfer, string? ApprovedBy = null, DateOnly? ApprovalDate = null, Guid? TenureTypeId = null);
+public sealed record ApproveTransferRequest(string? ApprovedBy = null, DateOnly? ApprovalDate = null, string? ApprovalOrderRef = null, Guid? TenureTypeId = null);
+public sealed record CompleteTransferRequest(Guid? TenureTypeId = null, string? ApprovalOrderRef = null);
+public sealed record CancelTransferRequest(string Reason);
+public sealed record RejectTransferRequest(string Reason);
+public sealed record RecordCompletedTransferRequest(
+  TransferInput Transfer, string? ApprovedBy = null, DateOnly? ApprovalDate = null, Guid? TenureTypeId = null, string? ApprovalOrderRef = null);
 public sealed record ReleaseEncumbranceRequest(DateOnly ReleaseDate, string? ReleaseReferenceNo = null);
 
 /// Who owns what share, how it changed hands, and what charges sit on it.
@@ -19,7 +21,7 @@ public class OwnershipEndpoints : ICarterModule
       .WithName("GetPropertyOwnerships")
       .Produces<GetOwnershipsQueryResult>()
       .WithSummary("Get Owners Of Property")
-      .WithDescription("Current owners and the share allocated so far (at most 100%); includeHistory=true adds ended and disputed rows.");
+      .WithDescription("Current owners (active and disputed shares; a disputed share still counts) and the share allocated so far (at most 100%); includeHistory=true adds the ended rows.");
 
     properties.MapPost("/{id:guid}/ownerships", async (Guid id, OwnershipInput ownership, ISender sender) =>
         (await sender.Send(new RegisterOwnershipCommand(id, ownership))).ToOk())
@@ -28,7 +30,8 @@ public class OwnershipEndpoints : ICarterModule
       .Produces<RegisterOwnershipCommandResult>()
       .ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Register Ownership")
-      .WithDescription("Records an owner's share directly (first owners, or the paper record). Refused if active shares would exceed 100%. Changes between owners go through a transfer.");
+      .WithDescription("Records an owner's share directly (first owners, or the paper record). Refused if the owner already holds a share, if the shares held would exceed 100%, "
+        + "if effectiveFrom is in the future or overlaps the owner's earlier entries. Changes between owners go through a transfer.");
 
     var ownerships = app.MapGroup("/ownerships").WithTags("Ownership");
 
@@ -39,14 +42,17 @@ public class OwnershipEndpoints : ICarterModule
       .Produces<EndOwnershipCommandResult>()
       .ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("End Ownership")
-      .WithDescription("Closes the period without a transfer. The row stays as ownership history.");
+      .WithDescription("Closes the period without a transfer (effectiveTo not in the future). The row stays as ownership history. Refused while a charge is "
+        + "registered on the share or the whole property, or while the share is being given away in a pending transfer.");
 
     ownerships.MapPost("/{id:guid}/dispute", async (Guid id, RemarksRequest request, ISender sender) =>
         (await sender.Send(new SetOwnershipDisputeCommand(id, true, request.Remarks))).ToOk())
       .RequirePermission(PermissionCatalog.Property.Edit)
       .WithName("DisputeOwnership")
       .Produces<SetOwnershipDisputeCommandResult>()
-      .WithSummary("Mark Ownership Disputed");
+      .ProducesProblem(StatusCodes.Status400BadRequest)
+      .WithSummary("Mark Ownership Disputed")
+      .WithDescription("The share stays held (it counts toward the 100%) but cannot be transferred until the dispute is resolved.");
 
     ownerships.MapPost("/{id:guid}/resolve-dispute", async (Guid id, RemarksRequest request, ISender sender) =>
         (await sender.Send(new SetOwnershipDisputeCommand(id, false, request.Remarks))).ToOk())
@@ -65,17 +71,21 @@ public class OwnershipEndpoints : ICarterModule
       .Produces<InitiateTransferCommandResult>(StatusCodes.Status201Created)
       .ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Initiate Transfer")
-      .WithDescription("TRF-00001 is generated. Transferors must be current owners giving no more than they hold, and both sides must add up to the same share. Gift and Inheritance need the relationship.");
+      .WithDescription("TRF-00001 is generated; the transfer waits for approval and nothing changes hands yet. Transferors must be current, undisputed, "
+        + "uncharged owners giving no more than they hold minus what other pending transfers already give; both sides must add up to the same share and "
+        + "the transfer must move a share. Every party must be an active owner. The date may be in the future but must fall after each party's earlier "
+        + "ownership entries. Gift and Inheritance need the relationship.");
 
     properties.MapPost("/{id:guid}/transfers/completed", async (Guid id, RecordCompletedTransferRequest request, ISender sender) =>
-        (await sender.Send(new RecordCompletedTransferCommand(id, request.Transfer, request.ApprovedBy, request.ApprovalDate, request.TenureTypeId)))
+        (await sender.Send(new RecordCompletedTransferCommand(id, request.Transfer, request.ApprovedBy, request.ApprovalDate, request.TenureTypeId, request.ApprovalOrderRef)))
           .ToCreated(r => $"/transfers/{r.Id}"))
       .RequirePermission(PermissionCatalog.Property.Approve)
       .WithName("RecordCompletedTransfer")
       .Produces<RecordCompletedTransferCommandResult>(StatusCodes.Status201Created)
       .ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Record Completed Transfer")
-      .WithDescription("Enters a transfer that already happened (e.g. from the paper register) as COMPLETED in one step, with the same share rules; ownership rows are closed and opened on the transfer date.");
+      .WithDescription("Enters a transfer that already happened (e.g. from the paper register) as COMPLETED in one step, with the same rules as initiate + approve "
+        + "(transfer date not in the future); ownership rows are closed and opened on the transfer date.");
 
     properties.MapGet("/{id:guid}/transfers", async (Guid id, TransferStatus? status, ISender sender) =>
         (await sender.Send(new GetPropertyTransfersQuery(id, status))).ToOk())
@@ -94,21 +104,34 @@ public class OwnershipEndpoints : ICarterModule
       .WithSummary("Get Transfer");
 
     transfers.MapPost("/{id:guid}/approve", async (Guid id, ApproveTransferRequest request, ISender sender) =>
-        (await sender.Send(new ApproveTransferCommand(id, request.ApprovedBy, request.ApprovalDate))).ToOk())
+        (await sender.Send(new ApproveTransferCommand(id, request.ApprovedBy, request.ApprovalDate, request.ApprovalOrderRef, request.TenureTypeId))).ToOk())
       .RequirePermission(PermissionCatalog.Property.Approve)
       .WithName("ApproveTransfer")
       .Produces<ApproveTransferCommandResult>()
       .ProducesProblem(StatusCodes.Status400BadRequest)
-      .WithSummary("Approve Transfer");
+      .WithSummary("Approve Transfer")
+      .WithDescription("Approves AND registers a transfer waiting for approval, in one step: the rules are checked again, the givers' rows are closed on the "
+        + "transfer date and the resulting rows opened (status COMPLETED). Refused before the transfer date; approvalDate defaults to today and may not be "
+        + "in the future or before the transfer date.");
+
+    transfers.MapPost("/{id:guid}/reject", async (Guid id, RejectTransferRequest request, ISender sender) =>
+        (await sender.Send(new RejectTransferCommand(id, request.Reason))).ToOk())
+      .RequirePermission(PermissionCatalog.Property.Approve)
+      .WithName("RejectTransfer")
+      .Produces<RejectTransferCommandResult>()
+      .ProducesProblem(StatusCodes.Status400BadRequest)
+      .WithSummary("Reject Transfer")
+      .WithDescription("The approving officer refuses a transfer waiting for approval (status REJECTED). The reason is required; nothing changes hands.");
 
     transfers.MapPost("/{id:guid}/complete", async (Guid id, CompleteTransferRequest request, ISender sender) =>
-        (await sender.Send(new CompleteTransferCommand(id, request.TenureTypeId))).ToOk())
+        (await sender.Send(new CompleteTransferCommand(id, request.TenureTypeId, request.ApprovalOrderRef))).ToOk())
       .RequirePermission(PermissionCatalog.Property.Approve)
       .WithName("CompleteTransfer")
       .Produces<CompleteTransferCommandResult>()
       .ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Complete Transfer")
-      .WithDescription("Changes ownership: the parties' current rows are closed on the transfer date and new rows opened with the resulting shares, pointing back at this transfer.");
+      .WithDescription("Only for a transfer approved before approval and completion became one step (status APPROVED): registers it like an approval does. "
+        + "A transfer waiting for approval is registered by approving it.");
 
     transfers.MapPost("/{id:guid}/cancel", async (Guid id, CancelTransferRequest request, ISender sender) =>
         (await sender.Send(new CancelTransferCommand(id, request.Reason))).ToOk())
@@ -116,7 +139,10 @@ public class OwnershipEndpoints : ICarterModule
       .WithName("CancelTransfer")
       .Produces<CancelTransferCommandResult>()
       .ProducesProblem(StatusCodes.Status400BadRequest)
-      .WithSummary("Cancel Transfer");
+      .ProducesProblem(StatusCodes.Status403Forbidden)
+      .WithSummary("Cancel Transfer")
+      .WithDescription("Withdraws a transfer that has not changed ownership (status CANCELLED); the reason is required. A transfer still in status APPROVED "
+        + "also needs PROPERTY.APPROVE (403 otherwise). A completed transfer is reversed with a new transfer.");
 
     // ---- encumbrances ----
 
@@ -127,7 +153,8 @@ public class OwnershipEndpoints : ICarterModule
       .Produces<RegisterEncumbranceCommandResult>()
       .ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Register Encumbrance")
-      .WithDescription("A mortgage, lien or charge (Act s.6(4)(c)), optionally on one owner's share.");
+      .WithDescription("A mortgage, lien or charge (Act s.6(4)(c)), optionally on one owner's current share. While it is ACTIVE the share (or, without "
+        + "ownershipId, every share) cannot be transferred or ended.");
 
     properties.MapGet("/{id:guid}/encumbrances", async (Guid id, EncumbranceStatus? status, ISender sender) =>
         (await sender.Send(new GetPropertyEncumbrancesQuery(id, status))).ToOk())
@@ -151,13 +178,16 @@ public class OwnershipEndpoints : ICarterModule
       .RequirePermission(PermissionCatalog.Property.Edit)
       .WithName("ReleaseEncumbrance")
       .Produces<ReleaseEncumbranceCommandResult>()
-      .WithSummary("Release Encumbrance");
+      .ProducesProblem(StatusCodes.Status400BadRequest)
+      .WithSummary("Release Encumbrance")
+      .WithDescription("releaseDate between the start date and today.");
 
     encumbrances.MapPost("/{id:guid}/enforce", async (Guid id, RemarksRequest request, ISender sender) =>
         (await sender.Send(new EnforceEncumbranceCommand(id, request.Remarks))).ToOk())
       .RequirePermission(PermissionCatalog.Property.Edit)
       .WithName("EnforceEncumbrance")
       .Produces<EnforceEncumbranceCommandResult>()
+      .ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Enforce Encumbrance");
   }
 }

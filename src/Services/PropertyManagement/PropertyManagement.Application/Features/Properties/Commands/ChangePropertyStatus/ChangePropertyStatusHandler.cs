@@ -14,8 +14,8 @@ public class ChangePropertyStatusHandler(IApplicationDbContext context, MasterLo
         .OrderByDescending(h => h.EffectiveFrom)
         .FirstOrDefaultAsync(cancellationToken);
 
-    var next = property.ChangeStatus(
-      status, current, command.EffectiveFrom ?? DateOnly.FromDateTime(DateTime.UtcNow), command.Reason, command.ReferenceNo);
+    var today = PropertyWriteGuard.Today();
+    var next = property.ChangeStatus(status, current, command.EffectiveFrom ?? today, command.Reason, command.ReferenceNo, today);
 
     await context.PropertyStatusHistories.AddAsync(next, cancellationToken);
     await context.SaveChangesAsync(cancellationToken);

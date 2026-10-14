@@ -18,7 +18,7 @@ public class GetPropertyHandler(IApplicationDbContext context, MasterLookup mast
         .LoadAsync(cancellationToken);
 
     var currentOwners = await context.Ownerships.AsNoTracking()
-        .Where(o => o.PropertyId == propertyId && o.OwnershipStatus == OwnershipStatus.Active)
+        .Where(o => o.PropertyId == propertyId && (o.OwnershipStatus == OwnershipStatus.Active || o.OwnershipStatus == OwnershipStatus.Disputed))
         .OrderByDescending(o => o.OwnershipSharePct)
         .ToListAsync(cancellationToken);
 

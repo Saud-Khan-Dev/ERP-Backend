@@ -34,8 +34,11 @@ public class GetPropertyRegisterReportHandler(IApplicationDbContext context, Mas
         .LoadAsync(cancellationToken);
 
     var areas = await read.AreaSummariesAsync(propertyIds, cancellationToken);
-    var ownerships = await read.CurrentOwnershipsAsync(propertyIds, cancellationToken);
-    var owners = await read.OwnerRefsAsync(ownerships.Values.SelectMany(o => o).Select(o => o.OwnerId), cancellationToken);
+    // current holders: active or disputed shares, largest first
+    var ownerships = (await PropertyQueryFilter.CurrentHoldings(context).Where(o => propertyIds.Contains(o.PropertyId)).ToListAsync(cancellationToken))
+      .GroupBy(o => o.PropertyId)
+      .ToDictionary(g => g.Key, g => g.OrderByDescending(o => o.OwnershipSharePct).ToList());
+    var owners = await read.OwnersAsync(ownerships.Values.SelectMany(o => o).Select(o => (OwnerId?)o.OwnerId), cancellationToken);
 
     // custom-field values keyed by the field's code: active fields that hold a value
     var definitions = await context.AttributeDefinitions.AsNoTracking().Where(d => d.IsActive)
@@ -50,13 +53,20 @@ public class GetPropertyRegisterReportHandler(IApplicationDbContext context, Mas
         .ToDictionary(v => definitions[v.AttributeDefinitionId], v => v.Value!));
     IReadOnlyDictionary<string, string> none = new Dictionary<string, string>();
 
+    // the current boundary survey's slope (degrees)
+    var slopes = await context.Boundaries.AsNoTracking()
+        .Where(b => propertyIds.Contains(b.PropertyId) && b.IsCurrent && b.SlopeDegrees != null)
+        .Select(b => new { b.PropertyId, b.SlopeDegrees })
+        .ToDictionaryAsync(b => b.PropertyId, b => b.SlopeDegrees, cancellationToken);
+
     var rows = page.Select(p =>
     {
       var area = areas[p.Id];
       var current = (ownerships.GetValueOrDefault(p.Id) ?? [])
         .Select(o => owners.GetValueOrDefault(o.OwnerId) is { } owner
-          ? new ReportOwnerDto(owner.Id, owner.OwnerCode, owner.OwnerName, o.OwnershipSharePct)
-          : new ReportOwnerDto(o.OwnerId.Value, string.Empty, string.Empty, o.OwnershipSharePct))
+          ? new ReportOwnerDto(owner.Id.Value, owner.OwnerCode.Value, owner.OwnerName.Value, owner.Cnic?.Value, owner.Ntn, o.OwnershipSharePct,
+              o.OwnershipStatus == OwnershipStatus.Disputed)
+          : new ReportOwnerDto(o.OwnerId.Value, string.Empty, string.Empty, null, null, o.OwnershipSharePct, o.OwnershipStatus == OwnershipStatus.Disputed))
         .ToList();
 
       return new PropertyReportRowDto(
@@ -64,7 +74,8 @@ public class GetPropertyRegisterReportHandler(IApplicationDbContext context, Mas
         refs[p.TownId], refs[p.PropertyTypeId], refs[p.PropertyStatusId], refs[p.PropertyClassificationId],
         p.AddressLine, p.KhasraSurveyNo, p.Description, p.IsActive,
         area.TotalAreaSqFt, area.BuiltUpAreaSqFt, area.RegularizedAreaSqFt, area.EncroachedAreaSqFt,
-        current.Count, current, fields.GetValueOrDefault(p.Id) ?? none, p.CreatedAt);
+        current.Select(o => o.OwnerId).Distinct().Count(), current, fields.GetValueOrDefault(p.Id) ?? none, p.CreatedAt,
+        slopes.GetValueOrDefault(p.Id));
     }).ToList();
 
     var totals = new PropertyReportTotalsDto(rows.Count, rows.Sum(r => r.TotalAreaSqFt ?? 0));

@@ -6,6 +6,7 @@ public class OutsourcingActionsHandler(IApplicationDbContext context, MasterLook
   public async Task<Result<OutsourcingActionResult>> Handle(UpdateOutsourcingCommand command, CancellationToken cancellationToken)
   {
     var contract = await context.LoadOutsourcingAsync(command.Id, cancellationToken);
+    await context.EnsurePropertyActiveAsync(contract.PropertyId, cancellationToken);
     contract.Update(await Current(contract, cancellationToken), await command.Terms.ToTermsAsync(masters, cancellationToken));
     return await SaveAsync(contract, cancellationToken);
   }
@@ -13,13 +14,16 @@ public class OutsourcingActionsHandler(IApplicationDbContext context, MasterLook
   public async Task<Result<OutsourcingActionResult>> Handle(ChangeContractStatusCommand command, CancellationToken cancellationToken)
   {
     var contract = await context.LoadOutsourcingAsync(command.Id, cancellationToken);
-    contract.ChangeStatus(await Current(contract, cancellationToken), await masters.GetAsync<ContractStatus>(command.ContractStatusId, cancellationToken));
+    await context.EnsurePropertyActiveAsync(contract.PropertyId, cancellationToken);
+    contract.ChangeStatus(await Current(contract, cancellationToken), await masters.GetAsync<ContractStatus>(command.ContractStatusId, cancellationToken),
+      PropertyWriteGuard.Today());
     return await SaveAsync(contract, cancellationToken);
   }
 
   public async Task<Result<OutsourcingActionResult>> Handle(TerminateOutsourcingCommand command, CancellationToken cancellationToken)
   {
     var contract = await context.LoadOutsourcingAsync(command.Id, cancellationToken);
+    await context.EnsurePropertyActiveAsync(contract.PropertyId, cancellationToken);
     contract.Terminate(await Current(contract, cancellationToken),
       await masters.GetByCodeAsync<ContractStatus>(SystemMasterCodes.Terminated, cancellationToken), command.TerminationDate, command.Reason);
     return await SaveAsync(contract, cancellationToken);

@@ -26,5 +26,6 @@ public class OpenRegularizationCommandValidator : AbstractValidator<OpenRegulari
     RuleFor(x => x.Regularization.Status).IsInEnum();
     RuleFor(x => x.Regularization.OrderReferenceNo).MaximumLength(100);
     RuleFor(x => x.Regularization.ApprovedBy).MaximumLength(150);
+    RuleFor(x => x.Regularization.Remarks).MaximumLength(4000);
   }
 }

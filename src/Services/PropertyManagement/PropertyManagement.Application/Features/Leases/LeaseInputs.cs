@@ -30,5 +30,8 @@ public class LeaseTermsInputValidator : AbstractValidator<LeaseTermsInput>
     RuleFor(x => x.LeaseAmount).GreaterThanOrEqualTo(0).When(x => x.LeaseAmount.HasValue);
     RuleFor(x => x.AmountFrequency).IsInEnum().When(x => x.AmountFrequency.HasValue);
     RuleFor(x => x.AgreementReference).MaximumLength(100);
+    RuleFor(x => x.LeaseTermYears).GreaterThan(0).When(x => x.LeaseTermYears.HasValue);
+    RuleFor(x => x.SecurityDeposit).GreaterThanOrEqualTo(0).When(x => x.SecurityDeposit.HasValue);
+    RuleFor(x => x.Remarks).MaximumLength(4000);
   }
 }

@@ -1,7 +1,9 @@
 using FluentValidation;
 
-public sealed record ViolationActionResult(Guid Id, ViolationStatus Status, FineStatus? FineStatus);
+/// Warnings: a notice issued without a comply-by date (rule 5 cannot then apply).
+public sealed record ViolationActionResult(Guid Id, ViolationStatus Status, FineStatus? FineStatus, IReadOnlyList<string> Warnings);
 
+/// A violation carries one notice; a second is refused.
 public sealed record IssueViolationNoticeCommand(Guid Id, string NoticeNo, DateOnly NoticeDate, DateOnly? NoticeDeadline) : ICommand<Result<ViolationActionResult>>;
 
 /// s.28-A fine (up to Rs 1,000,000), imposed by the signed-in authorized officer.
@@ -14,7 +16,18 @@ public sealed record RectifyViolationCommand(Guid Id, string? Remarks = null) : 
 
 public class IssueViolationNoticeCommandValidator : AbstractValidator<IssueViolationNoticeCommand>
 {
-  public IssueViolationNoticeCommandValidator() => RuleFor(x => x.NoticeNo).NotEmpty().MaximumLength(50);
+  public IssueViolationNoticeCommandValidator()
+  {
+    RuleFor(x => x.NoticeNo).NotEmpty().MaximumLength(AgreementViolation.NoticeNoMaxLength);
+    RuleFor(x => x.NoticeDate).LessThanOrEqualTo(_ => PropertyWriteGuard.Today()).WithMessage("A notice cannot be dated in the future.");
+    RuleFor(x => x.NoticeDeadline).GreaterThanOrEqualTo(x => x.NoticeDate).When(x => x.NoticeDeadline.HasValue)
+      .WithMessage("The comply-by date cannot be before the notice date.");
+  }
+}
+
+public class RectifyViolationCommandValidator : AbstractValidator<RectifyViolationCommand>
+{
+  public RectifyViolationCommandValidator() => RuleFor(x => x.Remarks).MaximumLength(AgreementViolation.TextMaxLength);
 }
 
 public class ImposeFineCommandValidator : AbstractValidator<ImposeFineCommand>

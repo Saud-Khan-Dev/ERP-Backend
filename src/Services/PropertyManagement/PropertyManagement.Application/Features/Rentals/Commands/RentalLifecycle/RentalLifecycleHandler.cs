@@ -5,6 +5,7 @@ public class RentalLifecycleHandler(IApplicationDbContext context, MasterLookup 
   public async Task<Result<RentalLifecycleResult>> Handle(TerminateRentalCommand command, CancellationToken cancellationToken)
   {
     var rental = await context.LoadRentalAsync(command.Id, cancellationToken);
+    await context.EnsurePropertyActiveAsync(rental.PropertyId, cancellationToken);
     rental.Terminate(await Current(rental, cancellationToken), await Status(SystemMasterCodes.Ended, cancellationToken),
       command.TerminationDate, command.Reason);
 
@@ -16,6 +17,7 @@ public class RentalLifecycleHandler(IApplicationDbContext context, MasterLookup 
   public async Task<Result<RenewRentalCommandResult>> Handle(RenewRentalCommand command, CancellationToken cancellationToken)
   {
     var rental = await context.LoadRentalAsync(command.Id, cancellationToken);
+    await context.EnsurePropertyActiveAsync(rental.PropertyId, cancellationToken);
     var tenant = await context.LoadOwnerAsync(command.TenantOwnerId ?? rental.TenantOwnerId.Value, cancellationToken);
 
     var renewal = rental.Renew(

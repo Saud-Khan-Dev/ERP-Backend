@@ -11,13 +11,15 @@ public sealed record MasterInput(
   decimal? FactorToBase = null,
   bool? IsBase = null,
   string? StorageFolder = null,
-  bool? RequiresRelationship = null)
+  bool? RequiresRelationship = null,
+  DocumentScope? AppliesTo = null)
 {
   public MasterExtras Extras(MasterDescriptor descriptor) => new(
     descriptor.Extras.HasFlag(MasterExtraColumns.FactorToBase) ? FactorToBase : null,
     descriptor.Extras.HasFlag(MasterExtraColumns.IsBase) ? IsBase : null,
     descriptor.Extras.HasFlag(MasterExtraColumns.StorageFolder) ? StorageFolder : null,
-    descriptor.Extras.HasFlag(MasterExtraColumns.RequiresRelationship) ? RequiresRelationship : null);
+    descriptor.Extras.HasFlag(MasterExtraColumns.RequiresRelationship) ? RequiresRelationship : null,
+    descriptor.Extras.HasFlag(MasterExtraColumns.AppliesTo) ? AppliesTo : null);
 }
 
 public class MasterInputValidator : AbstractValidator<MasterInput>
@@ -29,6 +31,7 @@ public class MasterInputValidator : AbstractValidator<MasterInput>
     RuleFor(x => x.Description).MaximumLength(2000);
     RuleFor(x => x.FactorToBase).GreaterThan(0).When(x => x.FactorToBase.HasValue);
     RuleFor(x => x.StorageFolder).MaximumLength(DocumentType.StorageFolderMaxLength);
+    RuleFor(x => x.AppliesTo).IsInEnum().When(x => x.AppliesTo.HasValue);
   }
 }
 
@@ -40,6 +43,20 @@ public static class MasterRules
   {
     if (SystemMasterCodes.IsRequired(descriptor.ClrType, master.Code.Value))
       throw new DomainException($"{descriptor.Label} {master.Code.Value} is used by the system and cannot be deactivated.");
+  }
+
+  /// A document type's applies_to (PROPERTY | OWNER) is fixed once documents of that type are filed: they would
+  /// otherwise sit on the wrong kind of record.
+  public static async Task<string?> FindScopeChangeConflictAsync(IApplicationDbContext context, MasterData master, DocumentScope? appliesTo, CancellationToken cancellationToken)
+  {
+    if (master is not DocumentType type || appliesTo is null || appliesTo == type.AppliesTo)
+      return null;
+
+    var used = await context.Documents.CountAsync(d => d.DocumentTypeId == type.Id, cancellationToken);
+    return used == 0
+      ? null
+      : $"'{type.Name.Value}' is already used by {used} document(s), so it cannot change from {type.AppliesTo.ToString().ToUpperInvariant()} "
+        + $"to {appliesTo.Value.ToString().ToUpperInvariant()} documents. Add a new document type instead.";
   }
 
   /// Only one measurement unit may be the base (square feet).

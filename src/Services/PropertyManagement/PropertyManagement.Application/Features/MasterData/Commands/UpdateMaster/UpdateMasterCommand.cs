@@ -8,7 +8,8 @@ public sealed record UpdateMasterInput(
   decimal? FactorToBase = null,
   bool? IsBase = null,
   string? StorageFolder = null,
-  bool? RequiresRelationship = null);
+  bool? RequiresRelationship = null,
+  DocumentScope? AppliesTo = null);
 
 public sealed record UpdateMasterCommandResult(bool IsSuccess);
 

@@ -143,11 +143,38 @@ public class PropertyLease : Aggregate<LeaseId>
     End(cancelledStatus, cancellationDate, reason);
   }
 
-  public void Expire(LeaseStatus currentStatus, LeaseStatus expiredStatus)
+  /// An active lease is marked expired once its end date has passed. A draft was never in force, so it
+  /// cannot expire.
+  public void Expire(LeaseStatus currentStatus, LeaseStatus expiredStatus, DateOnly today)
   {
-    EnsureInForce(currentStatus);
+    EnsureCurrent(currentStatus);
     expiredStatus.EnsureIs(SystemMasterCodes.Expired);
+
+    if (currentStatus.Is(SystemMasterCodes.Draft))
+      throw new DomainException($"{LeaseNo.Value} is a draft and was never in force, so it cannot expire. Activate it, or leave it as a draft.");
+
+    EnsureInForce(currentStatus);
+
+    if (today <= LeaseEndDate)
+      throw new DomainException($"{LeaseNo.Value} ends on {LeaseEndDate:yyyy-MM-dd}; it can be marked expired after that.");
+
     LeaseStatusId = expiredStatus.Id;
+  }
+
+  /// An appeal set aside the violation that cancelled this lease (Act s.32): the lease is in force again.
+  public void Reinstate(LeaseStatus currentStatus, LeaseStatus activeStatus, string appealNo)
+  {
+    EnsureCurrent(currentStatus);
+    activeStatus.EnsureIs(SystemMasterCodes.Active);
+
+    if (!currentStatus.Is(SystemMasterCodes.Cancelled))
+      throw new DomainException($"{LeaseNo.Value} is {currentStatus.Name.Value}; only a cancelled lease can be reinstated.");
+
+    var cancelledOn = TerminationDate;
+    LeaseStatusId = activeStatus.Id;
+    TerminationDate = null;
+    TerminationReason = null;
+    Remarks = RemarkText.Append(Remarks, $"Reinstated by appeal {appealNo} (cancellation of {cancelledOn:yyyy-MM-dd} set aside).");
   }
 
   public bool IsInForce(LeaseStatus currentStatus) =>

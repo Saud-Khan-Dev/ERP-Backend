@@ -1,7 +1,8 @@
 public sealed record GetDocumentsQueryResult(IReadOnlyList<DocumentDto> Documents);
 
-/// All documents of a property ("all documents of PROP-00125" — schema guide) or of an owner,
-/// optionally narrowed to one sub-record or document type. Latest versions only unless asked.
+/// All documents of a property ("all documents of PROP-00125" — schema guide; an owner's own papers are not among
+/// them) or an owner's own papers, optionally narrowed to one sub-record or document type. Latest versions only
+/// unless asked.
 public sealed record GetDocumentsQuery(
   Guid? PropertyId = null,
   Guid? OwnerId = null,

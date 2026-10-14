@@ -3,11 +3,15 @@
 
 public sealed record GeoPointDto(int SequenceNo, decimal Latitude, decimal Longitude);
 
+/// IsInForce: status ACTIVE or RESTORED and not withdrawn (at most one per property). SurrenderDate: set when
+/// SURRENDERED. ConfirmedOwnershipId: the ownership row confirmed through this allotment since it was last put in
+/// force (the current one first), null when the allottee has not been confirmed as owner (again).
 public sealed record AllotmentDto(
   Guid Id, Guid PropertyId, string AllotmentNo, OwnerRef? Allottee, MasterRef? AllotmentType, MasterRef? Status,
   DateOnly AllotmentDate, DateOnly? EffectiveDate, DateOnly? ExpiryDate, string? AllotmentLetterRef, string? Conditions,
   DateOnly? CancellationDate, string? CancellationReason, string? CancellationOrderRef,
-  DateOnly? RestorationDate, string? RestorationOrderRef, string? Remarks, bool IsActive, DateTime? CreatedAt, Guid? CreatedBy);
+  DateOnly? RestorationDate, string? RestorationOrderRef, string? Remarks, bool IsActive, DateTime? CreatedAt, Guid? CreatedBy,
+  bool IsInForce, DateOnly? SurrenderDate, Guid? ConfirmedOwnershipId);
 
 public sealed record LeaseDto(
   Guid Id, Guid PropertyId, string LeaseNo, OwnerRef? Lessee, MasterRef? LeaseType, MasterRef? Status,
@@ -26,7 +30,7 @@ public sealed record ViolationDto(
   Guid Id, Guid PropertyId, MasterRef? AgreementType, Guid? LeaseId, Guid? RentalId, Guid? TransferId, OwnerRef? Violator,
   DateOnly ViolationDate, string ViolationDescription, short OccurrenceNo, string? NoticeNo, DateOnly? NoticeDate,
   DateOnly? NoticeDeadline, decimal? FineAmount, Guid? FineImposedBy, FineStatus? FineStatus, bool LedToCancellation,
-  DateOnly? CancellationDate, ViolationStatus Status, string? Remarks, DateTime? CreatedAt, Guid? CreatedBy);
+  DateOnly? CancellationDate, ViolationStatus Status, ViolationStatus? PreAppealStatus, string? Remarks, DateTime? CreatedAt, Guid? CreatedBy);
 
 public sealed record AuctionBidDto(Guid Id, OwnerRef? Bidder, decimal BidAmount, int? BidRank, decimal? EarnestMoney, bool IsWinning, string? Remarks, DateTime? CreatedAt);
 
@@ -34,7 +38,7 @@ public sealed record AuctionDto(
   Guid Id, Guid PropertyId, string AuctionNo, MasterRef? AuctionType, MasterRef? Status, DateOnly? AnnouncementDate,
   DateOnly? AuctionDate, decimal? BaseReservePrice, decimal? WinningBidAmount, OwnerRef? SuccessfulBidder, DateOnly? AwardDate,
   string? AwardReferenceNo, string? AuctionCommitteeRef, string? Venue, string? ReferenceNo, string? Remarks,
-  IReadOnlyList<AuctionBidDto> Bids, DateTime? CreatedAt, Guid? CreatedBy);
+  Guid? PreviousAuctionId, IReadOnlyList<AuctionBidDto> Bids, DateTime? CreatedAt, Guid? CreatedBy);
 
 public sealed record OutsourcingDto(
   Guid Id, Guid PropertyId, string ContractNo, OwnerRef? Contractor, MasterRef? OutsourcingType, MasterRef? Status,
@@ -42,9 +46,10 @@ public sealed record OutsourcingDto(
   AmountFrequency? AmountFrequency, decimal? PerformanceGuarantee, string? ReferenceNo, DateOnly? TerminationDate,
   string? TerminationReason, string? Remarks, DateTime? CreatedAt, Guid? CreatedBy);
 
+/// SlopeDegrees: 0-90; IsSteep: above the 45° limit of the Building & Construction Regulations 2026.
 public sealed record BoundaryDto(
   Guid Id, Guid PropertyId, BoundaryType BoundaryType, DateOnly? SurveyDate, string? SurveySource,
-  decimal? SlopePercentage, bool IsCurrent, string? Remarks, IReadOnlyList<GeoPointDto> Points, DateTime? CreatedAt, Guid? CreatedBy);
+  decimal? SlopeDegrees, bool IsSteep, bool IsCurrent, string? Remarks, IReadOnlyList<GeoPointDto> Points, DateTime? CreatedAt, Guid? CreatedBy);
 
 public sealed record EncroachmentDto(
   Guid Id, Guid PropertyId, string EncroachmentNo, decimal EncroachmentArea, MasterRef? Unit, decimal EncroachmentAreaBase,
@@ -78,10 +83,12 @@ public sealed record BuildingPlanDto(
 
 public static class ComplianceMappings
 {
-  public static AllotmentDto ToDto(this PropertyAllotment x, MasterRefs refs, IReadOnlyDictionary<OwnerId, OwnerRef> owners) => new(
+  public static AllotmentDto ToDto(
+      this PropertyAllotment x, MasterRefs refs, IReadOnlyDictionary<OwnerId, OwnerRef> owners, bool isInForce, Guid? confirmedOwnershipId) => new(
     x.Id.Value, x.PropertyId.Value, x.AllotmentNo.Value, owners.GetValueOrDefault(x.AllotteeOwnerId), refs[x.AllotmentTypeId], refs[x.AllotmentStatusId],
     x.AllotmentDate, x.EffectiveDate, x.ExpiryDate, x.AllotmentLetterRef, x.Conditions, x.CancellationDate, x.CancellationReason,
-    x.CancellationOrderRef, x.RestorationDate, x.RestorationOrderRef, x.Remarks, x.IsActive, x.CreatedAt, x.CreatedBy);
+    x.CancellationOrderRef, x.RestorationDate, x.RestorationOrderRef, x.Remarks, x.IsActive, x.CreatedAt, x.CreatedBy,
+    isInForce, x.SurrenderDate, confirmedOwnershipId);
 
   public static LeaseDto ToDto(this PropertyLease x, MasterRefs refs, IReadOnlyDictionary<OwnerId, OwnerRef> owners) => new(
     x.Id.Value, x.PropertyId.Value, x.LeaseNo.Value, owners.GetValueOrDefault(x.LesseeOwnerId), refs[x.LeaseTypeId], refs[x.LeaseStatusId],
@@ -99,13 +106,13 @@ public static class ComplianceMappings
     x.Id.Value, x.PropertyId.Value, refs[x.AgreementTypeId], x.LeaseId?.Value, x.RentalId?.Value, x.TransferId?.Value,
     owners.GetValueOrDefault(x.ViolatorOwnerId), x.ViolationDate, x.ViolationDescription, x.OccurrenceNo, x.NoticeNo, x.NoticeDate,
     x.NoticeDeadline, x.FineAmount, x.FineImposedBy, x.FineStatus, x.LedToCancellation, x.CancellationDate, x.ViolationStatus,
-    x.Remarks, x.CreatedAt, x.CreatedBy);
+    x.PreAppealStatus, x.Remarks, x.CreatedAt, x.CreatedBy);
 
   public static AuctionDto ToDto(this PropertyAuction x, MasterRefs refs, IReadOnlyDictionary<OwnerId, OwnerRef> owners) => new(
     x.Id.Value, x.PropertyId.Value, x.AuctionNo.Value, refs[x.AuctionTypeId], refs[x.AuctionStatusId], x.AnnouncementDate,
     x.AuctionDate, x.BaseReservePrice, x.WinningBidAmount,
     x.SuccessfulBidderOwnerId is null ? null : owners.GetValueOrDefault(x.SuccessfulBidderOwnerId),
-    x.AwardDate, x.AwardReferenceNo, x.AuctionCommitteeRef, x.Venue, x.ReferenceNo, x.Remarks,
+    x.AwardDate, x.AwardReferenceNo, x.AuctionCommitteeRef, x.Venue, x.ReferenceNo, x.Remarks, x.PreviousAuctionId?.Value,
     x.Bids.OrderBy(b => b.BidRank).Select(b => new AuctionBidDto(b.Id.Value, owners.GetValueOrDefault(b.BidderOwnerId), b.BidAmount,
       b.BidRank, b.EarnestMoney, b.IsWinning, b.Remarks, b.CreatedAt)).ToList(),
     x.CreatedAt, x.CreatedBy);
@@ -116,7 +123,7 @@ public static class ComplianceMappings
     x.PerformanceGuarantee, x.ReferenceNo, x.TerminationDate, x.TerminationReason, x.Remarks, x.CreatedAt, x.CreatedBy);
 
   public static BoundaryDto ToDto(this PropertyBoundary x) => new(
-    x.Id.Value, x.PropertyId.Value, x.BoundaryType, x.SurveyDate, x.SurveySource, x.SlopePercentage, x.IsCurrent, x.Remarks,
+    x.Id.Value, x.PropertyId.Value, x.BoundaryType, x.SurveyDate, x.SurveySource, x.SlopeDegrees, x.IsSteep, x.IsCurrent, x.Remarks,
     x.Points.Select(p => new GeoPointDto(p.SequenceNo, p.Latitude, p.Longitude)).ToList(), x.CreatedAt, x.CreatedBy);
 
   public static EncroachmentDto ToDto(this PropertyEncroachment x, MasterRefs refs, IReadOnlyDictionary<OwnerId, OwnerRef> owners) => new(

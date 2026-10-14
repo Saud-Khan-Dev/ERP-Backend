@@ -23,5 +23,6 @@ public class UpdateRegularizationCommandValidator : AbstractValidator<UpdateRegu
     RuleFor(x => x.Case.Status).IsInEnum();
     RuleFor(x => x.Case.OrderReferenceNo).MaximumLength(100);
     RuleFor(x => x.Case.ApprovedBy).MaximumLength(150);
+    RuleFor(x => x.Case.Remarks).MaximumLength(4000);
   }
 }

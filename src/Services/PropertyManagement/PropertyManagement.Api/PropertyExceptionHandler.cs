@@ -41,6 +41,12 @@ public class PropertyExceptionHandler(ILogger<PropertyExceptionHandler> logger) 
         StatusCode: StatusCodes.Status403Forbidden
       ),
 
+      PermissionRequiredException => (
+        Title: nameof(PermissionRequiredException),
+        Detail: exception.Message,
+        StatusCode: StatusCodes.Status403Forbidden
+      ),
+
       DbUpdateConcurrencyException => (
         Title: nameof(DbUpdateConcurrencyException),
         Detail: "The record was modified by someone else. Reload it and try again.",

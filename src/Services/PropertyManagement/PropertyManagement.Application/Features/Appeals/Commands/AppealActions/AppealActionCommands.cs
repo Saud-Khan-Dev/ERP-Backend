@@ -1,6 +1,8 @@
 using FluentValidation;
 
-public sealed record AppealActionResult(Guid Id, AppealStatus Status, DateOnly DecisionDueDate, IReadOnlyList<string> Warnings);
+/// Effects: what the decision or withdrawal changed on the appealed record, in sentences for the clerk
+/// ("Violation no. 3 of 2026-04-15 is set aside.", "Lease LSE-00004 is reinstated (ACTIVE again).").
+public sealed record AppealActionResult(Guid Id, AppealStatus Status, DateOnly DecisionDueDate, IReadOnlyList<string> Warnings, IReadOnlyList<string> Effects);
 
 public sealed record UpdateAppealCommand(Guid Id, AppealInput Appeal) : ICommand<Result<AppealActionResult>>;
 
@@ -18,5 +20,14 @@ public class UpdateAppealCommandValidator : AbstractValidator<UpdateAppealComman
 
 public class DecideAppealCommandValidator : AbstractValidator<DecideAppealCommand>
 {
-  public DecideAppealCommandValidator() => RuleFor(x => x.DecisionOutcome).IsInEnum();
+  public DecideAppealCommandValidator()
+  {
+    RuleFor(x => x.DecisionOutcome).IsInEnum();
+    RuleFor(x => x.DecisionDetails).MaximumLength(4000);
+  }
+}
+
+public class WithdrawAppealCommandValidator : AbstractValidator<WithdrawAppealCommand>
+{
+  public WithdrawAppealCommandValidator() => RuleFor(x => x.Remarks).MaximumLength(4000);
 }

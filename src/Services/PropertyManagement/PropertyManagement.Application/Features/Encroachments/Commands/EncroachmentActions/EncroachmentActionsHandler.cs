@@ -8,6 +8,7 @@ public class EncroachmentActionsHandler(IApplicationDbContext context, MasterLoo
   public async Task<Result<EncroachmentActionResult>> Handle(UpdateEncroachmentCommand command, CancellationToken cancellationToken)
   {
     var encroachment = await context.LoadEncroachmentAsync(command.Id, cancellationToken);
+    await context.EnsurePropertyActiveAsync(encroachment.PropertyId, cancellationToken);
     encroachment.Update(await command.Details.ToDetailsAsync(context, cancellationToken));
     return await SaveAsync(encroachment, null, cancellationToken);
   }
@@ -15,13 +16,18 @@ public class EncroachmentActionsHandler(IApplicationDbContext context, MasterLoo
   public async Task<Result<EncroachmentActionResult>> Handle(IssueEncroachmentNoticeCommand command, CancellationToken cancellationToken)
   {
     var encroachment = await context.LoadEncroachmentAsync(command.Id, cancellationToken);
-    encroachment.IssueNotice(command.NoticeNo, command.NoticeDate);
+    await context.EnsurePropertyActiveAsync(encroachment.PropertyId, cancellationToken);
+    encroachment.IssueNotice(
+      await masters.GetAsync<EncroachmentStatus>(encroachment.EncroachmentStatusId.Value, cancellationToken),
+      await masters.GetByCodeAsync<EncroachmentStatus>(SystemMasterCodes.UnderNotice, cancellationToken),
+      command.NoticeNo, command.NoticeDate, PropertyWriteGuard.Today());
     return await SaveAsync(encroachment, null, cancellationToken);
   }
 
   public async Task<Result<EncroachmentActionResult>> Handle(ChangeEncroachmentStatusCommand command, CancellationToken cancellationToken)
   {
     var encroachment = await context.LoadEncroachmentAsync(command.Id, cancellationToken);
+    await context.EnsurePropertyActiveAsync(encroachment.PropertyId, cancellationToken);
     encroachment.ChangeStatus(await masters.GetAsync<EncroachmentStatus>(command.EncroachmentStatusId, cancellationToken));
     return await SaveAsync(encroachment, null, cancellationToken);
   }
@@ -29,6 +35,7 @@ public class EncroachmentActionsHandler(IApplicationDbContext context, MasterLoo
   public async Task<Result<EncroachmentActionResult>> Handle(ResolveEncroachmentCommand command, CancellationToken cancellationToken)
   {
     var encroachment = await context.LoadEncroachmentAsync(command.Id, cancellationToken);
+    await context.EnsurePropertyActiveAsync(encroachment.PropertyId, cancellationToken);
     var regularized = command.ResolutionType == EncroachmentResolution.Regularized;
 
     encroachment.Resolve(
@@ -56,6 +63,7 @@ public class EncroachmentActionsHandler(IApplicationDbContext context, MasterLoo
   public async Task<Result<EncroachmentActionResult>> Handle(SetEncroachmentBoundaryCommand command, CancellationToken cancellationToken)
   {
     var encroachment = await context.LoadEncroachmentAsync(command.Id, cancellationToken);
+    await context.EnsurePropertyActiveAsync(encroachment.PropertyId, cancellationToken);
     encroachment.SetBoundary(command.Points.ToGeoPoints());
     return await SaveAsync(encroachment, null, cancellationToken);
   }

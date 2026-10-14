@@ -44,15 +44,21 @@ public class CreatePropertyHandler(IApplicationDbContext context, MasterLookup m
 
     await context.Properties.AddAsync(property, cancellationToken);
 
-    var effectiveFrom = command.StatusEffectiveFrom ?? DateOnly.FromDateTime(DateTime.UtcNow);
-    await context.PropertyStatusHistories.AddAsync(property.OpenStatusHistory(effectiveFrom, "Property registered"), cancellationToken);
+    var today = PropertyWriteGuard.Today();
+    var warnings = new List<string>();
 
+    var effectiveFrom = command.StatusEffectiveFrom ?? today;
+    await context.PropertyStatusHistories.AddAsync(property.OpenStatusHistory(effectiveFrom, "Property registered", today), cancellationToken);
+
+    // the same domain rules as recording a measurement later (built-up area within the total, no future date)
     if (command.Measurement is { } measurement)
     {
       var unit = await masters.GetAsync<MeasurementUnit>(measurement.MeasurementUnitId, cancellationToken);
       await context.PropertyMeasurements.AddAsync(PropertyMeasurement.Record(
         PropertyMeasurementId.New(), property, unit, measurement.TotalArea, measurement.BuiltUpArea,
-        measurement.MeasuredOn, measurement.MeasurementSource, measurement.Remarks), cancellationToken);
+        measurement.MeasuredOn, measurement.MeasurementSource, measurement.Remarks, today,
+        Array.Empty<PropertyMeasurement>(), out var measurementWarnings), cancellationToken);
+      warnings.AddRange(measurementWarnings);
     }
 
     // ---- first owners: rule 1, the shares may total at most 100% ----
@@ -67,17 +73,21 @@ public class CreatePropertyHandler(IApplicationDbContext context, MasterLookup m
 
       ownerships.Add(PropertyOwnership.Register(
         OwnershipId.New(), property, owners[OwnerId.Of(ownerInput.OwnerId)], tenure, ownerInput.OwnershipSharePct,
-        ownerInput.EffectiveFrom, acquiredBy, ownerInput.ReferenceNo, ownerInput.Remarks));
+        ownerInput.EffectiveFrom, acquiredBy, ownerInput.ReferenceNo, ownerInput.Remarks, PropertyWriteGuard.Today()));
     }
 
     await context.Ownerships.AddRangeAsync(ownerships, cancellationToken);
 
     // ---- boundary survey ----
 
+    // the same domain method as POST /boundaries: slope 0-90 degrees, a warning (never a refusal) above 45
     if (command.Boundary is { } boundary)
+    {
       await context.Boundaries.AddAsync(PropertyBoundary.Record(
-        BoundaryId.New(), property, boundary.BoundaryType, boundary.SurveyDate, boundary.SurveySource, boundary.SlopePercentage,
-        boundary.Remarks, boundary.Points.ToGeoPoints()), cancellationToken);
+        BoundaryId.New(), property, boundary.BoundaryType, boundary.SurveyDate, boundary.SurveySource, boundary.SlopeDegrees,
+        boundary.Remarks, boundary.Points.ToGeoPoints(), today, Array.Empty<PropertyBoundary>(), out var boundaryWarnings), cancellationToken);
+      warnings.AddRange(boundaryWarnings);
+    }
 
     // ---- custom fields: each value is checked against its field's data type by the domain ----
 
@@ -87,7 +97,7 @@ public class CreatePropertyHandler(IApplicationDbContext context, MasterLookup m
 
     await context.SaveChangesAsync(cancellationToken);
 
-    return Result<CreatePropertyCommandResult>.Success(new CreatePropertyCommandResult(property.Id.Value, property.PropertyCode.Value));
+    return Result<CreatePropertyCommandResult>.Success(new CreatePropertyCommandResult(property.Id.Value, property.PropertyCode.Value, warnings));
   }
 
   private async Task<Dictionary<OwnerId, PropertyOwner>> LoadOwnersAsync(IReadOnlyList<OwnershipInput> inputs, CancellationToken cancellationToken)

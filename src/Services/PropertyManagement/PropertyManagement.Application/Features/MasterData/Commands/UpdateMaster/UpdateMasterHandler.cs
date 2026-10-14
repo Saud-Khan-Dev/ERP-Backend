@@ -14,8 +14,12 @@ public class UpdateMasterHandler(IApplicationDbContext context)
     if (baseConflict is not null)
       return Result<UpdateMasterCommandResult>.Failure(baseConflict);
 
+    var scopeConflict = await MasterRules.FindScopeChangeConflictAsync(context, master, input.AppliesTo, cancellationToken);
+    if (scopeConflict is not null)
+      return Result<UpdateMasterCommandResult>.Failure(scopeConflict);
+
     var extras = new MasterInput(master.Code.Value, input.Name, input.Description, input.SortOrder,
-      input.FactorToBase, input.IsBase, input.StorageFolder, input.RequiresRelationship).Extras(descriptor);
+      input.FactorToBase, input.IsBase, input.StorageFolder, input.RequiresRelationship, input.AppliesTo).Extras(descriptor);
 
     master.Update(Name.Of(input.Name, MasterData.NameMaxLength), input.Description, input.SortOrder, extras);
     await context.SaveChangesAsync(cancellationToken);

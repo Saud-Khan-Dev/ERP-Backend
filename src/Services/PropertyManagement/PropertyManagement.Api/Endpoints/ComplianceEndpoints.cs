@@ -34,7 +34,7 @@ public class ComplianceEndpoints : ICarterModule
       .WithTags("Boundaries").WithName("RecordBoundary")
       .Produces<RecordBoundaryCommandResult>(StatusCodes.Status201Created).ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Record Boundary Survey")
-      .WithDescription("A polygon of at least three GPS points (latitude / longitude) and the plot's slope as a percentage (12.50 = 12.50%). The previous boundary stops being current but is kept.");
+      .WithDescription("A polygon of at least three GPS points (latitude / longitude) and the plot's slope in degrees (slopeDegrees, 0-90). Above 45° the survey is recorded and the result carries a Building & Construction Regulations 2026 warning (never a refusal). The latest dated survey is current: a same-day or newer survey supersedes the current boundary (kept as history); an older one is stored as history (isCurrent = false, with a warning). The survey date cannot be in the future.");
 
     app.MapGet("/properties/{id:guid}/boundaries", async (Guid id, bool? currentOnly, ISender sender) =>
         (await sender.Send(new GetPropertyBoundariesQuery(id, currentOnly ?? false))).ToOk())
@@ -85,7 +85,7 @@ public class ComplianceEndpoints : ICarterModule
         (await sender.Send(new IssueEncroachmentNoticeCommand(id, request.NoticeNo, request.NoticeDate))).ToOk())
       .RequirePermission(PermissionCatalog.Property.Edit)
       .WithName("IssueEncroachmentNotice").Produces<EncroachmentActionResult>().ProducesProblem(StatusCodes.Status400BadRequest)
-      .WithSummary("Issue Encroachment Notice");
+      .WithSummary("Issue Encroachment Notice").WithDescription("Dated between the detection date and today. An ACTIVE encroachment moves to UNDER_NOTICE.");
 
     encroachments.MapPost("/{id:guid}/status", async (Guid id, ChangeMasterStatusRequest request, ISender sender) =>
         (await sender.Send(new ChangeEncroachmentStatusCommand(id, request.StatusId))).ToOk())
@@ -119,7 +119,7 @@ public class ComplianceEndpoints : ICarterModule
       .WithTags("Litigation").WithName("FileLitigation")
       .Produces<FileLitigationCommandResult>(StatusCodes.Status201Created).ProducesProblem(StatusCodes.Status400BadRequest).ProducesProblem(StatusCodes.Status403Forbidden)
       .WithSummary("Record Court Case")
-      .WithDescription("case_no + court must be unique. A criminal complaint is filed only by an authorized officer (Act s.30; 403 otherwise) and is recorded against that signed-in officer. With parentLitigationId the case is an appeal and the lower-court case becomes APPEALED.");
+      .WithDescription("case_no + court must be unique; a new case starts open (PENDING by default). A criminal complaint is filed only by an authorized officer (Act s.30; 403 otherwise) and is recorded against that signed-in officer (filedByOfficerId is never taken from the request). relatedEncroachmentId moves an unresolved encroachment to UNDER_LITIGATION. With parentLitigationId the case is an appeal: the lower-court case must be DECIDED (not pending, not already appealed) and becomes APPEALED.");
 
     app.MapGet("/properties/{id:guid}/litigations", async (Guid id, ISender sender) => (await sender.Send(new GetPropertyLitigationsQuery(id))).ToOk())
       .RequirePermission(PermissionCatalog.Property.View)
@@ -143,25 +143,25 @@ public class ComplianceEndpoints : ICarterModule
         (await sender.Send(new UpdateLitigationCommand(id, details))).ToOk())
       .RequirePermission(PermissionCatalog.Property.Edit)
       .WithName("UpdateLitigation").Produces<LitigationActionResult>().ProducesProblem(StatusCodes.Status400BadRequest)
-      .WithSummary("Update Court Case");
+      .WithSummary("Update Court Case").WithDescription("Open cases only. Changing the type to Criminal Complaint needs an authorized officer (403 otherwise), who becomes the filing officer; the officer of an existing complaint never changes.");
 
     litigations.MapPost("/{id:guid}/parties", async (Guid id, LitigationPartyInput party, ISender sender) =>
         (await sender.Send(new AddLitigationPartyCommand(id, party))).ToOk())
       .RequirePermission(PermissionCatalog.Property.Edit)
       .WithName("AddLitigationParty").Produces<LitigationActionResult>().ProducesProblem(StatusCodes.Status400BadRequest)
-      .WithSummary("Add Party");
+      .WithSummary("Add Party").WithDescription("Open cases only.");
 
     litigations.MapPost("/{id:guid}/hearings", async (Guid id, RecordHearingRequest request, ISender sender) =>
         (await sender.Send(new RecordHearingCommand(id, request.HearingDate, request.Proceedings, request.OrderPassed, request.NextHearingDate, request.AttendedBy))).ToOk())
       .RequirePermission(PermissionCatalog.Property.Edit)
       .WithName("RecordHearing").Produces<LitigationActionResult>().ProducesProblem(StatusCodes.Status400BadRequest)
-      .WithSummary("Record Hearing").WithDescription("Its next hearing date becomes the case's next hearing date.");
+      .WithSummary("Record Hearing").WithDescription("Open cases only. Its next hearing date becomes the case's next hearing date.");
 
     litigations.MapPost("/{id:guid}/status", async (Guid id, ChangeMasterStatusRequest request, ISender sender) =>
         (await sender.Send(new ChangeLitigationStatusCommand(id, request.StatusId))).ToOk())
       .RequirePermission(PermissionCatalog.Property.Edit)
       .WithName("ChangeLitigationStatus").Produces<LitigationActionResult>().ProducesProblem(StatusCodes.Status400BadRequest)
-      .WithSummary("Change Case Status").WithDescription("Withdrawn, Settled, Closed ...");
+      .WithSummary("Change Case Status").WithDescription("Withdrawn, Settled, Closed ... (these close the case and clear its next hearing). Decided goes through decide; Appealed by filing the appeal as a new case. Decided, Appealed, Withdrawn, Settled and Closed cases cannot change.");
 
     litigations.MapPost("/{id:guid}/decide", async (Guid id, DecideLitigationRequest request, ISender sender) =>
         (await sender.Send(new DecideLitigationCommand(id, request.DecisionDate, request.DecisionOutcome))).ToOk())
@@ -182,7 +182,7 @@ public class ComplianceEndpoints : ICarterModule
       .WithTags("Appeals").WithName("FileAppeal")
       .Produces<FileAppealCommandResult>(StatusCodes.Status201Created).ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("File Appeal To Chief Secretary")
-      .WithDescription("APL-00001 is generated; decisionDueDate = appealDate + 120 days. Filed more than 30 days after the order was received → a warning is returned (rule 6).");
+      .WithDescription("APL-00001 is generated; decisionDueDate = appealDate + 120 days. Filed more than 30 days after the order was received → a warning is returned (rule 6). An order is appealed once: refused while another appeal against the same order (same record, or same order ref) is open or after one was decided. An appeal against a violation marks it APPEALED (a rectified violation cannot be appealed).");
 
     app.MapGet("/properties/{id:guid}/appeals", async (Guid id, ISender sender) => (await sender.Send(new GetPropertyAppealsQuery(id))).ToOk())
       .RequirePermission(PermissionCatalog.Property.View)
@@ -203,7 +203,7 @@ public class ComplianceEndpoints : ICarterModule
         (await sender.Send(new UpdateAppealCommand(id, appeal))).ToOk())
       .RequirePermission(PermissionCatalog.Property.Edit)
       .WithName("UpdateAppeal").Produces<AppealActionResult>().ProducesProblem(StatusCodes.Status400BadRequest)
-      .WithSummary("Update Appeal").WithDescription("While FILED only.");
+      .WithSummary("Update Appeal").WithDescription("While FILED only. The appealed record (orderSourceTable / orderSourceId) cannot change: withdraw and file a new appeal.");
 
     appeals.MapPost("/{id:guid}/start-hearing", async (Guid id, ISender sender) => (await sender.Send(new StartAppealHearingCommand(id))).ToOk())
       .RequirePermission(PermissionCatalog.Property.Edit)
@@ -214,13 +214,13 @@ public class ComplianceEndpoints : ICarterModule
         (await sender.Send(new DecideAppealCommand(id, request.DecisionDate, request.DecisionOutcome, request.DecisionDetails))).ToOk())
       .RequirePermission(PermissionCatalog.Property.Approve)
       .WithName("DecideAppeal").Produces<AppealActionResult>().ProducesProblem(StatusCodes.Status400BadRequest)
-      .WithSummary("Record Appeal Decision").WithDescription("Allowed / Dismissed / Remanded / Modified. The decision is final (s.32); a late decision returns a warning.");
+      .WithSummary("Record Appeal Decision").WithDescription("Allowed / Dismissed / Remanded / Modified. The decision is final (s.32); a late decision returns a warning. On an appealed violation: Allowed sets it aside (RECTIFIED with a remark, an imposed fine waived) and reinstates a lease / rental it had cancelled; any other outcome puts it back to its status before the appeal. `effects` lists what changed.");
 
     appeals.MapPost("/{id:guid}/withdraw", async (Guid id, RemarksRequest request, ISender sender) =>
         (await sender.Send(new WithdrawAppealCommand(id, request.Remarks))).ToOk())
       .RequirePermission(PermissionCatalog.Property.Edit)
       .WithName("WithdrawAppeal").Produces<AppealActionResult>().ProducesProblem(StatusCodes.Status400BadRequest)
-      .WithSummary("Withdraw Appeal");
+      .WithSummary("Withdraw Appeal").WithDescription("An appealed violation goes back to its status before the appeal. A withdrawn appeal does not block a new appeal against the same order.");
   }
 
   // =====================================================
@@ -254,13 +254,13 @@ public class ComplianceEndpoints : ICarterModule
         (await sender.Send(new UpdateBuildingPlanCommand(id, plan))).ToOk())
       .RequirePermission(PermissionCatalog.Property.Edit)
       .WithName("UpdateBuildingPlan").Produces<BuildingPlanActionResult>().ProducesProblem(StatusCodes.Status400BadRequest)
-      .WithSummary("Update Building Plan").WithDescription("While under consideration; an approved, rejected or revised plan changes through a revision.");
+      .WithSummary("Update Building Plan").WithDescription("While under consideration; an approved, rejected, revised or withdrawn plan changes through a revision.");
 
     plans.MapPost("/{id:guid}/status", async (Guid id, ChangeMasterStatusRequest request, ISender sender) =>
         (await sender.Send(new ChangeBuildingPlanStatusCommand(id, request.StatusId))).ToOk())
       .RequirePermission(PermissionCatalog.Property.Edit)
       .WithName("ChangeBuildingPlanStatus").Produces<BuildingPlanActionResult>().ProducesProblem(StatusCodes.Status400BadRequest)
-      .WithSummary("Change Building Plan Status").WithDescription("Under Review, Withdrawn ...");
+      .WithSummary("Change Building Plan Status").WithDescription("Under Review, Withdrawn ... A withdrawn plan is closed like an approved, rejected or revised one: no edit, approval or further status change (submit a revision instead).");
 
     plans.MapPost("/{id:guid}/approve", async (Guid id, ApproveBuildingPlanRequest request, ISender sender) =>
         (await sender.Send(new ApproveBuildingPlanCommand(id, request.ApprovalDate, request.ApprovedBy, request.ApprovalReferenceNo, request.ValidityEndDate))).ToOk())

@@ -4,6 +4,7 @@ public class UpdateRegularizationHandler(IApplicationDbContext context)
   public async Task<Result<UpdateRegularizationCommandResult>> Handle(UpdateRegularizationCommand command, CancellationToken cancellationToken)
   {
     var regularization = await context.LoadRegularizationAsync(command.Id, cancellationToken);
+    await context.EnsurePropertyActiveAsync(regularization.PropertyId, cancellationToken);
     var input = command.Case;
 
     regularization.UpdateCase(input.Status, input.RegularizationDate, input.OrderReferenceNo, input.ApprovedBy,

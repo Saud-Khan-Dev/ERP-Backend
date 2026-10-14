@@ -9,13 +9,18 @@ public class UpdateEmployeeCodeTemplateHandler(IApplicationDbContext context, Em
     var input = command.Template;
 
     var template = await employeeCodes.GetTemplateAsync(cancellationToken);
+    var before = (template.Pattern, template.NextNumber);
     template.Update(input.Prefix, input.Separator, input.MinimumDigits, input.NextNumber);
 
     var conflict = await employeeCodes.FindTemplateConflictAsync(template, cancellationToken);
     if (conflict is not null)
       return Result<UpdateEmployeeCodeTemplateCommandResult>.Failure(conflict);
 
-    await activity.RecordAsync(ActivityAction.EmployeeCodeTemplateUpdated, ActivityTargetType.System, null, "Employee code format", template.Pattern, cancellationToken);
+    var detail = ActivityDetail.Changes(
+      ("Format", before.Pattern, template.Pattern),
+      ("Next number", $"{before.NextNumber}", $"{template.NextNumber}"));
+    if (detail is not null)
+      await activity.RecordAsync(ActivityAction.EmployeeCodeTemplateUpdated, ActivityTargetType.System, null, "Employee code format", detail, cancellationToken);
 
     await context.SaveChangesAsync(cancellationToken);
 

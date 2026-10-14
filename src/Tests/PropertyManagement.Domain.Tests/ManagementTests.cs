@@ -77,7 +77,8 @@ public class ViolationTests
 
   private AgreementViolation Record(PropertyLease lease, string date, string? deadline, IReadOnlyCollection<AgreementViolation> earlier, bool inForce = true) =>
       AgreementViolation.Record(ViolationId.New(), _property, LeaseAgreement, new AgreementViolation.Agreement(lease, null, null), _lessee,
-        D(date), "Default in lease money", new AgreementViolation.Notice("N-1", D(date), deadline is null ? null : D(deadline)), earlier, inForce, null);
+        D(date), "Default in lease money", new AgreementViolation.Notice("N-1", D(date), deadline is null ? null : D(deadline)), earlier, inForce, null,
+        D("2026-12-31"), out _);
 
   [Fact]
   public void Rule5_third_violation_within_notice_period_cancels()
@@ -122,11 +123,11 @@ public class ViolationTests
 
     Assert.Throws<DomainException>(() => AgreementViolation.Record(ViolationId.New(), _property, LeaseAgreement,
       new AgreementViolation.Agreement(null, null, null), _lessee, D("2026-02-01"), "x", new AgreementViolation.Notice(null, null, null),
-      Array.Empty<AgreementViolation>(), true, null));
+      Array.Empty<AgreementViolation>(), true, null, D("2026-12-31"), out _));
 
     Assert.Throws<DomainException>(() => AgreementViolation.Record(ViolationId.New(), _property, RentAgreement,
       new AgreementViolation.Agreement(lease, null, null), _lessee, D("2026-02-01"), "x", new AgreementViolation.Notice(null, null, null),
-      Array.Empty<AgreementViolation>(), true, null));
+      Array.Empty<AgreementViolation>(), true, null, D("2026-12-31"), out _));
   }
 
   [Theory]
@@ -167,7 +168,7 @@ public class AuctionTests
 
     Assert.Equal((2, 1), (low.BidRank!.Value, high.BidRank!.Value));
 
-    auction.Award(Planned, Awarded, null, null, null, D("2026-05-02"), null);
+    auction.Award(Planned, Awarded, null, null, null, D("2026-05-02"), null, D("2026-12-31"));
 
     Assert.Equal(6_000_000, auction.WinningBidAmount);
     Assert.True(high.IsWinning);
@@ -180,14 +181,14 @@ public class AuctionTests
     var auction = Auction(5_500_000);
     var low = auction.AddBid(Planned, Owner("D"), 5_000_000, null, null);
 
-    Assert.Throws<DomainException>(() => auction.Award(Planned, Awarded, low.Id, null, null, D("2026-05-02"), null));
+    Assert.Throws<DomainException>(() => auction.Award(Planned, Awarded, low.Id, null, null, D("2026-05-02"), null, D("2026-12-31")));
   }
 
   [Fact]
   public void Closed_auction_takes_no_bids()
   {
     var auction = Auction(null);
-    auction.Award(Planned, Awarded, null, Owner("Winner"), 1_000_000, D("2026-05-02"), null);
+    auction.Award(Planned, Awarded, null, Owner("Winner"), 1_000_000, D("2026-05-02"), null, D("2026-12-31"));
 
     Assert.Throws<DomainException>(() => auction.AddBid(Awarded, Owner("Late"), 2_000_000, null, null));
   }

@@ -5,8 +5,8 @@ using Microsoft.EntityFrameworkCore;
 /// which is how a completed transfer closes and opens rows) — and its status is:
 ///   ACTIVE   — a current share;
 ///   ENDED    — a share that has ended since, but was held on that date (history read as of then);
-///   DISPUTED — left out unless includeDisputed=true: the domain stops counting a disputed share as ownership
-///              (it is not current and not in the 100% total), and the date the dispute began is not recorded.
+///   DISPUTED — a current share whose ownership is contested: still held (it counts toward the 100% total), so it
+///              is listed unless includeDisputed=false. The date the dispute began is not recorded.
 /// Ownership has no cancelled status: a share entered in error is ended on its first day, so its period is
 /// empty and it never shows.
 public class GetOwnershipReportHandler(IApplicationDbContext context, MasterLookup masters, PropertyReadService read)

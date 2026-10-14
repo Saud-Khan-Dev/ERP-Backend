@@ -8,6 +8,7 @@ public class BuildingPlanActionsHandler(IApplicationDbContext context, MasterLoo
   public async Task<Result<BuildingPlanActionResult>> Handle(UpdateBuildingPlanCommand command, CancellationToken cancellationToken)
   {
     var plan = await context.LoadBuildingPlanAsync(command.Id, cancellationToken);
+    await context.EnsurePropertyActiveAsync(plan.PropertyId, cancellationToken);
     plan.Update(await Current(plan, cancellationToken), await command.Plan.ToDetailsAsync(context, masters, cancellationToken));
     return await SaveAsync(plan, cancellationToken);
   }
@@ -15,6 +16,7 @@ public class BuildingPlanActionsHandler(IApplicationDbContext context, MasterLoo
   public async Task<Result<BuildingPlanActionResult>> Handle(ChangeBuildingPlanStatusCommand command, CancellationToken cancellationToken)
   {
     var plan = await context.LoadBuildingPlanAsync(command.Id, cancellationToken);
+    await context.EnsurePropertyActiveAsync(plan.PropertyId, cancellationToken);
     plan.ChangeStatus(await Current(plan, cancellationToken), await masters.GetAsync<BuildingPlanStatus>(command.BuildingPlanStatusId, cancellationToken));
     return await SaveAsync(plan, cancellationToken);
   }
@@ -22,6 +24,7 @@ public class BuildingPlanActionsHandler(IApplicationDbContext context, MasterLoo
   public async Task<Result<BuildingPlanActionResult>> Handle(ApproveBuildingPlanCommand command, CancellationToken cancellationToken)
   {
     var plan = await context.LoadBuildingPlanAsync(command.Id, cancellationToken);
+    await context.EnsurePropertyActiveAsync(plan.PropertyId, cancellationToken);
     plan.Approve(await Current(plan, cancellationToken), await Status(SystemMasterCodes.Approved, cancellationToken),
       command.ApprovalDate, command.ApprovedBy ?? currentUser.Username ?? currentUser.AuditName, command.ApprovalReferenceNo, command.ValidityEndDate);
     return await SaveAsync(plan, cancellationToken);
@@ -30,6 +33,7 @@ public class BuildingPlanActionsHandler(IApplicationDbContext context, MasterLoo
   public async Task<Result<BuildingPlanActionResult>> Handle(RejectBuildingPlanCommand command, CancellationToken cancellationToken)
   {
     var plan = await context.LoadBuildingPlanAsync(command.Id, cancellationToken);
+    await context.EnsurePropertyActiveAsync(plan.PropertyId, cancellationToken);
     plan.Reject(await Current(plan, cancellationToken), await Status(SystemMasterCodes.Rejected, cancellationToken), command.Remarks);
     return await SaveAsync(plan, cancellationToken);
   }
@@ -37,6 +41,7 @@ public class BuildingPlanActionsHandler(IApplicationDbContext context, MasterLoo
   public async Task<Result<ReviseBuildingPlanCommandResult>> Handle(ReviseBuildingPlanCommand command, CancellationToken cancellationToken)
   {
     var plan = await context.LoadBuildingPlanAsync(command.Id, cancellationToken);
+    await context.EnsurePropertyActiveAsync(plan.PropertyId, cancellationToken);
 
     var revision = plan.Revise(
       await Current(plan, cancellationToken),

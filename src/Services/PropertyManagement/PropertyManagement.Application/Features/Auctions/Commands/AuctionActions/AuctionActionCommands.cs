@@ -21,6 +21,37 @@ public sealed record AwardAuctionCommand(
 
 public sealed record CancelAuctionCommand(Guid Id, string? Remarks = null) : ICommand<Result<AuctionActionResult>>;
 
+public sealed record ReAuctionCommandResult(Guid Id, string AuctionNo, Guid PreviousAuctionId);
+
+/// Re-auctions an UNSUCCESSFUL or CANCELLED auction: a new PLANNED auction (AUC-…) of type RE_AUCTION on the
+/// same property, with previousAuctionId pointing back. BaseReservePrice defaults to the previous auction's.
+public sealed record ReAuctionCommand(Guid Id, DateOnly AuctionDate, decimal? BaseReservePrice = null, string? AuctionCommitteeRef = null)
+  : ICommand<Result<ReAuctionCommandResult>>;
+
+public class ReAuctionCommandValidator : AbstractValidator<ReAuctionCommand>
+{
+  public ReAuctionCommandValidator()
+  {
+    RuleFor(x => x.BaseReservePrice).GreaterThanOrEqualTo(0).When(x => x.BaseReservePrice.HasValue);
+    RuleFor(x => x.AuctionCommitteeRef).MaximumLength(PropertyAuction.ReferenceMaxLength);
+  }
+}
+
+public class AwardAuctionCommandValidator : AbstractValidator<AwardAuctionCommand>
+{
+  public AwardAuctionCommandValidator()
+  {
+    RuleFor(x => x.AwardDate).LessThanOrEqualTo(_ => PropertyWriteGuard.Today()).WithMessage("An award cannot be dated in the future.");
+    RuleFor(x => x.WinningBidAmount).GreaterThan(0).When(x => x.WinningBidAmount.HasValue);
+    RuleFor(x => x.AwardReferenceNo).MaximumLength(PropertyAuction.ReferenceMaxLength);
+  }
+}
+
+public class CancelAuctionCommandValidator : AbstractValidator<CancelAuctionCommand>
+{
+  public CancelAuctionCommandValidator() => RuleFor(x => x.Remarks).MaximumLength(PropertyAuction.RemarksMaxLength);
+}
+
 public class UpdateAuctionCommandValidator : AbstractValidator<UpdateAuctionCommand>
 {
   public UpdateAuctionCommandValidator() => RuleFor(x => x.Auction).NotNull().SetValidator(new AuctionDetailsInputValidator());

@@ -1,5 +1,7 @@
 using FluentValidation;
 
+/// ReferenceNo: the number printed on the paper - notesheet or letter no. on a property paper; the CNIC, passport,
+/// NTN or certificate no. on an owner's paper.
 public sealed record DocumentDetailsInput(
   string? Title = null,
   DateOnly? DocumentDate = null,
@@ -12,8 +14,11 @@ public sealed record DocumentDetailsInput(
 
 public sealed record UploadDocumentCommandResult(Guid Id, int VersionNo);
 
-/// Files a scanned document in a property's file (property_id is always set). EntityType + EntityId name
-/// the sub-record it belongs to; with OwnerId it is one of that owner's own papers (CNIC copy ...).
+/// Two routes, one pipeline:
+/// - a property's paper: PropertyId set, OwnerId null; EntityType + EntityId name the record on the property it
+///   belongs to (PROPERTY by default). The document type must apply to PROPERTY.
+/// - an owner's own paper: OwnerId set and PropertyId null (an owner's paper belongs to no property). The document
+///   type must apply to OWNER and the owner must be active.
 public sealed record UploadDocumentCommand(
   Guid? PropertyId,
   Guid? OwnerId,
@@ -27,12 +32,17 @@ public class UploadDocumentCommandValidator : AbstractValidator<UploadDocumentCo
 {
   public UploadDocumentCommandValidator()
   {
-    RuleFor(x => x.PropertyId).NotEmpty()
-      .WithMessage("A document is always filed under a property (property_document.property_id).");
+    RuleFor(x => x.PropertyId).NotEmpty().When(x => x.OwnerId is null)
+      .WithMessage("A property document needs the property it belongs to.");
+    RuleFor(x => x.PropertyId).Null().When(x => x.OwnerId is not null)
+      .WithMessage("An owner's document is not filed under a property - leave propertyId out.");
+    RuleFor(x => x.EntityType).NotEqual(DocumentEntityType.Owner).When(x => x.OwnerId is null)
+      .WithMessage("An owner's paper is filed on the owner (POST /owners/{id}/documents), not on a property.");
     RuleFor(x => x.DocumentTypeId).NotEmpty();
     RuleFor(x => x.EntityType).IsInEnum();
     RuleFor(x => x.File).NotNull();
     RuleFor(x => x.Details.Title).MaximumLength(200);
     RuleFor(x => x.Details.ReferenceNo).MaximumLength(100);
+    RuleFor(x => x.Details.Description).MaximumLength(4000);
   }
 }

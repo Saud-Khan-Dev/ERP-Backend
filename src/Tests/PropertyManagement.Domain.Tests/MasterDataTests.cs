@@ -125,10 +125,10 @@ public class PropertyCoreTests
   public void Rule2_status_change_closes_the_current_period_and_opens_a_new_one()
   {
     var property = Property();
-    var opening = property.OpenStatusHistory(D("2026-01-01"), "registered");
+    var opening = property.OpenStatusHistory(D("2026-01-01"), "registered", D("2026-12-31"));
     var encroached = Master<PropertyStatus>("ENCROACHED");
 
-    var next = property.ChangeStatus(encroached, opening, D("2026-06-01"), "survey", null);
+    var next = property.ChangeStatus(encroached, opening, D("2026-06-01"), "survey", null, D("2026-12-31"));
 
     Assert.Equal(D("2026-06-01"), opening.EffectiveTo);
     Assert.True(next.IsOpen);
@@ -139,10 +139,10 @@ public class PropertyCoreTests
   public void Status_cannot_start_before_the_current_period()
   {
     var property = Property();
-    var opening = property.OpenStatusHistory(D("2026-06-01"), null);
+    var opening = property.OpenStatusHistory(D("2026-06-01"), null, D("2026-12-31"));
 
     Assert.Throws<DomainException>(() =>
-      property.ChangeStatus(Master<PropertyStatus>("VACANT"), opening, D("2026-05-01"), null, null));
+      property.ChangeStatus(Master<PropertyStatus>("VACANT"), opening, D("2026-05-01"), null, null, D("2026-12-31")));
   }
 
   [Fact]
@@ -151,13 +151,14 @@ public class PropertyCoreTests
     var current = Master<PropertyStatus>("OCCUPIED");
     var property = Property(status: current);
 
-    Assert.Throws<DomainException>(() => property.ChangeStatus(current, null, D("2026-01-01"), null, null));
+    Assert.Throws<DomainException>(() => property.ChangeStatus(current, null, D("2026-01-01"), null, null, D("2026-12-31")));
   }
 
   [Fact]
   public void Rule7_measurement_stores_square_feet_copies()
   {
-    var measurement = PropertyMeasurement.Record(PropertyMeasurementId.New(), Property(), Unit("MARLA", 272.25m), 40, 20, null, null, null);
+    var measurement = PropertyMeasurement.Record(PropertyMeasurementId.New(), Property(), Unit("MARLA", 272.25m), 40, 20, null, null, null,
+      D("2026-12-31"), Array.Empty<PropertyMeasurement>(), out _);
 
     Assert.Equal(10890m, measurement.TotalAreaBase);
     Assert.Equal(5445m, measurement.BuiltUpAreaBase);
@@ -191,6 +192,7 @@ public class PropertyCoreTests
     property.Deactivate();
 
     Assert.Throws<DomainException>(() =>
-      PropertyMeasurement.Record(PropertyMeasurementId.New(), property, Unit("SQFT", 1, true), 10, 0, null, null, null));
+      PropertyMeasurement.Record(PropertyMeasurementId.New(), property, Unit("SQFT", 1, true), 10, 0, null, null, null,
+        D("2026-12-31"), Array.Empty<PropertyMeasurement>(), out _));
   }
 }

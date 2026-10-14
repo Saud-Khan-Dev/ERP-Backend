@@ -4,6 +4,7 @@ public sealed record EncroachmentActionResult(Guid Id, MasterRef? Status, Guid? 
 
 public sealed record UpdateEncroachmentCommand(Guid Id, EncroachmentDetailsInput Details) : ICommand<Result<EncroachmentActionResult>>;
 
+/// Serves a notice; an ACTIVE encroachment moves to UNDER_NOTICE.
 public sealed record IssueEncroachmentNoticeCommand(Guid Id, string NoticeNo, DateOnly NoticeDate) : ICommand<Result<EncroachmentActionResult>>;
 
 /// Under Notice, Under Litigation ...
@@ -21,9 +22,18 @@ public sealed record ResolveEncroachmentCommand(
 /// Captures the encroached polygon once (it is never overwritten).
 public sealed record SetEncroachmentBoundaryCommand(Guid Id, IReadOnlyList<GeoPointInput> Points) : ICommand<Result<EncroachmentActionResult>>;
 
+public class UpdateEncroachmentCommandValidator : AbstractValidator<UpdateEncroachmentCommand>
+{
+  public UpdateEncroachmentCommandValidator() => RuleFor(x => x.Details).NotNull().SetValidator(new EncroachmentDetailsInputValidator());
+}
+
 public class IssueEncroachmentNoticeCommandValidator : AbstractValidator<IssueEncroachmentNoticeCommand>
 {
-  public IssueEncroachmentNoticeCommandValidator() => RuleFor(x => x.NoticeNo).NotEmpty().MaximumLength(50);
+  public IssueEncroachmentNoticeCommandValidator()
+  {
+    RuleFor(x => x.NoticeNo).NotEmpty().MaximumLength(PropertyEncroachment.NoticeNoMaxLength);
+    RuleFor(x => x.NoticeDate).LessThanOrEqualTo(_ => PropertyWriteGuard.Today()).WithMessage("A notice cannot be dated in the future.");
+  }
 }
 
 public class ResolveEncroachmentCommandValidator : AbstractValidator<ResolveEncroachmentCommand>

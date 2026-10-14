@@ -92,6 +92,23 @@ public class RoleEndpoints : ICarterModule
       .WithSummary("Add Permissions To Role")
       .WithDescription("Attaches permissions to a role; already-attached ones are ignored, so the call is safe to repeat.");
 
+    app.MapPut("/roles/{id}/permissions", async (Guid id, SetRolePermissionsRequest request, ISender sender) =>
+    {
+      var result = await sender.Send(new SetRolePermissionsCommand(id, request.PermissionIds));
+
+      if (!result.IsSuccess)
+        return Results.BadRequest(new { Message = result.Message });
+
+      return Results.Ok(result.Value.Adapt<SetRolePermissionsResponse>());
+    })
+      .RequirePermission(PermissionCatalog.Permissions.Assign)
+      .WithName("SetRolePermissions")
+      .Produces<SetRolePermissionsResponse>(StatusCodes.Status200OK)
+      .ProducesProblem(StatusCodes.Status400BadRequest)
+      .ProducesProblem(StatusCodes.Status404NotFound)
+      .WithSummary("Set Role Permissions")
+      .WithDescription("Makes the role carry exactly these permissions, adding and removing in one step, recorded as one activity line. SUPER_ADMIN can gain permissions but never lose them.");
+
     app.MapDelete("/roles/{id}/permissions/{permissionId}", async (Guid id, Guid permissionId, ISender sender) =>
     {
       var result = await sender.Send(new RemoveRolePermissionCommand(id, permissionId));
@@ -125,3 +142,6 @@ public sealed record DeleteRoleResponse(bool IsSuccess);
 public sealed record AddRolePermissionsRequest(IReadOnlyList<Guid> PermissionIds);
 public sealed record AddRolePermissionsResponse(int AddedCount);
 public sealed record RemoveRolePermissionResponse(bool IsSuccess);
+
+public sealed record SetRolePermissionsRequest(IReadOnlyList<Guid> PermissionIds);
+public sealed record SetRolePermissionsResponse(int AddedCount, int RemovedCount);

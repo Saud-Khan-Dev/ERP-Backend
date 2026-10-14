@@ -123,9 +123,18 @@ public class BuildingPlan : Aggregate<BuildingPlanId>
     if (currentStatus.Id != BuildingPlanStatusId)
       throw new DomainException("The supplied status does not match the plan.");
 
-    if (currentStatus.Is(SystemMasterCodes.Approved) || currentStatus.Is(SystemMasterCodes.Rejected) || currentStatus.Is(SystemMasterCodes.Revised))
+    if (IsClosed(currentStatus))
       throw new DomainException($"Plan {PlanNo.Value} rev. {RevisionNo} is {currentStatus.Name.Value}. Submit a revision to change it.");
   }
+
+  /// Approved, rejected, revised and withdrawn plans are decided: no edit, approval or status change.
+  public static bool IsClosed(BuildingPlanStatus status) =>
+      ClosedStatusCodes.Any(status.Is);
+
+  public static readonly IReadOnlyList<string> ClosedStatusCodes = new[]
+  {
+    SystemMasterCodes.Approved, SystemMasterCodes.Rejected, SystemMasterCodes.Revised, SystemMasterCodes.Withdrawn
+  };
 
   private void Apply(Details details)
   {

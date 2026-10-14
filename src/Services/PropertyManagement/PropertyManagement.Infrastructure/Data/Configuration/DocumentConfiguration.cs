@@ -14,8 +14,9 @@ public class PropertyDocumentConfiguration : EntityConfiguration<PropertyDocumen
 
     builder.HasKey(x => x.Id);
     builder.Property(x => x.Id).HasConversion(id => id.Value, value => DocumentId.Of(value));
-    // always set, even when attached to a sub-record or an owner (ERD: not null)
-    builder.Property(x => x.PropertyId).HasConversion(id => id.Value, value => PropertyId.Of(value)).IsRequired();
+    // set for a property's papers (the property or one of its records); null for an owner's own papers
+    // (entity_type OWNER) - the domain keeps the two apart
+    builder.Property(x => x.PropertyId).HasConversion(id => id!.Value, value => PropertyId.Of(value)).IsRequired(false);
     builder.Property(x => x.DocumentTypeId).HasMasterId().IsRequired();
     builder.Property(x => x.EntityType).HasUpperSnakeEnum(40).IsRequired().HasDefaultValue(DocumentEntityType.Property);
     builder.Property(x => x.EntityId).IsRequired();

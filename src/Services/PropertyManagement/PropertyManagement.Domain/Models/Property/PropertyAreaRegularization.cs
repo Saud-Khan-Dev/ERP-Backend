@@ -63,12 +63,19 @@ public class PropertyAreaRegularization : Aggregate<AreaRegularizationId>
       string? remarks)
   {
     if (!IsActive)
-      throw new DomainException("This regularization case is inactive.");
+      throw new DomainException("This regularization case was withdrawn and can no longer change. Open a new case instead.");
 
     Apply(status, regularizationDate, orderReferenceNo, approvedBy, effectiveFrom, effectiveTo, remarks);
   }
 
-  public void Deactivate() => IsActive = false;
+  /// Withdraws a case entered in error; the row stays as history (is_active = false).
+  public void Deactivate()
+  {
+    if (!IsActive)
+      throw new DomainException("This regularization case is already withdrawn.");
+
+    IsActive = false;
+  }
 
   public bool CountsTowardArea(DateOnly asOf) =>
       IsActive

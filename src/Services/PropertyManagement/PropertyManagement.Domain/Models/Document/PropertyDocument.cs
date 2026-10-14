@@ -1,11 +1,15 @@
 /// Metadata for one scanned file. The bytes live on the GDA file server at relative_path; the database
 /// never stores them.
 ///
-/// property_id is always set, even when the file belongs to a sub-record or to an owner (schema guide),
-/// so "all documents of PROP-00125" is one query. entity_type + entity_id say which record it belongs to.
+/// A property's papers (entity_type PROPERTY, or one of its records: LEASE, TRANSFER ...) carry property_id, so
+/// "all documents of PROP-00125" is one query. An owner's own papers (entity_type OWNER: CNIC copy, NTN
+/// certificate ...) belong to the owner alone and have no property_id. entity_type + entity_id say which record
+/// it belongs to, and the document type's applies_to must match (PROPERTY kinds on property records, OWNER
+/// kinds on owners).
 public class PropertyDocument : Aggregate<DocumentId>
 {
-  public PropertyId PropertyId { get; private set; } = default!;
+  /// Null exactly when the document is an owner's own paper (entity_type OWNER).
+  public PropertyId? PropertyId { get; private set; }
   public MasterId DocumentTypeId { get; private set; } = default!;
   public DocumentEntityType EntityType { get; private set; }
   /// Id of the record in the table named by entity_type (checked by the application — rule 10).
@@ -36,7 +40,7 @@ public class PropertyDocument : Aggregate<DocumentId>
 
   public static PropertyDocument Create(
       DocumentId id,
-      PropertyId propertyId,
+      PropertyId? propertyId,
       DocumentType documentType,
       DocumentEntityType entityType,
       Guid entityId,
@@ -46,19 +50,7 @@ public class PropertyDocument : Aggregate<DocumentId>
       Guid uploadedBy,
       DateTime uploadedAt)
   {
-    ArgumentNullException.ThrowIfNull(documentType);
-    documentType.EnsureActive();
-
-    if (!Enum.IsDefined(entityType))
-      throw new DomainException("Unknown document entity type.");
-
-    ArgumentNullException.ThrowIfNull(propertyId);
-
-    if (entityType == DocumentEntityType.Property && entityId != propertyId.Value)
-      throw new DomainException("A PROPERTY document must point at its own property.");
-
-    if (entityId == Guid.Empty)
-      throw new DomainException("The document must point at the record it belongs to.");
+    EnsureCanFile(propertyId, documentType, entityType, entityId);
 
     if (uploadedBy == Guid.Empty)
       throw new DomainException("The uploading user is required.");
@@ -77,6 +69,36 @@ public class PropertyDocument : Aggregate<DocumentId>
     document.SetFile(originalFileName, file, uploadedBy, uploadedAt);
     document.SetDetails(details);
     return document;
+  }
+
+  /// The filing rules on their own, so an upload can check them BEFORE the file is written to storage (a refused
+  /// upload must not leave an orphan file behind). Create applies them again.
+  public static void EnsureCanFile(PropertyId? propertyId, DocumentType documentType, DocumentEntityType entityType, Guid entityId)
+  {
+    ArgumentNullException.ThrowIfNull(documentType);
+
+    if (!Enum.IsDefined(entityType))
+      throw new DomainException("Unknown document entity type.");
+
+    documentType.EnsureActive();
+    documentType.EnsureAppliesTo(entityType);
+
+    if (entityType == DocumentEntityType.Owner)
+    {
+      if (propertyId is not null)
+        throw new DomainException("An owner's document is not filed under a property - leave the property empty.");
+    }
+    else
+    {
+      if (propertyId is null)
+        throw new DomainException($"A {entityType} document must belong to a property.");
+
+      if (entityType == DocumentEntityType.Property && entityId != propertyId.Value)
+        throw new DomainException("A PROPERTY document must point at its own property.");
+    }
+
+    if (entityId == Guid.Empty)
+      throw new DomainException("The document must point at the record it belongs to.");
   }
 
   /// A corrected or updated file: a new row with version_no + 1 that supersedes this one. This row stays
@@ -102,17 +124,24 @@ public class PropertyDocument : Aggregate<DocumentId>
     return version;
   }
 
+  /// Metadata only. The document can be re-typed, but only to another kind of the same scope: an owner's paper
+  /// stays an owner's paper and a property paper stays a property paper.
   public void UpdateDetails(DocumentType documentType, Details details)
   {
     ArgumentNullException.ThrowIfNull(documentType);
     EnsureActive();
 
     if (documentType.Id != DocumentTypeId)
+    {
       documentType.EnsureActive();
+      documentType.EnsureAppliesTo(EntityType);
+    }
 
     DocumentTypeId = documentType.Id;
     SetDetails(details);
   }
+
+  public bool IsOwnerDocument => EntityType == DocumentEntityType.Owner;
 
   public void Deactivate() => IsActive = false;
   public void Activate() => IsActive = true;

@@ -12,10 +12,14 @@ public class FileAppealHandler(IApplicationDbContext context, CodeGenerator code
     if (input.OrderSourceTable is { } source && input.OrderSourceId is { } sourceId)
       await EnsureSourceExistsAsync(property.Id, source, sourceId, cancellationToken);
 
+    // one order is appealed once (open or decided appeals block a second; a withdrawn one does not)
+    var otherAppeals = await context.Appeals.AsNoTracking().Where(a => a.PropertyId == property.Id).ToListAsync(cancellationToken);
+
     var appeal = PropertyAppeal.File(
       AppealId.New(), property, await codes.NextAsync(CodeSequenceKeys.Appeal, cancellationToken),
-      await input.ToFilingAsync(context, cancellationToken), out var warnings);
+      await input.ToFilingAsync(context, cancellationToken), otherAppeals, out var warnings);
 
+    // the appealed violation is APPEALED until the decision (its current status is remembered for then)
     if (input.OrderSourceTable == AppealOrderSource.AgreementViolation && input.OrderSourceId is { } violationId)
       (await context.LoadViolationAsync(violationId, cancellationToken)).MarkAppealed();
 

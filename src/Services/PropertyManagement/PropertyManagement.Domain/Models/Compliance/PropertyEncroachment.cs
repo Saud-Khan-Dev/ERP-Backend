@@ -31,6 +31,12 @@ public class PropertyEncroachment : Aggregate<EncroachmentId>
   /// Still counts toward the property's encroached area.
   public bool IsUnresolved => ResolutionDate is null;
 
+  public const int NoticeNoMaxLength = 50;
+  public const int EncroacherNameMaxLength = 200;
+  public const int ResolutionReferenceMaxLength = 100;
+  public const int TextMaxLength = 4000;
+
+  /// EffectiveDate is "in place since": when the encroachment started, on or before its detection.
   public sealed record Details(
       string? EncroacherName,
       PropertyOwner? Encroacher,
@@ -38,6 +44,10 @@ public class PropertyEncroachment : Aggregate<EncroachmentId>
       string? Description,
       string? Remarks);
 
+  /// A notice served when the encroachment is recorded. Without a date it is dated on the detection date.
+  public sealed record Notice(string? NoticeNo, DateOnly? NoticeDate);
+
+  /// Records the case. A notice given here moves an ACTIVE case to UNDER_NOTICE (underNoticeStatus).
   public static PropertyEncroachment Record(
       EncroachmentId id,
       Property property,
@@ -47,7 +57,10 @@ public class PropertyEncroachment : Aggregate<EncroachmentId>
       EncroachmentStatus status,
       DateOnly detectionDate,
       Details details,
-      IReadOnlyCollection<GeoPoint>? points)
+      IReadOnlyCollection<GeoPoint>? points,
+      DateOnly today,
+      Notice? notice = null,
+      EncroachmentStatus? underNoticeStatus = null)
   {
     ArgumentNullException.ThrowIfNull(property);
     ArgumentNullException.ThrowIfNull(encroachmentNo);
@@ -59,6 +72,9 @@ public class PropertyEncroachment : Aggregate<EncroachmentId>
 
     if (status.Is(SystemMasterCodes.Resolved) || status.Is(SystemMasterCodes.Regularized))
       throw new DomainException("A new encroachment cannot start resolved; record it and then resolve it.");
+
+    if (detectionDate > today)
+      throw new DomainException("The detection date cannot be in the future.");
 
     var encroachment = new PropertyEncroachment
     {
@@ -77,6 +93,15 @@ public class PropertyEncroachment : Aggregate<EncroachmentId>
     if (points is { Count: > 0 })
       encroachment.SetBoundary(points);
 
+    if (notice is not null && (!string.IsNullOrWhiteSpace(notice.NoticeNo) || notice.NoticeDate is not null))
+    {
+      if (string.IsNullOrWhiteSpace(notice.NoticeNo))
+        throw new DomainException("A notice date needs its notice no. Enter the notice no., or clear the notice date.");
+
+      encroachment.IssueNotice(status, underNoticeStatus ?? throw new ArgumentNullException(nameof(underNoticeStatus)),
+        notice.NoticeNo, notice.NoticeDate ?? detectionDate, today);
+    }
+
     return encroachment;
   }
 
@@ -86,15 +111,38 @@ public class PropertyEncroachment : Aggregate<EncroachmentId>
     Apply(details);
   }
 
-  public void IssueNotice(string noticeNo, DateOnly noticeDate)
+  /// Serves a notice on the encroacher. An ACTIVE case moves to UNDER_NOTICE; a case already further along
+  /// (e.g. UNDER_LITIGATION) keeps its status.
+  public void IssueNotice(EncroachmentStatus currentStatus, EncroachmentStatus underNoticeStatus, string noticeNo, DateOnly noticeDate, DateOnly today)
   {
+    ArgumentNullException.ThrowIfNull(currentStatus);
+    ArgumentNullException.ThrowIfNull(underNoticeStatus);
     EnsureUnresolved();
+    EnsureCurrent(currentStatus);
+    underNoticeStatus.EnsureIs(SystemMasterCodes.UnderNotice);
 
     if (noticeDate < DetectionDate)
-      throw new DomainException("A notice cannot be issued before the encroachment was detected.");
+      throw new DomainException($"A notice cannot be issued before the encroachment was detected ({DetectionDate:yyyy-MM-dd}).");
 
-    NoticeNo = Guard.RequiredText(noticeNo, 50, "Notice no.");
+    if (noticeDate > today)
+      throw new DomainException("A notice cannot be dated in the future.");
+
+    NoticeNo = Guard.RequiredText(noticeNo, NoticeNoMaxLength, "Notice no.");
     NoticeDate = noticeDate;
+
+    if (currentStatus.Is(SystemMasterCodes.Active))
+      EncroachmentStatusId = underNoticeStatus.Id;
+  }
+
+  /// A court case was filed about this encroachment: an unresolved case moves to UNDER_LITIGATION.
+  /// A resolved one keeps its status (the court case is about something already settled on the ground).
+  public void MarkUnderLitigation(EncroachmentStatus underLitigationStatus)
+  {
+    ArgumentNullException.ThrowIfNull(underLitigationStatus);
+    underLitigationStatus.EnsureIs(SystemMasterCodes.UnderLitigation);
+
+    if (IsUnresolved)
+      EncroachmentStatusId = underLitigationStatus.Id;
   }
 
   /// Under Notice, Under Litigation ... Resolving has its own step.
@@ -127,7 +175,7 @@ public class PropertyEncroachment : Aggregate<EncroachmentId>
     EncroachmentStatusId = resolvedStatus.Id;
     ResolutionDate = resolutionDate;
     ResolutionType = resolutionType;
-    ResolutionReferenceNo = Guard.Text(referenceNo, 100, "Resolution reference no.");
+    ResolutionReferenceNo = Guard.Text(referenceNo, ResolutionReferenceMaxLength, "Resolution reference no.");
   }
 
   /// The encroached polygon can be captured once; it is never overwritten.
@@ -147,18 +195,29 @@ public class PropertyEncroachment : Aggregate<EncroachmentId>
       throw new DomainException($"Encroachment {EncroachmentNo.Value} is resolved and can no longer change.");
   }
 
+  private void EnsureCurrent(EncroachmentStatus currentStatus)
+  {
+    if (currentStatus.Id != EncroachmentStatusId)
+      throw new DomainException("The supplied status does not match the encroachment.");
+  }
+
   private void Apply(Details details)
   {
     ArgumentNullException.ThrowIfNull(details);
-    details.Encroacher?.EnsureActive();
 
-    Guard.DateOrder(DetectionDate, details.EffectiveDate, "Detection date", "Effective date");
+    // an inactive owner may stay on an old record, but cannot be newly chosen
+    if (details.Encroacher is { } encroacher && encroacher.Id != EncroacherOwnerId)
+      encroacher.EnsureActive();
 
-    EncroacherName = Guard.Text(details.EncroacherName, 200, "Encroacher name") ?? details.Encroacher?.OwnerName.Value;
+    // "in place since" is when the encroachment started: on or before the day it was detected
+    if (details.EffectiveDate > DetectionDate)
+      throw new DomainException("In place since cannot be after the detection date.");
+
+    EncroacherName = Guard.Text(details.EncroacherName, EncroacherNameMaxLength, "Encroacher name") ?? details.Encroacher?.OwnerName.Value;
     EncroacherOwnerId = details.Encroacher?.Id;
     EffectiveDate = details.EffectiveDate;
-    Description = Guard.Text(details.Description, 4000, "Description");
-    Remarks = Guard.Text(details.Remarks, 4000, "Remarks");
+    Description = Guard.Text(details.Description, TextMaxLength, "Description");
+    Remarks = Guard.Text(details.Remarks, TextMaxLength, "Remarks");
   }
 }
 

@@ -52,7 +52,12 @@ All ids are Guid-backed strongly typed ids; `.Of(guid)` rejects `Guid.Empty`.
   - Each row records who did it, the action, and the target type, id and label, plus a readable detail, IP and user
     agent.
   - The actor and target names are snapshotted, so a row still reads after a rename or deletion.
-  - Only changes are recorded, not views.
+  - Only changes are recorded, not views. A save that changes nothing (same settings, same role details, same
+    permissions) records nothing.
+  - The detail says WHAT changed, in two fixed shapes the Administration screens parse (`Application/Abstractions/
+    ActivityDetail.cs`): field changes `Name: Clerk → Senior clerk; Active: Yes → No`, and permissions
+    `+PROPERTY:VIEW,CREATE;ASSETS:* -HR:DELETE` (`*` = every action of that module). Overrides read
+    `PROPERTY.VIEW · Allow`. The recorder cuts a detail at 500 characters (the column size).
 
 ## Auth flow
 
@@ -113,10 +118,10 @@ All ids are Guid-backed strongly typed ids; `.Of(guid)` rejects `Guid.Empty`.
 | `PUT /users/{id}`, `POST /users/{id}/activate|deactivate|unlock|reset-password`, `PUT /employee-code-template` | `IAM_USERS.EDIT` |
 | `DELETE /users/{id}` (soft) | `IAM_USERS.DELETE` |
 | `POST /users/{id}/roles`, `DELETE /users/{id}/roles/{roleId}`, `POST /users/{id}/authorized-officer` | `IAM_USERS.ASSIGN` |
-| `POST/DELETE /users/{id}/permission-overrides…`, `POST/DELETE /roles/{id}/permissions…` | `IAM_PERMISSIONS.ASSIGN` |
+| `POST/DELETE /users/{id}/permission-overrides…`, `POST/DELETE /roles/{id}/permissions…`, `PUT /roles/{id}/permissions` (the role carries exactly this list afterwards; one `RolePermissionsChanged` line; SUPER_ADMIN may gain but never lose) | `IAM_PERMISSIONS.ASSIGN` |
 | `GET /permission-modules`, `GET /permissions` | `IAM_PERMISSIONS.VIEW` |
 | `POST/GET/PUT/DELETE /roles…` | `IAM_ROLES.*` |
-| `GET /users/{id}/sessions`, `GET /security/login-attempts`, `GET /admin-activity` (newest first; filter by actor, target, action, date), `GET /security-settings` | `IAM_SECURITY.VIEW` |
+| `GET /users/{id}/sessions`, `GET /security/login-attempts`, `GET /admin-activity` (newest first; filter by actor, target, `personId` = actor or target, action, `kind` = accounts / access / roles / settings, date), `GET /security-settings` | `IAM_SECURITY.VIEW` |
 | `PUT /security-settings` (applies from now on; tokens already issued keep their lifetime) | `IAM_SECURITY.EDIT` |
 | `POST /users/{id}/revoke-sessions` | `IAM_SECURITY.REVOKE` |
 
@@ -172,7 +177,8 @@ The seeder is idempotent and runs on every start:
    `Result<T>` for expected failures, and throw `DomainException` or `*NotFoundException` otherwise.
 2. Call `IdentityGuard` for any admin action on a user or role.
 3. **Record every administrative change** with `IActivityRecorder.RecordAsync(...)` before saving. It joins the
-   same transaction, so a rolled-back change logs nothing. Add a value to `Domain/Enums/ActivityAction.cs` if needed.
+   same transaction, so a rolled-back change logs nothing. Add a value to `Domain/Enums/ActivityAction.cs` if needed
+   (and to its kind in `ActivityKinds`), and write the detail with `ActivityDetail` so the screens can read it.
 4. Map the route in `Api/Endpoints/<Area>/` with `.RequirePermission(...)`. Use `.RequireAuthorization()` for
    self-service and `.AllowAnonymous()` only for getting tokens.
 5. Read IP and user agent from `HttpContext` (`CallerIp()`, `CallerUserAgent()`) and the actor from

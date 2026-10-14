@@ -5,11 +5,11 @@ public class ActivityEndpoints : ICarterModule
   {
     app.MapGet("/admin-activity", async (
         ISender sender, int? pageIndex, int? pageSize,
-        Guid? actorUserId, Guid? targetId, string? action, DateTime? from, DateTime? to) =>
+        Guid? actorUserId, Guid? targetId, string? action, DateTime? from, DateTime? to, Guid? personId, string? kind) =>
     {
       var result = await sender.Send(new GetAdminActivityQuery(
         new PaginationRequest(pageIndex ?? 0, pageSize ?? 20),
-        actorUserId, targetId, action, from, to));
+        actorUserId, targetId, action, from, to, personId, kind));
 
       return Results.Ok(new GetAdminActivityResponse(result.Value!.Activities));
     })
@@ -17,7 +17,7 @@ public class ActivityEndpoints : ICarterModule
       .WithName("GetAdminActivity")
       .Produces<GetAdminActivityResponse>(StatusCodes.Status200OK)
       .WithSummary("Get Administration Activity")
-      .WithDescription("Who changed what in Administration - role grants, account changes, permission changes, configuration edits - newest first, filterable by actor, target, kind and date.");
+      .WithDescription("Who changed what in Administration - role grants, account changes, permission changes, configuration edits - newest first, filterable by actor, target, person (actor or target), action, kind (accounts, access, roles, settings) and date.");
   }
 }
 

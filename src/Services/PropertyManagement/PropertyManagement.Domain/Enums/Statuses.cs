@@ -1,11 +1,14 @@
 // System states the application itself acts on. They are fixed values in the schema (varchar with a
 // documented list), unlike the admin-editable master tables, and are stored as UPPER_SNAKE text.
 
-/// property_ownership.ownership_status
+/// property_ownership.ownership_status. A DISPUTED share is still held: it counts toward the 100% total
+/// and toward the current owners, but cannot be transferred until the dispute is resolved.
 public enum OwnershipStatus { Active, Ended, Disputed }
 
-/// property_transfer.transfer_status
-public enum TransferStatus { Initiated, Approved, Completed, Cancelled }
+/// property_transfer.transfer_status. Initiated is the only waiting state: approving a transfer completes
+/// it in the same step. Approved is kept for rows approved before that change (they are completed with
+/// /transfers/{id}/complete). Rejected: the approving officer refused it.
+public enum TransferStatus { Initiated, Approved, Completed, Cancelled, Rejected }
 
 /// property_transfer_party.party_role
 public enum TransferPartyRole { Transferor, Transferee }

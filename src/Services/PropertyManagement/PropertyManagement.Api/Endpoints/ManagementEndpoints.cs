@@ -2,6 +2,7 @@
 public sealed record AllotPropertyRequest(Guid AllotteeOwnerId, AllotmentDetailsInput Allotment);
 public sealed record CancelAllotmentRequest(DateOnly CancellationDate, string Reason, string? OrderRef = null);
 public sealed record RestoreAllotmentRequest(DateOnly RestorationDate, string? OrderRef = null);
+public sealed record ChangeAllotmentStatusRequest(Guid StatusId, DateOnly? Date = null);
 public sealed record ChangeMasterStatusRequest(Guid StatusId);
 public sealed record ConfirmOwnershipRequest(DateOnly EffectiveFrom, decimal OwnershipSharePct = 100, Guid? TenureTypeId = null, string? ReferenceNo = null, string? Remarks = null);
 
@@ -18,6 +19,7 @@ public sealed record FineStatusRequest(FineStatus FineStatus);
 
 public sealed record RecordBidRequest(Guid BidderOwnerId, decimal BidAmount, decimal? EarnestMoney = null, string? Remarks = null);
 public sealed record AwardAuctionRequest(DateOnly AwardDate, Guid? WinningBidId = null, Guid? SuccessfulBidderOwnerId = null, decimal? WinningBidAmount = null, string? AwardReferenceNo = null);
+public sealed record ReAuctionRequest(DateOnly AuctionDate, decimal? BaseReservePrice = null, string? AuctionCommitteeRef = null);
 
 public sealed record CreateOutsourcingRequest(Guid OutsourcedPartyOwnerId, OutsourcingTermsInput Terms);
 
@@ -47,7 +49,8 @@ public class ManagementEndpoints : ICarterModule
       .WithTags("Allotments").WithName("AllotProperty")
       .Produces<AllotPropertyCommandResult>(StatusCodes.Status201Created).ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Allot Property")
-      .WithDescription("Allots the plot (ALT-00001 is generated; status ACTIVE). Allotment is not ownership — confirm it separately.");
+      .WithDescription("Allots the plot (ALT-00001 is generated; status ACTIVE). Only property classified GDA_PROPERTY can be allotted, only one allotment "
+        + "may be in force (ACTIVE / RESTORED) per property, and the allotment date may not be in the future. Allotment is not ownership — confirm it separately.");
 
     app.MapGet("/properties/{id:guid}/allotments", async (Guid id, bool? includeInactive, ISender sender) =>
         (await sender.Send(new GetPropertyAllotmentsQuery(id, includeInactive ?? false))).ToOk())
@@ -66,38 +69,46 @@ public class ManagementEndpoints : ICarterModule
         (await sender.Send(new UpdateAllotmentCommand(id, allotment))).ToOk())
       .RequirePermission(PermissionCatalog.Property.Edit)
       .WithName("UpdateAllotment").Produces<UpdateAllotmentCommandResult>().ProducesProblem(StatusCodes.Status400BadRequest)
-      .WithSummary("Update Allotment").WithDescription("Corrects the allotment's details; status changes use cancel / restore / status.");
+      .WithSummary("Update Allotment").WithDescription("Corrects the allotment's details (allotment date not in the future); status changes use cancel / restore / status.");
 
     allotments.MapPost("/{id:guid}/cancel", async (Guid id, CancelAllotmentRequest request, ISender sender) =>
         (await sender.Send(new CancelAllotmentCommand(id, request.CancellationDate, request.Reason, request.OrderRef))).ToOk())
       .RequirePermission(PermissionCatalog.Property.Approve)
       .WithName("CancelAllotment").Produces<AllotmentLifecycleResult>().ProducesProblem(StatusCodes.Status400BadRequest)
-      .WithSummary("Cancel Allotment").WithDescription("Act s.6(4)(c). An appeal against the cancellation is filed under /properties/{id}/appeals.");
+      .WithSummary("Cancel Allotment").WithDescription("Act s.6(4)(c). Only an allotment in force; date between the allotment date and today. If the allottee was "
+        + "confirmed as owner through it, that ownership ends on the cancellation date in the same step (endedOwnershipIds). An appeal against the cancellation "
+        + "is filed under /properties/{id}/appeals.");
 
     allotments.MapPost("/{id:guid}/restore", async (Guid id, RestoreAllotmentRequest request, ISender sender) =>
         (await sender.Send(new RestoreAllotmentCommand(id, request.RestorationDate, request.OrderRef))).ToOk())
       .RequirePermission(PermissionCatalog.Property.Approve)
       .WithName("RestoreAllotment").Produces<AllotmentLifecycleResult>().ProducesProblem(StatusCodes.Status400BadRequest)
-      .WithSummary("Restore Allotment").WithDescription("Reverses a cancellation; the cancellation details stay on the record.");
+      .WithSummary("Restore Allotment").WithDescription("Reverses a cancellation (only a CANCELLED allotment; refused while another allotment is in force); the "
+        + "cancellation details stay on the record. The ownership the cancellation ended is not reopened: confirm the allottee again.");
 
-    allotments.MapPost("/{id:guid}/status", async (Guid id, ChangeMasterStatusRequest request, ISender sender) =>
-        (await sender.Send(new ChangeAllotmentStatusCommand(id, request.StatusId))).ToOk())
+    allotments.MapPost("/{id:guid}/status", async (Guid id, ChangeAllotmentStatusRequest request, ISender sender) =>
+        (await sender.Send(new ChangeAllotmentStatusCommand(id, request.StatusId, request.Date))).ToOk())
       .RequirePermission(PermissionCatalog.Property.Edit)
       .WithName("ChangeAllotmentStatus").Produces<AllotmentLifecycleResult>().ProducesProblem(StatusCodes.Status400BadRequest)
-      .WithSummary("Change Allotment Status").WithDescription("Any other admin-defined status (Surrendered, Expired ...).");
+      .WithSummary("Change Allotment Status").WithDescription("An allotment in force becomes SURRENDERED (date required: the surrender date; a confirmed "
+        + "ownership through it ends that day) or EXPIRED (only after its expiry date; without an expiry date, date is required and recorded as the expiry date). "
+        + "Nothing goes back to ACTIVE; cancel / restore have their own acts.");
 
     allotments.MapPost("/{id:guid}/deactivate", async (Guid id, ISender sender) =>
         (await sender.Send(new DeactivateAllotmentCommand(id))).ToOk())
       .RequirePermission(PermissionCatalog.Property.Delete)
-      .WithName("DeactivateAllotment").Produces<AllotmentLifecycleResult>()
-      .WithSummary("Deactivate Allotment").WithDescription("Withdraws an allotment entered in error; nothing is hard-deleted.");
+      .WithName("DeactivateAllotment").Produces<AllotmentLifecycleResult>().ProducesProblem(StatusCodes.Status400BadRequest)
+      .WithSummary("Deactivate Allotment").WithDescription("Withdraws an allotment entered in error; nothing is hard-deleted. Refused while the allottee holds "
+        + "ownership confirmed through it.");
 
     allotments.MapPost("/{id:guid}/confirm-ownership", async (Guid id, ConfirmOwnershipRequest request, ISender sender) =>
         (await sender.Send(new ConfirmAllotmentOwnershipCommand(id, request.EffectiveFrom, request.OwnershipSharePct, request.TenureTypeId, request.ReferenceNo, request.Remarks))).ToOk())
       .RequirePermission(PermissionCatalog.Property.Approve)
       .WithName("ConfirmAllotmentOwnership").Produces<ConfirmAllotmentOwnershipCommandResult>().ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Confirm Allottee As Owner")
-      .WithDescription("GDA confirms the allottee as legal owner: a property_ownership row with acquired_via_allotment_id. Shares may not exceed 100%.");
+      .WithDescription("GDA confirms the allottee as legal owner: a property_ownership row with acquired_via_allotment_id. Only while the allotment is in force "
+        + "and not confirmed yet; effectiveFrom between the allotment (or restoration) date and today; refused when someone already holds 100% (transfer a "
+        + "share to the allottee instead). Shares may not exceed 100%.");
   }
 
   // =====================================================
@@ -149,7 +160,8 @@ public class ManagementEndpoints : ICarterModule
     leases.MapPost("/{id:guid}/expire", async (Guid id, ISender sender) => (await sender.Send(new ExpireLeaseCommand(id))).ToOk())
       .RequirePermission(PermissionCatalog.Property.Edit)
       .WithName("ExpireLease").Produces<LeaseLifecycleResult>().ProducesProblem(StatusCodes.Status400BadRequest)
-      .WithSummary("Mark Lease Expired");
+      .WithSummary("Mark Lease Expired")
+      .WithDescription("An ACTIVE lease, once its end date has passed. A draft lease was never in force and cannot expire.");
   }
 
   // =====================================================
@@ -185,7 +197,7 @@ public class ManagementEndpoints : ICarterModule
         (await sender.Send(new RenewRentalCommand(id, request.Terms, request.TenantOwnerId))).ToCreated(r => $"/rentals/{r.Id}"))
       .RequirePermission(PermissionCatalog.Property.Edit)
       .WithName("RenewRental").Produces<RenewRentalCommandResult>(StatusCodes.Status201Created).ProducesProblem(StatusCodes.Status400BadRequest)
-      .WithSummary("Renew Rental").WithDescription("A new rental row (renewed_from_rental_id → this one); this one ends.");
+      .WithSummary("Renew Rental").WithDescription("A new rental row (renewed_from_rental_id → this one), starting after this one started; this one ENDS the day before the renewal starts.");
 
     rentals.MapPost("/{id:guid}/terminate", async (Guid id, EndAgreementRequest request, ISender sender) =>
         (await sender.Send(new TerminateRentalCommand(id, request.TerminationDate, request.Reason))).ToOk())
@@ -206,7 +218,7 @@ public class ManagementEndpoints : ICarterModule
       .WithTags("Agreement Violations").WithName("RecordViolation")
       .Produces<RecordViolationCommandResult>(StatusCodes.Status201Created).ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Record Agreement Violation")
-      .WithDescription("Exactly one of leaseId / rentalId / transferId (rule 4). The third violation of the same agreement within the last notice's deadline cancels the lease or rental (rule 5, Act s.28-A).");
+      .WithDescription("Exactly one of leaseId / rentalId / transferId (rule 4). Dated between the agreement's start and today. occurrenceNo counts the agreement's violations dated on or before this one; the third, dated inside the period of a notice served on an earlier violation (notice date to comply-by date), cancels the lease or rental (rule 5, Act s.28-A). A notice no. is needed for any notice date; a notice without a comply-by date is accepted with a warning.");
 
     app.MapGet("/properties/{id:guid}/violations", async (Guid id, Guid? leaseId, Guid? rentalId, Guid? transferId, ISender sender) =>
         (await sender.Send(new GetPropertyViolationsQuery(id, leaseId, rentalId, transferId))).ToOk())
@@ -225,7 +237,7 @@ public class ManagementEndpoints : ICarterModule
         (await sender.Send(new IssueViolationNoticeCommand(id, request.NoticeNo, request.NoticeDate, request.NoticeDeadline))).ToOk())
       .RequirePermission(PermissionCatalog.Property.Edit)
       .WithName("IssueViolationNotice").Produces<ViolationActionResult>().ProducesProblem(StatusCodes.Status400BadRequest)
-      .WithSummary("Issue Notice").WithDescription("The notice deadline is the period rule 5 counts repeat violations against.");
+      .WithSummary("Issue Notice").WithDescription("One notice per violation (a second is refused). The comply-by date (noticeDeadline) is the period rule 5 counts repeat violations against; without it the result carries a warning.");
 
     violations.MapPost("/{id:guid}/fine", async (Guid id, ImposeFineRequest request, ISender sender) =>
         (await sender.Send(new ImposeFineCommand(id, request.FineAmount))).ToOk())
@@ -243,7 +255,8 @@ public class ManagementEndpoints : ICarterModule
         (await sender.Send(new RectifyViolationCommand(id, request.Remarks))).ToOk())
       .RequirePermission(PermissionCatalog.Property.Edit)
       .WithName("RectifyViolation").Produces<ViolationActionResult>().ProducesProblem(StatusCodes.Status400BadRequest)
-      .WithSummary("Mark Violation Rectified");
+      .WithSummary("Mark Violation Rectified")
+      .WithDescription("Refused for a violation that cancelled its agreement (only an appeal can set that aside) and for one under appeal.");
   }
 
   // =====================================================
@@ -280,7 +293,7 @@ public class ManagementEndpoints : ICarterModule
         (await sender.Send(new ChangeAuctionStatusCommand(id, request.StatusId))).ToOk())
       .RequirePermission(PermissionCatalog.Property.Edit)
       .WithName("ChangeAuctionStatus").Produces<AuctionActionResult>().ProducesProblem(StatusCodes.Status400BadRequest)
-      .WithSummary("Change Auction Status").WithDescription("Announced, Conducted, Successful, Unsuccessful ...");
+      .WithSummary("Change Auction Status").WithDescription("Announced, Conducted, Unsuccessful ... Successful / Awarded come only through award, Cancelled through cancel. Awarded, Unsuccessful and Cancelled auctions are closed.");
 
     auctions.MapPost("/{id:guid}/bids", async (Guid id, RecordBidRequest request, ISender sender) =>
         (await sender.Send(new RecordBidCommand(id, request.BidderOwnerId, request.BidAmount, request.EarnestMoney, request.Remarks))).ToOk())
@@ -293,13 +306,20 @@ public class ManagementEndpoints : ICarterModule
       .RequirePermission(PermissionCatalog.Property.Approve)
       .WithName("AwardAuction").Produces<AuctionActionResult>().ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Award Auction")
-      .WithDescription("With recorded bids: winningBidId (default the highest). Without: successfulBidderOwnerId + winningBidAmount. The winning bid must reach the base reserve price.");
+      .WithDescription("With recorded bids: winningBidId (default the highest). Without: successfulBidderOwnerId + winningBidAmount. The winning bid must reach the base reserve price. The auction date must be recorded; the award date is on or after it and not in the future.");
 
     auctions.MapPost("/{id:guid}/cancel", async (Guid id, RemarksRequest request, ISender sender) =>
         (await sender.Send(new CancelAuctionCommand(id, request.Remarks))).ToOk())
       .RequirePermission(PermissionCatalog.Property.Edit)
       .WithName("CancelAuction").Produces<AuctionActionResult>().ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Cancel Auction");
+
+    auctions.MapPost("/{id:guid}/re-auction", async (Guid id, ReAuctionRequest request, ISender sender) =>
+        (await sender.Send(new ReAuctionCommand(id, request.AuctionDate, request.BaseReservePrice, request.AuctionCommitteeRef))).ToCreated(r => $"/auctions/{r.Id}"))
+      .RequirePermission(PermissionCatalog.Property.Edit)
+      .WithName("ReAuction").Produces<ReAuctionCommandResult>(StatusCodes.Status201Created).ProducesProblem(StatusCodes.Status400BadRequest)
+      .WithSummary("Re-auction")
+      .WithDescription("For an UNSUCCESSFUL or CANCELLED auction: plans a new auction (AUC-…, PLANNED, type RE_AUCTION) on the same property with previousAuctionId pointing back. The auction date must be after the original one; the base reserve price defaults to the original's. An auction is re-auctioned once.");
   }
 
   // =====================================================
@@ -338,7 +358,8 @@ public class ManagementEndpoints : ICarterModule
         (await sender.Send(new ChangeContractStatusCommand(id, request.StatusId))).ToOk())
       .RequirePermission(PermissionCatalog.Property.Edit)
       .WithName("ChangeContractStatus").Produces<OutsourcingActionResult>().ProducesProblem(StatusCodes.Status400BadRequest)
-      .WithSummary("Change Contract Status");
+      .WithSummary("Change Contract Status")
+      .WithDescription("Expired (only after the contract's end date; an open-ended contract is terminated instead) or another admin-defined status. Terminated goes through terminate.");
 
     contracts.MapPost("/{id:guid}/terminate", async (Guid id, EndAgreementRequest request, ISender sender) =>
         (await sender.Send(new TerminateOutsourcingCommand(id, request.TerminationDate, request.Reason))).ToOk())

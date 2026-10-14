@@ -18,12 +18,12 @@ public class PropertyReportEndpoints : ICarterModule
         ISender sender, DateOnly? asOf, Guid? townId, Guid? ownerTypeId, Guid? propertyId, Guid? ownerId, string? search,
         bool? includeDisputed, bool? includeInactive) =>
         (await sender.Send(new GetOwnershipReportQuery(asOf, townId, ownerTypeId, propertyId, ownerId, search,
-          includeDisputed ?? false, includeInactive ?? false))).ToOk())
+          includeDisputed ?? true, includeInactive ?? false))).ToOk())
       .RequirePermission(PermissionCatalog.Property.View)
       .WithName("GetOwnershipReport")
       .Produces<GetOwnershipReportQueryResult>().ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Ownership Report")
       .WithDescription("Who held which share of which property on asOf (default today): shares whose period covers that date, active or since ended. "
-        + "Disputed shares only with includeDisputed=true; properties taken off the register only with includeInactive=true. At most 5000 rows.");
+        + "Disputed shares are held and listed (includeDisputed=false leaves them out); properties taken off the register only with includeInactive=true. At most 5000 rows.");
   }
 }

@@ -4,6 +4,7 @@ public class DeactivateRegularizationHandler(IApplicationDbContext context)
   public async Task<Result<DeactivateRegularizationCommandResult>> Handle(DeactivateRegularizationCommand command, CancellationToken cancellationToken)
   {
     var regularization = await context.LoadRegularizationAsync(command.Id, cancellationToken);
+    await context.EnsurePropertyActiveAsync(regularization.PropertyId, cancellationToken);
     regularization.Deactivate();
 
     await context.SaveChangesAsync(cancellationToken);

@@ -25,6 +25,10 @@ public class OutsourcingTermsInputValidator : AbstractValidator<OutsourcingTerms
     RuleFor(x => x.ContractAmount).GreaterThanOrEqualTo(0).When(x => x.ContractAmount.HasValue);
     RuleFor(x => x.AmountFrequency).IsInEnum().When(x => x.AmountFrequency.HasValue);
     RuleFor(x => x.ReferenceNo).MaximumLength(100);
+    RuleFor(x => x.ContractEndDate).GreaterThanOrEqualTo(x => x.ContractStartDate).When(x => x.ContractEndDate.HasValue)
+      .WithMessage("Contract end date cannot be before Contract start date.");
+    RuleFor(x => x.PerformanceGuarantee).GreaterThanOrEqualTo(0).When(x => x.PerformanceGuarantee.HasValue);
+    RuleFor(x => x.Remarks).MaximumLength(4000);
   }
 }
 

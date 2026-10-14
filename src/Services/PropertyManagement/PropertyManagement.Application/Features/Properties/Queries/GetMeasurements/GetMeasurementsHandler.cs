@@ -12,7 +12,7 @@ public class GetMeasurementsHandler(IApplicationDbContext context, MasterLookup 
 
     var measurements = await context.PropertyMeasurements.AsNoTracking()
         .Where(m => m.PropertyId == propertyId)
-        .OrderByDescending(m => m.IsCurrent).ThenByDescending(m => m.CreatedAt)
+        .OrderByDescending(m => m.IsCurrent).ThenByDescending(m => m.MeasuredOn).ThenByDescending(m => m.CreatedAt)
         .ToListAsync(cancellationToken);
 
     var refs = await masters.Refs().Add<MeasurementUnit>(measurements.Select(m => m.MeasurementUnitId)).LoadAsync(cancellationToken);
