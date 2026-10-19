@@ -47,7 +47,7 @@ public sealed class TaxationSeeder(ApplicationDbContext context, ILogger<Taxatio
     Add(TaxHead.Other(TaxHeadId.New(), HeadCodes.Security, "Security", true, 21));
     Add(TaxHead.Other(TaxHeadId.New(), HeadCodes.Surcharge, "Surcharge / penalty", false, 22));
     Add(TaxHead.Other(TaxHeadId.New(), HeadCodes.Wht236A, "With holding FBR (236-A)", false, 23));
-    Add(TaxHead.Other(TaxHeadId.New(), HeadCodes.Misc, "Other charge", false, 29));
+    Add(TaxHead.Other(TaxHeadId.New(), HeadCodes.Misc, "Miscellaneous charge", false, 29));
 
     if (!firstRun)
       return;

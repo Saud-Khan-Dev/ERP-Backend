@@ -140,7 +140,11 @@ public class NoticeHandlers(
     if (!string.IsNullOrWhiteSpace(query.Search))
     {
       var s = query.Search.Trim().ToUpperInvariant();
-      rows = rows.Where(n => n.NoticeNo.ToUpper().Contains(s) || (n.EndstNo != null && n.EndstNo.ToUpper().Contains(s)) || n.Psid.Contains(s));
+      var reference = new string(s.Where(c => !char.IsWhiteSpace(c)).ToArray());
+      // the file and the payer through the notice's demand
+      var fileMatches = context.TaxFiles.Where(f => f.FileNo.ToUpper().Contains(s)).Select(f => f.Id);
+      var demandMatches = context.Demands.Where(d => d.PayerName.ToUpper().Contains(s) || fileMatches.Contains(d.TaxFileId)).Select(d => d.Id);
+      rows = rows.Where(n => n.NoticeNo.ToUpper().Contains(s) || (n.EndstNo != null && n.EndstNo.ToUpper().Contains(s)) || n.Psid.Contains(reference) || demandMatches.Contains(n.DemandId));
     }
 
     var total = await rows.LongCountAsync(cancellationToken);
@@ -379,7 +383,7 @@ public class NoticeHandlers(
       if (row.FiscalYear > fy)
         return Result<ManualNoticeResult>.Failure($"A row for FY {FiscalYear.Label(row.FiscalYear.Value)} is after the notice year.");
       if (head.Code == HeadCodes.Misc && string.IsNullOrWhiteSpace(row.Description))
-        return Result<ManualNoticeResult>.Failure("Describe each 'other' charge.");
+        return Result<ManualNoticeResult>.Failure("Describe each miscellaneous charge (what it is for).");
       rows.Add((row, head));
     }
 

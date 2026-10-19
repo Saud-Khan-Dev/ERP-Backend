@@ -265,6 +265,17 @@ public class DemandAndNoticeTests
     Assert.Equal(D("2026-01-31"), file.Payers.Single(p => p.Name == "Asif Jadoon").EffectiveTo);
   }
 
+  [Theory]
+  [InlineData("9999900009029", "99999-0000902-9")]
+  [InlineData(" 99999-0000902-9 ", "99999-0000902-9")]
+  [InlineData("1234567-8", "1234567-8")]
+  [InlineData("NTN 1234567", "NTN 1234567")]
+  public void A_party_CNIC_is_kept_the_way_Property_keeps_it_and_an_NTN_as_typed(string typed, string kept)
+  {
+    var party = Party.Create(PartyId.New(), PartyType.Applicant, "Imran Khattak", typed, null, null, null, null);
+    Assert.Equal(kept, party.CnicNtn);
+  }
+
   private static Notice Prepare(Demand? demand = null, TaxFile? file = null)
   {
     file ??= File();

@@ -121,7 +121,10 @@ public class PaymentHandlers(
     if (!string.IsNullOrWhiteSpace(query.Search))
     {
       var s = query.Search.Trim().ToUpperInvariant();
-      rows = rows.Where(p => p.Psid.Contains(s) || p.TransactionRef.ToUpper().Contains(s) || (p.ReceiptNo != null && p.ReceiptNo.ToUpper().Contains(s)));
+      // a 1Link reference is often typed as printed, in groups of four
+      var reference = new string(s.Where(c => !char.IsWhiteSpace(c)).ToArray());
+      var files = context.TaxFiles.Where(f => f.FileNo.ToUpper().Contains(s)).Select(f => f.Id);
+      rows = rows.Where(p => p.Psid.Contains(reference) || p.TransactionRef.ToUpper().Contains(s) || (p.ReceiptNo != null && p.ReceiptNo.ToUpper().Contains(s)) || files.Contains(p.TaxFileId));
     }
     var total = await rows.LongCountAsync(cancellationToken);
     var page = await rows.OrderByDescending(p => p.PaidAt).Skip(query.Pagination.Pageindex * query.Pagination.PageSize).Take(query.Pagination.PageSize).ToListAsync(cancellationToken);

@@ -5,7 +5,8 @@ using Microsoft.EntityFrameworkCore;
 
 public sealed record CircleInput(string Name, Guid? OrgUnitId, Guid? OfficerPostId, string? OfficeAddress, string? OfficeFax, string? OfficePhone, int SortOrder);
 
-public sealed record GetCirclesQueryResult(IReadOnlyList<CircleDto> Circles);
+/// SectionStaff: the posts that work for the whole Section rather than one circle (the Deputy Director (Taxation)).
+public sealed record GetCirclesQueryResult(IReadOnlyList<CircleDto> Circles, IReadOnlyList<CircleStaffDto> SectionStaff);
 public sealed record GetCirclesQuery(bool IncludeInactive) : IQuery<Result<GetCirclesQueryResult>>;
 public sealed record CreateCircleCommand(string Code, CircleInput Circle) : ICommand<Result<CreatedResult>>;
 public sealed record UpdateCircleCommand(Guid Id, CircleInput Circle) : ICommand<Result<UpdatedResult>>;
@@ -69,7 +70,9 @@ public class CircleHandlers(IApplicationDbContext context, IPropertyDirectory pr
       .OrderBy(c => c.SortOrder).ThenBy(c => c.Code).ToListAsync(cancellationToken);
     var staff = await context.CircleStaff.AsNoTracking().OrderBy(s => s.TaxRole).ThenByDescending(s => s.EffectiveFrom).ToListAsync(cancellationToken);
     var today = clock.Today;
-    return Result<GetCirclesQueryResult>.Success(new(circles.Select(c => c.ToDto(staff.Where(s => s.CircleId == c.Id), today)).ToList()));
+    return Result<GetCirclesQueryResult>.Success(new(
+      circles.Select(c => c.ToDto(staff.Where(s => s.CircleId == c.Id), today)).ToList(),
+      staff.Where(s => s.CircleId == null).Select(s => s.ToDto()).ToList()));
   }
 
   public async Task<Result<CreatedResult>> Handle(CreateCircleCommand command, CancellationToken cancellationToken)

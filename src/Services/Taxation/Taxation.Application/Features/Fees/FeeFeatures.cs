@@ -79,6 +79,8 @@ public class ChargeFeeCommandValidator : AbstractValidator<ChargeFeeCommand>
 public sealed record IssueClearanceCommand(Guid TaxFileId, ClearancePurpose Purpose, Guid? PropertyRefId, string? PropertyRefNo, Guid? FeeId) : ICommand<Result<CreatedResult>>;
 public sealed record GetClearancesQueryResult(IReadOnlyList<ClearanceDto> Clearances);
 public sealed record GetClearancesQuery(Guid? TaxFileId, ClearanceStatus? Status) : IQuery<Result<GetClearancesQueryResult>>;
+public sealed record GetClearanceQueryResult(ClearanceDto Clearance);
+public sealed record GetClearanceQuery(Guid Id) : IQuery<Result<GetClearanceQueryResult>>;
 public sealed record ConsumeClearanceCommand(Guid Id) : ICommand<Result<UpdatedResult>>;
 public sealed record RevokeClearanceCommand(Guid Id) : ICommand<Result<UpdatedResult>>;
 
@@ -100,6 +102,7 @@ public class FeeHandlers(
   ICommandHandler<WaiveFeeCommand, Result<UpdatedResult>>,
   ICommandHandler<IssueClearanceCommand, Result<CreatedResult>>,
   IQueryHandler<GetClearancesQuery, Result<GetClearancesQueryResult>>,
+  IQueryHandler<GetClearanceQuery, Result<GetClearanceQueryResult>>,
   ICommandHandler<ConsumeClearanceCommand, Result<UpdatedResult>>,
   ICommandHandler<RevokeClearanceCommand, Result<UpdatedResult>>
 {
@@ -113,7 +116,12 @@ public class FeeHandlers(
     if (!string.IsNullOrWhiteSpace(query.Search))
     {
       var s = query.Search.Trim().ToUpperInvariant();
-      rows = rows.Where(p => p.Name.ToUpper().Contains(s) || (p.CnicNtn != null && p.CnicNtn.Contains(s)) || (p.Mobile != null && p.Mobile.Contains(s)));
+      // a CNIC or a mobile is found however its dashes were typed
+      var digits = new string(s.Where(char.IsAsciiDigit).ToArray());
+      var byDigits = digits.Length >= 4 && digits.Length == s.Count(c => c != '-' && !char.IsWhiteSpace(c));
+      rows = rows.Where(p => p.Name.ToUpper().Contains(s)
+        || (p.CnicNtn != null && (p.CnicNtn.Contains(s) || (byDigits && p.CnicNtn.Replace("-", "").Contains(digits))))
+        || (p.Mobile != null && (p.Mobile.Contains(s) || (byDigits && p.Mobile.Replace("-", "").Replace(" ", "").Contains(digits)))));
     }
     var total = await rows.LongCountAsync(cancellationToken);
     var page = await rows.OrderBy(p => p.Name).Skip(query.Pagination.Pageindex * query.Pagination.PageSize).Take(query.Pagination.PageSize).ToListAsync(cancellationToken);
@@ -317,6 +325,14 @@ public class FeeHandlers(
     var files = await context.TaxFiles.AsNoTracking().Where(x => fileIds.Contains(x.Id)).ToDictionaryAsync(x => x.Id, x => x.FileNo, cancellationToken);
     return Result<GetClearancesQueryResult>.Success(new(list.Select(c => new ClearanceDto(c.Id.Value, c.ClearanceNo, c.TaxFileId.Value, files.GetValueOrDefault(c.TaxFileId) ?? "",
       c.Purpose, c.PropertyRefId, c.PropertyRefNo, c.OutstandingChecked, c.FeeId?.Value, c.IssuedOn, c.ValidUntil, c.IssuedBy, c.ConsumedAt, c.StatusOn(today))).ToList()));
+  }
+
+  public async Task<Result<GetClearanceQueryResult>> Handle(GetClearanceQuery query, CancellationToken cancellationToken)
+  {
+    var c = await context.LoadClearanceAsync(query.Id, cancellationToken);
+    var fileNo = await context.TaxFiles.AsNoTracking().Where(x => x.Id == c.TaxFileId).Select(x => x.FileNo).FirstOrDefaultAsync(cancellationToken) ?? "";
+    return Result<GetClearanceQueryResult>.Success(new(new ClearanceDto(c.Id.Value, c.ClearanceNo, c.TaxFileId.Value, fileNo, c.Purpose, c.PropertyRefId, c.PropertyRefNo,
+      c.OutstandingChecked, c.FeeId?.Value, c.IssuedOn, c.ValidUntil, c.IssuedBy, c.ConsumedAt, c.StatusOn(clock.Today))));
   }
 
   public async Task<Result<UpdatedResult>> Handle(ConsumeClearanceCommand command, CancellationToken cancellationToken)

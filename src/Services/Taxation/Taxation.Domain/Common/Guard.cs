@@ -18,6 +18,17 @@ public static class Guard
   public static string RequiredText(string? value, int maxLength, string field) =>
       Text(value, maxLength, field) ?? throw new DomainException($"{field} is required.");
 
+  /// A CNIC or an NTN. A CNIC (13 digits, typed with or without dashes) is kept as Property keeps it, 12345-1234567-1,
+  /// so the same person is written one way however it was typed; an NTN is kept as typed.
+  public static string? CnicNtn(string? value, string field)
+  {
+    var text = Text(value, 20, field);
+    if (text is null || !text.All(c => char.IsAsciiDigit(c) || c == '-'))
+      return text;
+    var digits = new string(text.Where(char.IsAsciiDigit).ToArray());
+    return digits.Length == 13 ? $"{digits[..5]}-{digits[5..12]}-{digits[12]}" : text;
+  }
+
   /// A code typed by a person (org unit, post, salary component ...): trimmed, upper case, letters, digits, '-', '_', '/'.
   public static string Code(string? value, int maxLength, string field)
   {

@@ -32,6 +32,12 @@ public class DemandNoticeEndpoints : ICarterModule
       .WithName("GetDemandRun").Produces<GetDemandRunQueryResult>().ProducesProblem(StatusCodes.Status404NotFound)
       .WithSummary("Get Demand Run").WithDescription("With its demands.");
 
+    runs.MapGet("/{id:guid}/problems", async (Guid id, ISender sender) => (await sender.Send(new GetDemandRunProblemsQuery(id))).ToOk())
+      .RequirePermission(PermissionCatalog.Tax.View)
+      .WithName("GetDemandRunProblems").Produces<GetDemandRunProblemsQueryResult>().ProducesProblem(StatusCodes.Status404NotFound)
+      .WithSummary("Get Demand Run Problems")
+      .WithDescription("The active files of the run's scope that have no demand of the year and could not be worked out, with why - worked out again now, nothing saved.");
+
     runs.MapPost("/", async (ComputeRunRequest r, ISender sender) => (await sender.Send(new ComputeDemandRunCommand(r.FiscalYear, r.CircleId))).ToOk())
       .RequirePermission(PermissionCatalog.Tax.Create)
       .WithName("ComputeDemandRun").Produces<ComputeRunResult>().ProducesProblem(StatusCodes.Status400BadRequest)

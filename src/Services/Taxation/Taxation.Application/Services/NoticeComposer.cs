@@ -166,10 +166,10 @@ public sealed class TaxFileImporter(IApplicationDbContext context, IPropertyDire
     var today = clock.Today;
     var town = snapshot.TownId is { } townId ? await setup.CircleTownAsync(townId, today, cancellationToken) : null;
     if (town is null)
-      throw new DomainException($"The town of {snapshot.PropertyCode} ({snapshot.TownName ?? "none"}) is not in any circle. Assign it in Settings → Circles.");
+      throw new DomainException($"The town of {snapshot.PropertyCode} ({snapshot.TownName ?? "none"}) is not in any circle. Assign it in Configuration → Circles.");
 
     var taxCategory = category ?? await CategoryAsync(snapshot, cancellationToken)
-      ?? throw new DomainException($"Property type '{snapshot.PropertyTypeCode ?? "none"}' is not mapped to a tax category. Map it in Settings → Categories, or give the category.");
+      ?? throw new DomainException($"Property type '{snapshot.PropertyTypeCode ?? "none"}' is not mapped to a tax category. Map it in Configuration → Categories, or give the category.");
 
     var settings = await setup.SettingsAsync(today, cancellationToken);
     var psid = Numbers.Psid(settings.PsidPrefix, await codes.NextAsync(NumberSequence.Psid, cancellationToken));

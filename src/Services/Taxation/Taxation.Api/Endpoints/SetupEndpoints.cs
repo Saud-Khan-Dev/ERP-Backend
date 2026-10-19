@@ -29,7 +29,7 @@ public class SetupEndpoints : ICarterModule
     circles.MapGet("/", async (bool? includeInactive, ISender sender) => (await sender.Send(new GetCirclesQuery(includeInactive ?? false))).ToOk())
       .RequireAnyPermission(TaxAuthorization.AnyTaxReader)
       .WithName("GetCircles").Produces<GetCirclesQueryResult>()
-      .WithSummary("Get Circles").WithDescription("With their towns (current and past assignments) and the HRM posts working for them.");
+      .WithSummary("Get Circles").WithDescription("With their towns (current and past assignments) and the HRM posts working for them; sectionStaff: the posts that work for the whole Section (DD_TAX).");
 
     circles.MapPost("/", async (CreateCircleRequest r, ISender sender) =>
         (await sender.Send(new CreateCircleCommand(r.Code, new CircleInput(r.Name, r.OrgUnitId, r.OfficerPostId, r.OfficeAddress, r.OfficeFax, r.OfficePhone, r.SortOrder ?? 0))))
