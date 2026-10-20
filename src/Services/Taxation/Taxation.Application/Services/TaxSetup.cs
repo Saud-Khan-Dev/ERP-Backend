@@ -38,7 +38,7 @@ public sealed class TaxSetup(IApplicationDbContext context)
     var id = await context.RateSets.AsNoTracking()
       .Where(s => s.Status != RateSetStatus.Draft && s.EffectiveFrom <= date && (s.EffectiveTo == null || s.EffectiveTo >= date))
       .OrderByDescending(s => s.EffectiveFrom).Select(s => s.Id).FirstOrDefaultAsync(cancellationToken)
-      ?? throw new DomainException($"No approved rate set is in force on {date:yyyy-MM-dd}. Approve one in Settings → Rate sets.");
+      ?? throw new DomainException($"No approved rate set is in force on {date:yyyy-MM-dd}. Approve one in Configuration → Rate sets.");
     if (_rateSets.TryGetValue(id, out var cached))
       return cached;
     return _rateSets[id] = await context.LoadRateSetAsync(id.Value, cancellationToken);
@@ -50,13 +50,13 @@ public sealed class TaxSetup(IApplicationDbContext context)
 
   public async Task<NoticeTemplate> TemplateAsync(NoticeStage stage, CancellationToken cancellationToken) =>
       await context.NoticeTemplates.FirstOrDefaultAsync(t => t.Stage == stage && t.IsActive, cancellationToken)
-        ?? throw new DomainException($"There is no active {EnumText.Words(stage)} notice template. Set it in Settings → Notice templates.");
+        ?? throw new DomainException($"There is no active {EnumText.Words(stage)} notice template. Set it in Configuration → Notices & SMS → Templates.");
 
   public async Task<NoticeLetterhead> LetterheadAsync(DateOnly date, CancellationToken cancellationToken) =>
       await context.Letterheads.Where(l => l.EffectiveFrom <= date && (l.EffectiveTo == null || l.EffectiveTo >= date))
         .OrderByDescending(l => l.EffectiveFrom).FirstOrDefaultAsync(cancellationToken)
         ?? await context.Letterheads.OrderBy(l => l.EffectiveFrom).FirstOrDefaultAsync(cancellationToken)
-        ?? throw new DomainException("No notice letterhead is set. Set it in Settings → Letterhead.");
+        ?? throw new DomainException("No notice letterhead is set. Set it in Configuration → Notices & SMS → Letterhead.");
 
   public async Task<NoticeTableLayout> LayoutAsync(DateOnly date, CancellationToken cancellationToken) =>
       await context.TableLayouts.Include(l => l.Rows).ThenInclude(r => r.Sources).Include(l => l.Columns).AsSplitQuery()
@@ -64,7 +64,7 @@ public sealed class TaxSetup(IApplicationDbContext context)
         .OrderByDescending(l => l.EffectiveFrom).FirstOrDefaultAsync(cancellationToken)
         ?? await context.TableLayouts.Include(l => l.Rows).ThenInclude(r => r.Sources).Include(l => l.Columns).AsSplitQuery()
           .OrderBy(l => l.EffectiveFrom).FirstOrDefaultAsync(cancellationToken)
-        ?? throw new DomainException("No notice table layout is set. Set it in Settings → Notice table.");
+        ?? throw new DomainException("No notice table layout is set. Set it in Configuration → Notices & SMS → Notice table.");
 
   public async Task<TaxCircle> CircleAsync(TaxCircleId id, CancellationToken cancellationToken)
   {

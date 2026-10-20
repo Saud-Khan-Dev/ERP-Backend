@@ -16,6 +16,11 @@ public sealed record GetDemandRunsQuery(int? FiscalYear) : IQuery<Result<GetDema
 public sealed record GetDemandRunQueryResult(DemandRunDto Run, IReadOnlyList<DemandSummaryDto> Demands);
 public sealed record GetDemandRunQuery(Guid Id) : IQuery<Result<GetDemandRunQueryResult>>;
 
+/// The files of a run's scope that have no demand of the year and could not be worked out, each with why - worked out
+/// again now (nothing is saved), so the list follows the fixes made since the run was computed.
+public sealed record GetDemandRunProblemsQueryResult(IReadOnlyList<RunProblemDto> Problems);
+public sealed record GetDemandRunProblemsQuery(Guid Id) : IQuery<Result<GetDemandRunProblemsQueryResult>>;
+
 public sealed record GetDemandsQueryResult(PaginatedResult<DemandSummaryDto> Demands);
 public sealed record GetDemandsQuery(PaginationRequest Pagination, int? FiscalYear, Guid? CircleId, DemandStatus? Status, DemandStage? Stage, Guid? RunId, Guid? TaxFileId,
   string? Search, bool? WithBalance) : IQuery<Result<GetDemandsQueryResult>>;
@@ -42,7 +47,8 @@ public class DemandRunHandlers(
   ICommandHandler<ApproveDemandRunCommand, Result<ApproveRunResult>>,
   ICommandHandler<CancelDemandRunCommand, Result<UpdatedResult>>,
   IQueryHandler<GetDemandRunsQuery, Result<GetDemandRunsQueryResult>>,
-  IQueryHandler<GetDemandRunQuery, Result<GetDemandRunQueryResult>>
+  IQueryHandler<GetDemandRunQuery, Result<GetDemandRunQueryResult>>,
+  IQueryHandler<GetDemandRunProblemsQuery, Result<GetDemandRunProblemsQueryResult>>
 {
   public async Task<Result<ComputeRunResult>> Handle(ComputeDemandRunCommand command, CancellationToken cancellationToken)
   {
@@ -190,6 +196,40 @@ public class DemandRunHandlers(
     var files = await context.TaxFiles.AsNoTracking().Where(f => fileIds.Contains(f.Id)).ToDictionaryAsync(f => f.Id, f => (f.FileNo, f.Psid), cancellationToken);
     return Result<GetDemandRunQueryResult>.Success(new((await DtosAsync([run], cancellationToken))[0],
       demands.Select(d => d.ToSummary(files.GetValueOrDefault(d.TaxFileId).FileNo ?? "", files.GetValueOrDefault(d.TaxFileId).Psid)).ToList()));
+  }
+
+  public async Task<Result<GetDemandRunProblemsQueryResult>> Handle(GetDemandRunProblemsQuery query, CancellationToken cancellationToken)
+  {
+    var run = await context.LoadRunAsync(query.Id, cancellationToken);
+    var fy = run.FiscalYear;
+    var files = await context.TaxFilesWithDetails().Where(f => f.TaxStatus == TaxStatus.Active && (run.CircleId == null || f.CircleId == run.CircleId)).ToListAsync(cancellationToken);
+    var fileIds = files.Select(f => f.Id).ToList();
+    var withDemand = (await context.Demands.Where(d => d.FiscalYear == fy && fileIds.Contains(d.TaxFileId) && d.Status != DemandStatus.Cancelled)
+      .Select(d => d.TaxFileId).ToListAsync(cancellationToken)).ToHashSet();
+    var missing = files.Where(f => !withDemand.Contains(f.Id)).OrderBy(f => f.FileNo).ToList();
+    if (missing.Count == 0)
+      return Result<GetDemandRunProblemsQueryResult>.Success(new([]));
+
+    var ctx = await assessor.ContextAsync(fy, cancellationToken);
+    var yearStart = FiscalYear.Start(fy);
+    var problems = new List<RunProblemDto>();
+    foreach (var file in missing)
+    {
+      try
+      {
+        var assessment = Assessor.Assess(ctx, file);
+        if (assessment.Suspended)
+          continue;
+        if (file.Addressee(yearStart) is null && file.Addressee(clock.Today) is null)
+          throw new DomainException("Property has no owner, lessee, tenant or allottee for it. Record one there and sync the file.");
+        problems.Add(new RunProblemDto(file.Id.Value, file.FileNo, "Can be worked out now - compute the run again to include it."));
+      }
+      catch (DomainException ex)
+      {
+        problems.Add(new RunProblemDto(file.Id.Value, file.FileNo, DomainMessages.Text(ex)));
+      }
+    }
+    return Result<GetDemandRunProblemsQueryResult>.Success(new(problems));
   }
 
   private async Task<List<DemandRunDto>> DtosAsync(IReadOnlyList<DemandRun> runs, CancellationToken cancellationToken)

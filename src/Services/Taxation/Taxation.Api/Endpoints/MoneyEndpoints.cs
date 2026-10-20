@@ -139,6 +139,11 @@ public class MoneyEndpoints : ICarterModule
       .WithName("GetClearances").Produces<GetClearancesQueryResult>()
       .WithSummary("Get Clearances").WithDescription("Newest 500; an issued clearance past its date shows as expired.");
 
+    clearances.MapGet("/{id:guid}", async (Guid id, ISender sender) => (await sender.Send(new GetClearanceQuery(id))).ToOk())
+      .RequirePermission(PermissionCatalog.Tax.View)
+      .WithName("GetClearance").Produces<GetClearanceQueryResult>().ProducesProblem(StatusCodes.Status404NotFound)
+      .WithSummary("Get Clearance").WithDescription("One clearance certificate, for printing.");
+
     clearances.MapPost("/{id:guid}/consume", async (Guid id, ISender sender) => (await sender.Send(new ConsumeClearanceCommand(id))).ToOk())
       .RequirePermission(PermissionCatalog.Tax.Approve)
       .WithName("ConsumeClearance").Produces<UpdatedResult>().ProducesProblem(StatusCodes.Status400BadRequest)

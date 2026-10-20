@@ -53,7 +53,7 @@ public sealed class PenaltyService(
   {
     var today = clock.Today;
     var rule = await setup.RuleAsync(PenaltyKind.IntraYear, today, cancellationToken)
-      ?? throw new DomainException("No in-year surcharge rule is in force. Set it in Settings → Penalty rules.");
+      ?? throw new DomainException("No in-year surcharge rule is in force. Set it in Configuration → Surcharge rules.");
     var settings = await setup.SettingsAsync(today, cancellationToken);
     var demands = await context.DemandsWithItems()
       .Where(d => d.FiscalYear == terms.FiscalYear && (d.Status == DemandStatus.Issued || d.Status == DemandStatus.PartPaid) && d.Balance > 0)

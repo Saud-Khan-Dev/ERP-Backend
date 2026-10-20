@@ -164,7 +164,7 @@ public class Party : Aggregate<PartyId>
   public void Update(string name, string? cnicNtn, string? mobile, string? address, Guid? ownerId, Guid? employeeId)
   {
     Name = Guard.RequiredText(name, 200, "Name");
-    CnicNtn = Guard.Text(cnicNtn, 20, "CNIC / NTN");
+    CnicNtn = Guard.CnicNtn(cnicNtn, "CNIC / NTN");
     Mobile = Guard.Text(mobile, 30, "Mobile");
     Address = Guard.Text(address, 400, "Address");
     if (PartyType == PartyType.Owner && ownerId is null)

@@ -116,6 +116,9 @@ src/Tests/Taxation.Domain.Tests/  xUnit, tests named after the rules
   - bills any unbilled opening arrears of the old register;
   - issues it, due on `DUE_DATE_DDMM` of the year;
   - issues the FIRST notice with its SMS and records a reference sync.
+
+  `GET /demand-runs/{id}/problems` works the run's scope out again (nothing is saved) and lists the files that could not
+  be computed, with why - the run itself keeps only the count.
 - **Notices.**
   - Every notice is prepared PENDING with its variables pre-filled: payer, ID (old reference, else file no.), plot no.,
     town short code, address line, days, paragraph, title and the circle's office lines, frozen on the notice.
@@ -142,7 +145,12 @@ src/Tests/Taxation.Domain.Tests/  xUnit, tests named after the rules
 - **Fees and clearances.** A fee is quoted from the rate set in force: a flat amount, a rate per unit (from a band
   table when there is one), a percentage of a value, or the non-utilization fee of a plan extension (months / 12). A
   file's town and category rows win over general rows. A paid water connection fee sets the WATER facility date. A
-  clearance is issued only when nothing is behind the reference; valid `CLEARANCE_VALID_DAYS`.
+  clearance is issued only when nothing is behind the reference; valid `CLEARANCE_VALID_DAYS`; `GET /clearances/{id}`
+  reads one (the certificate page). A party's CNIC of 13 digits is kept dashed as Property keeps it (`Guard.CnicNtn`), an
+  NTN as typed; the parties search finds a CNIC or mobile however its dashes were typed.
+- **Searches.** The payments register finds a payment by receipt, transaction, reference (typed with or without the
+  spaces it is printed with) or the file no.; the notices register by notice / endorsement no., reference, file no. or
+  the payer of its demand.
 - **No 1Link connector and no SMS gateway exist yet**: reference syncs stay PENDING and SMS stay QUEUED.
 
 ## Seeds (`TaxationSeeder`)
@@ -194,7 +202,9 @@ src/Tests/Taxation.Domain.Tests/  xUnit, tests named after the rules
 `dotnet test src/ERP.slnx` runs `src/Tests/Taxation.Domain.Tests`. `Fixture.cs` builds the heads, an approved rate set
 with Nathiagali's factors and a tax file from a Property snapshot (400 sq yd, 2,500 sq ft covered: property tax
 Rs 14,500). Add a test for every new rule, named after it. For API behaviour, run Identity, Property, HRM and Taxation
-against Postgres and step through `Taxation.Api.http`.
+against Postgres and step through `Taxation.Api.http`. The frontend's functional suites (`ERP-Frontend/tools/e2e/
+taxation-api.e2e.mjs` and `taxation-ui.e2e.mjs`) drive the whole contract on standing E2E fixtures in Thandiani
+(Circle I) - see `taxation-fixtures.mjs` there.
 
 ## Gotchas
 
@@ -202,5 +212,10 @@ against Postgres and step through `Taxation.Api.http`.
 - The FY of a demand is the year it starts in; `FiscalYear.Label(2026)` is "2026-27".
 - A rate set is fixed once approved: start a new one from it (`copyFromId`).
 - A town assigned from a future date moves its files on their next sync.
+- A hold's `ended_on` is its LAST day and is covered (`LitigationHold.Covers`): notices and the demand resume the day
+  after. A new hold must start after every earlier hold's last day; only one hold may be without a last day.
+- Once a demand is paid up, the notice context proposes FIRST again for the next notice on it.
+- `PenaltyRuleInput.RateSetId` is a plain `Guid?` (the handler converts it); a strongly typed id there made System.Text.Json
+  refuse the request ("wrong type or format").
 - Notice letterhead and table layout are versions; a change on the same day as the version in force replaces it (the
   replaced row ends the day before it starts and is never picked again; issued notices keep theirs).

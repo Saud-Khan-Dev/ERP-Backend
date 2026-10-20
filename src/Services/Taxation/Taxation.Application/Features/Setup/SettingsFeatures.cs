@@ -164,7 +164,7 @@ public class PenaltyRuleHandlers(IApplicationDbContext context) :
   {
     var rule = await context.LoadRuleAsync(command.Id, cancellationToken);
     if (command.Rule.RateSetId is { } rs)
-      await context.LoadRateSetAsync(rs.Value, cancellationToken);
+      await context.LoadRateSetAsync(rs, cancellationToken);
     rule.Update(command.Rule);
     await context.SaveChangesAsync(cancellationToken);
     return CommandResults.Updated();

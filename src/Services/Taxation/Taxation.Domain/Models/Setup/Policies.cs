@@ -110,7 +110,7 @@ public class PenaltyRule : Aggregate<PenaltyRuleId>
     TargetSet = input.TargetSet;
     IncludesCurrent = input.IncludesCurrent;
     StacksWithYearEnd = input.StacksWithYearEnd;
-    RateSetId = input.RateSetId;
+    RateSetId = input.RateSetId is { } rateSet ? global::RateSetId.Of(rateSet) : null;
 
     if (Kind == PenaltyKind.IntraYear)
     {
@@ -153,7 +153,7 @@ public sealed record PenaltyRuleInput(
   int? PeriodValue,
   PeriodUnit? PeriodUnit,
   PeriodAnchor? PeriodAnchor,
-  RateSetId? RateSetId);
+  Guid? RateSetId);
 
 /// taxation.message_template: the SMS texts (and print fragments) by code. Placeholders in braces are filled when sent.
 public class MessageTemplate : Aggregate<MessageTemplateId>

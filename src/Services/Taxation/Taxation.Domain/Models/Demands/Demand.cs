@@ -253,7 +253,7 @@ public class Demand : Aggregate<DemandId>
     if (fiscalYear > FiscalYear)
       throw new DomainException($"A row for FY {(global::FiscalYear.Label(fiscalYear.Value))} is after the demand's year.");
     if (head.Code == HeadCodes.Misc && string.IsNullOrWhiteSpace(description))
-      throw new DomainException("Describe each 'other' charge.");
+      throw new DomainException("Describe each miscellaneous charge (what it is for).");
     var row = Arrears.Manual(ArrearsId.New(), TaxFileId, head.Id, fiscalYear, amount, description, reason, actor, now);
     AttachArrears(row);
     AfterChange(DateOnly.FromDateTime(now));
@@ -439,7 +439,7 @@ public class Arrears : Entity<ArrearsId>
   /// Opening arrears from the old register, by head (and year when known). Billed on the file's first demand.
   public static Arrears Imported(ArrearsId id, TaxFileId fileId, TaxHead head, int? fiscalYear, decimal amount, string? description, Guid? importRowId, Guid actor, DateTime now) =>
       head.Code == HeadCodes.Misc && string.IsNullOrWhiteSpace(description)
-        ? throw new DomainException("Describe each 'other' charge.")
+        ? throw new DomainException("Describe each miscellaneous charge (what it is for).")
         : new()
   {
     Id = id,
