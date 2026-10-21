@@ -29,7 +29,7 @@ public class CreatePropertyHandler(IApplicationDbContext context, MasterLookup m
       return Result<CreatePropertyCommandResult>.Failure(
         $"{inactive.OwnerName.Value} ({inactive.OwnerCode.Value}) is inactive and cannot be registered as an owner.");
 
-    var attributes = await ResolveAttributesAsync(attributeInputs, cancellationToken);
+    var attributes = await ResolveAttributesAsync(attributeInputs, command.Property.PropertyTypeId, command.Property.PropertyClassificationId, cancellationToken);
     if (!attributes.IsSuccess)
       return Result<CreatePropertyCommandResult>.Failure(attributes.Message!);
 
@@ -116,11 +116,13 @@ public class CreatePropertyHandler(IApplicationDbContext context, MasterLookup m
   }
 
   /// The custom-field values to store: every value sent (blank values of optional fields are skipped) plus
-  /// every active required field, which must end up with a value — the one sent, else its default. A required
-  /// field with neither refuses the registration, naming the field.
+  /// every required field that applies to this property (switched on, in a switched-on group, its type and
+  /// classification), which must end up with a value — the one sent, else its default. A required field with neither
+  /// refuses the registration, naming the field.
   private async Task<Result<List<(AttributeDefinition Definition, string? Value)>>> ResolveAttributesAsync(
-      IReadOnlyList<AttributeValueInput> inputs, CancellationToken cancellationToken)
+      IReadOnlyList<AttributeValueInput> inputs, Guid propertyTypeId, Guid classificationId, CancellationToken cancellationToken)
   {
+    var activeGroups = (await context.Set<AttributeGroup>().AsNoTracking().Where(g => g.IsActive).Select(g => g.Id).ToListAsync(cancellationToken)).ToHashSet();
     var givenIds = inputs.Select(a => AttributeDefinitionId.Of(a.AttributeDefinitionId)).ToList();
     var definitions = await context.AttributeDefinitions.AsNoTracking()
         .Where(d => d.IsActive || givenIds.Contains(d.Id))
@@ -138,10 +140,18 @@ public class CreatePropertyHandler(IApplicationDbContext context, MasterLookup m
     var values = new List<(AttributeDefinition, string?)>();
 
     foreach (var (id, value) in given)
-      if (!string.IsNullOrWhiteSpace(value) || definitions[id].IsRequired)
-        values.Add((definitions[id], value));
+    {
+      var definition = definitions[id];
+      if (!string.IsNullOrWhiteSpace(value) && (!activeGroups.Contains(definition.AttributeGroupId) || !definition.AppliesTo(propertyTypeId, classificationId)))
+        return Result<List<(AttributeDefinition, string?)>>.Failure($"'{definition.Label.Value}' does not apply to this kind of property; leave it out.");
 
-    foreach (var required in definitions.Values.Where(d => d.IsActive && d.IsRequired).OrderBy(d => d.DisplayOrder).ThenBy(d => d.Code.Value))
+      if (!string.IsNullOrWhiteSpace(value) || definition.IsRequired)
+        values.Add((definition, value));
+    }
+
+    foreach (var required in definitions.Values
+      .Where(d => d.IsActive && d.IsRequired && activeGroups.Contains(d.AttributeGroupId) && d.AppliesTo(propertyTypeId, classificationId))
+      .OrderBy(d => d.DisplayOrder).ThenBy(d => d.Code.Value))
     {
       var value = given.GetValueOrDefault(required.Id);
       if (!string.IsNullOrWhiteSpace(value))
@@ -149,7 +159,7 @@ public class CreatePropertyHandler(IApplicationDbContext context, MasterLookup m
 
       if (string.IsNullOrWhiteSpace(required.DefaultValue))
         return Result<List<(AttributeDefinition, string?)>>.Failure(
-          $"'{required.Label.Value}' ({required.Code.Value}) is a required custom field. Give it a value to register the property.");
+          $"'{required.Label.Value}' is required for this kind of property. Give it a value to register the property.");
 
       // the default stands in for the missing value
       values.RemoveAll(v => v.Item1.Id == required.Id);

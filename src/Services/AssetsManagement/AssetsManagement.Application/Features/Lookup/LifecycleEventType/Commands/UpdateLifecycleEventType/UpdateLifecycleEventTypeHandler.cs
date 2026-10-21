@@ -15,7 +15,8 @@ public class UpdateLifecycleEventTypeHandler(IApplicationDbContext context)
     if (await context.LifecycleEventTypes.AnyAsync(t => t.Id != id && t.Code == code, cancellationToken))
       return Result<UpdateLifecycleEventTypeCommandResult>.Failure($"A lifecycle event type with code {code.Value} already exists.");
 
-    eventType.Update(input.Stage, code, Name.Of(input.Name, 100), input.Description, input.IsActive);
+    var inUse = await context.AssetLifecycleEvents.AnyAsync(e => e.EventTypeId == id, cancellationToken);
+    eventType.Update(input.Stage, code, Name.Of(input.Name, 100), input.Description, input.IsActive, inUse);
     await context.SaveChangesAsync(cancellationToken);
 
     return Result<UpdateLifecycleEventTypeCommandResult>.Success(new UpdateLifecycleEventTypeCommandResult(true));

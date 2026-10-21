@@ -192,6 +192,13 @@ public class TaxFileOverride : Entity<TaxFileOverrideId>
       throw new DomainException($"The override starts on {EffectiveFrom:yyyy-MM-dd}; it cannot end before that.");
     EffectiveTo = lastDay;
   }
+
+  /// The override that ended because of one taken back runs on again.
+  internal void Reopen(DateOnly endedOn)
+  {
+    if (EffectiveTo == endedOn)
+      EffectiveTo = null;
+  }
 }
 
 /// taxation.litigation_hold: while open no tax or fee is levied on the property, and the held days do not count toward

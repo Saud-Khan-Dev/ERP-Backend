@@ -38,6 +38,7 @@ public class PayrollRunConfiguration : EntityConfiguration<PayrollRun, PayrollRu
 
     builder.Property(x => x.RunType).HasDefaultValue(PayrollRunType.Regular);
     builder.Property(x => x.Status).HasDefaultValue(PayrollRunStatus.Draft);
+    builder.Property(x => x.ReversalReason).Text();
     builder.Property<uint>("xmin").HasColumnName("xmin").IsRowVersion();
 
     builder.HasOne<PayrollPeriod>().WithMany().HasForeignKey(x => x.PayrollPeriodId).OnDelete(DeleteBehavior.NoAction);
@@ -219,7 +220,10 @@ public class PayrollPaymentConfiguration : EntityConfiguration<PayrollPayment, P
   {
     base.Configure(builder);
     builder.ToTable("payroll_payment", t =>
-      t.HasCheckConstraint("ck_pp_processed", "payment_status <> 'processed' OR (payment_date IS NOT NULL AND payment_reference IS NOT NULL)"));
+    {
+      t.HasCheckConstraint("ck_pp_processed", "payment_status <> 'processed' OR (payment_date IS NOT NULL AND payment_reference IS NOT NULL)");
+      t.HasCheckConstraint("ck_pp_bank_transfer", "payment_method <> 'bank_transfer' OR bank_account_id IS NOT NULL");
+    });
 
     builder.Property(x => x.PaymentMethod).HasDefaultValue(PaymentMethod.BankTransfer);
     builder.Property(x => x.PaymentStatus).HasDefaultValue(PaymentStatus.Pending);

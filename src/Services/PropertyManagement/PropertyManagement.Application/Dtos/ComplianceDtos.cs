@@ -3,15 +3,16 @@
 
 public sealed record GeoPointDto(int SequenceNo, decimal Latitude, decimal Longitude);
 
-/// IsInForce: status ACTIVE or RESTORED and not withdrawn (at most one per property). SurrenderDate: set when
-/// SURRENDERED. ConfirmedOwnershipId: the ownership row confirmed through this allotment since it was last put in
-/// force (the current one first), null when the allottee has not been confirmed as owner (again).
+/// IsInForce: status ACTIVE or RESTORED, not withdrawn, and already in effect (TakesEffectOn on or before today). At most
+/// one allotment per property is current (ACTIVE / RESTORED) - IsCurrent - even before it takes effect. SurrenderDate:
+/// set when SURRENDERED. ConfirmedOwnershipId: the ownership row confirmed through this allotment since it was last put
+/// in force (the current one first), null when the allottee has not been confirmed as owner (again).
 public sealed record AllotmentDto(
   Guid Id, Guid PropertyId, string AllotmentNo, OwnerRef? Allottee, MasterRef? AllotmentType, MasterRef? Status,
   DateOnly AllotmentDate, DateOnly? EffectiveDate, DateOnly? ExpiryDate, string? AllotmentLetterRef, string? Conditions,
   DateOnly? CancellationDate, string? CancellationReason, string? CancellationOrderRef,
   DateOnly? RestorationDate, string? RestorationOrderRef, string? Remarks, bool IsActive, DateTime? CreatedAt, Guid? CreatedBy,
-  bool IsInForce, DateOnly? SurrenderDate, Guid? ConfirmedOwnershipId);
+  bool IsInForce, DateOnly? SurrenderDate, Guid? ConfirmedOwnershipId, DateOnly? TakesEffectOn = null, bool IsCurrent = false);
 
 public sealed record LeaseDto(
   Guid Id, Guid PropertyId, string LeaseNo, OwnerRef? Lessee, MasterRef? LeaseType, MasterRef? Status,
@@ -20,17 +21,24 @@ public sealed record LeaseDto(
   bool IsRenewable, Guid? RenewedFromLeaseId, DateOnly? TerminationDate, string? TerminationReason, string? Remarks,
   DateTime? CreatedAt, Guid? CreatedBy);
 
+/// CurrentRentAmount: the rent due per period today - the agreed rent raised by the annual increase once for every full
+/// year since the start (RentAmount is the agreed figure).
 public sealed record RentalDto(
   Guid Id, Guid PropertyId, string RentalNo, OwnerRef? Tenant, MasterRef? RentalType, MasterRef? Status,
   DateOnly RentalStartDate, DateOnly? RentalEndDate, decimal RentAmount, RentFrequency RentFrequency, decimal? SecurityDeposit,
   decimal? AnnualIncreasePct, string? AgreementReference, DateOnly? AgreementDate, Guid? RenewedFromRentalId,
-  DateOnly? TerminationDate, string? TerminationReason, string? Remarks, DateTime? CreatedAt, Guid? CreatedBy);
+  DateOnly? TerminationDate, string? TerminationReason, string? Remarks, DateTime? CreatedAt, Guid? CreatedBy,
+  decimal CurrentRentAmount = 0);
 
+/// FineImposedBy / FineStatusChangedBy: Identity user ids (show the person's name through the user directory).
+/// FineReceiptNo / FinePaidOn: the payment of a Paid fine; FineStatusReason: why it was waived or sent for recovery.
 public sealed record ViolationDto(
   Guid Id, Guid PropertyId, MasterRef? AgreementType, Guid? LeaseId, Guid? RentalId, Guid? TransferId, OwnerRef? Violator,
   DateOnly ViolationDate, string ViolationDescription, short OccurrenceNo, string? NoticeNo, DateOnly? NoticeDate,
   DateOnly? NoticeDeadline, decimal? FineAmount, Guid? FineImposedBy, FineStatus? FineStatus, bool LedToCancellation,
-  DateOnly? CancellationDate, ViolationStatus Status, ViolationStatus? PreAppealStatus, string? Remarks, DateTime? CreatedAt, Guid? CreatedBy);
+  DateOnly? CancellationDate, ViolationStatus Status, ViolationStatus? PreAppealStatus, string? Remarks, DateTime? CreatedAt, Guid? CreatedBy,
+  Guid? AllotmentId = null, DateOnly? FineImposedOn = null, string? FineReceiptNo = null, DateOnly? FinePaidOn = null,
+  string? FineStatusReason = null, Guid? FineStatusChangedBy = null, DateOnly? FineStatusChangedOn = null);
 
 public sealed record AuctionBidDto(Guid Id, OwnerRef? Bidder, decimal BidAmount, int? BidRank, decimal? EarnestMoney, bool IsWinning, string? Remarks, DateTime? CreatedAt);
 
@@ -40,11 +48,13 @@ public sealed record AuctionDto(
   string? AwardReferenceNo, string? AuctionCommitteeRef, string? Venue, string? ReferenceNo, string? Remarks,
   Guid? PreviousAuctionId, IReadOnlyList<AuctionBidDto> Bids, DateTime? CreatedAt, Guid? CreatedBy);
 
+/// MoneyDirection: Receivable (the contractor pays GDA) or Payable (GDA pays the contractor); null = never recorded.
 public sealed record OutsourcingDto(
   Guid Id, Guid PropertyId, string ContractNo, OwnerRef? Contractor, MasterRef? OutsourcingType, MasterRef? Status,
   DateOnly ContractStartDate, DateOnly? ContractEndDate, string? PurposeService, decimal? ContractAmount,
   AmountFrequency? AmountFrequency, decimal? PerformanceGuarantee, string? ReferenceNo, DateOnly? TerminationDate,
-  string? TerminationReason, string? Remarks, DateTime? CreatedAt, Guid? CreatedBy);
+  string? TerminationReason, string? Remarks, DateTime? CreatedAt, Guid? CreatedBy,
+  MoneyDirection? MoneyDirection = null, Guid? RenewedFromContractId = null);
 
 /// SlopeDegrees: 0-90; IsSteep: above the 45° limit of the Building & Construction Regulations 2026.
 public sealed record BoundaryDto(
@@ -60,35 +70,42 @@ public sealed record EncroachmentDto(
 
 public sealed record LitigationPartyDto(Guid Id, string PartyName, OwnerRef? PartyOwner, LitigationPartyRole Role, string? CounselName, string? Remarks);
 
-public sealed record LitigationHearingDto(Guid Id, DateOnly HearingDate, string? Proceedings, string? OrderPassed, DateOnly? NextHearingDate, string? AttendedBy);
+public sealed record LitigationHearingDto(Guid Id, DateOnly HearingDate, string? Proceedings, string? OrderPassed, DateOnly? NextHearingDate, string? AttendedBy,
+  Guid? AttendedByEmployeeId = null);
 
 public sealed record LitigationDto(
   Guid Id, Guid PropertyId, string? PropertyCode, string? PropertyName, string CaseNo, string CaseTitle, string CourtAuthority, MasterRef? LitigationType, MasterRef? Status,
   DateOnly? FilingDate, GdaRole? GdaRole, Guid? FiledByOfficerId, Guid? RelatedEncroachmentId, Guid? RelatedAllotmentId,
   Guid? RelatedLeaseId, DateOnly? NextHearingDate, DateOnly? DecisionDate, string? DecisionOutcome, string? AppealedTo,
   Guid? ParentLitigationId, string? GdaCounsel, string? Remarks, IReadOnlyList<LitigationPartyDto> Parties,
-  IReadOnlyList<LitigationHearingDto> Hearings, DateTime? CreatedAt, Guid? CreatedBy);
+  IReadOnlyList<LitigationHearingDto> Hearings, DateTime? CreatedAt, Guid? CreatedBy,
+  CaseResult? DecisionResult = null, Guid? GdaCounselEmployeeId = null);
 
 public sealed record AppealDto(
   Guid Id, Guid PropertyId, string? PropertyCode, string? PropertyName, string AppealNo, OwnerRef? Appellant, string AppealedOrderRef, DateOnly AppealedOrderDate,
   DateOnly? OrderReceivedDate, AppealOrderSource? OrderSourceTable, Guid? OrderSourceId, DateOnly AppealDate,
   string AppellateAuthority, string? DelegatedOfficer, DateOnly DecisionDueDate, bool IsOverdue, DateOnly? DecisionDate,
-  AppealOutcome? DecisionOutcome, string? DecisionDetails, AppealStatus Status, string? Remarks, DateTime? CreatedAt, Guid? CreatedBy);
+  AppealOutcome? DecisionOutcome, string? DecisionDetails, AppealStatus Status, string? Remarks, DateTime? CreatedAt, Guid? CreatedBy,
+  Guid? DelegatedOfficerEmployeeId = null);
 
+/// CoveredAreaSqFt: the covered area in square feet (rule 7). ApprovedByEmployeeId: the approving officer's HR record.
 public sealed record BuildingPlanDto(
   Guid Id, Guid PropertyId, string PlanNo, int RevisionNo, Guid? SupersedesPlanId, MasterRef? PlanType, MasterRef? Status,
   OwnerRef? Applicant, DateOnly? SubmissionDate, DateOnly? ApprovalDate, string? ApprovedBy, string? ApprovalReferenceNo,
   DateOnly? ValidityEndDate, decimal? CoveredArea, MasterRef? Unit, int? Floors, string? ArchitectName, string? Remarks,
-  DateTime? CreatedAt, Guid? CreatedBy);
+  DateTime? CreatedAt, Guid? CreatedBy,
+  decimal? CoveredAreaSqFt = null, Guid? ApprovedByEmployeeId = null, string? NoDuesCertificateNo = null,
+  string? PropertyCode = null, string? PropertyName = null);
 
 public static class ComplianceMappings
 {
+  /// isCurrent: ACTIVE / RESTORED and not withdrawn; in force once it has also taken effect (on or before today).
   public static AllotmentDto ToDto(
-      this PropertyAllotment x, MasterRefs refs, IReadOnlyDictionary<OwnerId, OwnerRef> owners, bool isInForce, Guid? confirmedOwnershipId) => new(
+      this PropertyAllotment x, MasterRefs refs, IReadOnlyDictionary<OwnerId, OwnerRef> owners, bool isCurrent, Guid? confirmedOwnershipId, DateOnly today) => new(
     x.Id.Value, x.PropertyId.Value, x.AllotmentNo.Value, owners.GetValueOrDefault(x.AllotteeOwnerId), refs[x.AllotmentTypeId], refs[x.AllotmentStatusId],
     x.AllotmentDate, x.EffectiveDate, x.ExpiryDate, x.AllotmentLetterRef, x.Conditions, x.CancellationDate, x.CancellationReason,
     x.CancellationOrderRef, x.RestorationDate, x.RestorationOrderRef, x.Remarks, x.IsActive, x.CreatedAt, x.CreatedBy,
-    isInForce, x.SurrenderDate, confirmedOwnershipId);
+    isCurrent && x.TakesEffectOn <= today, x.SurrenderDate, confirmedOwnershipId, x.TakesEffectOn, isCurrent);
 
   public static LeaseDto ToDto(this PropertyLease x, MasterRefs refs, IReadOnlyDictionary<OwnerId, OwnerRef> owners) => new(
     x.Id.Value, x.PropertyId.Value, x.LeaseNo.Value, owners.GetValueOrDefault(x.LesseeOwnerId), refs[x.LeaseTypeId], refs[x.LeaseStatusId],
@@ -100,13 +117,14 @@ public static class ComplianceMappings
     x.Id.Value, x.PropertyId.Value, x.RentalNo.Value, owners.GetValueOrDefault(x.TenantOwnerId), refs[x.RentalTypeId], refs[x.RentalStatusId],
     x.RentalStartDate, x.RentalEndDate, x.RentAmount, x.RentFrequency, x.SecurityDeposit, x.AnnualIncreasePct,
     x.AgreementReference, x.AgreementDate, x.RenewedFromRentalId?.Value, x.TerminationDate, x.TerminationReason, x.Remarks,
-    x.CreatedAt, x.CreatedBy);
+    x.CreatedAt, x.CreatedBy, x.CurrentRent(PakistanDate.Today));
 
   public static ViolationDto ToDto(this AgreementViolation x, MasterRefs refs, IReadOnlyDictionary<OwnerId, OwnerRef> owners) => new(
     x.Id.Value, x.PropertyId.Value, refs[x.AgreementTypeId], x.LeaseId?.Value, x.RentalId?.Value, x.TransferId?.Value,
     owners.GetValueOrDefault(x.ViolatorOwnerId), x.ViolationDate, x.ViolationDescription, x.OccurrenceNo, x.NoticeNo, x.NoticeDate,
     x.NoticeDeadline, x.FineAmount, x.FineImposedBy, x.FineStatus, x.LedToCancellation, x.CancellationDate, x.ViolationStatus,
-    x.PreAppealStatus, x.Remarks, x.CreatedAt, x.CreatedBy);
+    x.PreAppealStatus, x.Remarks, x.CreatedAt, x.CreatedBy,
+    x.AllotmentId?.Value, x.FineImposedOn, x.FineReceiptNo, x.FinePaidOn, x.FineStatusReason, x.FineStatusChangedBy, x.FineStatusChangedOn);
 
   public static AuctionDto ToDto(this PropertyAuction x, MasterRefs refs, IReadOnlyDictionary<OwnerId, OwnerRef> owners) => new(
     x.Id.Value, x.PropertyId.Value, x.AuctionNo.Value, refs[x.AuctionTypeId], refs[x.AuctionStatusId], x.AnnouncementDate,
@@ -120,7 +138,8 @@ public static class ComplianceMappings
   public static OutsourcingDto ToDto(this PropertyOutsourcing x, MasterRefs refs, IReadOnlyDictionary<OwnerId, OwnerRef> owners) => new(
     x.Id.Value, x.PropertyId.Value, x.ContractNo.Value, owners.GetValueOrDefault(x.OutsourcedPartyOwnerId), refs[x.OutsourcingTypeId],
     refs[x.ContractStatusId], x.ContractStartDate, x.ContractEndDate, x.PurposeService, x.ContractAmount, x.AmountFrequency,
-    x.PerformanceGuarantee, x.ReferenceNo, x.TerminationDate, x.TerminationReason, x.Remarks, x.CreatedAt, x.CreatedBy);
+    x.PerformanceGuarantee, x.ReferenceNo, x.TerminationDate, x.TerminationReason, x.Remarks, x.CreatedAt, x.CreatedBy,
+    x.MoneyDirection, x.RenewedFromContractId?.Value);
 
   public static BoundaryDto ToDto(this PropertyBoundary x) => new(
     x.Id.Value, x.PropertyId.Value, x.BoundaryType, x.SurveyDate, x.SurveySource, x.SlopeDegrees, x.IsSteep, x.IsCurrent, x.Remarks,
@@ -139,18 +158,19 @@ public static class ComplianceMappings
     x.NextHearingDate, x.DecisionDate, x.DecisionOutcome, x.AppealedTo, x.ParentLitigationId?.Value, x.GdaCounsel, x.Remarks,
     x.Parties.Select(p => new LitigationPartyDto(p.Id.Value, p.PartyName, p.PartyOwnerId is null ? null : owners.GetValueOrDefault(p.PartyOwnerId),
       p.PartyRole, p.CounselName, p.Remarks)).ToList(),
-    x.Hearings.Select(h => new LitigationHearingDto(h.Id.Value, h.HearingDate, h.Proceedings, h.OrderPassed, h.NextHearingDate, h.AttendedBy)).ToList(),
-    x.CreatedAt, x.CreatedBy);
+    x.Hearings.Select(h => new LitigationHearingDto(h.Id.Value, h.HearingDate, h.Proceedings, h.OrderPassed, h.NextHearingDate, h.AttendedBy, h.AttendedByEmployeeId)).ToList(),
+    x.CreatedAt, x.CreatedBy, x.DecisionResult, x.GdaCounselEmployeeId);
 
   public static AppealDto ToDto(this PropertyAppeal x, IReadOnlyDictionary<OwnerId, OwnerRef> owners, PropertyRef? property, DateOnly today) => new(
     x.Id.Value, x.PropertyId.Value, property?.PropertyCode, property?.PropertyName, x.AppealNo.Value, owners.GetValueOrDefault(x.AppellantOwnerId), x.AppealedOrderRef,
     x.AppealedOrderDate, x.OrderReceivedDate, x.OrderSourceTable, x.OrderSourceId, x.AppealDate, x.AppellateAuthority,
     x.DelegatedOfficer, x.DecisionDueDate, x.IsOverdue(today), x.DecisionDate, x.DecisionOutcome, x.DecisionDetails,
-    x.AppealStatus, x.Remarks, x.CreatedAt, x.CreatedBy);
+    x.AppealStatus, x.Remarks, x.CreatedAt, x.CreatedBy, x.DelegatedOfficerEmployeeId);
 
-  public static BuildingPlanDto ToDto(this BuildingPlan x, MasterRefs refs, IReadOnlyDictionary<OwnerId, OwnerRef> owners) => new(
+  public static BuildingPlanDto ToDto(this BuildingPlan x, MasterRefs refs, IReadOnlyDictionary<OwnerId, OwnerRef> owners, PropertyRef? property = null) => new(
     x.Id.Value, x.PropertyId.Value, x.PlanNo.Value, x.RevisionNo, x.SupersedesPlanId?.Value, refs[x.BuildingPlanTypeId],
     refs[x.BuildingPlanStatusId], x.ApplicantOwnerId is null ? null : owners.GetValueOrDefault(x.ApplicantOwnerId), x.SubmissionDate,
     x.ApprovalDate, x.ApprovedBy, x.ApprovalReferenceNo, x.ValidityEndDate, x.CoveredArea,
-    x.MeasurementUnitId is null ? null : refs[x.MeasurementUnitId], x.Floors, x.ArchitectName, x.Remarks, x.CreatedAt, x.CreatedBy);
+    x.MeasurementUnitId is null ? null : refs[x.MeasurementUnitId], x.Floors, x.ArchitectName, x.Remarks, x.CreatedAt, x.CreatedBy,
+    x.CoveredAreaBase, x.ApprovedByEmployeeId, x.NoDuesCertificateNo, property?.PropertyCode, property?.PropertyName);
 }

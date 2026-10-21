@@ -39,7 +39,8 @@ public sealed record ParticularRow(string Label, IReadOnlyList<string> HeadCodes
 
 public sealed record ParticularTotals(decimal Arrears, decimal Current, decimal Received, decimal Payable);
 
-/// Changes a reviewer may make to a prepared notice before confirming it. Null = unchanged.
+/// Changes a reviewer may make to a prepared notice before confirming it. Null = unchanged. A new date or number of
+/// days to pay moves the pay-by date with it (worked out in working days) unless a pay-by date is given too.
 public sealed record NoticeChanges(
   string? PayerName = null,
   string? PayerMobile = null,
@@ -52,11 +53,14 @@ public sealed record NoticeChanges(
   bool? ShowsParagraph = null,
   bool? ShowsTable = null,
   IReadOnlyList<TableColumnKey>? Columns = null,
-  string? Reason = null);
+  string? Reason = null,
+  DateOnly? IssueDate = null,
+  int? Days = null,
+  string? Paragraph = null);
 
 /// taxation.notice: a notice on a demand. It is prepared with pre-filled variables (PENDING) and issued only when a user
 /// confirms it; issuing freezes the table of particulars, the amount, the QR and the signing officer, so a reprint is
-/// identical.
+/// identical. The endorsement number is taken when it is issued, so a cancelled draft leaves no gap in the series.
 public class Notice : Aggregate<NoticeId>
 {
   private List<NoticeEdit> _edits = new();
@@ -97,10 +101,18 @@ public class Notice : Aggregate<NoticeId>
   public Guid? ServedByEmployeeId { get; private set; }
   public DateOnly? ServedOn { get; private set; }
   public ServiceMode? ServiceMode { get; private set; }
+  public Guid? CancelledBy { get; private set; }
+  public DateTime? CancelledAt { get; private set; }
+
+  /// Concurrency token (Postgres xmin): two people confirming the same notice at once - the second is refused.
+  public uint Version { get; private set; }
 
   private Notice() { }
 
-  public static Notice Prepare(NoticeId id, string noticeNo, string endstNo, Demand demand, TaxFile file, NoticeStage stage, NoticeOrigin origin, DateOnly issueDate,
+  public bool DateEdited => _edits.Any(e => e.Field == "issueDate");
+  public bool ReplyByEdited => _edits.Any(e => e.Field == "replyBy");
+
+  public static Notice Prepare(NoticeId id, string noticeNo, Demand demand, TaxFile file, NoticeStage stage, NoticeOrigin origin, DateOnly issueDate,
       DateOnly replyBy, NoticeTemplate template, NoticeLetterhead letterhead, NoticeTableLayout layout, PayVia payVia, NoticeVariables variables,
       NoticeParticulars particulars, PenaltyRunId? penaltyRunId, bool sendSms)
   {
@@ -115,7 +127,6 @@ public class Notice : Aggregate<NoticeId>
     {
       Id = id,
       NoticeNo = noticeNo,
-      EndstNo = endstNo,
       LetterheadId = letterhead.Id,
       ShowsParagraph = true,
       TableLayoutId = layout.Id,
@@ -152,8 +163,9 @@ public class Notice : Aggregate<NoticeId>
     Columns = columns is null ? null : WithParticular(columns);
   }
 
-  /// Changes made before issue. Every changed value is recorded with the reason; a reason is required when anything printed changes.
-  public void Change(NoticeChanges changes, IReadOnlyList<NoticeColumn> layoutColumns, Guid? actor, DateTime now)
+  /// Changes made before issue. Every changed value is recorded with the reason; a reason is required when anything printed
+  /// changes. movedReplyBy: the pay-by date worked out for a new date or number of days (used when no pay-by is given).
+  public void Change(NoticeChanges changes, IReadOnlyList<NoticeColumn> layoutColumns, Guid? actor, DateTime now, DateOnly? movedReplyBy = null)
   {
     EnsurePending();
     var v = Variables;
@@ -167,6 +179,21 @@ public class Notice : Aggregate<NoticeId>
       return value;
     }
 
+    var days = v.Days;
+    if (changes.Days is { } d && d != v.Days)
+    {
+      if (d is < 1 or > 90)
+        throw new DomainException("Days to pay: a whole number from 1 to 90.");
+      edits.Add(new NoticeEdit("days", v.Days.ToString(), d.ToString(), changes.Reason ?? "", actor, now));
+      days = d;
+    }
+    var paragraph = v.Paragraph;
+    if (changes.Paragraph is { } p && !string.IsNullOrWhiteSpace(p) && p.Trim() != v.Paragraph)
+    {
+      paragraph = NoticeTemplate.CheckParagraph(p);
+      edits.Add(new NoticeEdit("paragraph", v.Paragraph, paragraph, changes.Reason ?? "", actor, now));
+    }
+
     var updated = v with
     {
       PayerName = Edit("payerName", v.PayerName, changes.PayerName)!,
@@ -174,20 +201,33 @@ public class Notice : Aggregate<NoticeId>
       RefId = Edit("refId", v.RefId, changes.RefId)!,
       PlotNo = Edit("plotNo", v.PlotNo, changes.PlotNo),
       Town = Edit("town", v.Town, changes.Town)!,
-      AddressLine = Edit("addressLine", v.AddressLine, changes.AddressLine)!
+      AddressLine = Edit("addressLine", v.AddressLine, changes.AddressLine)!,
+      Days = days,
+      Paragraph = paragraph
     };
-    var replyBy = ReplyBy;
-    if (changes.ReplyBy is { } reply && reply != ReplyBy)
+
+    var issueDate = IssueDate;
+    if (changes.IssueDate is { } date && date != IssueDate)
     {
-      if (reply < IssueDate)
-        throw new DomainException("The reply date cannot be before the notice date.");
+      edits.Add(new NoticeEdit("issueDate", IssueDate.ToString("yyyy-MM-dd"), date.ToString("yyyy-MM-dd"), changes.Reason ?? "", actor, now));
+      issueDate = date;
+    }
+    var replyBy = ReplyBy;
+    var nextReply = changes.ReplyBy ?? (issueDate != IssueDate || days != v.Days ? movedReplyBy : null);
+    if (nextReply is { } reply && reply != ReplyBy)
+    {
+      if (reply < issueDate)
+        throw new DomainException("The pay-by date cannot be before the notice date.");
       edits.Add(new NoticeEdit("replyBy", ReplyBy?.ToString("yyyy-MM-dd"), reply.ToString("yyyy-MM-dd"), changes.Reason ?? "", actor, now));
       replyBy = reply;
     }
+    if (replyBy < issueDate)
+      throw new DomainException("The pay-by date cannot be before the notice date - give a later pay-by date with the new notice date.");
 
     if (edits.Count > 0 && string.IsNullOrWhiteSpace(changes.Reason))
       throw new DomainException("Give a reason for the edit.");
     Variables = CheckVariables(updated);
+    IssueDate = issueDate;
     ReplyBy = replyBy;
     _edits.AddRange(edits.Select(e => e with { Reason = Guard.RequiredText(changes.Reason, 300, "Reason") }));
 
@@ -197,13 +237,29 @@ public class Notice : Aggregate<NoticeId>
     SetPrinting(changes.ShowsParagraph ?? ShowsParagraph, changes.ShowsTable ?? ShowsTable, columns);
   }
 
-  /// Issues the notice: the amount behind the reference today, the table as printed, the QR, the signing officer.
-  public void Confirm(Demand demand, NoticeParticulars particulars, string? qrPayload, SigningOfficer? signer, Guid actor, DateTime now)
+  /// A notice of the cycle confirmed after its day is issued on the day it is confirmed, with its days to pay counted
+  /// from then - unless a reviewer set its date (or its pay-by date) on purpose.
+  public void RedateTo(DateOnly today, DateOnly replyBy)
+  {
+    EnsurePending();
+    if (Origin != NoticeOrigin.Cycle || IssueDate >= today || DateEdited)
+      return;
+    IssueDate = today;
+    if (!ReplyByEdited)
+      ReplyBy = replyBy;
+  }
+
+  /// Issues the notice: the amount behind the reference today, the table as printed, the QR, the signing officer and the
+  /// endorsement number of its circle and year. A demand with nothing owed gets no notice.
+  public void Confirm(Demand demand, NoticeParticulars particulars, string? qrPayload, SigningOfficer? signer, string endstNo, Guid actor, DateTime now)
   {
     EnsurePending();
     if (demand.Id != DemandId)
       throw new DomainException("The notice belongs to another demand.");
+    if (demand.Balance <= 0)
+      throw new DomainException($"Nothing is owed on {demand.DemandNo} now, so notice {NoticeNo} is not issued. Cancel it.");
     Status = NoticeStatus.Issued;
+    EndstNo = Guard.RequiredText(endstNo, 40, "Endorsement no.");
     ConfirmedBy = actor;
     ConfirmedAt = now;
     AmountWithinDue = demand.Balance;
@@ -222,10 +278,12 @@ public class Notice : Aggregate<NoticeId>
     SmsSent = smsId is not null;
   }
 
-  public void Cancel()
+  public void Cancel(Guid? actor, DateTime now)
   {
     EnsurePending();
     Status = NoticeStatus.Cancelled;
+    CancelledBy = actor;
+    CancelledAt = now;
   }
 
   /// Service by the Tax Collector (or refusal).

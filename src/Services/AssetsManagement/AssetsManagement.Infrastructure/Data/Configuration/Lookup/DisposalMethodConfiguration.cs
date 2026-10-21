@@ -23,6 +23,7 @@ public class DisposalMethodConfiguration : EntityConfiguration<DisposalMethod, D
       .IsRequired();
 
     builder.Property(x => x.RequiresValue).IsRequired().HasDefaultValue(false);
+    builder.Property(x => x.AllowsValue).IsRequired().HasDefaultValue(true);
     builder.Property(x => x.IsActive).IsRequired().HasDefaultValue(true);
 
     builder.HasIndex(x => x.Code).IsUnique();

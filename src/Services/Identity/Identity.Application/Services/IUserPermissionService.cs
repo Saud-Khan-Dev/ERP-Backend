@@ -3,4 +3,7 @@
 public interface IUserPermissionService
 {
   Task<PermissionResolver.ResolvedPermissions> ResolveAsync(UserId userId, CancellationToken cancellationToken);
+
+  /// Role code -> role name, for the roles a token or /auth/me lists (a screen shows names, never codes).
+  Task<IReadOnlyDictionary<string, string>> RoleNamesAsync(IEnumerable<string> roleCodes, CancellationToken cancellationToken);
 }

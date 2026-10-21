@@ -87,7 +87,7 @@ public class AssetCategory : Aggregate<AssetCategoryId>
         throw new DomainException("A sub-category belongs to the same asset type as its parent.");
 
       if (Path is not null && IsAncestorOf(parent))
-        throw new DomainException("Moving a category under one of its own descendants would create a cycle.");
+        throw new DomainException("A category cannot be moved under one of its own sub-categories.");
     }
 
     ParentCategoryId = parent?.Id;
@@ -111,6 +111,6 @@ public class AssetCategory : Aggregate<AssetCategoryId>
       throw new DomainException($"Category '{Name.Value}' has sub-categories. Choose one of its sub-categories for the asset.");
 
     if (!IsActive)
-      throw new DomainException($"Category '{Name.Value}' is inactive.");
+      throw new DomainException($"The category '{Name.Value}' is switched off.");
   }
 }

@@ -15,6 +15,8 @@ public class CreateLocation : ICarterModule
       var response = result.Value.Adapt<CreateLocationResponse>();
       return Results.Created($"/locations/{response!.Id}", response);
     })
+      .RequirePermission(PermissionCatalog.AssetTaxonomy.Create)
+
       .WithName("CreateLocation")
       .Produces<CreateLocationResponse>(StatusCodes.Status201Created)
       .ProducesProblem(StatusCodes.Status400BadRequest)

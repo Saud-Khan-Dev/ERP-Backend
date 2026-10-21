@@ -25,6 +25,7 @@ public interface IApplicationDbContext
   DbSet<EmployeeFamilyMember> EmployeeFamilyMembers { get; }
   DbSet<EmployeeBankAccount> BankAccounts { get; }
   DbSet<EmployeePayRecord> PayRecords { get; }
+  DbSet<EmployeeChangeLogEntry> ChangeLog { get; }
 
   // ---- 5-6. documents, education, recruitment ----
   DbSet<DocumentType> DocumentTypes { get; }
@@ -66,6 +67,8 @@ public interface IApplicationDbContext
   // ---- 13. loans, GP Fund ----
   DbSet<LoanType> LoanTypes { get; }
   DbSet<EmployeeLoan> Loans { get; }
+  DbSet<LoanRepayment> LoanRepayments { get; }
+  DbSet<EmployeeTaxOpening> TaxOpenings { get; }
   DbSet<LoanInstallment> LoanInstallments { get; }
   DbSet<GpFundAccount> GpFundAccounts { get; }
   DbSet<GpFundInterestRate> GpFundInterestRates { get; }

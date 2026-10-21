@@ -68,4 +68,30 @@ public static class AuthenticationExtensions
   /// Same, for a whole route group.
   public static RouteGroupBuilder RequirePermission(this RouteGroupBuilder builder, string permissionCode) =>
       builder.RequireAuthorization($"{PermissionPolicyProvider.PolicyPrefix}{permissionCode}");
+
+  /// The caller needs at least one of the permissions (401 without a token, 403 without any of them) - for a screen
+  /// several jobs open, e.g. the lists a module's configuration keeps, read by its clerks and by its administrators.
+  public static RouteHandlerBuilder RequireAnyPermission(this RouteHandlerBuilder builder, params string[] permissionCodes) =>
+      builder
+        .RequireAuthorization(policy => policy
+          .RequireAuthenticatedUser()
+          .RequireAssertion(context => permissionCodes.Any(code => context.User.HasClaim(ErpClaimTypes.Permission, code))))
+        .Produces(StatusCodes.Status401Unauthorized)
+        .Produces(StatusCodes.Status403Forbidden);
+
+  /// Same, for a whole route group.
+  public static RouteGroupBuilder RequireAnyPermission(this RouteGroupBuilder builder, params string[] permissionCodes) =>
+      builder.RequireAuthorization(policy => policy
+        .RequireAuthenticatedUser()
+        .RequireAssertion(context => permissionCodes.Any(code => context.User.HasClaim(ErpClaimTypes.Permission, code))));
+
+  /// Any signed-in person - for directory reads every module needs (who holds a post, an employee's name), never for
+  /// anything that changes data. A token still waiting for its temporary password to be changed is refused (403).
+  public static RouteHandlerBuilder RequireSignedIn(this RouteHandlerBuilder builder) =>
+      builder
+        .RequireAuthorization(policy => policy
+          .RequireAuthenticatedUser()
+          .RequireAssertion(context => !context.User.HasClaim(c => c.Type == ErpClaimTypes.PasswordChange)))
+        .Produces(StatusCodes.Status401Unauthorized)
+        .Produces(StatusCodes.Status403Forbidden);
 }

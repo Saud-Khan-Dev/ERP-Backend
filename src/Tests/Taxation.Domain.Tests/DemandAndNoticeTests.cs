@@ -8,7 +8,7 @@ public class DemandAndNoticeTests
   {
     var file = File();
     var demand = Issued(file, 2025);
-    demand.AddManualArrears(Misc, 2023, 3000, "Unpaid water 2023-24", "Old register", Officer, Now);
+    demand.AddManualArrears(Lease, 2023, 3000, "Unpaid water 2023-24", "Old register", Officer, Now);
     Assert.Equal(14500m + 8000m + 3000m, demand.Balance);
 
     var settled = demand.Settle(4000, NothingPaid, Surcharge.Id, D("2025-08-01"));
@@ -39,7 +39,7 @@ public class DemandAndNoticeTests
       paid[s.ItemId] = s.Amount;
 
     var next = Demand.Draft(DemandId.New(), "DMD-2026", null, file, file.CurrentBasis!, file.Addressee(D("2026-07-01"))!, 2026, Assess(file, 2026).Lines, 0);
-    var rows = last.CarryInto(next, paid, Surcharge.Id, Officer, Now);
+    var rows = last.CarryInto(next, paid, Surcharge.Id, Officer, Now, D("2026-07-01"));
 
     Assert.Equal(DemandStatus.Carried, last.Status);
     Assert.Equal(0m, last.Balance);
@@ -74,10 +74,10 @@ public class DemandAndNoticeTests
     var terms = new SurchargeTerms(2025, null, TargetSet.DefaultersOnly, true, PenaltyRateType.Percent, 5, null);
     Assert.Null(SurchargeRules.Candidate(demand, file, IntraYearRule(), terms, Settings, D("2025-10-01")));
 
-    demand.AddManualArrears(Misc, 2024, 10000, "Arrears 2024-25", "Old register", Officer, Now);
+    demand.AddManualArrears(Lease, 2024, 10000, "Arrears 2024-25", "Old register", Officer, Now);
     var early = SurchargeRules.Candidate(demand, file, IntraYearRule(), terms, Settings, D("2025-09-30"))!;
     Assert.False(early.Eligible);
-    Assert.Contains("period runs until 2025-10-01", early.Reason);
+    Assert.Contains("period runs until 01 Oct 2025", early.Reason);
 
     var due = SurchargeRules.Candidate(demand, file, IntraYearRule(), terms, Settings, D("2025-10-01"))!;
     Assert.True(due.Eligible);
@@ -85,27 +85,27 @@ public class DemandAndNoticeTests
   }
 
   [Fact]
-  public void Earlier_dues_cannot_be_dated_after_the_demand_year_and_other_charges_need_a_description()
+  public void Earlier_dues_cannot_be_dated_after_the_demand_year_and_a_fee_is_not_added_to_a_notice()
   {
     var demand = Issued(File(), 2025);
-    Assert.Contains("after the demand's year", Assert.Throws<DomainException>(() => demand.AddManualArrears(Misc, 2026, 100, "x", "r", Officer, Now)).Message);
-    Assert.Contains("Describe", Assert.Throws<DomainException>(() => demand.AddManualArrears(Misc, 2024, 100, null, "r", Officer, Now)).Message);
+    Assert.Contains("after the demand's year", Assert.Throws<DomainException>(() => demand.AddManualArrears(Lease, 2026, 100, "x", "r", Officer, Now)).Message);
+    Assert.Contains("is a fee", Assert.Throws<DomainException>(() => demand.AddManualArrears(TransferFee, 2024, 100, null, "r", Officer, Now)).Message);
   }
 
   [Fact]
-  public void The_notice_table_adds_up_to_the_balance_and_puts_unplaced_heads_on_the_other_row()
+  public void The_notice_table_adds_up_to_the_balance_and_prints_a_head_without_a_row_under_its_own_name()
   {
     var demand = Issued(File(), 2025);
-    demand.AddManualArrears(Misc, 2024, 3000, "Old dues", "Old register", Officer, Now);
+    demand.AddManualArrears(Lease, 2024, 3000, "Old dues", "Old register", Officer, Now);
     var paid = new Dictionary<Guid, decimal>();
     foreach (var s in demand.Settle(5000, NothingPaid, Surcharge.Id, D("2025-09-01")))
       if (s.Kind != DemandItemKind.Arrears)
         paid[s.ItemId] = s.Amount;
 
-    var table = NoticeTable.Build(demand, demand.Items(paid, Surcharge.Id), HeadCodesById, Layout());
+    var table = NoticeTable.Build(demand, demand.Items(paid, Surcharge.Id), HeadsById, Layout());
     Assert.Equal(demand.Balance, table.Totals.Payable);
     Assert.Equal(5000m, table.Totals.Received);
-    var other = table.Rows.Single(r => r.Label == "Other charges / earlier dues");
+    var other = table.Rows.Single(r => r.Label == "Lease money / ground rent");
     Assert.Equal(3000m, other.Arrears);
     Assert.Equal(0m, other.Payable);
   }
@@ -114,8 +114,8 @@ public class DemandAndNoticeTests
   public void Rows_that_are_all_zero_can_be_left_out_of_the_notice_table()
   {
     var demand = Issued(File(), 2025);
-    var full = NoticeTable.Build(demand, demand.Items(NothingPaid, Surcharge.Id), HeadCodesById, Layout());
-    var trimmed = NoticeTable.Build(demand, demand.Items(NothingPaid, Surcharge.Id), HeadCodesById, Layout(hideZero: true));
+    var full = NoticeTable.Build(demand, demand.Items(NothingPaid, Surcharge.Id), HeadsById, Layout());
+    var trimmed = NoticeTable.Build(demand, demand.Items(NothingPaid, Surcharge.Id), HeadsById, Layout(hideZero: true));
     Assert.Equal(5, full.Rows.Count);
     Assert.Equal(2, trimmed.Rows.Count);
     Assert.Equal(full.Totals, trimmed.Totals);
@@ -124,13 +124,13 @@ public class DemandAndNoticeTests
   [Fact]
   public void A_head_is_in_at_most_one_row_and_the_table_needs_an_amount_column()
   {
-    var known = Heads.Select(h => h.Code).ToHashSet();
     var twice = Assert.Throws<DomainException>(() => NoticeTableLayout.Create(NoticeTableLayoutId.New(), new TableLayoutInput(
-      [new("A", [HeadCodes.PropertyTax]), new("B", [HeadCodes.PropertyTax])], [], "Other", false, "r"), known, D("2025-07-01")));
+      [new("A", [HeadCodes.PropertyTax]), new("B", [HeadCodes.PropertyTax])], [], false, "r"), HeadNames, [], D("2025-07-01")));
     Assert.Contains("in two rows", twice.Message);
 
     var noAmounts = Assert.Throws<DomainException>(() => NoticeTableLayout.Create(NoticeTableLayoutId.New(), new TableLayoutInput(
-      [new("A", [HeadCodes.PropertyTax])], NoticeTableLayout.AmountColumns.Select(k => new TableColumnInput(k, null, false)).ToList(), "Other", false, "r"), known, D("2025-07-01")));
+      [new("A", [HeadCodes.PropertyTax])], NoticeTableLayout.AmountColumns.Select(k => new TableColumnInput(k, null, false)).ToList(), false, "r"), HeadNames, [],
+      D("2025-07-01")));
     Assert.Contains("amount column", noAmounts.Message);
   }
 
@@ -159,8 +159,8 @@ public class DemandAndNoticeTests
     var file = File();
     var demand = Issued(file, 2025);
     var notice = Prepare(demand, file);
-    var table = NoticeTable.Build(demand, demand.Items(NothingPaid, Surcharge.Id), HeadCodesById, Layout());
-    notice.Confirm(demand, table, "QR", new SigningOfficer(null, null, "Mr Tariq Khan"), Officer, Now);
+    var table = NoticeTable.Build(demand, demand.Items(NothingPaid, Surcharge.Id), HeadsById, Layout());
+    notice.Confirm(demand, table, "QR", new SigningOfficer(null, null, "Mr Tariq Khan"), "TAX/C-I/2025-26/00001", Officer, Now);
     Assert.Equal(NoticeStatus.Issued, notice.Status);
     Assert.Equal(demand.Balance, notice.AmountWithinDue);
     Assert.Equal(DemandStage.First, demand.Stage);
@@ -283,8 +283,8 @@ public class DemandAndNoticeTests
     var template = NoticeTemplate.Create(NoticeTemplateId.New(), NoticeStage.First, "First", "1st NOTICE", "Pay {amount} within {days}.", null, D("2025-07-01"));
     var letterhead = NoticeLetterhead.Create(NoticeLetterheadId.New(), new LetterheadInput("GOVT", "GDA", null, [], [], null, null, true, "ref"), null, null, D("2025-07-01"));
     var variables = new NoticeVariables { PayerName = "Asif Jadoon", RefId = "NA/R/01", Town = "NG", AddressLine = "Asif Jadoon, Chairlift Road", Days = 10, Paragraph = template.ParagraphText };
-    var table = NoticeTable.Build(demand, demand.Items(NothingPaid, Surcharge.Id), HeadCodesById, Layout());
-    return Notice.Prepare(NoticeId.New(), "GDA-TAX-2025-0001", "TAX/C-I/2025-26/00001", demand, file, NoticeStage.First, NoticeOrigin.Cycle, D("2025-07-01"),
+    var table = NoticeTable.Build(demand, demand.Items(NothingPaid, Surcharge.Id), HeadsById, Layout());
+    return Notice.Prepare(NoticeId.New(), "GDA-TAX-2025-0001", demand, file, NoticeStage.First, NoticeOrigin.Cycle, D("2025-07-01"),
       D("2025-07-15"), template, letterhead, Layout(), PayVia.Both, variables, table, null, true);
   }
 }

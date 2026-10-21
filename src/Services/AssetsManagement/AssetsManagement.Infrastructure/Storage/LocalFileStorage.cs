@@ -60,6 +60,14 @@ public sealed class LocalFileStorage(IOptions<FileStorageOptions> options) : IFi
     return Task.FromResult(stream);
   }
 
+  public Task DeleteAsync(string relativePath, CancellationToken cancellationToken)
+  {
+    var fullPath = Resolve(relativePath);
+    if (File.Exists(fullPath))
+      File.Delete(fullPath);
+    return Task.CompletedTask;
+  }
+
   /// Keeps every path inside the storage root, whatever the relative path contains.
   private string Resolve(string relativePath)
   {

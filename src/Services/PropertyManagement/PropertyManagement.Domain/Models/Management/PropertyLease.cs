@@ -2,7 +2,9 @@
 ///
 /// History, never overwrite (rule 2): the terms can only be edited while the lease is a DRAFT. Once in
 /// force, a change of terms is a renewal — a new lease row pointing back through renewed_from_lease_id —
-/// and the old one becomes RENEWED. Leases end by expiry, termination or cancellation (s.28-A).
+/// and the old one becomes RENEWED; only the agreement reference, its date and the remarks can still be corrected.
+/// Leases end by expiry (EXPIRED: the end date passed), termination (TERMINATED: ended early by an order) or
+/// cancellation (CANCELLED: rule 5, s.28-A). A lease is in force from its start date.
 /// Collecting lease money is the Tax Module's job.
 public class PropertyLease : Aggregate<LeaseId>
 {
@@ -68,14 +70,50 @@ public class PropertyLease : Aggregate<LeaseId>
     return lease;
   }
 
+  /// A draft takes any change. Once the lease is in force its terms are history: only the agreement reference, its date
+  /// and the remarks can be corrected; a change of the lessee's terms is a renewal (a new lease row).
   public void UpdateTerms(LeaseStatus currentStatus, Terms terms)
   {
     EnsureCurrent(currentStatus);
+    ArgumentNullException.ThrowIfNull(terms);
 
-    if (!currentStatus.Is(SystemMasterCodes.Draft))
-      throw new DomainException($"Lease {LeaseNo.Value} is {currentStatus.Name.Value}: its terms are history now. Renew it to change them.");
+    if (currentStatus.Is(SystemMasterCodes.Draft))
+    {
+      Apply(terms);
+      return;
+    }
 
-    Apply(terms);
+    if (!IsInForce(currentStatus))
+      throw new DomainException($"Lease {LeaseNo.Value} is {currentStatus.Name.Value.ToLowerInvariant()} and can no longer change.");
+
+    var termsChanged = terms.LeaseType.Id != LeaseTypeId || terms.LeaseStartDate != LeaseStartDate || terms.LeaseEndDate != LeaseEndDate
+      || terms.LeaseTermYears != LeaseTermYears || terms.LeaseAmount != LeaseAmount || terms.AmountFrequency != AmountFrequency
+      || terms.SecurityDeposit != SecurityDeposit || terms.IsRenewable != IsRenewable
+      || !string.Equals(Guard.Text(terms.LeasePurpose, 200, "Lease purpose"), LeasePurpose, StringComparison.Ordinal);
+
+    if (termsChanged)
+      throw new DomainException(
+        $"Lease {LeaseNo.Value} is in force, so its terms are history: renew or revise it to change the amount, dates or purpose. Only the agreement reference, its date and the remarks can be corrected.");
+
+    AgreementReference = Guard.Text(terms.AgreementReference, 100, "Agreement reference");
+    AgreementDate = terms.AgreementDate;
+    Remarks = Guard.Text(terms.Remarks, 4000, "Remarks");
+  }
+
+  /// The period the lease occupies the property, for the overlap rule.
+  public AgreementSpan Span(string lesseeName) =>
+      new(AgreementSpanKind.Lease, LeaseNo.Value, lesseeName, LeaseStartDate, TerminationDate ?? LeaseEndDate, LeaseTypeId);
+
+  /// A term in years that does not match the dates (more than a month apart) - a warning, the dates rule.
+  public IReadOnlyList<string> TermWarnings()
+  {
+    if (LeaseTermYears is not { } years)
+      return Array.Empty<string>();
+
+    var expectedEnd = LeaseStartDate.AddYears(years).AddDays(-1);
+    return Math.Abs(expectedEnd.DayNumber - LeaseEndDate.DayNumber) <= 31
+      ? Array.Empty<string>()
+      : new[] { $"The term of {years} year(s) does not match the dates {LeaseStartDate:yyyy-MM-dd} to {LeaseEndDate:yyyy-MM-dd}; the dates are what count." };
   }
 
   public void Activate(LeaseStatus currentStatus, LeaseStatus activeStatus)
@@ -128,11 +166,33 @@ public class PropertyLease : Aggregate<LeaseId>
     return renewal;
   }
 
-  public void Terminate(LeaseStatus currentStatus, LeaseStatus terminatedStatus, DateOnly terminationDate, string reason)
+  /// Ends the lease early by an order (TERMINATED). The date is a recorded event: not in the future, not after the
+  /// lease would have ended anyway (it then expires instead).
+  public void Terminate(LeaseStatus currentStatus, LeaseStatus terminatedStatus, DateOnly terminationDate, string reason, DateOnly? today = null)
   {
     EnsureInForce(currentStatus);
     terminatedStatus.EnsureIs(SystemMasterCodes.Terminated);
-    End(terminatedStatus, terminationDate, reason);
+
+    if (currentStatus.Is(SystemMasterCodes.Draft))
+      throw new DomainException($"{LeaseNo.Value} is still a draft and never came into force; withdraw the draft instead.");
+
+    AgreementDates.EnsureEndedOn(LeaseNo.Value, terminationDate, LeaseStartDate, LeaseEndDate, today);
+    LeaseStatusId = terminatedStatus.Id;
+    TerminationDate = terminationDate;
+    TerminationReason = Guard.RequiredText(reason, 4000, "Reason");
+  }
+
+  /// A draft that will not go ahead is withdrawn (WITHDRAWN, with the reason): it never came into force.
+  public void WithdrawDraft(LeaseStatus currentStatus, LeaseStatus withdrawnStatus, string reason)
+  {
+    EnsureCurrent(currentStatus);
+    withdrawnStatus.EnsureIs(SystemMasterCodes.Withdrawn);
+
+    if (!currentStatus.Is(SystemMasterCodes.Draft))
+      throw new DomainException($"Only a draft can be withdrawn; {LeaseNo.Value} is {currentStatus.Name.Value.ToLowerInvariant()}. Terminate it instead.");
+
+    LeaseStatusId = withdrawnStatus.Id;
+    TerminationReason = Guard.RequiredText(reason, 4000, "Reason");
   }
 
   /// Rule 5: the third violation within the notice period cancels the lease (Act s.28-A).

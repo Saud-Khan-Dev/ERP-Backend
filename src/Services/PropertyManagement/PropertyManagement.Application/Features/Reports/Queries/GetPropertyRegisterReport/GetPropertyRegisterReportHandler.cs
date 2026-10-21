@@ -40,8 +40,9 @@ public class GetPropertyRegisterReportHandler(IApplicationDbContext context, Mas
       .ToDictionary(g => g.Key, g => g.OrderByDescending(o => o.OwnershipSharePct).ToList());
     var owners = await read.OwnersAsync(ownerships.Values.SelectMany(o => o).Select(o => (OwnerId?)o.OwnerId), cancellationToken);
 
-    // custom-field values keyed by the field's code: active fields that hold a value
-    var definitions = await context.AttributeDefinitions.AsNoTracking().Where(d => d.IsActive)
+    // custom-field values keyed by the field's code: every field that holds a value (one switched off since included -
+    // its values stay readable)
+    var definitions = await context.AttributeDefinitions.AsNoTracking()
         .ToDictionaryAsync(d => d.Id, d => d.Code.Value, cancellationToken);
     var definitionIds = definitions.Keys.ToList();
     var fields = (await context.PropertyAttributeValues.AsNoTracking()

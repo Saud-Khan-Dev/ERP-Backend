@@ -40,7 +40,8 @@ owners from Property and holidays and post holders from HRM over HTTP, passing t
 - Services migrate themselves on startup (`Database:AutoMigrate`, default on in Development), so you never need
   `dotnet ef database update` by hand. Identity and Property also seed (the admin user, permissions, master data);
   HRM seeds BPS 1–22, its system pay components and starter catalogues; Taxation seeds its heads, circles, templates,
-  penalty rules and a draft rate set; Assets seeds nothing, so its lookups start empty.
+  penalty rules and a draft rate set; Assets seeds its system event types and depreciation methods (through a
+  migration); its other lookups start empty.
 - Log in with `POST http://localhost:5142/auth/login` and `{"username":"superadmin","password":"SuperAdmin@123"}`.
   Send `Authorization: Bearer <accessToken>` to the other services.
 - Each service serves OpenAPI at `/openapi/v1.json`; there is no Swagger UI. Property, HRM and Taxation have step-by-step
@@ -116,12 +117,14 @@ X.Api             Carter endpoint modules, exception handler, Program.cs, Depend
 Identity issues short-lived HS256 JWTs (15 min by default, editable in the security settings) carrying `perm` claims (effective permissions) and `role`, `sub`, `username`
 and `ao` (authorized officer). Every service validates them with the **same** `Jwt:SigningKey`, issuer `erp-identity`
 and audience `erp`. The dev key is in each `appsettings.Development.json`, and compose passes `Jwt__SigningKey`.
-Endpoints declare `.RequirePermission(...)`. **Identity, Property, HRM and Taxation enforce this, but Assets does not yet:
-its endpoints are anonymous.** Taxation calls Property and HRM with the caller's own token, so its users need
-`PROPERTY.VIEW` too. A token for an account linked to an HRM employee also carries `emp` (the employee id),
-which HRM's self-service (`/me`) uses. Adding auth to Assets means referencing BuildingBlock.Authentication in its csproj, adding
-`AddErpAuthentication`, `UseAuthentication/UseAuthorization` and `RequirePermission` on routes, copying all of
-`BuildingBlocks/` in its Dockerfile, and setting `Jwt__SigningKey` in compose.
+Endpoints declare `.RequirePermission(...)` (or `.RequireAnyPermission(...)`, or `.RequireSignedIn()` for directory
+reads and `GET /attention`, which refuses a temporary-password token). **Every service enforces this, Assets included
+(since 2026-10-20).** A token for an account still holding a temporary password carries `pwd=change` and no permissions.
+Taxation calls Property with the caller's own token, so its users need `PROPERTY.VIEW` too; Taxation (the signing officer)
+and Assets (custodians and departments) read HRM's staff directory (`/directory/*`, any signed-in person) with the caller's
+token. A token for an account linked to an HRM employee also carries `emp` (the employee id), which HRM's self-service
+(`/me`) uses. Every service answers `GET /attention` (BuildingBlock `AttentionItemDto`): exact counts of what waits for
+the caller, for the notification bell.
 
 ## Team workflow
 

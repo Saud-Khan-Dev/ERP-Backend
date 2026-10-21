@@ -13,6 +13,8 @@ public class RemoveOptionSetValue : ICarterModule
 
       return Results.Ok(result.Value.Adapt<RemoveOptionSetValueResponse>());
     })
+      .RequirePermission(PermissionCatalog.AssetAttributes.Delete)
+
       .WithName("RemoveOptionSetValue")
       .Produces<RemoveOptionSetValueResponse>(StatusCodes.Status200OK)
       .ProducesProblem(StatusCodes.Status400BadRequest)

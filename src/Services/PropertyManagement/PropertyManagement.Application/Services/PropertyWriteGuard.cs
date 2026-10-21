@@ -5,7 +5,7 @@ using Microsoft.EntityFrameworkCore;
 public static class PropertyWriteGuard
 {
   /// Today's date for the "cannot be in the future" and "only after the end date" rules.
-  public static DateOnly Today() => DateOnly.FromDateTime(DateTime.UtcNow);
+  public static DateOnly Today() => PakistanDate.Today;
 
   /// Refuses the change when the record's property is inactive ("Property PROP-00001 is inactive ...").
   public static async Task<Property> EnsurePropertyActiveAsync(this IApplicationDbContext context, PropertyId propertyId, CancellationToken cancellationToken)

@@ -51,7 +51,15 @@ public interface IApplicationDbContext
   DbSet<Clearance> Clearances { get; }
   DbSet<SmsMessage> SmsMessages { get; }
 
+  // ---- 7. the daily job and the change history ----
+  DbSet<JobRun> JobRuns { get; }
+  DbSet<AuditLog> AuditLogs { get; }
+
   Task<int> SaveChangesAsync(CancellationToken cancellationToken);
 
   Task<IDbContextTransaction> BeginTransactionAsync(CancellationToken cancellationToken);
+
+  /// Locks a tax file's row and its open demands until the transaction ends, so money on one file is taken one payment
+  /// at a time (a second payment waits, then sees what the first settled). Only inside a transaction.
+  Task LockTaxFileAsync(TaxFileId id, CancellationToken cancellationToken);
 }

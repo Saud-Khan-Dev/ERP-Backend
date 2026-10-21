@@ -14,7 +14,7 @@ public class CreateLifecycleEventTypeHandler(IApplicationDbContext context)
     var eventType = LifecycleEventType.Create(LifecycleEventTypeId.Of(Guid.NewGuid()), input.Stage, code, Name.Of(input.Name, 100), input.Description);
 
     if (!input.IsActive)
-      eventType.Update(input.Stage, code, Name.Of(input.Name, 100), input.Description, false);
+      eventType.Update(input.Stage, code, Name.Of(input.Name, 100), input.Description, false, inUse: false);
 
     await context.LifecycleEventTypes.AddAsync(eventType, cancellationToken);
     await context.SaveChangesAsync(cancellationToken);

@@ -9,6 +9,8 @@ public class GetAssetAssignments : ICarterModule
       var result = await sender.Send(new GetAssetAssignmentsQuery(id, onlyOpenLoans ?? false));
       return Results.Ok(new GetAssetAssignmentsResponse(result.Value!.Assignments));
     })
+      .RequirePermission(PermissionCatalog.Assets.View)
+
       .WithName("GetAssetAssignments")
       .Produces<GetAssetAssignmentsResponse>(StatusCodes.Status200OK)
       .ProducesProblem(StatusCodes.Status404NotFound)

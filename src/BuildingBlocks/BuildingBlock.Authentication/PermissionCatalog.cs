@@ -39,6 +39,7 @@ public static class PermissionCatalog
     public const string Payroll = "PAYROLL";
     public const string Tax = "TAX";
     public const string TaxSetup = "TAX_SETUP";
+    public const string Dashboard = "DASHBOARD";
   }
 
   // ---- permission codes, grouped by module ----
@@ -226,6 +227,12 @@ public static class PermissionCatalog
     public const string Approve = "TAX_SETUP.APPROVE";
   }
 
+  /// The organisation dashboard: one card per module the person may read, across GDA.
+  public static class Dashboard
+  {
+    public const string View = "DASHBOARD.VIEW";
+  }
+
   // =====================================================
   // REGISTRY — what the Identity seeder reads
   // =====================================================
@@ -254,6 +261,7 @@ public static class PermissionCatalog
     new ModuleDefinition(Modules.Payroll, "Payroll"),
     new ModuleDefinition(Modules.Tax, "Taxation"),
     new ModuleDefinition(Modules.TaxSetup, "Taxation Setup"),
+    new ModuleDefinition(Modules.Dashboard, "Organisation Dashboard"),
   };
 
   public static IReadOnlyList<PermissionDefinition> All { get; } = BuildAll();
@@ -290,6 +298,7 @@ public static class PermissionCatalog
     permissions.Add(new PermissionDefinition(Security.View, Modules.IamSecurity, Actions.View, "View security audit"));
     permissions.Add(new PermissionDefinition(Security.Edit, Modules.IamSecurity, Actions.Edit, "Edit security settings"));
     permissions.Add(new PermissionDefinition(Security.Revoke, Modules.IamSecurity, Actions.Revoke, "Revoke sessions"));
+    permissions.Add(new PermissionDefinition(Dashboard.View, Modules.Dashboard, Actions.View, "View the organisation dashboard"));
 
     return permissions.ToArray();
   }

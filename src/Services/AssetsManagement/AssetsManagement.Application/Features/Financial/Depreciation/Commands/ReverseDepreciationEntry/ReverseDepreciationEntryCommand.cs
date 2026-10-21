@@ -2,7 +2,8 @@ using FluentValidation;
 
 public sealed record ReverseDepreciationEntryCommandResult(bool IsSuccess);
 
-public sealed record ReverseDepreciationEntryCommand(Guid ScheduleId, Guid EntryId, Guid? ReversedBy = null) : ICommand<Result<ReverseDepreciationEntryCommandResult>>;
+/// Undoes a posted month; the month and its reversal stay on record.
+public sealed record ReverseDepreciationEntryCommand(Guid ScheduleId, Guid EntryId) : ICommand<Result<ReverseDepreciationEntryCommandResult>>;
 
 public class ReverseDepreciationEntryCommandValidator : AbstractValidator<ReverseDepreciationEntryCommand>
 {

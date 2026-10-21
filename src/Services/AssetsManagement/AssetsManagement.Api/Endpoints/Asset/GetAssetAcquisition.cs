@@ -9,6 +9,8 @@ public class GetAssetAcquisition : ICarterModule
       var result = await sender.Send(new GetAssetAcquisitionQuery(id));
       return Results.Ok(new GetAssetAcquisitionResponse(result.Value!.Acquisition));
     })
+      .RequirePermission(PermissionCatalog.AssetFinance.View)
+
       .WithName("GetAssetAcquisition")
       .Produces<GetAssetAcquisitionResponse>(StatusCodes.Status200OK)
       .ProducesProblem(StatusCodes.Status404NotFound)

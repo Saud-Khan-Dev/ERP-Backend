@@ -60,7 +60,6 @@ public class ReviseTableLayoutCommandValidator : AbstractValidator<ReviseTableLa
   public ReviseTableLayoutCommandValidator()
   {
     RuleFor(x => x.Layout).NotNull();
-    RuleFor(x => x.Layout.OtherLabel).NotEmpty().MaximumLength(100);
     RuleFor(x => x.Layout.BoardReference).NotEmpty().MaximumLength(100);
     RuleFor(x => x.Layout.Rows).NotEmpty();
   }
@@ -159,8 +158,8 @@ public class NoticeSetupHandlers(IApplicationDbContext context, TaxSetup setup, 
   {
     var from = command.EffectiveFrom ?? clock.Today;
     var current = await setup.LayoutAsync(from, cancellationToken);
-    var known = (await setup.HeadsAsync(cancellationToken)).Select(h => h.Code).ToHashSet();
-    var next = NoticeTableLayout.Create(NoticeTableLayoutId.New(), command.Layout, known, from);
+    var (known, required) = await setup.LayoutHeadsAsync(cancellationToken);
+    var next = NoticeTableLayout.Create(NoticeTableLayoutId.New(), command.Layout, known, required, from);
     current.EndBefore(from);
     context.TableLayouts.Add(next);
     await context.SaveChangesAsync(cancellationToken);

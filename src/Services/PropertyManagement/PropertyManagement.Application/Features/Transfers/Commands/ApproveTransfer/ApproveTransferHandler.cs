@@ -1,4 +1,6 @@
-public class ApproveTransferHandler(IApplicationDbContext context, MasterLookup masters, ICurrentUser currentUser)
+using Microsoft.Extensions.Options;
+
+public class ApproveTransferHandler(IApplicationDbContext context, MasterLookup masters, ICurrentUser currentUser, IOptions<TransferOptions> options)
   : ICommandHandler<ApproveTransferCommand, Result<ApproveTransferCommandResult>>
 {
   public async Task<Result<ApproveTransferCommandResult>> Handle(ApproveTransferCommand command, CancellationToken cancellationToken)
@@ -7,15 +9,16 @@ public class ApproveTransferHandler(IApplicationDbContext context, MasterLookup 
     var property = await context.LoadPropertyAsync(transfer.PropertyId.Value, cancellationToken);
     var record = await context.LoadOwnershipRecordAsync(property, transfer.Parties.Select(p => p.OwnerId), cancellationToken);
     var tenure = await TransferRegistration.NewcomerTenureAsync(masters, command.TenureTypeId, cancellationToken);
-    var actor = TransferRegistration.ActorName(currentUser);
 
     var change = transfer.Approve(
-      command.ApprovedBy ?? actor,
+      TransferRegistration.Approver(currentUser),
       command.ApprovalDate ?? record.Today,
       command.ApprovalOrderRef,
-      actor,
+      command.NoDuesCertificateNo,
+      TransferRegistration.ActorName(currentUser),
       record,
-      tenure);
+      tenure,
+      options.Value.RequireSeparateApprover);
 
     await context.Ownerships.AddRangeAsync(change.Opened, cancellationToken);
     await context.SaveChangesAsync(cancellationToken);

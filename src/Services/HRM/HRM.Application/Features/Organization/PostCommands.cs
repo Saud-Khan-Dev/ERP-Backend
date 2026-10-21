@@ -20,7 +20,8 @@ public sealed record CreatePostCommandResult(Guid Id, string PostCode);
 public sealed record RevisePostCommand(Guid Id, PostDetailsInput Details, DateOnly EffectiveFrom) : ICommand<Result<CreatedResult>>;
 
 /// Fixes a mistake in the latest version without starting a new period.
-public sealed record CorrectPostCommand(Guid Id, PostDetailsInput Details) : ICommand<Result<UpdatedResult>>;
+/// Corrects the version in force on AsOf (today by default); a version planned for later is not touched.
+public sealed record CorrectPostCommand(Guid Id, PostDetailsInput Details, DateOnly? AsOf = null) : ICommand<Result<UpdatedResult>>;
 
 public enum PostLifecycleAction
 {
@@ -81,7 +82,7 @@ public class ChangePostLifecycleCommandValidator : AbstractValidator<ChangePostL
   }
 }
 
-public class PostHandlers(IApplicationDbContext context, CodeIssuer codes, ServiceRecordReader records, ICurrentUser currentUser) :
+public class PostHandlers(IApplicationDbContext context, CodeIssuer codes, ServiceRecordReader records, ICurrentUser currentUser, IClock clock) :
   ICommandHandler<CreatePostCommand, Result<CreatePostCommandResult>>,
   ICommandHandler<RevisePostCommand, Result<CreatedResult>>,
   ICommandHandler<CorrectPostCommand, Result<UpdatedResult>>,
@@ -124,9 +125,11 @@ public class PostHandlers(IApplicationDbContext context, CodeIssuer codes, Servi
   public async Task<Result<UpdatedResult>> Handle(CorrectPostCommand command, CancellationToken cancellationToken)
   {
     var post = await context.LoadPostAsync(command.Id, cancellationToken);
-    var details = await ResolveAsync(post.Id, command.Details, post.Latest.EffectiveFrom, post.Latest.Details, cancellationToken);
-    var filled = await records.FilledSeatsOnAsync(post.Id, post.Latest.EffectiveFrom, cancellationToken);
-    post.CorrectLatest(details, filled);
+    var asOf = command.AsOf ?? clock.Today;
+    var version = post.VersionOn(asOf) ?? throw new DomainException($"Post {post.PostCode} has no version in force on {asOf:dd MMM yyyy}.");
+    var details = await ResolveAsync(post.Id, command.Details, version.EffectiveFrom, version.Details, cancellationToken);
+    var filled = await records.FilledSeatsOnAsync(post.Id, asOf, cancellationToken);
+    post.CorrectOn(asOf, details, filled);
 
     await context.SaveChangesAsync(cancellationToken);
     return CommandResults.Updated();

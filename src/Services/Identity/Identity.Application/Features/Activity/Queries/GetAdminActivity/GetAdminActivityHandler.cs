@@ -29,11 +29,18 @@ public class GetAdminActivityHandler(IApplicationDbContext context)
     if (!string.IsNullOrWhiteSpace(query.Action) && Enum.TryParse<ActivityAction>(query.Action, ignoreCase: true, out var action))
       activities = activities.Where(a => a.Action == action);
 
+    // a date without a zone is read as UTC (the screens send UTC)
     if (query.From is { } from)
-      activities = activities.Where(a => a.OccurredAt >= from);
+    {
+      var since = AsUtc(from);
+      activities = activities.Where(a => a.OccurredAt >= since);
+    }
 
     if (query.To is { } to)
-      activities = activities.Where(a => a.OccurredAt <= to);
+    {
+      var until = AsUtc(to);
+      activities = activities.Where(a => a.OccurredAt <= until);
+    }
 
     var totalCount = await activities.LongCountAsync(cancellationToken);
 
@@ -49,4 +56,7 @@ public class GetAdminActivityHandler(IApplicationDbContext context)
         query.Pagination.Pageindex, query.Pagination.PageSize, totalCount,
         page.Select(a => a.ToDto()).ToList())));
   }
+
+  private static DateTime AsUtc(DateTime value) =>
+    value.Kind == DateTimeKind.Utc ? value : value.Kind == DateTimeKind.Local ? value.ToUniversalTime() : DateTime.SpecifyKind(value, DateTimeKind.Utc);
 }

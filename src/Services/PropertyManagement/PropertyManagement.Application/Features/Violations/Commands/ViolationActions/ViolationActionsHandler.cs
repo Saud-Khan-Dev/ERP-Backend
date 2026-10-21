@@ -20,15 +20,22 @@ public class ViolationActionsHandler(IApplicationDbContext context, ICurrentUser
 
     var violation = await context.LoadViolationAsync(command.Id, cancellationToken);
     await context.EnsurePropertyActiveAsync(violation.PropertyId, cancellationToken);
-    violation.ImposeFine(command.FineAmount, currentUser.UserId.Value);
+    violation.ImposeFine(command.FineAmount, currentUser.UserId.Value, PropertyWriteGuard.Today());
     return await SaveAsync(violation, cancellationToken);
   }
 
   public async Task<Result<ViolationActionResult>> Handle(SetFineStatusCommand command, CancellationToken cancellationToken)
   {
+    // a payment is a record (with its receipt); waiving a fine or sending it for recovery as land revenue is a decision
+    if (command.FineStatus is FineStatus.Waived or FineStatus.RecoveryAsArrears && !currentUser.HasPermission(PermissionCatalog.Property.Approve))
+      throw new PermissionRequiredException(command.FineStatus == FineStatus.Waived
+        ? "Waiving a fine is an approver's decision; ask an officer who can approve."
+        : "Sending a fine for recovery as arrears of land revenue is an approver's order; ask an officer who can approve.");
+
     var violation = await context.LoadViolationAsync(command.Id, cancellationToken);
     await context.EnsurePropertyActiveAsync(violation.PropertyId, cancellationToken);
-    violation.SetFineStatus(command.FineStatus);
+    violation.ChangeFineStatus(new AgreementViolation.FineChange(command.FineStatus, command.ReceiptNo, command.PaidOn, command.Reason),
+      PropertyWriteGuard.Today(), currentUser.UserId);
     return await SaveAsync(violation, cancellationToken);
   }
 

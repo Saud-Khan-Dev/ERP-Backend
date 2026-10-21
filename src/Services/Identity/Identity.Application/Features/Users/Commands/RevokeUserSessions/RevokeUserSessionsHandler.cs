@@ -1,6 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 
-public class RevokeUserSessionsHandler(IApplicationDbContext context,
+public class RevokeUserSessionsHandler(IApplicationDbContext context, IdentityGuard guard,
     IActivityRecorder activity)
   : ICommandHandler<RevokeUserSessionsCommand, Result<RevokeUserSessionsCommandResult>>
 {
@@ -10,7 +10,9 @@ public class RevokeUserSessionsHandler(IApplicationDbContext context,
     var userId = UserId.Of(command.UserId);
 
     if (!await context.Users.IgnoreQueryFilters().AnyAsync(u => u.Id == userId, cancellationToken))
-      throw new UserNotFoundException($"User {command.UserId} was not found.");
+      throw new UserNotFoundException("This account was not found.");
+
+    await guard.EnsureCanActOnAsync(userId, "sign out", cancellationToken);
 
     var sessions = await context.Sessions
         .Where(s => s.UserId == userId && s.RevokedAt == null)

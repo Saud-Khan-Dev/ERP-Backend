@@ -15,6 +15,8 @@ public class CreateAssetClass : ICarterModule
       var response = result.Value.Adapt<CreateAssetClassResponse>();
       return Results.Created($"/asset-classes/{response!.Id}", response);
     })
+      .RequirePermission(PermissionCatalog.AssetTaxonomy.Create)
+
       .WithName("CreateAssetClass")
       .Produces<CreateAssetClassResponse>(StatusCodes.Status201Created)
       .ProducesProblem(StatusCodes.Status400BadRequest)

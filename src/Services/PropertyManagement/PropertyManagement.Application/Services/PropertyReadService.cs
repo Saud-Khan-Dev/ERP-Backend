@@ -19,7 +19,7 @@ public class PropertyReadService(IApplicationDbContext context, MasterLookup mas
       .GroupBy(m => m.PropertyId)
       .ToDictionary(g => g.Key, g => g.OrderByDescending(m => m.CreatedAt).First());
 
-    var today = DateOnly.FromDateTime(DateTime.UtcNow);
+    var today = PakistanDate.Today;
     var regularized = (await context.AreaRegularizations.AsNoTracking()
         .Where(r => ids.Contains(r.PropertyId) && r.IsActive && r.RegularizationStatus == RegularizationStatus.Regularized)
         .ToListAsync(cancellationToken))

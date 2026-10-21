@@ -5,6 +5,11 @@ public sealed record GetOwnersQueryResult(PaginatedResult<OwnerListItemDto> Owne
 /// code | name | type (owner type name) | holdings (current holding count).
 public enum OwnerSort { Code, Name, Type, Holdings }
 
+/// What part a person or organization plays in the register (an owner record is also an allottee, a tenant, a party to a
+/// case ...): holder = holds a current share; allottee / lessee / tenant / contractor = of an agreement in force;
+/// bidder = bid in an auction; encroacher = named on an encroachment; litigant = a party to a case; appellant; violator.
+public enum OwnerRole { Holder, Allottee, Lessee, Tenant, Contractor, Bidder, Encroacher, Litigant, Appellant, Violator }
+
 /// Search matches the exact owner code, a CNIC (all 13 digits, or its first 5 or more), an NTN (either form) or part
 /// of the name. Cnic / Ntn filter exactly, in any written form - the lookup to run before registering someone new
 /// (send includeInactive=true so an inactive owner is found too). HasHoldings: true = owners holding at least one
@@ -18,7 +23,8 @@ public sealed record GetOwnersQuery(
   bool IncludeInactive = false,
   bool? HasHoldings = null,
   OwnerSort SortBy = OwnerSort.Code,
-  bool SortDescending = false) : IQuery<Result<GetOwnersQueryResult>>;
+  bool SortDescending = false,
+  OwnerRole? Role = null) : IQuery<Result<GetOwnersQueryResult>>;
 
 public class GetOwnersQueryValidator : AbstractValidator<GetOwnersQuery>
 {

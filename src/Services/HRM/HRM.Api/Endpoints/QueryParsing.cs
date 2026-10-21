@@ -24,4 +24,14 @@ public static class QueryParsing
   };
 
   public static PaginationRequest Page(int? pageIndex, int? pageSize, int defaultSize = 20) => new(pageIndex ?? 0, pageSize ?? defaultSize);
+
+  /// ids=a,b,c (comma-separated GUIDs); null when not given.
+  public static IReadOnlyList<Guid>? ParseGuids(string? raw, string name)
+  {
+    if (string.IsNullOrWhiteSpace(raw)) return null;
+    var list = new List<Guid>();
+    foreach (var part in raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+      list.Add(Guid.TryParse(part, out var id) ? id : throw new BadHttpRequestException($"'{part}' in {name} is not a valid id."));
+    return list;
+  }
 }

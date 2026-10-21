@@ -2,12 +2,14 @@ public sealed record EncroachmentNoticeRequest(string NoticeNo, DateOnly NoticeD
 public sealed record ResolveEncroachmentRequest(DateOnly ResolutionDate, EncroachmentResolution ResolutionType, string? ResolutionReferenceNo = null, bool OpenRegularization = false);
 public sealed record EncroachmentBoundaryRequest(IReadOnlyList<GeoPointInput> Points);
 
-public sealed record RecordHearingRequest(DateOnly HearingDate, string? Proceedings = null, string? OrderPassed = null, DateOnly? NextHearingDate = null, string? AttendedBy = null);
-public sealed record DecideLitigationRequest(DateOnly DecisionDate, string DecisionOutcome);
+public sealed record RecordHearingRequest(DateOnly HearingDate, string? Proceedings = null, string? OrderPassed = null, DateOnly? NextHearingDate = null,
+  string? AttendedBy = null, Guid? AttendedByEmployeeId = null);
+public sealed record DecideLitigationRequest(DateOnly DecisionDate, string DecisionOutcome, CaseResult? DecisionResult = null, bool ResolveRelatedEncroachment = false);
 
 public sealed record DecideAppealRequest(DateOnly DecisionDate, AppealOutcome DecisionOutcome, string? DecisionDetails = null);
 
-public sealed record ApproveBuildingPlanRequest(DateOnly ApprovalDate, string? ApprovedBy = null, string? ApprovalReferenceNo = null, DateOnly? ValidityEndDate = null);
+public sealed record ApproveBuildingPlanRequest(DateOnly ApprovalDate, string? ApprovedBy = null, string? ApprovalReferenceNo = null, DateOnly? ValidityEndDate = null,
+  Guid? ApprovedByEmployeeId = null, string? NoDuesCertificateNo = null);
 
 /// Boundaries / GIS and compliance records (schema guide, "Compliance records"): encroachment, litigation,
 /// departmental appeals (Act s.32) and building plans.
@@ -95,10 +97,11 @@ public class ComplianceEndpoints : ICarterModule
 
     encroachments.MapPost("/{id:guid}/resolve", async (Guid id, ResolveEncroachmentRequest request, ISender sender) =>
         (await sender.Send(new ResolveEncroachmentCommand(id, request.ResolutionDate, request.ResolutionType, request.ResolutionReferenceNo, request.OpenRegularization))).ToOk())
-      .RequirePermission(PermissionCatalog.Property.Edit)
+      .RequirePermission(PermissionCatalog.Property.Approve)
       .WithName("ResolveEncroachment").Produces<EncroachmentActionResult>().ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Resolve Encroachment")
-      .WithDescription("Removed / Litigated / Other → RESOLVED. Regularized → REGULARIZED; with openRegularization=true the area is also recorded as a regularized area case.");
+      .WithDescription("An approver closes the case (resolution date not in the future). Removed / Litigated → RESOLVED. Regularized → REGULARIZED; with "
+        + "openRegularization=true the area is also recorded as a regularized area case.");
 
     encroachments.MapPost("/{id:guid}/boundary", async (Guid id, EncroachmentBoundaryRequest request, ISender sender) =>
         (await sender.Send(new SetEncroachmentBoundaryCommand(id, request.Points))).ToOk())
@@ -152,10 +155,12 @@ public class ComplianceEndpoints : ICarterModule
       .WithSummary("Add Party").WithDescription("Open cases only.");
 
     litigations.MapPost("/{id:guid}/hearings", async (Guid id, RecordHearingRequest request, ISender sender) =>
-        (await sender.Send(new RecordHearingCommand(id, request.HearingDate, request.Proceedings, request.OrderPassed, request.NextHearingDate, request.AttendedBy))).ToOk())
+        (await sender.Send(new RecordHearingCommand(id, request.HearingDate, request.Proceedings, request.OrderPassed, request.NextHearingDate,
+          request.AttendedBy, request.AttendedByEmployeeId))).ToOk())
       .RequirePermission(PermissionCatalog.Property.Edit)
       .WithName("RecordHearing").Produces<LitigationActionResult>().ProducesProblem(StatusCodes.Status400BadRequest)
-      .WithSummary("Record Hearing").WithDescription("Open cases only. Its next hearing date becomes the case's next hearing date.");
+      .WithSummary("Record Hearing").WithDescription("Open cases only; a hearing that took place (not in the future). Its next hearing date becomes the case's "
+        + "next hearing date. attendedBy / attendedByEmployeeId: the GDA officer, picked from the staff list.");
 
     litigations.MapPost("/{id:guid}/status", async (Guid id, ChangeMasterStatusRequest request, ISender sender) =>
         (await sender.Send(new ChangeLitigationStatusCommand(id, request.StatusId))).ToOk())
@@ -164,10 +169,13 @@ public class ComplianceEndpoints : ICarterModule
       .WithSummary("Change Case Status").WithDescription("Withdrawn, Settled, Closed ... (these close the case and clear its next hearing). Decided goes through decide; Appealed by filing the appeal as a new case. Decided, Appealed, Withdrawn, Settled and Closed cases cannot change.");
 
     litigations.MapPost("/{id:guid}/decide", async (Guid id, DecideLitigationRequest request, ISender sender) =>
-        (await sender.Send(new DecideLitigationCommand(id, request.DecisionDate, request.DecisionOutcome))).ToOk())
-      .RequirePermission(PermissionCatalog.Property.Edit)
+        (await sender.Send(new DecideLitigationCommand(id, request.DecisionDate, request.DecisionOutcome, request.DecisionResult, request.ResolveRelatedEncroachment))).ToOk())
+      .RequirePermission(PermissionCatalog.Property.Approve)
       .WithName("DecideLitigation").Produces<LitigationActionResult>().ProducesProblem(StatusCodes.Status400BadRequest)
-      .WithSummary("Record Decision");
+      .WithSummary("Record Decision")
+      .WithDescription("An approver records the decision (date not in the future): decisionOutcome (its wording) and decisionResult (InFavourOfGda | AgainstGda | "
+        + "PartlyInFavour, required). resolveRelatedEncroachment=true also resolves the encroachment the case is about (Litigated, on the decision date); "
+        + "effects lists what changed.");
   }
 
   // =====================================================
@@ -214,7 +222,11 @@ public class ComplianceEndpoints : ICarterModule
         (await sender.Send(new DecideAppealCommand(id, request.DecisionDate, request.DecisionOutcome, request.DecisionDetails))).ToOk())
       .RequirePermission(PermissionCatalog.Property.Approve)
       .WithName("DecideAppeal").Produces<AppealActionResult>().ProducesProblem(StatusCodes.Status400BadRequest)
-      .WithSummary("Record Appeal Decision").WithDescription("Allowed / Dismissed / Remanded / Modified. The decision is final (s.32); a late decision returns a warning. On an appealed violation: Allowed sets it aside (RECTIFIED with a remark, an imposed fine waived) and reinstates a lease / rental it had cancelled; any other outcome puts it back to its status before the appeal. `effects` lists what changed.");
+      .WithSummary("Record Appeal Decision").WithDescription("Allowed / Dismissed / Remanded / Modified; the decision date is not in the future. The decision "
+        + "is final (s.32); a late decision returns a warning. On an appealed violation: Allowed sets it aside (RECTIFIED with a remark, an imposed fine "
+        + "waived) and reinstates a lease / rental it had cancelled; any other outcome puts it back to its status before the appeal. Allowed against an "
+        + "allotment's cancellation restores the allotment (unless another is in force now); against a building plan's rejection puts the plan under "
+        + "consideration again. `effects` lists what changed.");
 
     appeals.MapPost("/{id:guid}/withdraw", async (Guid id, RemarksRequest request, ISender sender) =>
         (await sender.Send(new WithdrawAppealCommand(id, request.Remarks))).ToOk())
@@ -263,10 +275,14 @@ public class ComplianceEndpoints : ICarterModule
       .WithSummary("Change Building Plan Status").WithDescription("Under Review, Withdrawn ... A withdrawn plan is closed like an approved, rejected or revised one: no edit, approval or further status change (submit a revision instead).");
 
     plans.MapPost("/{id:guid}/approve", async (Guid id, ApproveBuildingPlanRequest request, ISender sender) =>
-        (await sender.Send(new ApproveBuildingPlanCommand(id, request.ApprovalDate, request.ApprovedBy, request.ApprovalReferenceNo, request.ValidityEndDate))).ToOk())
+        (await sender.Send(new ApproveBuildingPlanCommand(id, request.ApprovalDate, request.ApprovedBy, request.ApprovalReferenceNo, request.ValidityEndDate,
+          request.ApprovedByEmployeeId, request.NoDuesCertificateNo))).ToOk())
       .RequirePermission(PermissionCatalog.Property.Approve)
       .WithName("ApproveBuildingPlan").Produces<BuildingPlanActionResult>().ProducesProblem(StatusCodes.Status400BadRequest)
-      .WithSummary("Approve Building Plan");
+      .WithSummary("Approve Building Plan")
+      .WithDescription("Approval date not in the future. approvedBy / approvedByEmployeeId: the approving officer picked from the staff list (default: the "
+        + "signed-in officer). noDuesCertificateNo: the Taxation clearance relied on. warnings: the plot's current survey is steeper than 45 degrees "
+        + "(BCR 2026) - approved anyway.");
 
     plans.MapPost("/{id:guid}/reject", async (Guid id, RemarksRequest request, ISender sender) =>
         (await sender.Send(new RejectBuildingPlanCommand(id, request.Remarks))).ToOk())

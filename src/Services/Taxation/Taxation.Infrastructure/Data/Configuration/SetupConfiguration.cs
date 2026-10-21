@@ -69,7 +69,9 @@ public class TaxHeadConfiguration : EntityConfiguration<TaxHead, TaxHeadId>
     builder.Property(x => x.AccountsHeadCode).HasMaxLength(30);
     builder.Property(x => x.SortOrder).HasDefaultValue(0);
     builder.Property(x => x.IsActive).HasDefaultValue(true);
+    builder.Property(x => x.ChargedOnNotice).HasDefaultValue(false);
     builder.Ignore(x => x.IsSystem);
+    builder.Ignore(x => x.OnNotice);
     builder.HasIndex(x => x.Code).IsUnique().HasDatabaseName("tax_head_code_key");
   }
 }
@@ -95,7 +97,7 @@ public class RateSetConfiguration : EntityConfiguration<RateSet, RateSetId>
     builder.Property(x => x.Name).HasMaxLength(150).IsRequired();
     builder.Property(x => x.BoardReference).HasMaxLength(100).IsRequired();
     builder.Property(x => x.Status).UpperSnake(15).IsRequired().HasDefaultValueSql("'DRAFT'");
-    builder.Ignore(x => x.BaseFiscalYear);
+    builder.Property(x => x.BaseFiscalYear).IsRequired();
     builder.Ignore(x => x.TownsWithFactors);
     builder.HasMany(x => x.LtfFactors).WithOne().HasForeignKey(f => f.RateSetId).OnDelete(DeleteBehavior.Cascade);
     builder.HasMany(x => x.RateBands).WithOne().HasForeignKey(b => b.RateSetId).OnDelete(DeleteBehavior.Cascade);
@@ -206,7 +208,8 @@ public class PenaltyRuleConfiguration : EntityConfiguration<PenaltyRule, Penalty
     builder.Property(x => x.TargetSet).UpperSnake(15).IsRequired().HasDefaultValueSql("'ALL_UNPAID'");
     builder.Property(x => x.IncludesCurrent).HasDefaultValue(true);
     builder.HasOne<RateSet>().WithMany().HasForeignKey(x => x.RateSetId).OnDelete(DeleteBehavior.Restrict);
-    builder.HasIndex(x => x.Code).IsUnique().HasDatabaseName("penalty_rule_code_key");
+    // a rule is versioned by date: one row per code and start
+    builder.HasIndex(x => new { x.Code, x.EffectiveFrom }).IsUnique().HasDatabaseName("penalty_rule_code_effective_from_key");
   }
 }
 
@@ -254,12 +257,12 @@ public class NoticeTableLayoutConfiguration : EntityConfiguration<NoticeTableLay
   {
     base.Configure(builder);
     builder.ToTable("notice_table_layout");
-    builder.Property(x => x.OtherLabel).HasMaxLength(100).IsRequired().HasDefaultValue("Other charges / earlier dues");
     builder.Property(x => x.HideZeroRows).HasDefaultValue(false);
     builder.Property(x => x.BoardReference).HasMaxLength(100).IsRequired();
     builder.Ignore(x => x.OrderedRows);
     builder.Ignore(x => x.OrderedColumns);
     builder.Ignore(x => x.DefaultColumns);
+    builder.Ignore(x => x.PlacedCodes);
     builder.HasMany(x => x.Rows).WithOne().HasForeignKey(r => r.LayoutId).OnDelete(DeleteBehavior.Cascade);
     builder.HasMany(x => x.Columns).WithOne().HasForeignKey(c => c.LayoutId).OnDelete(DeleteBehavior.Cascade);
     builder.Navigation(x => x.Rows).UsePropertyAccessMode(PropertyAccessMode.Field);

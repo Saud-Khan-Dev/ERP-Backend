@@ -15,6 +15,8 @@ public class AddOptionSetValue : ICarterModule
       var response = result.Value.Adapt<AddOptionSetValueResponse>();
       return Results.Created($"/option-sets/{id}/values/{response!.Id}", response);
     })
+      .RequirePermission(PermissionCatalog.AssetAttributes.Create)
+
       .WithName("AddOptionSetValue")
       .Produces<AddOptionSetValueResponse>(StatusCodes.Status201Created)
       .ProducesProblem(StatusCodes.Status400BadRequest)

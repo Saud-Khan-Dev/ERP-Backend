@@ -13,6 +13,8 @@ public class DeleteOptionSet : ICarterModule
 
       return Results.Ok(result.Value.Adapt<DeleteOptionSetResponse>());
     })
+      .RequirePermission(PermissionCatalog.AssetAttributes.Delete)
+
       .WithName("DeleteOptionSet")
       .Produces<DeleteOptionSetResponse>(StatusCodes.Status200OK)
       .ProducesProblem(StatusCodes.Status400BadRequest)

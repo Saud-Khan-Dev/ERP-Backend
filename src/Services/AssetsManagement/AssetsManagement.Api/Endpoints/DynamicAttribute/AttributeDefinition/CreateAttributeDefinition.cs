@@ -15,6 +15,8 @@ public class CreateAttributeDefinition : ICarterModule
       var response = result.Value.Adapt<CreateAttributeDefinitionResponse>();
       return Results.Created($"/attribute-definitions/{response!.Id}", response);
     })
+      .RequirePermission(PermissionCatalog.AssetAttributes.Create)
+
       .WithName("CreateAttributeDefinition")
       .Produces<CreateAttributeDefinitionResponse>(StatusCodes.Status201Created)
       .ProducesProblem(StatusCodes.Status400BadRequest)

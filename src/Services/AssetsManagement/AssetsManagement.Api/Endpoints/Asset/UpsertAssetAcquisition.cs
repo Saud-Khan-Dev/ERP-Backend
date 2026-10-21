@@ -15,6 +15,8 @@ public class UpsertAssetAcquisition : ICarterModule
       var response = result.Value.Adapt<UpsertAssetAcquisitionResponse>();
       return response!.Created ? Results.Created($"/assets/{id}/acquisition", response) : Results.Ok(response);
     })
+      .RequireAnyPermission(PermissionCatalog.AssetFinance.Create, PermissionCatalog.AssetFinance.Edit)
+
       .WithName("UpsertAssetAcquisition")
       .Produces<UpsertAssetAcquisitionResponse>(StatusCodes.Status200OK)
       .Produces<UpsertAssetAcquisitionResponse>(StatusCodes.Status201Created)

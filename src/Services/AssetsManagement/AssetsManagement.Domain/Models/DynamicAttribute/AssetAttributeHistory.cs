@@ -10,6 +10,7 @@ public class AssetAttributeHistory : Entity<AssetAttributeHistoryId>
   public JsonElement? NewValue { get; private set; }
   public DateTime ChangedAt { get; private set; }
   public Guid? ChangedBy { get; private set; }
+  public string? ChangedByName { get; private set; }
   public string? ChangeReason { get; private set; }
 
   internal static AssetAttributeHistory Create(
@@ -19,7 +20,7 @@ public class AssetAttributeHistory : Entity<AssetAttributeHistoryId>
       JsonElement? oldValue,
       JsonElement? newValue,
       DateTime changedAt,
-      Guid? changedBy,
+      ActorRef changedBy,
       string? changeReason)
   {
     return new AssetAttributeHistory
@@ -31,7 +32,8 @@ public class AssetAttributeHistory : Entity<AssetAttributeHistoryId>
       OldValue = oldValue,
       NewValue = newValue,
       ChangedAt = changedAt,
-      ChangedBy = changedBy,
+      ChangedBy = changedBy.Id,
+      ChangedByName = changedBy.ShortName,
       ChangeReason = changeReason
     };
   }

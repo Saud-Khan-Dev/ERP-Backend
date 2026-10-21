@@ -11,7 +11,8 @@ public sealed record ViolationInput(
   string? NoticeNo = null,
   DateOnly? NoticeDate = null,
   DateOnly? NoticeDeadline = null,
-  string? Remarks = null);
+  string? Remarks = null,
+  Guid? AllotmentId = null);
 
 /// OccurrenceNo tells which repetition this is (the agreement's violations dated on or before this one);
 /// LedToCancellation is true when rule 5 cancelled the lease or rental (third violation within the period of
@@ -35,7 +36,7 @@ public class RecordViolationCommandValidator : AbstractValidator<RecordViolation
     RuleFor(x => x.Violation.Remarks).MaximumLength(AgreementViolation.TextMaxLength);
     // rule 4: exactly one agreement
     RuleFor(x => x.Violation)
-      .Must(v => new[] { v.LeaseId, v.RentalId, v.TransferId }.Count(id => id.HasValue) == 1)
-      .WithMessage("Give exactly one of leaseId, rentalId or transferId.");
+      .Must(v => new[] { v.LeaseId, v.RentalId, v.TransferId, v.AllotmentId }.Count(id => id.HasValue) == 1)
+      .WithMessage("Choose the one agreement that was breached: a lease, a rental, a sale or an allotment.");
   }
 }

@@ -57,14 +57,14 @@ public class OrganizationEndpoints : ICarterModule
       .WithSummary("Restructure Org Unit")
       .WithDescription("Rename, move under another parent, change type, location or head post from a date. The current version closes the day before; history is kept.");
 
-    units.MapPut("/{id:guid}/current", async (Guid id, OrgUnitDetailsInput details, ISender sender) =>
-        (await sender.Send(new CorrectOrgUnitCommand(id, details))).ToOk())
+    units.MapPut("/{id:guid}/current", async (Guid id, OrgUnitDetailsInput details, DateOnly? asOf, ISender sender) =>
+        (await sender.Send(new CorrectOrgUnitCommand(id, details, asOf))).ToOk())
       .RequirePermission(PermissionCatalog.HrSetup.Edit)
       .WithName("CorrectOrgUnit")
       .Produces<UpdatedResult>()
       .ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Correct Org Unit")
-      .WithDescription("Fixes a mistake in the latest version (e.g. a typo) without starting a new period.");
+      .WithDescription("Fixes a mistake (e.g. a typo) in the version in force on asOf (today by default) without starting a new period; a version planned for later keeps its own values.");
 
     units.MapPost("/{id:guid}/deactivate", async (Guid id, EffectiveDateRequest request, ISender sender) =>
         (await sender.Send(new SetOrgUnitActivationCommand(id, false, request.EffectiveFrom))).ToOk())
@@ -154,7 +154,7 @@ public class OrganizationEndpoints : ICarterModule
       .Produces<GetPostsQueryResult>()
       .ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Get Posts")
-      .WithDescription("Sanctioned posts as they are on asOf (default today) with who holds them. status = vacant | partially_filled | filled | frozen | abolished; orgUnitId includes sub-units unless includeSubUnits=false; search matches the post code; sortBy = code | bps | vacancy.");
+      .WithDescription("Sanctioned posts as they are on asOf (default today) with who holds them. status = vacant | partially_filled | filled | frozen | abolished; orgUnitId includes sub-units unless includeSubUnits=false; search matches the post code, the designation, or the name or number of a holder; sortBy = code | bps | vacancy.");
 
     posts.MapGet("/next-code", async (ISender sender) => (await sender.Send(new GetNextPostCodeQuery())).ToOk())
       .RequirePermission(PermissionCatalog.HrSetup.Create)
@@ -189,14 +189,14 @@ public class OrganizationEndpoints : ICarterModule
       .WithSummary("Revise Post")
       .WithDescription("Upgrade / downgrade, move to another unit, change seats or the reporting post from a date. Seats cannot drop below the holders that day.");
 
-    posts.MapPut("/{id:guid}/current", async (Guid id, PostDetailsInput details, ISender sender) =>
-        (await sender.Send(new CorrectPostCommand(id, details))).ToOk())
+    posts.MapPut("/{id:guid}/current", async (Guid id, PostDetailsInput details, DateOnly? asOf, ISender sender) =>
+        (await sender.Send(new CorrectPostCommand(id, details, asOf))).ToOk())
       .RequirePermission(PermissionCatalog.HrSetup.Edit)
       .WithName("CorrectPost")
       .Produces<UpdatedResult>()
       .ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Correct Post")
-      .WithDescription("Fixes a mistake in the latest version without starting a new period.");
+      .WithDescription("Fixes a mistake in the version in force on asOf (today by default) without starting a new period; a version planned for later keeps its own values.");
 
     foreach (var (action, route, permission, summary, description) in new[]
     {

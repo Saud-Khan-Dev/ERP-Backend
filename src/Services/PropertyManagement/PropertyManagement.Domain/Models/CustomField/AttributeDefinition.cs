@@ -1,7 +1,8 @@
 using System.Globalization;
 
 /// A custom field an administrator adds to the property form, for facts the schema has no column for.
-/// Grouped by an admin-editable attribute_group master.
+/// Grouped by an admin-editable attribute_group master; shown only on the property types and classifications it applies
+/// to (empty = every property). Once a property holds a value, the data type is fixed and an option in use stays.
 public class AttributeDefinition : Aggregate<AttributeDefinitionId>
 {
   public const int MaxTextLength = 4000;
@@ -16,6 +17,21 @@ public class AttributeDefinition : Aggregate<AttributeDefinitionId>
   public string? DefaultValue { get; private set; }
   public int DisplayOrder { get; private set; }
   public bool IsActive { get; private set; }
+  /// The property types and classifications (master ids) the field applies to; an empty list = all of them.
+  public List<Guid> AppliesToPropertyTypeIds { get; private set; } = new();
+  public List<Guid> AppliesToClassificationIds { get; private set; } = new();
+
+  /// The field belongs on a property of this type and classification.
+  public bool AppliesTo(Guid propertyTypeId, Guid classificationId) =>
+      (AppliesToPropertyTypeIds.Count == 0 || AppliesToPropertyTypeIds.Contains(propertyTypeId))
+      && (AppliesToClassificationIds.Count == 0 || AppliesToClassificationIds.Contains(classificationId));
+
+  /// Which properties the field is shown on.
+  public void SetScope(IEnumerable<Guid>? propertyTypeIds, IEnumerable<Guid>? classificationIds)
+  {
+    AppliesToPropertyTypeIds = (propertyTypeIds ?? Array.Empty<Guid>()).Where(id => id != Guid.Empty).Distinct().ToList();
+    AppliesToClassificationIds = (classificationIds ?? Array.Empty<Guid>()).Where(id => id != Guid.Empty).Distinct().ToList();
+  }
 
   public IReadOnlyList<string> Options =>
       string.IsNullOrWhiteSpace(OptionsCsv)
@@ -40,7 +56,8 @@ public class AttributeDefinition : Aggregate<AttributeDefinitionId>
     return definition;
   }
 
-  /// The code is immutable: values and reports refer to it.
+  /// The code is immutable: values and reports refer to it. valuesInUse: the values properties hold for this field -
+  /// once there are any the data type cannot change, and an option still in use cannot be taken off the list.
   public void Update(
       AttributeGroup group,
       Name label,
@@ -48,8 +65,28 @@ public class AttributeDefinition : Aggregate<AttributeDefinitionId>
       bool isRequired,
       string? optionsCsv,
       string? defaultValue,
-      int displayOrder) =>
-      Apply(group, label, dataType, isRequired, optionsCsv, defaultValue, displayOrder);
+      int displayOrder,
+      IReadOnlyCollection<string>? valuesInUse = null)
+  {
+    var used = valuesInUse ?? Array.Empty<string>();
+
+    if (used.Count > 0 && dataType != DataType)
+      throw new DomainException(
+        $"{used.Count} propert{(used.Count == 1 ? "y holds" : "ies hold")} a value for '{Label.Value}', so its kind of value cannot change. Add a new field instead.");
+
+    if (used.Count > 0 && dataType is AttributeDataType.Dropdown or AttributeDataType.MultiSelect)
+    {
+      var kept = (optionsCsv ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+        .ToHashSet(StringComparer.OrdinalIgnoreCase);
+      var dropped = used
+        .SelectMany(v => dataType == AttributeDataType.MultiSelect ? v.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries) : new[] { v })
+        .Where(v => !kept.Contains(v)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+      if (dropped.Count > 0)
+        throw new DomainException($"Properties still hold {string.Join(", ", dropped.Select(o => $"'{o}'"))}, so it cannot be taken off the list.");
+    }
+
+    Apply(group, label, dataType, isRequired, optionsCsv, defaultValue, displayOrder);
+  }
 
   public void Activate() => IsActive = true;
   public void Deactivate() => IsActive = false;

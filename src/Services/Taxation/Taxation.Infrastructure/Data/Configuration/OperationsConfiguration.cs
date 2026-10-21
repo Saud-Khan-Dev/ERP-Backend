@@ -23,6 +23,7 @@ public class TaxFileConfiguration : EntityConfiguration<TaxFile, TaxFileId>
     builder.Property(x => x.Remarks).Text();
     builder.Ignore(x => x.CurrentBasis);
     builder.Ignore(x => x.IsAssessable);
+    builder.XminVersion(x => x.Version);
 
     builder.HasIndex(x => x.FileNo).IsUnique().HasDatabaseName("tax_file_file_no_key");
     builder.HasIndex(x => x.PropertyId).IsUnique().HasDatabaseName("tax_file_property_id_key");
@@ -159,6 +160,7 @@ public class DemandRunConfiguration : EntityConfiguration<DemandRun, DemandRunId
     base.Configure(builder);
     builder.ToTable("demand_run");
     builder.Property(x => x.Status).UpperSnake(15).IsRequired();
+    builder.XminVersion(x => x.Version);
     builder.HasOne<TaxCircle>().WithMany().HasForeignKey(x => x.CircleId).OnDelete(DeleteBehavior.Restrict);
     builder.HasOne<RateSet>().WithMany().HasForeignKey(x => x.RateSetId).OnDelete(DeleteBehavior.Restrict);
   }
@@ -183,6 +185,9 @@ public class DemandConfiguration : EntityConfiguration<Demand, DemandId>
     builder.Ignore(x => x.IsOpen);
     builder.Ignore(x => x.IsIssued);
     builder.Ignore(x => x.Excess);
+    builder.Ignore(x => x.Charges);
+    builder.Ignore(x => x.ArrearsOwed);
+    builder.XminVersion(x => x.Version);
 
     builder.HasIndex(x => x.DemandNo).IsUnique().HasDatabaseName("demand_demand_no_key");
     builder.HasIndex(x => new { x.TaxFileId, x.FiscalYear }).IsUnique().HasDatabaseName("demand_tax_file_id_fiscal_year_key");
@@ -231,6 +236,8 @@ public class ArrearsConfiguration : EntityConfiguration<Arrears, ArrearsId>
     builder.Property(x => x.Source).UpperSnake(10).IsRequired();
     builder.Property(x => x.Description).HasMaxLength(300);
     builder.Property(x => x.Reason).HasMaxLength(300);
+    builder.Ignore(x => x.Settled);
+    builder.Ignore(x => x.IsUnbilledOpening);
     builder.HasOne<TaxFile>().WithMany().HasForeignKey(x => x.TaxFileId).OnDelete(DeleteBehavior.Restrict);
     builder.HasOne<TaxHead>().WithMany().HasForeignKey(x => x.HeadId).OnDelete(DeleteBehavior.Restrict);
     builder.HasOne<Demand>().WithMany().HasForeignKey(x => x.SourceDemandId).OnDelete(DeleteBehavior.Restrict);
@@ -261,6 +268,9 @@ public class NoticeConfiguration : EntityConfiguration<Notice, NoticeId>
     builder.Property(x => x.PdfDocumentRef).HasMaxLength(255);
     builder.Property(x => x.SigningOfficerName).HasMaxLength(200);
     builder.Property(x => x.ServiceMode).UpperSnake(15);
+    builder.Ignore(x => x.DateEdited);
+    builder.Ignore(x => x.ReplyByEdited);
+    builder.XminVersion(x => x.Version);
 
     builder.HasIndex(x => x.NoticeNo).IsUnique().HasDatabaseName("notice_notice_no_key");
     builder.HasIndex(x => x.EndstNo).IsUnique().HasDatabaseName("notice_endst_no_key");
@@ -299,6 +309,7 @@ public class PenaltyRunConfiguration : EntityConfiguration<PenaltyRun, PenaltyRu
     builder.Property(x => x.Rate).Numeric(18, 4);
     builder.Property(x => x.IncludesCurrent).HasDefaultValue(true);
     builder.Property(x => x.Reference).HasMaxLength(100);
+    builder.XminVersion(x => x.Version);
     builder.HasOne<PenaltyRule>().WithMany().HasForeignKey(x => x.RuleId).OnDelete(DeleteBehavior.Restrict);
     builder.HasOne<TaxCircle>().WithMany().HasForeignKey(x => x.CircleId).OnDelete(DeleteBehavior.Restrict);
   }
@@ -327,15 +338,23 @@ public class PaymentConfiguration : EntityConfiguration<Payment, PaymentId>
   {
     base.Configure(builder);
     builder.ToTable("payment");
-    builder.Property(x => x.Psid).HasMaxLength(30).IsRequired();
+    builder.Property(x => x.Psid).HasMaxLength(30);
+    builder.Property(x => x.PayerName).HasMaxLength(200);
     builder.Property(x => x.Channel).UpperSnake(15).IsRequired();
     builder.Property(x => x.ReceiptNo).HasMaxLength(40);
     builder.Property(x => x.BankCode).HasMaxLength(20);
-    builder.Property(x => x.TransactionRef).HasMaxLength(60).IsRequired();
+    builder.Property(x => x.TransactionRef).HasMaxLength(60);
     builder.Property(x => x.Status).UpperSnake(10).IsRequired();
+    builder.Property(x => x.ReversalReason).HasMaxLength(300);
     builder.Ignore(x => x.Allocated);
-    builder.HasIndex(x => x.TransactionRef).IsUnique().HasDatabaseName("payment_transaction_ref_key");
+    builder.Ignore(x => x.IsFeeReceipt);
+    builder.XminVersion(x => x.Version);
+    // the bank's reference posts once; a manual receipt number is used once (the Section's receipt book)
+    builder.HasIndex(x => x.TransactionRef).IsUnique().HasFilter("transaction_ref IS NOT NULL").HasDatabaseName("payment_transaction_ref_key");
+    builder.HasIndex(x => x.ReceiptNo).IsUnique().HasFilter("receipt_no IS NOT NULL").HasDatabaseName("payment_receipt_no_key");
     builder.HasOne<TaxFile>().WithMany().HasForeignKey(x => x.TaxFileId).OnDelete(DeleteBehavior.Restrict);
+    builder.HasOne<Party>().WithMany().HasForeignKey(x => x.PartyId).OnDelete(DeleteBehavior.Restrict);
+    builder.HasOne<Fee>().WithMany().HasForeignKey(x => x.FeeId).OnDelete(DeleteBehavior.Restrict);
     builder.HasMany(x => x.Allocations).WithOne().HasForeignKey(a => a.PaymentId).OnDelete(DeleteBehavior.Cascade);
     builder.Navigation(x => x.Allocations).UsePropertyAccessMode(PropertyAccessMode.Field);
   }
@@ -367,6 +386,7 @@ public class PartyConfiguration : EntityConfiguration<Party, PartyId>
     builder.Property(x => x.CnicNtn).HasMaxLength(20);
     builder.Property(x => x.Mobile).HasMaxLength(30);
     builder.Property(x => x.Address).HasMaxLength(400);
+    builder.Property(x => x.IsActive).HasDefaultValue(true);
   }
 }
 
@@ -383,6 +403,7 @@ public class FeeConfiguration : EntityConfiguration<Fee, FeeId>
     builder.Property(x => x.BasisUnit).HasMaxLength(10);
     builder.Property(x => x.ExemptionReason).HasMaxLength(200);
     builder.Property(x => x.Status).UpperSnake(10).IsRequired();
+    builder.XminVersion(x => x.Version);
     builder.HasIndex(x => x.FeeNo).IsUnique().HasDatabaseName("fee_fee_no_key");
     builder.HasOne<TaxHead>().WithMany().HasForeignKey(x => x.HeadId).OnDelete(DeleteBehavior.Restrict);
     builder.HasOne<TaxFile>().WithMany().HasForeignKey(x => x.TaxFileId).OnDelete(DeleteBehavior.Restrict);
@@ -400,7 +421,9 @@ public class ClearanceConfiguration : EntityConfiguration<Clearance, ClearanceId
     builder.Property(x => x.ClearanceNo).HasMaxLength(40).IsRequired();
     builder.Property(x => x.Purpose).UpperSnake(15).IsRequired();
     builder.Property(x => x.PropertyRefNo).HasMaxLength(50);
+    builder.Property(x => x.PayerName).HasMaxLength(200);
     builder.Property(x => x.Status).UpperSnake(10).IsRequired();
+    builder.XminVersion(x => x.Version);
     builder.HasIndex(x => x.ClearanceNo).IsUnique().HasDatabaseName("clearance_clearance_no_key");
     builder.HasOne<TaxFile>().WithMany().HasForeignKey(x => x.TaxFileId).OnDelete(DeleteBehavior.Restrict);
     builder.HasOne<Fee>().WithMany().HasForeignKey(x => x.FeeId).OnDelete(DeleteBehavior.Restrict);
@@ -421,5 +444,40 @@ public class SmsMessageConfiguration : EntityConfiguration<SmsMessage, SmsMessag
     builder.HasOne<Demand>().WithMany().HasForeignKey(x => x.DemandId).OnDelete(DeleteBehavior.Restrict);
     builder.HasOne<Notice>().WithMany().HasForeignKey(x => x.NoticeId).OnDelete(DeleteBehavior.Restrict);
     builder.HasOne<MessageTemplate>().WithMany().HasForeignKey(x => x.TemplateId).OnDelete(DeleteBehavior.Restrict);
+  }
+}
+
+public class JobRunConfiguration : EntityConfiguration<JobRun, JobRunId>
+{
+  protected override AuditColumns Audit => AuditColumns.None;
+
+  public override void Configure(EntityTypeBuilder<JobRun> builder)
+  {
+    base.Configure(builder);
+    builder.ToTable("job_run");
+    builder.Property(x => x.Job).HasMaxLength(20).IsRequired();
+    builder.Property(x => x.Status).UpperSnake(10).IsRequired();
+    builder.Property(x => x.Summary).HasMaxLength(500);
+    builder.Property(x => x.Error).HasMaxLength(1000);
+    builder.HasIndex(x => new { x.Job, x.RunDate }).HasDatabaseName("ix_job_run_job_run_date");
+  }
+}
+
+public class AuditLogConfiguration : EntityConfiguration<AuditLog, AuditLogId>
+{
+  protected override AuditColumns Audit => AuditColumns.None;
+
+  public override void Configure(EntityTypeBuilder<AuditLog> builder)
+  {
+    base.Configure(builder);
+    builder.ToTable("audit_log");
+    builder.Property(x => x.EntityName).HasColumnName("entity").HasMaxLength(60).IsRequired();
+    builder.Property(x => x.Action).HasMaxLength(30).IsRequired();
+    builder.Property(x => x.OldValues).HasColumnType("jsonb");
+    builder.Property(x => x.NewValues).HasColumnType("jsonb");
+    builder.Property(x => x.UserName).HasMaxLength(100);
+    builder.HasIndex(x => new { x.EntityName, x.EntityId }).HasDatabaseName("ix_audit_log_entity_entity_id");
+    builder.HasIndex(x => x.TaxFileId).HasDatabaseName("ix_audit_log_tax_file_id");
+    builder.HasIndex(x => x.At).HasDatabaseName("ix_audit_log_at");
   }
 }

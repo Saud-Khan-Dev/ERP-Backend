@@ -1,4 +1,6 @@
 public sealed record ProgressRequest(int ProgressPercentage, string? Notes);
+public sealed record MyLinkDto(bool Linked, Guid? EmployeeId);
+public sealed record CountersignRequest(string? Remarks, string? PerformanceGrade);
 public sealed record MyRequestInput(Guid RequestTypeId, string? Subject, string? Description, System.Text.Json.JsonElement? RequestedData, Guid? SupportingDocumentId);
 
 /// The employee portal (/me): any signed-in user whose account is linked to an employee record sees and acts on their
@@ -10,6 +12,19 @@ public class SelfServiceEndpoints : ICarterModule
     var me = app.MapGroup("/me").WithTags("Self Service").RequireAuthorization();
 
     static async Task<Guid> Self(CurrentEmployee current, CancellationToken cancellationToken) => (await current.IdAsync(cancellationToken)).Value;
+
+    // ---- is this account linked? (asked at every sign-in; never refused) ----
+
+    me.MapGet("/link", async (CurrentEmployee current, CancellationToken ct) =>
+    {
+      var id = await current.TryIdAsync(ct);
+      return Results.Ok(new MyLinkDto(id is not null, id?.Value));
+    })
+      .RequireSignedIn()
+      .WithName("GetMyLink")
+      .Produces<MyLinkDto>()
+      .WithSummary("Is My Account Linked")
+      .WithDescription("Whether the signed-in account is linked to an employee record (any signed-in user; an unlinked account gets linked=false, never a 403).");
 
     // ---- profile ----
 
@@ -46,6 +61,19 @@ public class SelfServiceEndpoints : ICarterModule
       .WithName("GetMyDocuments")
       .Produces<GetEmployeeDocumentsQueryResult>()
       .WithSummary("My Documents");
+
+    me.MapPost("/documents", async ([Microsoft.AspNetCore.Mvc.FromForm] DocumentUploadForm form, CurrentEmployee current, ISender sender, CancellationToken ct) =>
+    {
+      await using var content = Uploads.Open(form.File, out var file);
+      return (await sender.Send(new UploadEmployeeDocumentCommand(await Self(current, ct), form.Details(), file))).ToCreated(r => $"/me/documents/{r.Id}");
+    })
+      .DisableAntiforgery()
+      .Accepts<DocumentUploadForm>("multipart/form-data")
+      .WithName("UploadMyDocument")
+      .Produces<CreatedResult>(StatusCodes.Status201Created)
+      .ProducesProblem(StatusCodes.Status400BadRequest)
+      .WithSummary("Upload My Paper")
+      .WithDescription("A paper the employee sends with a request (e.g. the proof for a profile correction). It joins the record unverified; HR verifies it.");
 
     me.MapGet("/documents/{id:guid}/content", async (Guid id, CurrentEmployee current, ISender sender, CancellationToken ct) =>
         (await sender.Send(new GetDocumentContentQuery(id, await Self(current, ct)))).ToFile())
@@ -119,8 +147,8 @@ public class SelfServiceEndpoints : ICarterModule
       .WithSummary("Change My Leave Application")
       .WithDescription("Only while pending.");
 
-    me.MapPost("/leave/applications/{id:guid}/cancel", async (Guid id, CurrentEmployee current, ISender sender, CancellationToken ct) =>
-        (await sender.Send(new DecideLeaveCommand(id, LeaveDecision.Cancel, await Self(current, ct)))).ToOk())
+    me.MapPost("/leave/applications/{id:guid}/cancel", async (Guid id, LeaveDecisionRequest? request, CurrentEmployee current, ISender sender, CancellationToken ct) =>
+        (await sender.Send(new DecideLeaveCommand(id, LeaveDecision.Cancel, await Self(current, ct), request?.Reason))).ToOk())
       .WithName("CancelMyLeave")
       .Produces<UpdatedResult>()
       .ProducesProblem(StatusCodes.Status400BadRequest)
@@ -236,7 +264,7 @@ public class SelfServiceEndpoints : ICarterModule
     // ---- performance ----
 
     me.MapGet("/reviews", async (int? pageIndex, int? pageSize, CurrentEmployee current, ISender sender, CancellationToken ct) =>
-        (await sender.Send(new GetPerformanceReviewsQuery(QueryParsing.Page(pageIndex, pageSize), null, await Self(current, ct), null, null, null))).ToOk())
+        (await sender.Send(new GetPerformanceReviewsQuery(QueryParsing.Page(pageIndex, pageSize), null, await Self(current, ct), null, null, null, SubmittedOnly: true))).ToOk())
       .WithName("GetMyReviews")
       .Produces<GetPerformanceReviewsQueryResult>()
       .WithSummary("My Performance Reviews");
@@ -256,6 +284,29 @@ public class SelfServiceEndpoints : ICarterModule
       .ProducesProblem(StatusCodes.Status404NotFound)
       .WithSummary("Acknowledge My Review")
       .WithDescription("I have seen the submitted review.");
+
+    me.MapGet("/countersignings", async (int? pageIndex, int? pageSize, string? status, CurrentEmployee current, ISender sender, CancellationToken ct) =>
+        (await sender.Send(new GetPerformanceReviewsQuery(QueryParsing.Page(pageIndex, pageSize), null, null, null,
+          QueryParsing.ParseEnum<ReviewStatus>(status, "status"), null, SubmittedOnly: true, CountersigningOfficerId: await Self(current, ct)))).ToOk())
+      .WithName("GetMyCountersignings")
+      .Produces<GetPerformanceReviewsQueryResult>()
+      .WithSummary("Reviews I Countersign")
+      .WithDescription("The submitted reviews where I am the countersigning officer.");
+
+    me.MapGet("/countersignings/{id:guid}", async (Guid id, CurrentEmployee current, ISender sender, CancellationToken ct) =>
+        (await sender.Send(new GetPerformanceReviewQuery(id, new ReviewActor(await Self(current, ct), AsEvaluator: false, AsCountersigner: true)))).ToOk())
+      .WithName("GetMyCountersigning")
+      .Produces<GetPerformanceReviewQueryResult>()
+      .ProducesProblem(StatusCodes.Status404NotFound)
+      .WithSummary("Review I Countersign");
+
+    me.MapPost("/countersignings/{id:guid}/countersign", async (Guid id, CountersignRequest r, CurrentEmployee current, ISender sender, CancellationToken ct) =>
+        (await sender.Send(new CountersignReviewCommand(id, r.Remarks, r.PerformanceGrade, new ReviewActor(await Self(current, ct), AsEvaluator: false, AsCountersigner: true)))).ToOk())
+      .WithName("CountersignMyReview")
+      .Produces<UpdatedResult>()
+      .ProducesProblem(StatusCodes.Status400BadRequest)
+      .WithSummary("Countersign a Review")
+      .WithDescription("The countersigning officer's remarks (required) and, when they disagree, another grading.");
 
     me.MapGet("/evaluations", async (int? pageIndex, int? pageSize, Guid? periodId, string? status, CurrentEmployee current, ISender sender, CancellationToken ct) =>
         (await sender.Send(new GetPerformanceReviewsQuery(QueryParsing.Page(pageIndex, pageSize), periodId, null, await Self(current, ct),

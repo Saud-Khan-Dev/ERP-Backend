@@ -71,12 +71,21 @@ public sealed record LoanSummaryDto(
   int DeductionPriority,
   LoanStatus Status,
   Guid? ApprovedBy,
-  DateTime? CreatedAt);
+  DateTime? CreatedAt,
+  bool IsGpfAdvance = false,
+  string? ClosureReason = null,
+  Guid? ClosedBy = null,
+  DateTime? ClosedAt = null);
 
-public sealed record LoanInstallmentDto(Guid Id, int InstallmentNumber, DateOnly DueDate, decimal Amount, decimal PaidAmount, decimal Outstanding, InstallmentStatus Status);
+public sealed record LoanInstallmentDto(Guid Id, int InstallmentNumber, DateOnly DueDate, decimal Amount, decimal PaidAmount, decimal Outstanding, InstallmentStatus Status,
+  string? WaiveReason = null, Guid? WaivedBy = null, DateTime? WaivedAt = null);
 
-/// Recovered: paid so far. Overdue: open installments already due.
-public sealed record LoanDto(LoanSummaryDto Loan, decimal Recovered, decimal Overdue, IReadOnlyList<LoanInstallmentDto> Installments);
+/// A repayment made outside payroll: the receipt or challan and who recorded it.
+public sealed record LoanRepaymentDto(Guid Id, DateOnly PaidOn, decimal Amount, string ReceiptNumber, string? Remarks, Guid? RecordedBy, DateTime? RecordedAt);
+
+/// Recovered: paid so far. Overdue: open installments already due. Repayments: those made outside payroll.
+public sealed record LoanDto(LoanSummaryDto Loan, decimal Recovered, decimal Overdue, IReadOnlyList<LoanInstallmentDto> Installments,
+  IReadOnlyList<LoanRepaymentDto>? Repayments = null);
 
 public sealed record GpFundAccountDto(
   Guid Id,
@@ -128,7 +137,7 @@ public static class PayMappings
       new(x.Id.Value, x.Name, x.SalaryComponentId?.Value, componentName, x.IsGpfAdvance, x.DefaultInterestRate, x.IsActive);
 
   public static LoanInstallmentDto ToDto(this LoanInstallment x) =>
-      new(x.Id.Value, x.InstallmentNumber, x.DueDate, x.Amount, x.PaidAmount, x.Outstanding, x.Status);
+      new(x.Id.Value, x.InstallmentNumber, x.DueDate, x.Amount, x.PaidAmount, x.Outstanding, x.Status, x.WaiveReason, x.WaivedBy, x.WaivedAt);
 
   public static GpFundTransactionDto ToDto(this GpFundTransaction x) => new(x.Id.Value, x.TransactionType, x.TransactionDate, x.Amount,
     x.EmployeeLoanId?.Value, x.PayrollTransactionId?.Value, x.Remarks, x.CreatedBy, x.CreatedAt);

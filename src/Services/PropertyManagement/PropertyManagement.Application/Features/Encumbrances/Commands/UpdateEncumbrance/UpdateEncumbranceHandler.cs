@@ -9,7 +9,9 @@ public class UpdateEncumbranceHandler(IApplicationDbContext context, MasterLooku
     var type = await masters.GetAsync<EncumbranceType>(input.EncumbranceTypeId, cancellationToken);
     var (ownership, holder) = await EncumbranceLinks.LoadAsync(context, input, cancellationToken);
 
-    encumbrance.Update(property, type, ownership, input.HolderName, holder, input.ReferenceNo, input.Amount, input.StartDate, input.EndDate, input.Remarks);
+    encumbrance.Update(property, type, ownership, input.HolderName, holder, input.ReferenceNo, input.Amount, input.StartDate, input.EndDate, input.Remarks,
+      EntityLoaders.Today);
+    context.Touch(property);
 
     await context.SaveChangesAsync(cancellationToken);
     return Result<UpdateEncumbranceCommandResult>.Success(new UpdateEncumbranceCommandResult(true));

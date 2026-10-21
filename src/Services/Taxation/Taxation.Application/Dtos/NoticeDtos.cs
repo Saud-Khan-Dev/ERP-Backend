@@ -19,7 +19,8 @@ public sealed record NoticeDto(
   string ParagraphText, bool ShowsParagraph, bool ShowsTable, IReadOnlyList<NoticeColumn> Columns, NoticeParticulars Particulars, PayVia PayVia,
   string Psid, string PsidFormatted, string? QrPayload, decimal AmountWithinDue, decimal? AmountAfterDue, decimal BalanceAtIssue, string? SigningOfficerName,
   Guid? SigningPostId, Guid? SigningEmployeeId, int TemplateVersion, Guid? PenaltyRunId, IReadOnlyList<NoticeEdit> EditedFields, bool SmsSent,
-  Guid? SmsMessageId, Guid? ConfirmedBy, DateTime? ConfirmedAt, Guid? ServedByEmployeeId, DateOnly? ServedOn, ServiceMode? ServiceMode, DateTime? CreatedAt);
+  Guid? SmsMessageId, Guid? ConfirmedBy, DateTime? ConfirmedAt, Guid? ServedByEmployeeId, DateOnly? ServedOn, ServiceMode? ServiceMode, DateTime? CreatedAt,
+  Guid? CreatedBy, Guid? CancelledBy, DateTime? CancelledAt);
 
 public static class NoticeMappings
 {
@@ -27,16 +28,21 @@ public static class NoticeMappings
     n.Id.Value, n.NoticeNo, n.EndstNo, n.DemandId.Value, d.DemandNo, d.TaxFileId.Value, fileNo, d.FiscalYear, n.Stage, n.Origin, n.Status, n.PayVia,
     n.Variables.PayerName, n.IssueDate, n.ReplyBy, n.AmountWithinDue, n.ConfirmedAt, n.ServedOn, n.ServiceMode, n.SmsSent);
 
-  public static NoticeDto ToDto(this Notice n, Demand d, string fileNo, NoticeLetterhead l, IReadOnlyList<NoticeColumn> layoutDefaults, string? qrPayloadPreview)
+  /// A pending notice shows what it would print today (preview: the table and the amount worked out now); an issued one
+  /// what was printed.
+  public static NoticeDto ToDto(this Notice n, Demand d, string fileNo, NoticeLetterhead l, IReadOnlyList<NoticeColumn> layoutDefaults, string? qrPayloadPreview,
+      NoticeParticulars? preview = null)
   {
     var v = n.Variables;
+    var particulars = preview ?? n.Particulars;
+    var amount = preview is null ? n.AmountWithinDue : d.Balance;
     var paragraph = NoticeTable.FillParagraph(v.Paragraph, new Dictionary<string, string>
     {
-      ["amount"] = NoticeTable.Amount(n.AmountWithinDue),
+      ["amount"] = NoticeTable.Amount(amount),
       ["days"] = $"{v.Days} days",
       ["fy"] = v.FiscalYear,
       ["surcharge"] = NoticeTable.Amount(v.Surcharge ?? 0),
-      ["total"] = NoticeTable.Amount(n.Particulars.Totals.Current + n.Particulars.Totals.Arrears),
+      ["total"] = NoticeTable.Amount(particulars.Totals.Current + particulars.Totals.Arrears),
       ["reply_by"] = n.ReplyBy?.ToString("dd/MM/yyyy") ?? "",
       ["psid"] = Numbers.FormatPsid(n.Psid),
       ["code"] = v.PropertyCode,
@@ -47,10 +53,10 @@ public static class NoticeMappings
       FiscalYear.Label(d.FiscalYear), n.IssueDate, n.ReplyBy,
       new PrintedLetterheadDto(l.Id.Value, l.GovernmentLine, l.AuthorityLine, l.Motto, l.Notes, l.CcLines, l.QrText, l.QrBankName, l.LogoLeftRef is not null,
         l.LogoRightRef is not null, l.Watermark),
-      v, paragraph, n.ShowsParagraph, n.ShowsTable, n.Columns ?? layoutDefaults, n.Particulars, n.PayVia, n.Psid, Numbers.FormatPsid(n.Psid),
-      n.QrPayload ?? qrPayloadPreview, n.AmountWithinDue, n.AmountAfterDue, n.BalanceAtIssue, n.SigningOfficerName, n.SigningPostId, n.SigningEmployeeId,
-      n.TemplateVersion, n.PenaltyRunId?.Value, n.EditedFields ?? [], n.SmsSent, n.SmsMessageId?.Value, n.ConfirmedBy, n.ConfirmedAt, n.ServedByEmployeeId,
-      n.ServedOn, n.ServiceMode, n.CreatedAt);
+      v, paragraph, n.ShowsParagraph, n.ShowsTable, n.Columns ?? layoutDefaults, particulars, n.PayVia, n.Psid, Numbers.FormatPsid(n.Psid),
+      n.QrPayload ?? qrPayloadPreview, amount, n.AmountAfterDue, preview is null ? n.BalanceAtIssue : d.Balance, n.SigningOfficerName, n.SigningPostId,
+      n.SigningEmployeeId, n.TemplateVersion, n.PenaltyRunId?.Value, n.EditedFields ?? [], n.SmsSent, n.SmsMessageId?.Value, n.ConfirmedBy, n.ConfirmedAt,
+      n.ServedByEmployeeId, n.ServedOn, n.ServiceMode, n.CreatedAt, n.CreatedBy, n.CancelledBy, n.CancelledAt);
   }
 }
 
@@ -71,4 +77,4 @@ public sealed record NoticeContextDto(
   Guid TaxFileId, string FileNo, int FiscalYear, string FiscalYearLabel, Guid? DemandId, string? DemandNo, bool CreatesDemand, string? HoldReason,
   string? SuspendedReason, NoticeStage NextStage, IReadOnlyList<HeadOptionDto> Heads, IReadOnlyList<ArrearsDto> Arrears, decimal ArrearsPreview,
   decimal Surcharges, decimal Paid, decimal Payable, NoticeVariables Defaults, PayVia PayVia, IReadOnlyList<TableColumnDto> Columns,
-  IReadOnlyList<string> Notes);
+  IReadOnlyList<string> Notes, DateOnly YearStartsOn, bool YearStarted, decimal Credit);

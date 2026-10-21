@@ -16,12 +16,15 @@ internal static class Fixture
     AppliesTo.Both, ChargedFrom.Registration, null, null, null, true, true, 2, true, null, null, null));
   public static readonly TaxHead Water = TaxHead.Regular(TaxHeadId.New(), HeadCodes.Water, new RegularHeadInput("Water charges", CalcMethod.Rate,
     AppliesTo.Both, ChargedFrom.Facility, "water connection", null, null, true, true, 3, true, null, null, null));
-  public static readonly TaxHead Surcharge = TaxHead.Other(TaxHeadId.New(), HeadCodes.Surcharge, "Surcharge / penalty", false, 22);
-  public static readonly TaxHead Misc = TaxHead.Other(TaxHeadId.New(), HeadCodes.Misc, "Other charge", false, 29);
+  public static readonly TaxHead Surcharge = TaxHead.Other(TaxHeadId.New(), HeadCodes.Surcharge, "Surcharge / penalty", false, 22, chargedOnNotice: true);
+  public static readonly TaxHead Lease = TaxHead.Other(TaxHeadId.New(), HeadCodes.LeaseMoney, "Lease money / ground rent", false, 20, chargedOnNotice: true);
+  public static readonly TaxHead TransferFee = TaxHead.Other(TaxHeadId.New(), HeadCodes.TransferFee, "Transfer fee", false, 40);
 
-  public static IReadOnlyList<TaxHead> Heads => [PropertyTax, Conservancy, Water, Rent, Surcharge, Misc];
+  public static IReadOnlyList<TaxHead> Heads => [PropertyTax, Conservancy, Water, Rent, Surcharge, Lease, TransferFee];
 
-  public static IReadOnlyDictionary<TaxHeadId, string> HeadCodesById => Heads.ToDictionary(h => h.Id, h => h.Code);
+  public static IReadOnlyDictionary<TaxHeadId, TaxHead> HeadsById => Heads.ToDictionary(h => h.Id);
+
+  public static IReadOnlyDictionary<string, string> HeadNames => Heads.ToDictionary(h => h.Code, h => h.Name);
 
   /// The Section's tariff from 1 July 2025 with Nathiagali's factors; conservancy above the top band as given.
   public static RateSet RateSet(AboveTopRule rule = AboveTopRule.TopRateStays)
@@ -74,14 +77,20 @@ internal static class Fixture
   public static PenaltyRule IntraYearRule() => PenaltyRule.Create(PenaltyRuleId.New(), "INTRA_YEAR_SURCHARGE", "In-year surcharge", PenaltyKind.IntraYear, PenaltyTrigger.Manual,
     new PenaltyRuleInput(null, PenaltyRateType.Percent, 2, TargetSet.DefaultersOnly, true, true, 3, PeriodUnit.Months, PeriodAnchor.FyStart, null), D("2025-07-01"));
 
-  public static NoticeTableLayout Layout(bool hideZero = false) => NoticeTableLayout.Create(NoticeTableLayoutId.New(), new TableLayoutInput(
+  /// The Section's rows; lease money is left without a row (as a head deactivated since), so it prints under its own name.
+  public static NoticeTableLayout Layout(bool hideZero = false)
+  {
+    TableRowInput[] rows =
     [
       new("Property Tax", [HeadCodes.PropertyTax]),
       new("Water Charges", [HeadCodes.Water]),
       new("Conservancy Charges", [HeadCodes.Conservancy]),
       new("Annual Rent / G .Rent", [HeadCodes.Rent]),
       new("Surcharge on late payment", [HeadCodes.Surcharge])
-    ], [], "Other charges / earlier dues", hideZero, "test"), Heads.Select(h => h.Code).ToHashSet(), D("2025-07-01"));
+    ];
+    return NoticeTableLayout.Create(NoticeTableLayoutId.New(), new TableLayoutInput(rows, [], hideZero, "test"), HeadNames,
+      rows.SelectMany(r => r.HeadCodes).ToList(), D("2025-07-01"));
+  }
 
   public static IReadOnlyDictionary<Guid, decimal> NothingPaid => new Dictionary<Guid, decimal>();
 }

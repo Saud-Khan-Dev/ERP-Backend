@@ -12,13 +12,14 @@ WORKDIR /src
 
 # Copy project files first so `dotnet restore` is cached until a csproj changes
 COPY ["BuildingBlocks/BuildingBlock/BuildingBlock.csproj", "BuildingBlocks/BuildingBlock/"]
+COPY ["BuildingBlocks/BuildingBlock.Authentication/BuildingBlock.Authentication.csproj", "BuildingBlocks/BuildingBlock.Authentication/"]
 COPY ["Services/AssetsManagement/AssetsManagement.Domain/AssetsManagement.Domain.csproj", "Services/AssetsManagement/AssetsManagement.Domain/"]
 COPY ["Services/AssetsManagement/AssetsManagement.Application/AssetsManagement.Application.csproj", "Services/AssetsManagement/AssetsManagement.Application/"]
 COPY ["Services/AssetsManagement/AssetsManagement.Infrastructure/AssetsManagement.Infrastructure.csproj", "Services/AssetsManagement/AssetsManagement.Infrastructure/"]
 COPY ["Services/AssetsManagement/AssetsManagement.Api/AssetsManagement.Api.csproj", "Services/AssetsManagement/AssetsManagement.Api/"]
 RUN dotnet restore "Services/AssetsManagement/AssetsManagement.Api/AssetsManagement.Api.csproj"
 
-COPY BuildingBlocks/BuildingBlock/ BuildingBlocks/BuildingBlock/
+COPY BuildingBlocks/ BuildingBlocks/
 COPY Services/AssetsManagement/ Services/AssetsManagement/
 WORKDIR /src/Services/AssetsManagement/AssetsManagement.Api
 RUN dotnet build "AssetsManagement.Api.csproj" -c $BUILD_CONFIGURATION -o /app/build --no-restore

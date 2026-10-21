@@ -53,10 +53,21 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
   public DbSet<AssetValuation> AssetValuations => Set<AssetValuation>();
   public DbSet<AssetDisposal> AssetDisposals => Set<AssetDisposal>();
 
+  public async Task<IUnitOfWorkTransaction> BeginTransactionAsync(CancellationToken cancellationToken) =>
+      new UnitOfWorkTransaction(await Database.BeginTransactionAsync(cancellationToken));
+
+  private sealed class UnitOfWorkTransaction(Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction transaction) : IUnitOfWorkTransaction
+  {
+    public Task CommitAsync(CancellationToken cancellationToken) => transaction.CommitAsync(cancellationToken);
+    public ValueTask DisposeAsync() => transaction.DisposeAsync();
+  }
+
   protected override void OnModelCreating(ModelBuilder builder)
   {
     builder.HasDefaultSchema(Schema);
     builder.HasPostgresExtension("ltree");
+    // the AST-000001 series: numbers handed out by the database, so two registrations never get the same tag
+    builder.HasSequence<long>("asset_tag_seq", Schema).StartsAt(1).IncrementsBy(1);
     builder.ApplyConfigurationsFromAssembly(Assembly.GetExecutingAssembly());
     base.OnModelCreating(builder);
   }

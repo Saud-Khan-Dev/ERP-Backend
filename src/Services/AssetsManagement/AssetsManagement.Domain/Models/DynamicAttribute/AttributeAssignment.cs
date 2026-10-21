@@ -3,7 +3,9 @@ using System.Text.Json;
 /// *** THE DYNAMIC CORE ***
 /// Binds an AttributeDefinition to exactly ONE scope (class / type / category / asset).
 /// An asset resolves CLASS -> TYPE -> CATEGORY(root..leaf) -> ASSET, later levels overriding earlier ones
-/// for the same AttributeDefinitionId.
+/// for the same AttributeDefinitionId. An assignment applies to its own node and - with InheritToChildren - to every
+/// node below it. A HIDDEN assignment ("not used here") takes the field off the form at its node (and below), even when
+/// a level above adds it; a switched-off one does the same while it is off.
 public class AttributeAssignment : Aggregate<AttributeAssignmentId>
 {
   public AttributeDefinitionId AttributeDefinitionId { get; private set; } = default!;
@@ -34,6 +36,9 @@ public class AttributeAssignment : Aggregate<AttributeAssignmentId>
 
   public bool IsActive { get; private set; }
 
+  /// "Not used here": the field is NOT on this node's form (or below it, with InheritToChildren).
+  public bool IsHidden { get; private set; }
+
   /// Whether the value needs a typed row in asset_attribute_value.
   public bool IsProjected => IsFilterable || IsSearchable;
 
@@ -63,8 +68,36 @@ public class AttributeAssignment : Aggregate<AttributeAssignmentId>
     return assignment;
   }
 
+  /// "Not used here" for a field a level above adds: it is left off this node's form (and, with
+  /// `inheritToChildren`, off everything below it). Stored values are kept on the assets.
+  public static AttributeAssignment CreateHidden(AttributeAssignmentId id, AttributeDefinitionId attributeDefinitionId, AttributeScopeTarget target, bool inheritToChildren)
+  {
+    ArgumentNullException.ThrowIfNull(attributeDefinitionId);
+    ArgumentNullException.ThrowIfNull(target);
+
+    if (target.Scope == AttributeScope.AssetClass)
+      throw new DomainException("A class is the top of the structure: there is nothing above it to hide a field from.");
+
+    return new AttributeAssignment
+    {
+      Id = id,
+      AttributeDefinitionId = attributeDefinitionId,
+      Scope = target.Scope,
+      AssetClassId = target.AssetClassId,
+      AssetTypeId = target.AssetTypeId,
+      CategoryId = target.CategoryId,
+      AssetId = target.AssetId,
+      InheritToChildren = inheritToChildren,
+      IsHidden = true,
+      IsActive = true
+    };
+  }
+
   public void Update(AttributeGroupId? attributeGroupId, AttributeAssignmentOptions options, bool isActive)
   {
+    if (IsHidden)
+      throw new DomainException("This field is marked \"not used here\". Use it here again first, then change how it is asked.");
+
     Apply(attributeGroupId, options);
     IsActive = isActive;
   }
@@ -77,10 +110,10 @@ public class AttributeAssignment : Aggregate<AttributeAssignmentId>
       throw new DomainException("An attribute cannot depend on itself.");
 
     if (options.DependsOnAssignmentId is null && options.DependsOnValue is not null)
-      throw new DomainException("depends_on_value requires depends_on_assignment_id.");
+      throw new DomainException("Say which field this one depends on.");
 
     if (options.LabelOverride is { Length: > 150 })
-      throw new DomainException("label_override cannot exceed 150 characters.");
+      throw new DomainException("The name on the form cannot be longer than 150 characters.");
 
     AttributeGroupId = attributeGroupId;
     LabelOverride = string.IsNullOrWhiteSpace(options.LabelOverride) ? null : options.LabelOverride.Trim();
@@ -89,7 +122,7 @@ public class AttributeAssignment : Aggregate<AttributeAssignmentId>
     IsSearchable = options.IsSearchable;
     IsFilterable = options.IsFilterable;
     IsVisibleInList = options.IsVisibleInList;
-    InheritToChildren = Scope == AttributeScope.Category && options.InheritToChildren;
+    InheritToChildren = options.InheritToChildren;
     DefaultValue = options.DefaultValue;
     DisplayOrder = options.DisplayOrder;
     DependsOnAssignmentId = options.DependsOnAssignmentId;
@@ -124,7 +157,7 @@ public sealed record AttributeScopeTarget
   {
     var populated = new[] { classId, typeId, categoryId, assetId }.Count(v => v.HasValue && v.Value != Guid.Empty);
     if (populated != 1)
-      throw new DomainException("Exactly one of asset_class_id, asset_type_id, category_id or asset_id must be provided.");
+      throw new DomainException("Say which class, type, category or asset the field is for.");
 
     return scope switch
     {
@@ -132,7 +165,7 @@ public sealed record AttributeScopeTarget
       AttributeScope.AssetType when typeId.HasValue => ForType(AssetTypeId.Of(typeId.Value)),
       AttributeScope.Category when categoryId.HasValue => ForCategory(AssetCategoryId.Of(categoryId.Value)),
       AttributeScope.Asset when assetId.HasValue => ForAsset(AssetId.Of(assetId.Value)),
-      _ => throw new DomainException($"The provided target id does not match scope {scope}.")
+      _ => throw new DomainException("The node does not match the level the field is added to.")
     };
   }
 }

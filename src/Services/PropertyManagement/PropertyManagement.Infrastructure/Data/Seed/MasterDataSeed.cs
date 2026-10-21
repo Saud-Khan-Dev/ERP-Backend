@@ -65,11 +65,12 @@ public static class MasterDataSeed
 
     ["allotment-statuses"] = List("Active", "Cancelled", "Restored", "Surrendered", "Expired"),
     ["lease-statuses"] = List("Draft", "Active", "Expired", "Renewed", "Terminated", "Cancelled"),
-    ["rental-statuses"] = List("Active", "Ended"),
+    ["rental-statuses"] = List("Draft", "Active", "Ended", "Expired", "Terminated", "Cancelled"),
     ["auction-types"] = List("Open Auction", "Sealed Bid", "Re-auction"),
-    ["auction-statuses"] = List("Planned", "Announced", "Conducted", "Successful", "Unsuccessful", "Cancelled", "Awarded"),
-    ["contract-statuses"] = List("Active", "Expired"),
-    ["agreement-types"] = List("Lease", "Rent", "Sale"),
+    // no "Successful": an auction succeeds only by being awarded (AWARDED records the winner)
+    ["auction-statuses"] = List("Planned", "Announced", "Conducted", "Unsuccessful", "Cancelled", "Awarded"),
+    ["contract-statuses"] = List("Draft", "Active", "Expired", "Renewed", "Terminated"),
+    ["agreement-types"] = List("Lease", "Rent", "Sale", "Allotment"),
 
     ["encroachment-statuses"] = new[]
     {

@@ -15,6 +15,8 @@ public class CreateAttributeGroup : ICarterModule
       var response = result.Value.Adapt<CreateAttributeGroupResponse>();
       return Results.Created($"/attribute-groups/{response!.Id}", response);
     })
+      .RequirePermission(PermissionCatalog.AssetAttributes.Create)
+
       .WithName("CreateAttributeGroup")
       .Produces<CreateAttributeGroupResponse>(StatusCodes.Status201Created)
       .ProducesProblem(StatusCodes.Status400BadRequest)

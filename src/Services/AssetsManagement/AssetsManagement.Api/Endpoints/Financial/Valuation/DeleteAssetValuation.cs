@@ -13,6 +13,8 @@ public class DeleteAssetValuation : ICarterModule
 
       return Results.Ok(result.Value.Adapt<DeleteAssetValuationResponse>());
     })
+      .RequirePermission(PermissionCatalog.AssetFinance.Delete)
+
       .WithName("DeleteAssetValuation")
       .Produces<DeleteAssetValuationResponse>(StatusCodes.Status200OK)
       .ProducesProblem(StatusCodes.Status404NotFound)

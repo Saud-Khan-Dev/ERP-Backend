@@ -1,37 +1,27 @@
 using Microsoft.EntityFrameworkCore;
 
-public class ReturnAssetAssignmentHandler(IApplicationDbContext context)
+public class ReturnAssetAssignmentHandler(IApplicationDbContext context, ICurrentUser currentUser, IClock clock)
   : ICommandHandler<ReturnAssetAssignmentCommand, Result<ReturnAssetAssignmentCommandResult>>
 {
   public async Task<Result<ReturnAssetAssignmentCommandResult>> Handle(ReturnAssetAssignmentCommand command, CancellationToken cancellationToken)
   {
     var assetId = AssetId.Of(command.AssetId);
-    var asset = await context.Assets.FirstOrDefaultAsync(a => a.Id == assetId, cancellationToken)
-      ?? throw new AssetNotFoundException($"Asset {command.AssetId} was not found.");
+    var asset = await AssetRecordGuard.LoadAsync(context, assetId, track: true, cancellationToken);
 
     var assignmentId = AssetAssignmentId.Of(command.AssignmentId);
     var assignment = await context.AssetAssignments.FirstOrDefaultAsync(a => a.Id == assignmentId && a.AssetId == assetId, cancellationToken)
-      ?? throw new AssetAssignmentNotFoundException($"Assignment {command.AssignmentId} was not found on asset {command.AssetId}.");
+      ?? throw new AssetAssignmentNotFoundException("That loan was not found on this asset.");
 
-    assignment.MarkReturned(command.ActualReturnDate ?? DateOnly.FromDateTime(DateTime.UtcNow));
+    var today = clock.Today;
+    var returnedOn = command.ActualReturnDate ?? today;
+    assignment.MarkReturned(returnedOn, today);
 
     var currentStatus = await context.AssetStatuses.AsNoTracking().FirstAsync(s => s.Id == asset.StatusId, cancellationToken);
-    var assetType = await context.AssetTypes.AsNoTracking().FirstAsync(t => t.Id == asset.AssetTypeId, cancellationToken);
+    asset.ReturnFromLoan(currentStatus, assignment.From, assignment.FromLocationId);
 
-    asset.AssignTo(currentStatus, assetType, assignment.FromDepartmentId, assignment.FromCustodianId, assignment.FromLocationId);
-
-    if (command.EventTypeId.HasValue)
-    {
-      var eventTypeId = LifecycleEventTypeId.Of(command.EventTypeId.Value);
-      var eventType = await context.LifecycleEventTypes.AsNoTracking().FirstOrDefaultAsync(t => t.Id == eventTypeId, cancellationToken)
-        ?? throw new LifecycleEventTypeNotFoundException($"Lifecycle event type {command.EventTypeId} was not found.");
-
-      var returnedOn = command.ActualReturnDate ?? DateOnly.FromDateTime(DateTime.UtcNow);
-      await context.AssetLifecycleEvents.AddAsync(AssetLifecycleEvent.Create(
-        AssetLifecycleEventId.Of(Guid.NewGuid()), assetId, eventType,
-        returnedOn.ToDateTime(TimeOnly.FromDateTime(DateTime.UtcNow), DateTimeKind.Utc),
-        null, null, command.PerformedBy, command.Notes ?? "Returned from loan", null), cancellationToken);
-    }
+    // the day it came back, at the time it is recorded (today) - or the end of that day for an earlier return
+    var at = returnedOn == today ? clock.UtcNow : returnedOn.ToDateTime(new TimeOnly(12, 0), DateTimeKind.Utc);
+    await SystemEvents.AddAsync(context, assetId, EventPurpose.Return, at, currentUser.Actor(), command.Notes ?? "Returned from loan", cancellationToken: cancellationToken);
 
     await context.SaveChangesAsync(cancellationToken);
 

@@ -77,7 +77,9 @@ public sealed record AttributeAssignmentDto(
   int? DisplayOrder,
   Guid? DependsOnAssignmentId,
   JsonElement? DependsOnValue,
-  bool IsActive);
+  bool IsActive,
+  /// "Not used here": the field is left off this node's form (and below it).
+  bool IsHidden);
 
 /// One field of the resolved form an asset (or a category / type / class) exposes for data entry.
 public sealed record ResolvedAttributeDto(
@@ -102,6 +104,19 @@ public sealed record ResolvedAttributeDto(
   JsonElement? DependsOnValue,
   AttributeValidationRulesDto Validation,
   Guid? OptionSetId,
+  /// Every choice of the field, switched-off ones too (isActive false): offer only the active ones for new values,
+  /// show a switched-off one an asset still holds as "(no longer offered)".
+  IReadOnlyList<OptionSetValueDto> Options,
+  /// Which class, type or category adds the field to this form.
+  Guid TargetId);
+
+/// A value an asset holds for a field that is no longer on its form (removed, hidden or switched off at its node, or
+/// the asset moved to another category): kept, and shown read-only.
+public sealed record RetiredAttributeDto(
+  string Code,
+  string Label,
+  AttributeDataType? DataType,
+  string? Unit,
   IReadOnlyList<OptionSetValueDto> Options);
 
 public sealed record AssetAttributeHistoryDto(
@@ -113,6 +128,7 @@ public sealed record AssetAttributeHistoryDto(
   JsonElement? NewValue,
   DateTime ChangedAt,
   Guid? ChangedBy,
+  string? ChangedByName,
   string? ChangeReason);
 
 public static class DynamicAttributeMappings
@@ -141,7 +157,7 @@ public static class DynamicAttributeMappings
     x.Id.Value, x.AttributeDefinitionId.Value, x.Scope, x.AssetClassId?.Value, x.AssetTypeId?.Value,
     x.CategoryId?.Value, x.AssetId?.Value, x.AttributeGroupId?.Value, x.LabelOverride,
     x.IsRequired, x.IsReadonly, x.IsSearchable, x.IsFilterable, x.IsVisibleInList, x.InheritToChildren,
-    x.DefaultValue, x.DisplayOrder, x.DependsOnAssignmentId?.Value, x.DependsOnValue, x.IsActive);
+    x.DefaultValue, x.DisplayOrder, x.DependsOnAssignmentId?.Value, x.DependsOnValue, x.IsActive, x.IsHidden);
 
   public static ResolvedAttributeDto ToDto(this ResolvedAttribute x, OptionSet? optionSet)
   {
@@ -172,10 +188,11 @@ public static class DynamicAttributeMappings
       definition.OptionSetId?.Value,
       optionSet is null
         ? Array.Empty<OptionSetValueDto>()
-        : optionSet.Values.Where(v => v.IsActive).OrderBy(v => v.DisplayOrder ?? int.MaxValue).Select(v => v.ToDto()).ToList());
+        : optionSet.Values.OrderBy(v => v.DisplayOrder ?? int.MaxValue).ThenBy(v => v.Label).Select(v => v.ToDto()).ToList(),
+      (assignment.AssetClassId?.Value ?? assignment.AssetTypeId?.Value ?? assignment.CategoryId?.Value ?? assignment.AssetId?.Value) ?? Guid.Empty);
   }
 
   public static AssetAttributeHistoryDto ToDto(this AssetAttributeHistory x) => new(
     x.Id.Value, x.AssetId.Value, x.AttributeDefinitionId.Value, x.AttributeCode,
-    x.OldValue, x.NewValue, x.ChangedAt, x.ChangedBy, x.ChangeReason);
+    x.OldValue, x.NewValue, x.ChangedAt, x.ChangedBy, x.ChangedByName, x.ChangeReason);
 }

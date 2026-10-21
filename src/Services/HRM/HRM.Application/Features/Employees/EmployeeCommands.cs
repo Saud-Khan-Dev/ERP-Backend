@@ -9,10 +9,15 @@ public sealed record PersonalDetailsInput(
   Gender? Gender,
   string? Nationality,
   MaritalStatus? MaritalStatus,
-  string? BloodGroup)
+  string? BloodGroup,
+  /// Why the CNIC or the date of birth is corrected (required when either changes; kept in the change log).
+  string? ChangeReason = null)
 {
   public PersonalDetails ToDetails() => new(FirstName, MiddleName, LastName, Cnic, DateOfBirth, Gender, Nationality, MaritalStatus, BloodGroup);
 }
+
+/// The engagement period of a contract, deputation-in, ad hoc, daily-wage or project employee.
+public sealed record TermInput(DateOnly? TermFrom, DateOnly? TermTo, string? LendingDepartment);
 
 public sealed record ContactInput(ContactType ContactType, string Value, bool IsPrimary);
 
@@ -53,17 +58,27 @@ public sealed record RegisterEmployeeCommand(
   IReadOnlyList<AddressInput>? Addresses,
   IReadOnlyList<EmergencyContactInput>? EmergencyContacts,
   IReadOnlyList<FamilyMemberInput>? FamilyMembers,
-  AppointmentInput? Appointment) : ICommand<Result<RegisterEmployeeCommandResult>>;
+  AppointmentInput? Appointment,
+  TermInput? Term = null) : ICommand<Result<RegisterEmployeeCommandResult>>;
 
 public sealed record RegisterEmployeeCommandResult(Guid Id, string EmployeeNumber);
 
 public sealed record UpdatePersonalDetailsCommand(Guid Id, PersonalDetailsInput Personal) : ICommand<Result<UpdatedResult>>;
 
-/// Corrects the employment type / method / project (a regularization is recorded through an HR action instead).
-public sealed record ChangeEmploymentCommand(Guid Id, EmploymentType EmploymentType, EmploymentMethod? EmploymentMethod, Guid? ProjectId) : ICommand<Result<UpdatedResult>>;
+/// Corrects the employment type / method / project entered by mistake, with the reason. Making a contract (or other)
+/// employee regular is a regularization: an HR action, approved and recorded in the service book.
+public sealed record ChangeEmploymentCommand(Guid Id, EmploymentType EmploymentType, EmploymentMethod? EmploymentMethod, Guid? ProjectId, string? Reason = null) : ICommand<Result<UpdatedResult>>;
 
 /// Corrects a typing mistake in the employee number.
-public sealed record CorrectEmployeeNumberCommand(Guid Id, string EmployeeNumber) : ICommand<Result<UpdatedResult>>;
+public sealed record CorrectEmployeeNumberCommand(Guid Id, string EmployeeNumber, string? Reason = null) : ICommand<Result<UpdatedResult>>;
+
+/// Sets or extends the engagement period of a non-regular employee (a contract extension is a new end date).
+public sealed record SetEmployeeTermCommand(Guid Id, DateOnly? TermFrom, DateOnly? TermTo, string? LendingDepartment, string? Reason) : ICommand<Result<UpdatedResult>>;
+
+public sealed record GetEmployeeChangeLogQueryResult(IReadOnlyList<EmployeeChangeDto> Changes);
+
+/// Every change to the employee's identity, employment and pay, newest first.
+public sealed record GetEmployeeChangeLogQuery(Guid Id) : IQuery<Result<GetEmployeeChangeLogQueryResult>>;
 
 /// Links (UserId set) or unlinks (null) the employee's Identity login.
 public sealed record LinkEmployeeUserCommand(Guid Id, Guid? UserId) : ICommand<Result<UpdatedResult>>;
@@ -84,6 +99,40 @@ public class PersonalDetailsInputValidator : AbstractValidator<PersonalDetailsIn
     RuleFor(x => x.MaritalStatus).IsInEnum().When(x => x.MaritalStatus.HasValue);
     RuleFor(x => x.Nationality).MaximumLength(60);
     RuleFor(x => x.BloodGroup).MaximumLength(5);
+    RuleFor(x => x.ChangeReason).MaximumLength(1000);
+  }
+}
+
+public class TermInputValidator : AbstractValidator<TermInput>
+{
+  public TermInputValidator()
+  {
+    RuleFor(x => x.LendingDepartment).MaximumLength(200);
+    RuleFor(x => x.TermTo).GreaterThanOrEqualTo(x => x.TermFrom).When(x => x.TermFrom is not null && x.TermTo is not null)
+      .WithMessage("The term cannot end before it starts.");
+  }
+}
+
+public class ChangeEmploymentCommandValidator : AbstractValidator<ChangeEmploymentCommand>
+{
+  public ChangeEmploymentCommandValidator()
+  {
+    RuleFor(x => x.Id).NotEmpty();
+    RuleFor(x => x.EmploymentType).IsInEnum();
+    RuleFor(x => x.EmploymentMethod).IsInEnum().When(x => x.EmploymentMethod.HasValue);
+    RuleFor(x => x.Reason).NotEmpty().WithMessage("Say why the employment is corrected.").MaximumLength(1000);
+  }
+}
+
+public class SetEmployeeTermCommandValidator : AbstractValidator<SetEmployeeTermCommand>
+{
+  public SetEmployeeTermCommandValidator()
+  {
+    RuleFor(x => x.Id).NotEmpty();
+    RuleFor(x => x.LendingDepartment).MaximumLength(200);
+    RuleFor(x => x.Reason).MaximumLength(1000);
+    RuleFor(x => x.TermTo).GreaterThanOrEqualTo(x => x.TermFrom).When(x => x.TermFrom is not null && x.TermTo is not null)
+      .WithMessage("The term cannot end before it starts.");
   }
 }
 
@@ -156,6 +205,7 @@ public class RegisterEmployeeCommandValidator : AbstractValidator<RegisterEmploy
     RuleForEach(x => x.EmergencyContacts).SetValidator(new EmergencyContactInputValidator());
     RuleForEach(x => x.FamilyMembers).SetValidator(new FamilyMemberInputValidator());
     RuleFor(x => x.Appointment!).SetValidator(new AppointmentInputValidator()).When(x => x.Appointment is not null);
+    RuleFor(x => x.Term!).SetValidator(new TermInputValidator()).When(x => x.Term is not null);
   }
 }
 
@@ -174,6 +224,7 @@ public class CorrectEmployeeNumberCommandValidator : AbstractValidator<CorrectEm
   {
     RuleFor(x => x.Id).NotEmpty();
     RuleFor(x => x.EmployeeNumber).NotEmpty().MaximumLength(Employee.NumberMaxLength);
+    RuleFor(x => x.Reason).MaximumLength(1000);
   }
 }
 

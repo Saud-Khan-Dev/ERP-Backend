@@ -28,6 +28,10 @@ public enum LitigationPartyRole { Plaintiff, Defendant, Petitioner, Respondent, 
 /// property_appeal.decision_outcome
 public enum AppealOutcome { Allowed, Dismissed, Remanded, Modified }
 
+/// property_litigation.decision_result: how a decided case came out for GDA, so won and lost cases can be counted
+/// (the decision's wording stays in decision_outcome).
+public enum CaseResult { InFavourOfGda, AgainstGda, PartlyInFavour }
+
 /// property_appeal.appeal_status
 public enum AppealStatus { Filed, UnderHearing, Decided, Withdrawn }
 
@@ -42,3 +46,8 @@ public enum AppealOrderSource
   BuildingPlan,
   PropertyTransfer
 }
+
+/// property_outsourcing.money_direction: who pays whom under a contract. Receivable: the contractor pays GDA (a parking
+/// or canteen concession) - it belongs in the rent roll. Payable: GDA pays the contractor (cleaning, security) - an
+/// expense, never income. Null on contracts entered before the direction was recorded.
+public enum MoneyDirection { Receivable, Payable }

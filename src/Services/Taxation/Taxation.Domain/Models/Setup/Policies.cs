@@ -126,6 +126,50 @@ public class PenaltyRule : Aggregate<PenaltyRuleId>
     }
   }
 
+  public bool Covers(DateOnly date) => EffectiveFrom <= date && (EffectiveTo is null || EffectiveTo >= date);
+
+  /// A change from a date: the version in force ends the day before and a new version of the rule starts (surcharges
+  /// already applied keep the version they were applied with). A change dated the version's own first day corrects it.
+  /// Returns the new version, or null when corrected in place.
+  public PenaltyRule? Revise(PenaltyRuleInput input, DateOnly effectiveFrom, IReadOnlyList<PenaltyRule> versions)
+  {
+    if (versions.Any(v => v.Code == Code && v.EffectiveFrom > EffectiveFrom))
+      throw new DomainException($"{Name} already has a version from {versions.Where(v => v.Code == Code && v.EffectiveFrom > EffectiveFrom).Min(v => v.EffectiveFrom):dd MMM yyyy}; change that one.");
+    if (effectiveFrom < EffectiveFrom)
+      throw new DomainException($"This version of {Name} starts on {EffectiveFrom:dd MMM yyyy}; a change cannot start before it.");
+    if (effectiveFrom == EffectiveFrom)
+    {
+      Update(input);
+      return null;
+    }
+    var next = new PenaltyRule { Id = PenaltyRuleId.New(), Code = Code, Name = Name, Kind = Kind, Trigger = Trigger, Base = Base, EffectiveFrom = effectiveFrom };
+    next.Update(input);
+    // saved unchanged: no new version
+    if (next.SameTermsAs(this))
+      return null;
+    EffectiveTo = effectiveFrom.AddDays(-1);
+    return next;
+  }
+
+  private bool SameTermsAs(PenaltyRule other) =>
+      Name == other.Name && RateType == other.RateType && Rate == other.Rate && TargetSet == other.TargetSet && IncludesCurrent == other.IncludesCurrent
+      && StacksWithYearEnd == other.StacksWithYearEnd && RateSetId == other.RateSetId && PeriodValue == other.PeriodValue && PeriodUnit == other.PeriodUnit
+      && PeriodAnchor == other.PeriodAnchor;
+
+  /// A version entered from a later date by mistake is taken back before it is in force; the one it would have ended
+  /// runs on.
+  public static PenaltyRule? Void(PenaltyRule future, IReadOnlyList<PenaltyRule> versions, DateOnly today)
+  {
+    if (future.EffectiveFrom <= today)
+      throw new DomainException($"This version of {future.Name} is in force since {future.EffectiveFrom:dd MMM yyyy}; change it from a new date instead.");
+    if (versions.Any(v => v.Code == future.Code && v.EffectiveFrom > future.EffectiveFrom))
+      throw new DomainException("A later version follows it; take that one back first.");
+    var previous = versions.Where(v => v.Code == future.Code && v.EffectiveFrom < future.EffectiveFrom).OrderByDescending(v => v.EffectiveFrom).FirstOrDefault();
+    if (previous is not null && previous.EffectiveTo == future.EffectiveFrom.AddDays(-1))
+      previous.EffectiveTo = null;
+    return previous;
+  }
+
   /// The surcharge on a base: a percentage of it or the fixed amount.
   public decimal AmountOn(decimal baseAmount) => RateType == PenaltyRateType.Percent ? Rupees.Round(baseAmount * Rate / 100m) : Rupees.Round(Rate);
 

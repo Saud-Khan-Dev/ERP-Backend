@@ -44,16 +44,18 @@ public class LeaveTests
     Apply(employee, "2026-10-14", "2026-10-15", 2, [first]);
   }
 
+  private static readonly DateTime Now = new(2026, 10, 6, 9, 0, 0, DateTimeKind.Utc);
+
   [Fact]
   public void Approving_writes_usage_per_year_and_cancelling_gives_the_days_back()
   {
     var application = Apply(Employee(), "2026-12-30", "2027-01-04", 4);
-    var usage = application.Approve(Officer, D("2026-10-06"), [new LeaveDaysByYear(2026, 2), new LeaveDaysByYear(2027, 2)]);
+    var usage = application.Approve(Officer, null, Now, [new LeaveDaysByYear(2026, 2), new LeaveDaysByYear(2027, 2)]);
 
     Assert.Equal([-2m, -2m], usage.Select(u => u.Days));
     Assert.Equal(LeaveStatus.Approved, application.Status);
 
-    var reversal = application.Cancel(usage.ToList(), D("2026-10-07"));
+    var reversal = application.Cancel(usage.ToList(), Officer, Now.AddDays(1), "Called back to duty");
     Assert.Equal(0, usage.Concat(reversal).Sum(u => u.Days));
     Assert.Equal(LeaveStatus.Cancelled, application.Status);
   }
@@ -62,10 +64,100 @@ public class LeaveTests
   public void Only_a_pending_application_is_decided()
   {
     var application = Apply(Employee(), "2026-10-08", "2026-10-08", 1);
-    application.Reject();
+    application.Reject(Officer, null, Now, "Office short-staffed that day");
 
-    Assert.Throws<DomainException>(() => application.Approve(Officer, D("2026-10-06"), [new LeaveDaysByYear(2026, 1)]));
-    Assert.Throws<DomainException>(() => application.Cancel([], D("2026-10-06")));
+    Assert.Throws<DomainException>(() => application.Approve(Officer, null, Now, [new LeaveDaysByYear(2026, 1)]));
+    Assert.Throws<DomainException>(() => application.Cancel([], Officer, Now, "x"));
+  }
+
+  [Fact]
+  public void Leave_days_follow_the_dates_a_half_day_off_one_date_at_most()
+  {
+    var counted = LeaveDayCounter.CountByYear(D("2026-11-02"), D("2026-11-30"), Weekday, _ => false);
+
+    Assert.Equal(21, LeaveDayCounter.Charge(counted, null, D("2026-11-02"), D("2026-11-30")).Sum(d => d.Days));
+    Assert.Equal(20.5m, LeaveDayCounter.Charge(counted, 20.5m, D("2026-11-02"), D("2026-11-30")).Sum(d => d.Days));
+    Assert.Throws<DomainException>(() => LeaveDayCounter.Charge(counted, 0.5m, D("2026-11-02"), D("2026-11-30")));
+    Assert.Throws<DomainException>(() => LeaveDayCounter.Charge(counted, 20, D("2026-11-02"), D("2026-11-30")));
+  }
+
+  [Fact]
+  public void A_range_of_only_days_off_charges_nothing_and_is_refused()
+  {
+    var weekend = LeaveDayCounter.CountByYear(D("2026-10-10"), D("2026-10-11"), Weekday, _ => false);
+
+    Assert.Throws<DomainException>(() => LeaveDayCounter.Charge(weekend, null, D("2026-10-10"), D("2026-10-11")));
+  }
+
+  [Fact]
+  public void A_rejection_keeps_the_reason_the_decider_and_the_date()
+  {
+    var application = Apply(Employee(), "2026-10-08", "2026-10-08", 1);
+
+    Assert.Throws<DomainException>(() => application.Reject(Officer, null, Now, "  "));
+    application.Reject(Officer, null, Now, "Audit week");
+    Assert.Equal(("Audit week", Officer, Now), (application.DecisionReason, application.DecidedBy!.Value, application.DecidedAt!.Value));
+  }
+
+  [Fact]
+  public void Nobody_approves_their_own_leave()
+  {
+    var employee = Employee();
+    var application = Apply(employee, "2026-10-08", "2026-10-08", 1);
+
+    Assert.Throws<DomainException>(() => application.Approve(Officer, employee.Id, Now, [new LeaveDaysByYear(2026, 1)]));
+    application.Approve(Officer, Employee().Id, Now, [new LeaveDaysByYear(2026, 1)]);
+  }
+
+  [Fact]
+  public void Cancelling_an_approved_leave_needs_a_reason()
+  {
+    var application = Apply(Employee(), "2026-10-08", "2026-10-08", 1);
+    var usage = application.Approve(Officer, null, Now, [new LeaveDaysByYear(2026, 1)]);
+
+    Assert.Throws<DomainException>(() => application.Cancel(usage.ToList(), Officer, Now, null));
+  }
+
+  [Fact]
+  public void An_inactive_leave_type_takes_no_new_application()
+  {
+    var type = LeaveType.Create(LeaveTypeId.New(), "Study Leave", true, 10, null, false, false);
+    type.SetActive(false);
+
+    Assert.Throws<DomainException>(() => LeaveApplication.Apply(LeaveApplicationId.New(), Employee(), type, D("2026-10-08"), D("2026-10-08"), 1, null, D("2026-10-06"), []));
+  }
+
+  [Fact]
+  public void Granting_the_year_fills_in_a_placeholder_made_for_a_carried_balance()
+  {
+    var placeholder = LeaveEntitlement.Placeholder(LeaveEntitlementId.New(), Employee().Id, Casual, 2027);
+    var granted = LeaveEntitlement.Create(LeaveEntitlementId.New(), Employee().Id, Casual, 2027, 15);
+
+    Assert.True(placeholder.Grant(20, ledgerTotal: 6));
+    Assert.Equal((20m, false), (placeholder.EntitledDays, placeholder.IsPlaceholder));
+    Assert.False(granted.Grant(20, 0));
+    Assert.Equal(15, granted.EntitledDays);
+  }
+
+  [Fact]
+  public void An_optional_holiday_is_no_day_off_for_everyone()
+  {
+    var optional = Holiday.Create(HolidayId.New(), D("2026-12-25"), "Christmas", HolidayType.Optional, null, null);
+    var gazetted = Holiday.Create(HolidayId.New(), D("2026-12-25"), "Quaid Day", HolidayType.Public, null, null);
+
+    Assert.False(optional.AppliesTo(null));
+    Assert.True(gazetted.AppliesTo(null));
+  }
+
+  [Fact]
+  public void Leave_without_pay_recorded_by_an_HR_action_is_approved_at_once()
+  {
+    var unpaid = LeaveType.Create(LeaveTypeId.New(), "Leave Without Pay", false, null, null, false, true);
+    var action = HrActionRequestId.New();
+    var leave = LeaveApplication.RecordForHrAction(LeaveApplicationId.New(), Employee(), unpaid, D("2026-11-02"), D("2026-11-30"), 21, null, action, Officer, Now, []);
+
+    Assert.Equal((LeaveStatus.Approved, action), (leave.Status, leave.HrActionId!));
+    Assert.Throws<DomainException>(() => LeaveApplication.RecordForHrAction(LeaveApplicationId.New(), Employee(), Casual, D("2026-11-02"), D("2026-11-30"), 21, null, action, Officer, Now, []));
   }
 
   [Fact]

@@ -11,6 +11,8 @@ public class CancelTransferHandler(IApplicationDbContext context, ICurrentUser c
         $"{transfer.TransferNo.Value} has been approved; cancelling it needs the Approve permission (PROPERTY.APPROVE).");
 
     var property = await context.LoadPropertyAsync(transfer.PropertyId.Value, cancellationToken);
+    // closing a waiting transfer frees the givers' shares: it must not cross an approval of the same property
+    context.Touch(property);
     transfer.Cancel(property, command.Reason, TransferRegistration.ActorName(currentUser), EntityLoaders.Today);
 
     await context.SaveChangesAsync(cancellationToken);

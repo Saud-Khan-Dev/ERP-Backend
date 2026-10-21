@@ -18,6 +18,8 @@ public class GetAssetCategories : ICarterModule
 
       return Results.Ok(new GetAssetCategoriesResponse(result.Value!.Categories));
     })
+      .RequireAnyPermission(AssetsAuthorization.AnyAssetsReader)
+
       .WithName("GetAssetCategories")
       .Produces<GetAssetCategoriesResponse>(StatusCodes.Status200OK)
       .WithSummary("Get Asset Categories")

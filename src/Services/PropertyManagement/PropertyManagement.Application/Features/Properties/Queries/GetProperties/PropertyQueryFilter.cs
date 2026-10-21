@@ -73,6 +73,65 @@ public static class PropertyQueryFilter
         : properties.Where(p => !steepBoundaries.Any(b => b.PropertyId == p.Id));
     }
 
+    if (query.TransferPending is { } pending)
+    {
+      var waiting = context.Transfers.AsNoTracking().Where(t => t.TransferStatus == TransferStatus.Initiated || t.TransferStatus == TransferStatus.Approved);
+      properties = pending ? properties.Where(p => waiting.Any(t => t.PropertyId == p.Id)) : properties.Where(p => !waiting.Any(t => t.PropertyId == p.Id));
+    }
+
+    var today = PakistanDate.Today;
+    if (query.Allotted is { } allotted || query.AgreementInForce is not null)
+    {
+      var current = await InForce.StatusIdsAsync<AllotmentStatus>(context, InForce.AllotmentStatuses, cancellationToken);
+      var allotments = context.Allotments.AsNoTracking()
+        .Where(a => a.IsActive && current.Contains(a.AllotmentStatusId) && (a.EffectiveDate ?? a.AllotmentDate) <= today);
+
+      if (query.Allotted is { } isAllotted)
+        properties = isAllotted ? properties.Where(p => allotments.Any(a => a.PropertyId == p.Id)) : properties.Where(p => !allotments.Any(a => a.PropertyId == p.Id));
+
+      if (query.AgreementInForce is { } inForce)
+      {
+        var lease = await InForce.StatusIdsAsync<LeaseStatus>(context, InForce.LeaseStatuses, cancellationToken);
+        var rental = await InForce.StatusIdsAsync<RentalStatus>(context, InForce.RentalStatuses, cancellationToken);
+        var contract = await InForce.StatusIdsAsync<ContractStatus>(context, InForce.ContractStatuses, cancellationToken);
+        var leases = context.Leases.AsNoTracking().Where(l => lease.Contains(l.LeaseStatusId) && l.LeaseStartDate <= today);
+        var rentals = context.Rentals.AsNoTracking().Where(r => rental.Contains(r.RentalStatusId) && r.RentalStartDate <= today);
+        var contracts = context.Outsourcings.AsNoTracking().Where(c => contract.Contains(c.ContractStatusId) && c.ContractStartDate <= today);
+        properties = inForce
+          ? properties.Where(p => allotments.Any(a => a.PropertyId == p.Id) || leases.Any(l => l.PropertyId == p.Id) || rentals.Any(r => r.PropertyId == p.Id) || contracts.Any(c => c.PropertyId == p.Id))
+          : properties.Where(p => !allotments.Any(a => a.PropertyId == p.Id) && !leases.Any(l => l.PropertyId == p.Id) && !rentals.Any(r => r.PropertyId == p.Id) && !contracts.Any(c => c.PropertyId == p.Id));
+      }
+    }
+
+    if (query.HasHolder is { } hasHolder)
+    {
+      var held = CurrentHoldings(context);
+      properties = hasHolder ? properties.Where(p => held.Any(h => h.PropertyId == p.Id)) : properties.Where(p => !held.Any(h => h.PropertyId == p.Id));
+    }
+
+    if (query.Charged is { } charged)
+    {
+      var charges = context.Encumbrances.AsNoTracking().Where(e => e.Status == EncumbranceStatus.Active || e.Status == EncumbranceStatus.Enforced);
+      properties = charged ? properties.Where(p => charges.Any(e => e.PropertyId == p.Id)) : properties.Where(p => !charges.Any(e => e.PropertyId == p.Id));
+    }
+
+    if (query.Disputed is { } disputed)
+    {
+      var disputes = context.Ownerships.AsNoTracking().Where(o => o.OwnershipStatus == OwnershipStatus.Disputed);
+      properties = disputed ? properties.Where(p => disputes.Any(o => o.PropertyId == p.Id)) : properties.Where(p => !disputes.Any(o => o.PropertyId == p.Id));
+    }
+
+    if (query.Measured is { } measured)
+      properties = measured
+        ? properties.Where(p => measurements.Any(m => m.PropertyId == p.Id && m.IsCurrent))
+        : properties.Where(p => !measurements.Any(m => m.PropertyId == p.Id && m.IsCurrent));
+
+    if (query.HasBoundary is { } hasBoundary)
+    {
+      var surveys = context.Boundaries.AsNoTracking().Where(b => b.IsCurrent);
+      properties = hasBoundary ? properties.Where(p => surveys.Any(b => b.PropertyId == p.Id)) : properties.Where(p => !surveys.Any(b => b.PropertyId == p.Id));
+    }
+
     if (query.HasOpenCase is { } hasOpenCase)
     {
       var closed = await OpenMatters.ClosedCaseStatusIdsAsync(context, cancellationToken);
@@ -87,12 +146,21 @@ public static class PropertyQueryFilter
       var upper = query.Search.Trim().ToUpperInvariant();
       var lower = query.Search.Trim().ToLowerInvariant();
 
-      // current holders whose name contains the term, or whose CNIC is the term (13 digits, dashes optional)
-      var cnic = Cnic.Normalize(query.Search) is { } normalized ? Cnic.FromStored(normalized) : null;
+      // parties holding it now whose name contains the term, or whose CNIC starts with it (5 or more digits, dashes
+      // optional): current holders, and the allottee, lessee, tenant or contractor in force
+      var cnicPrefix = Cnic.NormalizePrefix(query.Search);
       var holders = context.Owners.AsNoTracking()
-        .Where(o => o.OwnerName.Value.ToLower().Contains(lower) || (cnic != null && o.Cnic == cnic))
+        .Where(o => o.OwnerName.Value.ToLower().Contains(lower) || (cnicPrefix != null && o.Cnic != null && ((string)(object)o.Cnic).StartsWith(cnicPrefix)))
         .Select(o => o.Id);
       var holdings = CurrentHoldings(context);
+      var currentAllotment = await InForce.StatusIdsAsync<AllotmentStatus>(context, InForce.AllotmentStatuses, cancellationToken);
+      var activeLease = await InForce.StatusIdsAsync<LeaseStatus>(context, InForce.LeaseStatuses, cancellationToken);
+      var activeRental = await InForce.StatusIdsAsync<RentalStatus>(context, InForce.RentalStatuses, cancellationToken);
+      var activeContract = await InForce.StatusIdsAsync<ContractStatus>(context, InForce.ContractStatuses, cancellationToken);
+      var allottees = context.Allotments.AsNoTracking().Where(a => a.IsActive && currentAllotment.Contains(a.AllotmentStatusId) && holders.Contains(a.AllotteeOwnerId)).Select(a => a.PropertyId);
+      var lessees = context.Leases.AsNoTracking().Where(l => activeLease.Contains(l.LeaseStatusId) && holders.Contains(l.LesseeOwnerId)).Select(l => l.PropertyId);
+      var tenants = context.Rentals.AsNoTracking().Where(r => activeRental.Contains(r.RentalStatusId) && holders.Contains(r.TenantOwnerId)).Select(r => r.PropertyId);
+      var contractors = context.Outsourcings.AsNoTracking().Where(c => activeContract.Contains(c.ContractStatusId) && holders.Contains(c.OutsourcedPartyOwnerId)).Select(c => c.PropertyId);
 
       // The code is a value-converted BusinessCode. Casting it through object makes EF read the column as plain
       // text (property_code::text LIKE '%…%'), so "prop-1" or "00012" match part of it; codes are stored upper-case.
@@ -101,7 +169,8 @@ public static class PropertyQueryFilter
           || p.PropertyName.Value.ToLower().Contains(lower)
           || (p.KhasraSurveyNo != null && p.KhasraSurveyNo.ToLower().Contains(lower))
           || (p.AddressLine != null && p.AddressLine.ToLower().Contains(lower))
-          || holdings.Any(h => h.PropertyId == p.Id && holders.Contains(h.OwnerId)));
+          || holdings.Any(h => h.PropertyId == p.Id && holders.Contains(h.OwnerId))
+          || allottees.Contains(p.Id) || lessees.Contains(p.Id) || tenants.Contains(p.Id) || contractors.Contains(p.Id));
     }
 
     return properties;
@@ -114,6 +183,7 @@ public static class PropertyQueryFilter
     var statuses = context.Set<PropertyStatus>().AsNoTracking();
     var types = context.Set<PropertyType>().AsNoTracking();
     var holdings = CurrentHoldings(context);
+    var owners = context.Owners.AsNoTracking();
     var desc = query.SortDescending;
 
     IOrderedQueryable<Property> ordered = query.SortBy switch
@@ -139,6 +209,12 @@ public static class PropertyQueryFilter
       PropertySort.Owners => desc
         ? properties.OrderByDescending(p => holdings.Where(h => h.PropertyId == p.Id).Select(h => h.OwnerId).Distinct().Count())
         : properties.OrderBy(p => holdings.Where(h => h.PropertyId == p.Id).Select(h => h.OwnerId).Distinct().Count()),
+      // the "Held by" name: the first current holder by name; nobody holding it last, whichever direction
+      PropertySort.Holder => desc
+        ? properties.OrderBy(p => !holdings.Any(h => h.PropertyId == p.Id))
+            .ThenByDescending(p => owners.Where(o => holdings.Any(h => h.PropertyId == p.Id && h.OwnerId == o.Id)).Min(o => o.OwnerName.Value))
+        : properties.OrderBy(p => !holdings.Any(h => h.PropertyId == p.Id))
+            .ThenBy(p => owners.Where(o => holdings.Any(h => h.PropertyId == p.Id && h.OwnerId == o.Id)).Min(o => o.OwnerName.Value)),
       _ => desc ? properties.OrderByDescending(p => p.PropertyCode) : properties.OrderBy(p => p.PropertyCode),
     };
 

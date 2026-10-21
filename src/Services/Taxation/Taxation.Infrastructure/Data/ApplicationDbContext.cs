@@ -69,8 +69,22 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
   public DbSet<Clearance> Clearances => Set<Clearance>();
   public DbSet<SmsMessage> SmsMessages => Set<SmsMessage>();
 
+  // ---- 7. the daily job and the change history ----
+  public DbSet<JobRun> JobRuns => Set<JobRun>();
+  public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
+
   public Task<IDbContextTransaction> BeginTransactionAsync(CancellationToken cancellationToken) =>
       Database.BeginTransactionAsync(cancellationToken);
+
+  public async Task LockTaxFileAsync(TaxFileId id, CancellationToken cancellationToken)
+  {
+    if (Database.CurrentTransaction is null)
+      throw new InvalidOperationException("A tax file is locked only inside a transaction.");
+    var fileId = id.Value;
+    await Database.ExecuteSqlInterpolatedAsync($"SELECT 1 FROM taxation.tax_file WHERE id = {fileId} FOR UPDATE", cancellationToken);
+    await Database.ExecuteSqlInterpolatedAsync(
+      $"SELECT 1 FROM taxation.demand WHERE tax_file_id = {fileId} AND status IN ('ISSUED', 'PART_PAID', 'DEFAULTED', 'PAID') FOR UPDATE", cancellationToken);
+  }
 
   protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
   {

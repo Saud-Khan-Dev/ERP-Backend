@@ -9,6 +9,8 @@ public class GetNextAssetTag : ICarterModule
       var result = await sender.Send(new GetNextAssetTagQuery());
       return Results.Ok(new GetNextAssetTagResponse(result.Value!.AssetCode));
     })
+      .RequirePermission(PermissionCatalog.Assets.Create)
+
       .WithName("GetNextAssetTag")
       .Produces<GetNextAssetTagResponse>(StatusCodes.Status200OK)
       .WithSummary("Get Next Asset Tag")

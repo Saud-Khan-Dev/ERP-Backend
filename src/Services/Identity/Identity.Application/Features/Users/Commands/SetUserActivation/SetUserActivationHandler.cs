@@ -10,11 +10,17 @@ public class SetUserActivationHandler(IApplicationDbContext context, IdentityGua
     var id = UserId.Of(command.Id);
 
     var user = await context.Users.FirstOrDefaultAsync(u => u.Id == id, cancellationToken)
-      ?? throw new UserNotFoundException($"User {command.Id} was not found.");
+      ?? throw new UserNotFoundException("This account was not found.");
+
+    guard.EnsureNotSelf(id, command.IsActive ? "reactivate" : "deactivate");
+    await guard.EnsureCanActOnAsync(id, command.IsActive ? "reactivate" : "deactivate", cancellationToken);
+
+    // nothing to do is not an act worth recording
+    if (user.IsActive == command.IsActive)
+      return Result<SetUserActivationCommandResult>.Success(new SetUserActivationCommandResult(user.IsActive));
 
     if (!command.IsActive)
     {
-      guard.EnsureNotSelf(id, "deactivate your own account");
       await guard.EnsureNotLastSuperAdminAsync(id, "deactivating it", cancellationToken);
 
       user.Deactivate();

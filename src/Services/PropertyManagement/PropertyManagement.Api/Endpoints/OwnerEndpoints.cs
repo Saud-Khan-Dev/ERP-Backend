@@ -20,10 +20,10 @@ public class OwnerEndpoints : ICarterModule
         + "GET /owners?cnic=...&includeInactive=true or ?ntn=...");
 
     owners.MapGet("/", async (ISender sender, int? pageIndex, int? pageSize, string? search, string? cnic, string? ntn, Guid? ownerTypeId, bool? includeInactive,
-        bool? hasHoldings, string? sortBy, string? sortDir) =>
+        bool? hasHoldings, string? sortBy, string? sortDir, string? role) =>
         (await sender.Send(new GetOwnersQuery(new PaginationRequest(pageIndex ?? 0, pageSize ?? 20), search, cnic, ntn, ownerTypeId, includeInactive ?? false,
           hasHoldings, PropertyQueryParsing.ParseEnum<OwnerSort>(sortBy, "sortBy") ?? OwnerSort.Code,
-          PropertyQueryParsing.ParseDescending(sortDir) ?? false))).ToOk())
+          PropertyQueryParsing.ParseDescending(sortDir) ?? false, PropertyQueryParsing.ParseEnum<OwnerRole>(role, "role")))).ToOk())
       .RequirePermission(PermissionCatalog.Property.View)
       .WithName("GetOwners")
       .Produces<GetOwnersQueryResult>()
@@ -32,6 +32,7 @@ public class OwnerEndpoints : ICarterModule
       .WithDescription("Paged (pageSize 1-200). search matches the exact owner code, a CNIC (13 digits or its first 5 or more, dashes optional), an NTN "
         + "(either form) or part of the name. cnic / ntn: exact lookup in any written form (with includeInactive=true for the duplicate check). "
         + "hasHoldings: true = holds at least one current share, false = none. Each row has currentHoldingCount (active or disputed shares on active properties). "
+        + "role = holder | allottee | lessee | tenant | contractor | bidder | encroacher | litigant | appellant | violator (agreements in force). "
         + "sortBy = code | name | type | holdings (default code), sortDir = asc | desc.");
 
     owners.MapGet("/{id:guid}", async (Guid id, ISender sender) => (await sender.Send(new GetOwnerQuery(id))).ToOk())

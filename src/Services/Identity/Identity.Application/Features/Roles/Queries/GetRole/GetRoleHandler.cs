@@ -8,7 +8,7 @@ public class GetRoleHandler(IApplicationDbContext context)
     var id = RoleId.Of(query.Id);
 
     var role = await context.Roles.AsNoTracking().FirstOrDefaultAsync(r => r.Id == id, cancellationToken)
-      ?? throw new RoleNotFoundException($"Role {query.Id} was not found.");
+      ?? throw new RoleNotFoundException("This role was not found - it may have been deleted.");
 
     var permissions = await context.RolePermissions.AsNoTracking()
         .Where(rp => rp.RoleId == id)
@@ -18,8 +18,14 @@ public class GetRoleHandler(IApplicationDbContext context)
         .OrderBy(x => x.Permission.Code)
         .ToListAsync(cancellationToken);
 
+    var now = DateTime.UtcNow;
+    var holders = await context.UserRoles.AsNoTracking()
+        .Where(ur => ur.RoleId == id && ur.RevokedAt == null && (ur.ExpiresAt == null || ur.ExpiresAt > now))
+        .Join(context.Users.AsNoTracking(), ur => ur.UserId, u => u.Id, (ur, u) => ur.Id)
+        .CountAsync(cancellationToken);
+
     return Result<GetRoleQueryResult>.Success(new GetRoleQueryResult(
-      role.ToDto(permissions.Count),
+      role.ToDto(permissions.Count, holders),
       permissions.Select(x => x.Permission.ToDto(x.Module.Code.Value)).ToList()));
   }
 }

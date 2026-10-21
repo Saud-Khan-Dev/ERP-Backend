@@ -40,7 +40,18 @@ public class AuthEndpoints : ICarterModule
       .Produces<RefreshResponse>(StatusCodes.Status200OK)
       .ProducesProblem(StatusCodes.Status401Unauthorized)
       .WithSummary("Refresh Token")
-      .WithDescription("Issues a new access token and rotates the refresh token. Presenting an already-rotated token revokes every session for that user.");
+      .WithDescription("Issues a new access token and rotates the refresh token. Presenting an already-rotated token revokes that sign-in's chain (a second use within 30 seconds is refused without revoking anything).");
+
+    app.MapGet("/auth/password-policy", async (ISender sender) =>
+    {
+      var result = await sender.Send(new GetPasswordPolicyQuery());
+      return Results.Ok(new PasswordPolicyResponse(result.Value!));
+    })
+      .AllowAnonymous()
+      .WithName("GetPasswordPolicy")
+      .Produces<PasswordPolicyResponse>(StatusCodes.Status200OK)
+      .WithSummary("Get The Password Rules")
+      .WithDescription("The password rules in force, for every password form's checklist (anonymous: the change-password and first sign-in screens need them).");
 
     app.MapPost("/auth/logout", async (LogoutRequest request, ISender sender) =>
     {
@@ -98,6 +109,18 @@ public class AuthEndpoints : ICarterModule
       .WithSummary("Get My Sessions")
       .WithDescription("The devices the caller is currently signed in on.");
 
+    app.MapPost("/auth/sessions/revoke-others", async (ISender sender) =>
+    {
+      var result = await sender.Send(new RevokeOtherSessionsCommand());
+      return Results.Ok(new RevokeOtherSessionsResponse(result.Value!.RevokedCount));
+    })
+      .RequireAuthorization()
+      .WithName("RevokeMyOtherSessions")
+      .Produces<RevokeOtherSessionsResponse>(StatusCodes.Status200OK)
+      .ProducesProblem(StatusCodes.Status401Unauthorized)
+      .WithSummary("Sign Out My Other Devices")
+      .WithDescription("Signs out every device of the caller except the one making this request.");
+
     app.MapPost("/auth/sessions/{id}/revoke", async (Guid id, ISender sender) =>
     {
       var result = await sender.Send(new RevokeMySessionCommand(id));
@@ -130,3 +153,6 @@ public sealed record ChangePasswordResponse(bool IsSuccess);
 public sealed record MySessionsResponse(IReadOnlyList<SessionDto> Sessions);
 
 public sealed record RevokeMySessionResponse(bool IsSuccess);
+
+public sealed record PasswordPolicyResponse(PasswordPolicyDto Policy);
+public sealed record RevokeOtherSessionsResponse(int RevokedCount);

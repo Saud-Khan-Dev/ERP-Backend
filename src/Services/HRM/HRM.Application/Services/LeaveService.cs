@@ -4,15 +4,18 @@ using Microsoft.EntityFrameworkCore;
 /// subtracts leave applied for and not yet decided.
 public class LeaveService(IApplicationDbContext context, WorkCalendar calendar)
 {
-  /// The days to charge for a range: the employee's working days that are not holidays, split by calendar year. A
-  /// given number of days (e.g. a half day) is spread over the years in proportion.
-  public async Task<IReadOnlyList<LeaveDaysByYear>> DaysAsync(EmployeeId employeeId, DateOnly from, DateOnly to, decimal? days, CancellationToken cancellationToken)
+  /// The employee's working days in a range that are not holidays, by calendar year.
+  public async Task<IReadOnlyList<LeaveDaysByYear>> CountAsync(EmployeeId employeeId, DateOnly from, DateOnly to, CancellationToken cancellationToken)
   {
     Guard.DateOrder(from, to, "Start date", "End date");
     var employeeCalendar = await calendar.ForAsync(employeeId, from, to, cancellationToken);
-    var counted = LeaveDayCounter.CountByYear(from, to, employeeCalendar.IsWorkingDay, employeeCalendar.IsHoliday);
-    return days is { } given ? LeaveDayCounter.Split(given, counted, from) : counted;
+    return LeaveDayCounter.CountByYear(from, to, employeeCalendar.IsWorkingDay, employeeCalendar.IsHoliday);
   }
+
+  /// The days to charge for a range, split by calendar year: the counted working days, or half a day less (a half
+  /// day on one date). Any other number is refused.
+  public async Task<IReadOnlyList<LeaveDaysByYear>> DaysAsync(EmployeeId employeeId, DateOnly from, DateOnly to, decimal? days, CancellationToken cancellationToken) =>
+      LeaveDayCounter.Charge(await CountAsync(employeeId, from, to, cancellationToken), days, from, to);
 
   public sealed record Balance(int Year, decimal Entitled, decimal Ledger, decimal Pending, bool HasEntitlement)
   {

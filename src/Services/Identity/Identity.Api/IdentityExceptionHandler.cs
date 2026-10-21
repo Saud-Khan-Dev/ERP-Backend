@@ -58,15 +58,16 @@ public class IdentityExceptionHandler(ILogger<IdentityExceptionHandler> logger) 
         StatusCode: StatusCodes.Status409Conflict
       ),
 
+      // the database's own text names tables and constraints - it goes to the log, never to the screen
       DbUpdateException => (
         Title: nameof(DbUpdateException),
-        Detail: exception.InnerException?.Message ?? exception.Message,
+        Detail: "This change clashes with a record saved meanwhile (the same username, email or link). Reload and try again.",
         StatusCode: StatusCodes.Status409Conflict
       ),
 
       _ => (
-        Title: exception.GetType().Name,
-        Detail: exception.Message,
+        Title: "ServerError",
+        Detail: "Something went wrong on the server. Try again; if it keeps happening, tell your administrator the time it happened.",
         StatusCode: StatusCodes.Status500InternalServerError
       )
     };

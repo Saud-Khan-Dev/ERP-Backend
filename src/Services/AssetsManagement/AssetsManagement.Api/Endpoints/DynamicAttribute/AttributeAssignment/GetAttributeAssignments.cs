@@ -14,6 +14,8 @@ public class GetAttributeAssignments : ICarterModule
       var result = await sender.Send(new GetAttributeAssignmentsQuery(scope, targetId, attributeDefinitionId, includeInactive ?? false));
       return Results.Ok(new GetAttributeAssignmentsResponse(result.Value!.Assignments));
     })
+      .RequireAnyPermission(AssetsAuthorization.AnyAssetsReader)
+
       .WithName("GetAttributeAssignments")
       .Produces<GetAttributeAssignmentsResponse>(StatusCodes.Status200OK)
       .WithSummary("Get Attribute Assignments")

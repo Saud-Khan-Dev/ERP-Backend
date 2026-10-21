@@ -22,7 +22,7 @@ public class GetLitigationsHandler(IApplicationDbContext context, MasterLookup m
 
   public async Task<Result<GetLitigationsQueryResult>> Handle(GetUpcomingHearingsQuery query, CancellationToken cancellationToken)
   {
-    var today = DateOnly.FromDateTime(DateTime.UtcNow);
+    var today = PakistanDate.Today;
     var until = today.AddDays(Math.Clamp(query.Days, 1, 365));
 
     var rows = await WithChildren()

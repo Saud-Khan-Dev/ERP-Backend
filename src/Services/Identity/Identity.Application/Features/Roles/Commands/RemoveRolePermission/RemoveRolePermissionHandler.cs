@@ -10,7 +10,7 @@ public class RemoveRolePermissionHandler(IApplicationDbContext context, Identity
     var permissionId = PermissionId.Of(command.PermissionId);
 
     var role = await context.Roles.AsNoTracking().FirstOrDefaultAsync(r => r.Id == roleId, cancellationToken)
-      ?? throw new RoleNotFoundException($"Role {command.RoleId} was not found.");
+      ?? throw new RoleNotFoundException("This role was not found - it may have been deleted.");
 
     guard.EnsureCanAdministerRole(role);
 

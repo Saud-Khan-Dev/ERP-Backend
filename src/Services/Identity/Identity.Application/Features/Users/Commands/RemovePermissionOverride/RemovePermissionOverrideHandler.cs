@@ -9,11 +9,12 @@ public class RemovePermissionOverrideHandler(IApplicationDbContext context, Iden
     var userId = UserId.Of(command.UserId);
     var permissionId = PermissionId.Of(command.PermissionId);
 
-    guard.EnsureNotSelf(userId, "change permissions");
+    guard.EnsureNotSelf(userId, "make exceptions on");
+    await guard.EnsureCanActOnAsync(userId, "make exceptions on", cancellationToken);
 
     var existing = await context.UserPermissionOverrides
         .FirstOrDefaultAsync(o => o.UserId == userId && o.PermissionId == permissionId, cancellationToken)
-      ?? throw new PermissionNotFoundException("That override does not exist for this user.");
+      ?? throw new DomainException("This person has no exception for that permission.");
 
     context.UserPermissionOverrides.Remove(existing);
     var targetName = await context.Users.IgnoreQueryFilters().AsNoTracking().Where(u => u.Id == userId).Select(u => u.Username.Value).FirstOrDefaultAsync(cancellationToken);

@@ -9,6 +9,9 @@ using System.Text.RegularExpressions;
 public class AttributeDefinition : Aggregate<AttributeDefinitionId>
 {
   private const int DefaultTextMaxLength = 4000;
+  /// Dates outside these years are typing mistakes (a year 1001), not real dates.
+  private const int EarliestYear = 1900;
+  private const int LatestYear = 2200;
 
   public AttributeCode Code { get; private set; } = default!;
   public Name Name { get; private set; } = default!;
@@ -106,7 +109,7 @@ public class AttributeDefinition : Aggregate<AttributeDefinitionId>
   public void EnsureDeletable()
   {
     if (IsSystem)
-      throw new DomainException($"Attribute '{Code.Value}' is a system attribute and cannot be deleted.");
+      throw new DomainException($"'{Name.Value}' is a field the system relies on and cannot be deleted.");
   }
 
   private void Apply(
@@ -127,34 +130,34 @@ public class AttributeDefinition : Aggregate<AttributeDefinitionId>
     var requiresOptionSet = dataType is AttributeDataType.Select or AttributeDataType.MultiSelect;
 
     if (requiresOptionSet && optionSetId is null)
-      throw new DomainException($"{dataType} attributes require an option set.");
+      throw new DomainException("A dropdown field needs its list of choices.");
 
     if (dataType == AttributeDataType.Reference && string.IsNullOrWhiteSpace(referenceEntity))
-      throw new DomainException("REFERENCE attributes must declare the referenced entity (EMPLOYEE / SUPPLIER / ASSET / DEPARTMENT).");
+      throw new DomainException("Say what kind of record the field points at.");
 
     if (rules.MinNumber.HasValue && rules.MaxNumber.HasValue && rules.MinNumber > rules.MaxNumber)
-      throw new DomainException("min_number cannot be greater than max_number.");
+      throw new DomainException("The lowest number cannot be above the highest.");
 
     if (rules.MinLength.HasValue && rules.MaxLength.HasValue && rules.MinLength > rules.MaxLength)
-      throw new DomainException("min_length cannot be greater than max_length.");
+      throw new DomainException("The shortest length cannot be above the longest.");
 
     if (rules.MinDate.HasValue && rules.MaxDate.HasValue && rules.MinDate > rules.MaxDate)
-      throw new DomainException("min_date cannot be greater than max_date.");
+      throw new DomainException("The earliest date cannot be after the latest.");
 
     if ((rules.MinLength < 0) || (rules.MaxLength < 0))
-      throw new DomainException("Length limits cannot be negative.");
+      throw new DomainException("A length limit cannot be negative.");
 
     if (!string.IsNullOrWhiteSpace(rules.RegexPattern))
     {
       try { _ = new Regex(rules.RegexPattern); }
-      catch (ArgumentException) { throw new DomainException("regex_pattern is not a valid regular expression."); }
+      catch (ArgumentException) { throw new DomainException("The format rule is not valid."); }
     }
 
     if (numericScale.HasValue && numericPrecision.HasValue && numericScale > numericPrecision)
-      throw new DomainException("numeric_scale cannot exceed numeric_precision.");
+      throw new DomainException("A number cannot have more decimals than digits.");
 
     if (isMultiValue && requiresOptionSet)
-      throw new DomainException("Use MULTISELECT instead of is_multi_value for option lists.");
+      throw new DomainException("A dropdown that takes several choices is its own kind of field.");
 
     Name = name;
     Description = description;
@@ -183,8 +186,9 @@ public class AttributeDefinition : Aggregate<AttributeDefinitionId>
 
   /// Validates a raw JSON value against this definition and returns its canonical form
   /// (numbers as numbers, option codes upper-cased, dates as ISO strings ...).
-  /// allowedOptions: active option codes of the linked option set (SELECT / MULTISELECT only).
-  public JsonElement NormalizeValue(JsonElement value, string label, IReadOnlyCollection<string>? allowedOptions)
+  /// allowedOptions: the choices a value may take (SELECT / MULTISELECT only) - the ones offered, plus a switched-off
+  /// one the asset already holds.
+  public JsonElement NormalizeValue(JsonElement value, string label, IReadOnlyCollection<OptionChoice>? allowedOptions)
   {
     if (DataType == AttributeDataType.MultiSelect)
     {
@@ -214,7 +218,7 @@ public class AttributeDefinition : Aggregate<AttributeDefinitionId>
     return NormalizeScalar(value, label, allowedOptions);
   }
 
-  private JsonElement NormalizeScalar(JsonElement value, string label, IReadOnlyCollection<string>? allowedOptions)
+  private JsonElement NormalizeScalar(JsonElement value, string label, IReadOnlyCollection<OptionChoice>? allowedOptions)
   {
     switch (DataType)
     {
@@ -267,9 +271,10 @@ public class AttributeDefinition : Aggregate<AttributeDefinitionId>
         var text = ReadString(value, label);
         if (!DateOnly.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.None, out var date)
             && !(DateTime.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var dt) && (date = DateOnly.FromDateTime(dt)) != default))
-          Fail(label, "must be a valid date (yyyy-MM-dd).");
-        if (MinDate.HasValue && date < MinDate) Fail(label, $"cannot be before {MinDate:yyyy-MM-dd}.");
-        if (MaxDate.HasValue && date > MaxDate) Fail(label, $"cannot be after {MaxDate:yyyy-MM-dd}.");
+          Fail(label, "must be a date.");
+        if (date.Year is < EarliestYear or > LatestYear) Fail(label, "is not a real date. Check the year.");
+        if (MinDate.HasValue && date < MinDate) Fail(label, $"cannot be before {MinDate:d MMM yyyy}.");
+        if (MaxDate.HasValue && date > MaxDate) Fail(label, $"cannot be after {MaxDate:d MMM yyyy}.");
         return JsonSerializer.SerializeToElement(date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
       }
 
@@ -277,10 +282,11 @@ public class AttributeDefinition : Aggregate<AttributeDefinitionId>
       {
         var text = ReadString(value, label);
         if (!DateTimeOffset.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var moment))
-          Fail(label, "must be a valid date/time (ISO 8601).");
+          Fail(label, "must be a date and time.");
         var date = DateOnly.FromDateTime(moment.UtcDateTime);
-        if (MinDate.HasValue && date < MinDate) Fail(label, $"cannot be before {MinDate:yyyy-MM-dd}.");
-        if (MaxDate.HasValue && date > MaxDate) Fail(label, $"cannot be after {MaxDate:yyyy-MM-dd}.");
+        if (date.Year is < EarliestYear or > LatestYear) Fail(label, "is not a real date. Check the year.");
+        if (MinDate.HasValue && date < MinDate) Fail(label, $"cannot be before {MinDate:d MMM yyyy}.");
+        if (MaxDate.HasValue && date > MaxDate) Fail(label, $"cannot be after {MaxDate:d MMM yyyy}.");
         return JsonSerializer.SerializeToElement(moment.UtcDateTime.ToString("O", CultureInfo.InvariantCulture));
       }
 
@@ -297,26 +303,26 @@ public class AttributeDefinition : Aggregate<AttributeDefinitionId>
       {
         var text = ReadString(value, label);
         if (!Guid.TryParse(text, out var reference) || reference == Guid.Empty)
-          Fail(label, DataType == AttributeDataType.File ? "must be the id of an uploaded attachment." : $"must be the id of a {ReferenceEntity}.");
+          Fail(label, DataType == AttributeDataType.File ? "must be one of the asset's files." : "must point at an existing record.");
         return JsonSerializer.SerializeToElement(reference.ToString());
       }
 
       default:
-        throw new DomainException($"Unsupported attribute data type {DataType}.");
+        throw new DomainException($"'{Name.Value}' has a kind of value the form cannot take.");
     }
   }
 
-  private string NormalizeSelect(JsonElement value, string label, IReadOnlyCollection<string>? allowedOptions)
+  private string NormalizeSelect(JsonElement value, string label, IReadOnlyCollection<OptionChoice>? allowedOptions)
   {
     var code = ReadString(value, label);
-    var match = allowedOptions?.FirstOrDefault(o => string.Equals(o, code, StringComparison.OrdinalIgnoreCase));
+    var match = allowedOptions?.FirstOrDefault(o => string.Equals(o.Code, code, StringComparison.OrdinalIgnoreCase));
 
     if (match is null)
       Fail(label, allowedOptions is { Count: > 0 }
-          ? $"must be one of: {string.Join(", ", allowedOptions)}."
-          : "has no active options configured.");
+          ? $"must be one of: {string.Join(", ", allowedOptions.Where(o => o.IsOffered).Select(o => o.Label))}."
+          : "has no choices to pick from yet.");
 
-    return match!;
+    return match!.Code;
   }
 
   private void CheckRange(decimal number, string label)
@@ -340,6 +346,10 @@ public class AttributeDefinition : Aggregate<AttributeDefinitionId>
   private void Fail(string label, string rule) =>
       throw new DomainException(ValidationMessage ?? $"'{label}' {rule}");
 }
+
+/// One choice of a dropdown field: the stored code and the label people read. IsOffered is false for a switched-off
+/// choice an asset still holds (kept, but never offered for new values).
+public sealed record OptionChoice(string Code, string Label, bool IsOffered = true);
 
 /// Declarative validation bundle for AttributeDefinition (keeps Create/Update signatures readable).
 public sealed record AttributeValidationRules(

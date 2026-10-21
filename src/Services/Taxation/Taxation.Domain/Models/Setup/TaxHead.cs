@@ -9,12 +9,12 @@ public static class HeadCodes
   public const string Conservancy = "CONSERVANCY";
   public const string Water = "WATER";
 
-  // other charges: what a notice can add by year, and what a carried balance is broken into
+  // other charges a notice carries: what a notice can add by year, and what a carried balance is broken into. Further
+  // ones are added by the Section as real heads (marked "charged on notices") - there is no catch-all head.
   public const string LeaseMoney = "LEASE_MONEY";
   public const string Security = "SECURITY";
   public const string Surcharge = "SURCHARGE";
   public const string Wht236A = "WHT_236A";
-  public const string Misc = "MISC";
 
   // case-by-case fees
   public const string TransferFee = "TRANSFER_FEE";
@@ -31,15 +31,15 @@ public static class HeadCodes
   /// Heads the code refers to by code; they must exist and stay active.
   public static readonly IReadOnlySet<string> System = new HashSet<string>(StringComparer.Ordinal)
   {
-    PropertyTax, Rent, LeaseMoney, Security, Surcharge, Wht236A, Misc
+    PropertyTax, Rent, LeaseMoney, Security, Surcharge, Wht236A
   };
 }
 
 /// taxation.tax_head: a charge GDA levies. REGULAR heads make up the annual demand, computed in the admin's order:
 /// property tax (the LTF formula) and annual rent (the agreement) are built in; every other regular head is defined by
 /// the admin with its calculation (band table, rate per unit, fixed amount or formula), the categories it applies to and
-/// when it is charged. Its rates live in the rate set. OTHER heads are charged case by case (fees, charges added on a
-/// notice).
+/// when it is charged. Its rates live in the rate set. OTHER heads are charged case by case: fees on their own, and the
+/// charges a notice carries (ChargedOnNotice - lease money, security, surcharge, withholding and the ones the Section adds).
 public class TaxHead : Aggregate<TaxHeadId>
 {
   public string Code { get; private set; } = default!;
@@ -61,10 +61,16 @@ public class TaxHead : Aggregate<TaxHeadId>
   public string? AccountsHeadCode { get; private set; }
   public int SortOrder { get; private set; }
   public bool IsActive { get; private set; }
+  /// An OTHER head a notice can carry (an earlier due or a charge on a notice) rather than a fee charged on its own.
+  public bool ChargedOnNotice { get; private set; }
 
   private TaxHead() { }
 
   public bool IsSystem => HeadCodes.System.Contains(Code);
+
+  /// Can appear on a notice (and so needs its own row on the notice table): every regular head, and the other heads
+  /// charged on notices.
+  public bool OnNotice => HeadKind == HeadKind.Regular || ChargedOnNotice;
 
   public bool AppliesToCategory(TaxCategory category) =>
       AppliesTo == AppliesTo.Both || (AppliesTo == AppliesTo.Com && category == TaxCategory.Com) || (AppliesTo == AppliesTo.Res && category == TaxCategory.Res);
@@ -99,8 +105,8 @@ public class TaxHead : Aggregate<TaxHeadId>
     return head;
   }
 
-  /// An other (case-by-case) head: a fee or a charge added on a notice.
-  public static TaxHead Other(TaxHeadId id, string code, string name, bool isRefundable, int sortOrder, string? accountsHeadCode = null) =>
+  /// An other (case-by-case) head: a fee, or a charge a notice carries.
+  public static TaxHead Other(TaxHeadId id, string code, string name, bool isRefundable, int sortOrder, string? accountsHeadCode = null, bool chargedOnNotice = false) =>
       new()
       {
         Id = id,
@@ -112,6 +118,7 @@ public class TaxHead : Aggregate<TaxHeadId>
         ChargedFrom = ChargedFrom.Always,
         SortOrder = sortOrder,
         AccountsHeadCode = Guard.Text(accountsHeadCode, 30, "Accounts head code"),
+        ChargedOnNotice = chargedOnNotice,
         IsActive = true
       };
 
@@ -144,15 +151,21 @@ public class TaxHead : Aggregate<TaxHeadId>
     ApplyRegular(input);
   }
 
-  public void UpdateOther(string name, bool isRefundable, int sortOrder, string? accountsHeadCode)
+  public void UpdateOther(string name, bool isRefundable, int sortOrder, string? accountsHeadCode, bool chargedOnNotice)
   {
     if (HeadKind != HeadKind.Other)
       throw new DomainException($"{Name} is a regular head; change it with its calculation.");
+    if (IsSystem && !chargedOnNotice)
+      throw new DomainException($"{Name} is carried on notices by the module itself.");
     Name = Guard.RequiredText(name, 100, "Head name");
     IsRefundable = isRefundable;
     SortOrder = sortOrder;
     AccountsHeadCode = Guard.Text(accountsHeadCode, 30, "Accounts head code");
+    ChargedOnNotice = chargedOnNotice;
   }
+
+  /// Seeded heads the module carries on notices are marked so (older databases).
+  public void MarkChargedOnNotice() => ChargedOnNotice = HeadKind == HeadKind.Other || ChargedOnNotice;
 
   public void SetActive(bool isActive)
   {

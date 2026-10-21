@@ -111,8 +111,9 @@ public class LoanTests
     var loan = Loan(LoanType(Deduction), 20_000, 2);
     loan.Repay(1_000);
 
-    Assert.Throws<DomainException>(() => loan.Cancel());
-    loan.WriteOff();
+    Assert.Throws<DomainException>(() => loan.Cancel("Entered twice", Officer, DateTime.UtcNow));
+    Assert.Throws<DomainException>(() => loan.WriteOff(null, Officer, DateTime.UtcNow));
+    loan.WriteOff("Employee died; no estate to recover from", Officer, DateTime.UtcNow);
     Assert.Equal(LoanStatus.WrittenOff, loan.Status);
     Assert.Throws<DomainException>(() => loan.Repay(1_000));
   }

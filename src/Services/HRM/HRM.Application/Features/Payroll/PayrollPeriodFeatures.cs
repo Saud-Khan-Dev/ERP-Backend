@@ -16,6 +16,12 @@ public enum PayrollPeriodAction
 
 public sealed record ChangePayrollPeriodStatusCommand(Guid Id, PayrollPeriodAction Action) : ICommand<Result<UpdatedResult>>;
 
+/// New dates for an open month that has no run yet.
+public sealed record UpdatePayrollPeriodDatesCommand(Guid Id, DateOnly StartDate, DateOnly EndDate) : ICommand<Result<UpdatedResult>>;
+
+/// Deletes an open month that has no run (one opened by mistake).
+public sealed record DeletePayrollPeriodCommand(Guid Id) : ICommand<Result<UpdatedResult>>;
+
 public class CreatePayrollPeriodCommandValidator : AbstractValidator<CreatePayrollPeriodCommand>
 {
   public CreatePayrollPeriodCommandValidator()
@@ -28,7 +34,9 @@ public class CreatePayrollPeriodCommandValidator : AbstractValidator<CreatePayro
 public class PayrollPeriodHandlers(IApplicationDbContext context) :
   IQueryHandler<GetPayrollPeriodsQuery, Result<GetPayrollPeriodsQueryResult>>,
   ICommandHandler<CreatePayrollPeriodCommand, Result<CreatedResult>>,
-  ICommandHandler<ChangePayrollPeriodStatusCommand, Result<UpdatedResult>>
+  ICommandHandler<ChangePayrollPeriodStatusCommand, Result<UpdatedResult>>,
+  ICommandHandler<UpdatePayrollPeriodDatesCommand, Result<UpdatedResult>>,
+  ICommandHandler<DeletePayrollPeriodCommand, Result<UpdatedResult>>
 {
   /// Runs not yet finalized (a month cannot close while one is open).
   private static readonly PayrollRunStatus[] Unfinished =
@@ -52,6 +60,8 @@ public class PayrollPeriodHandlers(IApplicationDbContext context) :
       return Result<CreatedResult>.Failure($"{new DateOnly(command.Year, command.Month, 1):MMMM yyyy} already exists.");
 
     var period = PayrollPeriod.Create(PayrollPeriodId.New(), command.Year, command.Month, command.StartDate, command.EndDate);
+    if (await OverlapAsync(period.Id, period.StartDate, period.EndDate, cancellationToken) is { } clash)
+      return Result<CreatedResult>.Failure(clash);
     context.PayrollPeriods.Add(period);
     await context.SaveChangesAsync(cancellationToken);
     return CommandResults.Created(period.Id);
@@ -75,5 +85,33 @@ public class PayrollPeriodHandlers(IApplicationDbContext context) :
 
     await context.SaveChangesAsync(cancellationToken);
     return CommandResults.Updated();
+  }
+
+  public async Task<Result<UpdatedResult>> Handle(UpdatePayrollPeriodDatesCommand command, CancellationToken cancellationToken)
+  {
+    var period = await context.LoadPayrollPeriodAsync(command.Id, cancellationToken);
+    period.ChangeDates(command.StartDate, command.EndDate, await context.PayrollRuns.CountAsync(r => r.PayrollPeriodId == period.Id, cancellationToken));
+    if (await OverlapAsync(period.Id, period.StartDate, period.EndDate, cancellationToken) is { } clash)
+      return Result<UpdatedResult>.Failure(clash);
+    await context.SaveChangesAsync(cancellationToken);
+    return CommandResults.Updated();
+  }
+
+  public async Task<Result<UpdatedResult>> Handle(DeletePayrollPeriodCommand command, CancellationToken cancellationToken)
+  {
+    var period = await context.LoadPayrollPeriodAsync(command.Id, cancellationToken);
+    period.EnsureUnused(await context.PayrollRuns.CountAsync(r => r.PayrollPeriodId == period.Id, cancellationToken), "be deleted");
+    context.PayrollPeriods.Remove(period);
+    await context.SaveChangesAsync(cancellationToken);
+    return CommandResults.Updated();
+  }
+
+  /// A day can belong to one payroll month only.
+  private async Task<string?> OverlapAsync(PayrollPeriodId self, DateOnly start, DateOnly end, CancellationToken cancellationToken)
+  {
+    var other = await context.PayrollPeriods.AsNoTracking()
+      .Where(p => p.Id != self && p.StartDate <= end && start <= p.EndDate)
+      .OrderBy(p => p.StartDate).FirstOrDefaultAsync(cancellationToken);
+    return other is null ? null : $"{start:d MMM yyyy} to {end:d MMM yyyy} overlaps {other.Label} ({other.StartDate:d MMM yyyy} to {other.EndDate:d MMM yyyy}).";
   }
 }

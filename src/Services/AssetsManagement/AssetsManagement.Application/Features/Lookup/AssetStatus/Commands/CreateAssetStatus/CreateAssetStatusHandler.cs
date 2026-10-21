@@ -16,7 +16,7 @@ public class CreateAssetStatusHandler(IApplicationDbContext context)
       input.IsTerminal, input.AllowsAssignment, input.Color, input.DisplayOrder);
 
     if (!input.IsActive)
-      status.Update(code, Name.Of(input.Name, 100), input.Description, input.IsTerminal, input.AllowsAssignment, input.Color, input.DisplayOrder, false);
+      status.Update(code, Name.Of(input.Name, 100), input.Description, input.IsTerminal, input.AllowsAssignment, input.Color, input.DisplayOrder, false, inUse: false);
 
     await context.AssetStatuses.AddAsync(status, cancellationToken);
     await context.SaveChangesAsync(cancellationToken);

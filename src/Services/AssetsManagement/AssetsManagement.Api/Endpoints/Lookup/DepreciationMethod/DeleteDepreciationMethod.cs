@@ -13,6 +13,8 @@ public class DeleteDepreciationMethod : ICarterModule
 
       return Results.Ok(result.Value.Adapt<DeleteDepreciationMethodResponse>());
     })
+      .RequirePermission(PermissionCatalog.AssetTaxonomy.Delete)
+
       .WithName("DeleteDepreciationMethod")
       .Produces<DeleteDepreciationMethodResponse>(StatusCodes.Status200OK)
       .ProducesProblem(StatusCodes.Status400BadRequest)

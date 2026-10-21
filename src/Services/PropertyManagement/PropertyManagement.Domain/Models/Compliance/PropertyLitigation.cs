@@ -41,9 +41,14 @@ public class PropertyLitigation : Aggregate<LitigationId>
   public DateOnly? NextHearingDate { get; private set; }
   public DateOnly? DecisionDate { get; private set; }
   public string? DecisionOutcome { get; private set; }
+  /// How the decided case came out for GDA (won / lost / partly).
+  public CaseResult? DecisionResult { get; private set; }
   public string? AppealedTo { get; private set; }
   public LitigationId? ParentLitigationId { get; private set; }
+  /// GDA's counsel: the name as it stood when entered, and their HR record when picked from GDA's staff (an advocate
+  /// on GDA's panel who is not staff has a name only).
   public string? GdaCounsel { get; private set; }
+  public Guid? GdaCounselEmployeeId { get; private set; }
   public string? Remarks { get; private set; }
 
   public IReadOnlyList<LitigationParty> Parties => _parties.AsReadOnly();
@@ -63,7 +68,8 @@ public class PropertyLitigation : Aggregate<LitigationId>
       DateOnly? FilingDate,
       GdaRole? GdaRole,
       string? GdaCounsel,
-      string? Remarks);
+      string? Remarks,
+      Guid? GdaCounselEmployeeId = null);
 
   public sealed record PartyInput(string PartyName, PropertyOwner? Owner, LitigationPartyRole Role, string? CounselName, string? Remarks);
 
@@ -137,18 +143,23 @@ public class PropertyLitigation : Aggregate<LitigationId>
     return AddPartyCore(party);
   }
 
-  /// Logs a hearing; its next date becomes the case's next hearing date.
-  public LitigationHearing RecordHearing(LitigationStatus currentStatus, DateOnly hearingDate, string? proceedings, string? orderPassed, DateOnly? nextHearingDate, string? attendedBy)
+  /// Logs a hearing that took place (not in the future); its next date becomes the case's next hearing date.
+  /// attendedBy: the GDA officer who attended (name as it stood then, and their HR record when picked from the staff list).
+  public LitigationHearing RecordHearing(LitigationStatus currentStatus, DateOnly hearingDate, string? proceedings, string? orderPassed, DateOnly? nextHearingDate,
+      string? attendedBy, Guid? attendedByEmployeeId = null, DateOnly? today = null)
   {
     EnsureOpen(currentStatus);
 
     if (FilingDate is { } filed && hearingDate < filed)
       throw new DomainException($"A hearing cannot be before the case was filed ({filed:yyyy-MM-dd}).");
 
+    if (today is { } day && hearingDate > day)
+      throw new DomainException($"A hearing is recorded once it has taken place; {hearingDate:yyyy-MM-dd} is in the future. Set it as the next hearing date instead.");
+
     if (nextHearingDate is { } next && next <= hearingDate)
       throw new DomainException("The next hearing must be after this one.");
 
-    var hearing = LitigationHearing.Create(LitigationHearingId.New(), Id, hearingDate, proceedings, orderPassed, nextHearingDate, attendedBy);
+    var hearing = LitigationHearing.Create(LitigationHearingId.New(), Id, hearingDate, proceedings, orderPassed, nextHearingDate, attendedBy, attendedByEmployeeId);
     _hearings.Add(hearing);
     NextHearingDate = nextHearingDate;
     return hearing;
@@ -177,7 +188,8 @@ public class PropertyLitigation : Aggregate<LitigationId>
       NextHearingDate = null;
   }
 
-  public void Decide(LitigationStatus currentStatus, LitigationStatus decidedStatus, DateOnly decisionDate, string outcome)
+  /// Records the court's decision (a recorded event: not in the future) and how it came out for GDA.
+  public void Decide(LitigationStatus currentStatus, LitigationStatus decidedStatus, DateOnly decisionDate, string outcome, CaseResult? result = null, DateOnly? today = null)
   {
     EnsureOpen(currentStatus);
     decidedStatus.EnsureIs(SystemMasterCodes.Decided);
@@ -185,9 +197,16 @@ public class PropertyLitigation : Aggregate<LitigationId>
     if (FilingDate is { } filed && decisionDate < filed)
       throw new DomainException($"A case cannot be decided before it was filed ({filed:yyyy-MM-dd}).");
 
+    if (today is { } day && decisionDate > day)
+      throw new DomainException($"The decision date cannot be in the future ({decisionDate:yyyy-MM-dd}); today is {day:yyyy-MM-dd}.");
+
+    if (result is { } r && !Enum.IsDefined(r))
+      throw new DomainException("Unknown case result.");
+
     LitigationStatusId = decidedStatus.Id;
     DecisionDate = decisionDate;
     DecisionOutcome = Guard.RequiredText(outcome, TextMaxLength, "Decision outcome");
+    DecisionResult = result;
     NextHearingDate = null;
   }
 
@@ -293,6 +312,7 @@ public class PropertyLitigation : Aggregate<LitigationId>
     FilingDate = details.FilingDate;
     GdaRole = details.GdaRole;
     GdaCounsel = Guard.Text(details.GdaCounsel, CounselMaxLength, "GDA counsel");
+    GdaCounselEmployeeId = GdaCounsel is null ? null : details.GdaCounselEmployeeId;
     Remarks = Guard.Text(details.Remarks, TextMaxLength, "Remarks");
   }
 }
@@ -332,16 +352,24 @@ public class LitigationHearing : Entity<LitigationHearingId>
   public string? Proceedings { get; private set; }
   public string? OrderPassed { get; private set; }
   public DateOnly? NextHearingDate { get; private set; }
+  /// The GDA officer who attended: the name as it stood then, and their HR record when picked from the staff list.
   public string? AttendedBy { get; private set; }
+  public Guid? AttendedByEmployeeId { get; private set; }
 
-  internal static LitigationHearing Create(LitigationHearingId id, LitigationId litigationId, DateOnly hearingDate, string? proceedings, string? orderPassed, DateOnly? nextHearingDate, string? attendedBy) => new()
+  internal static LitigationHearing Create(LitigationHearingId id, LitigationId litigationId, DateOnly hearingDate, string? proceedings, string? orderPassed,
+      DateOnly? nextHearingDate, string? attendedBy, Guid? attendedByEmployeeId = null)
   {
-    Id = id,
-    LitigationId = litigationId,
-    HearingDate = hearingDate,
-    Proceedings = Guard.Text(proceedings, PropertyLitigation.TextMaxLength, "Proceedings"),
-    OrderPassed = Guard.Text(orderPassed, PropertyLitigation.TextMaxLength, "Order passed"),
-    NextHearingDate = nextHearingDate,
-    AttendedBy = Guard.Text(attendedBy, AttendedByMaxLength, "Attended by")
-  };
+    var name = Guard.Text(attendedBy, AttendedByMaxLength, "Attended by");
+    return new LitigationHearing
+    {
+      Id = id,
+      LitigationId = litigationId,
+      HearingDate = hearingDate,
+      Proceedings = Guard.Text(proceedings, PropertyLitigation.TextMaxLength, "Proceedings"),
+      OrderPassed = Guard.Text(orderPassed, PropertyLitigation.TextMaxLength, "Order passed"),
+      NextHearingDate = nextHearingDate,
+      AttendedBy = name,
+      AttendedByEmployeeId = name is null ? null : attendedByEmployeeId
+    };
+  }
 }

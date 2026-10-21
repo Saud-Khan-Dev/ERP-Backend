@@ -127,7 +127,8 @@ public class PayrollRunHandlers(
   HrLookup lookup,
   ICurrentUser currentUser,
   IClock clock,
-  IOptions<PayrollOptions> options) :
+  IOptions<PayrollOptions> options,
+  IOptions<HrmOptions> hrm) :
   IQueryHandler<GetPayrollRunsQuery, Result<GetPayrollRunsQueryResult>>,
   IQueryHandler<GetPayrollRunQuery, Result<GetPayrollRunQueryResult>>,
   ICommandHandler<CreatePayrollRunCommand, Result<CreatedResult>>,
@@ -147,6 +148,8 @@ public class PayrollRunHandlers(
   IQueryHandler<GetPayslipQuery, Result<PayslipDto>>,
   IQueryHandler<GetPayRegisterQuery, Result<PayRegisterResult>>
 {
+  private int retirementAge => hrm.Value.RetirementAge;
+
   // ---- runs ----
 
   public async Task<Result<GetPayrollRunsQueryResult>> Handle(GetPayrollRunsQuery query, CancellationToken cancellationToken)
@@ -260,7 +263,8 @@ public class PayrollRunHandlers(
 
     var employees = await context.Employees.AsNoTracking().Where(e => targets.Contains(e.Id)).ToListAsync(cancellationToken);
     problems.AddRange(await engine.CalculateAsync(run, period, slips, employees, cancellationToken));
-    run.MarkCalculated(currentUser.UserId);
+    problems.AddRange(PastRetirement(employees, period));
+    run.MarkCalculated(currentUser.UserId, clock.UtcNow);
     await context.SaveChangesAsync(cancellationToken);
 
     var calculated = employees.Count - problems.Count(p => employees.Any(e => p.StartsWith(e.EmployeeNumber + ":", StringComparison.Ordinal)));
@@ -281,7 +285,12 @@ public class PayrollRunHandlers(
         run.SendBackToCalculated();
         break;
       case PayrollRunStep.Approve:
-        run.Approve(currentUser.UserId, clock.UtcNow, options.Value.RequireSeparateApprover);
+        if (await StaleBecauseAsync(run, cancellationToken) is { } changed)
+          return Result<UpdatedResult>.Failure($"{changed} changed after the run was calculated. Send it back and calculate again before approving.");
+        var adjusters = await context.PayrollAdjustments.AsNoTracking()
+          .Where(a => a.CreatedBy != null && context.PayrollTransactions.Any(t => t.Id == a.PayrollTransactionId && t.PayrollRunId == run.Id))
+          .Select(a => a.CreatedBy!.Value).Distinct().ToListAsync(cancellationToken);
+        run.Approve(currentUser.UserId, clock.UtcNow, options.Value.RequireSeparateApprover, adjusters);
         break;
       case PayrollRunStep.SendBackToReview:
         run.SendBackToReview();
@@ -306,6 +315,8 @@ public class PayrollRunHandlers(
     var slips = await engine.SlipsAsync(run.Id, cancellationToken);
     if (slips.Count == 0)
       return Result<FinalizePayrollRunResult>.Failure("The run has no pay slips.");
+    if (await StaleBecauseAsync(run, cancellationToken) is { } changed)
+      return Result<FinalizePayrollRunResult>.Failure($"{changed} changed after the run was calculated. Send it back and calculate again before finalizing.");
 
     var now = clock.UtcNow;
     var postedOn = period.EndDate;
@@ -369,7 +380,7 @@ public class PayrollRunHandlers(
 
     foreach (var (slipId, slip) in await payslips.BuildAsync(run, period, slips, isFinal: true, now, cancellationToken))
       context.Payslips.Add(Payslip.Issue(slipId, PayslipBuilder.Serialize(slip), now));
-    run.FinalizeRun(now);
+    run.FinalizeRun(now, currentUser.UserId);
     await context.SaveChangesAsync(cancellationToken);
     await transaction.CommitAsync(cancellationToken);
 
@@ -391,8 +402,16 @@ public class PayrollRunHandlers(
     if (processed > 0)
       return Result<ReversePayrollRunResult>.Failure($"{processed} salary payment(s) of this run went out. Record them as returned before reversing the run.");
 
-    run.Reverse();
+    run.Reverse(currentUser.UserId, clock.UtcNow, command.Reason);
     var today = clock.Today;
+
+    // a reversed final settlement no longer settles anyone: the replacement run links again when it is finalized
+    if (run.RunType == PayrollRunType.FinalSettlement)
+    {
+      var settled = slips.Select(s => (PayrollTransactionId?)s.Id).ToList();
+      foreach (var separation in await context.Separations.Where(s => settled.Contains(s.SettlementPayrollTransactionId)).ToListAsync(cancellationToken))
+        separation.UnlinkSettlement();
+    }
     var reason = $"{period.Label} payroll reversed ({command.Reason.Trim()})";
 
     var cancelled = 0;
@@ -448,7 +467,7 @@ public class PayrollRunHandlers(
     if (paid < payable.Count)
       return Result<UpdatedResult>.Failure($"{payable.Count - paid} pay slip(s) have no processed payment yet.");
 
-    run.MarkPaid(clock.UtcNow);
+    run.MarkPaid(clock.UtcNow, currentUser.UserId);
     await context.SaveChangesAsync(cancellationToken);
     return CommandResults.Updated();
   }
@@ -606,11 +625,11 @@ public class PayrollRunHandlers(
     if (query.OnlyIssued && (issued is null || run.Status == PayrollRunStatus.Reversed))
       throw new PayslipNotFoundException($"Pay slip {query.TransactionId} was not found.");
     if (issued is not null)
-      return Result<PayslipDto>.Success(PayslipBuilder.Deserialize(issued.SnapshotJson));
+      return Result<PayslipDto>.Success(PayslipBuilder.Deserialize(issued.SnapshotJson) with { RunStatus = run.Status });
 
     var period = await context.PayrollPeriods.AsNoTracking().FirstAsync(p => p.Id == run.PayrollPeriodId, cancellationToken);
     var preview = await payslips.BuildAsync(run, period, [slip], isFinal: false, null, cancellationToken);
-    return Result<PayslipDto>.Success(preview[slip.Id]);
+    return Result<PayslipDto>.Success(preview[slip.Id] with { RunStatus = run.Status });
   }
 
   public async Task<Result<PayRegisterResult>> Handle(GetPayRegisterQuery query, CancellationToken cancellationToken)
@@ -693,6 +712,39 @@ public class PayrollRunHandlers(
     }).ToList();
   }
 
+  /// What the pay depends on that changed after the run was calculated (null when nothing did): pay records, posts held,
+  /// salary rules, overrides, loans, decided leave and tax years.
+  private async Task<string?> StaleBecauseAsync(PayrollRun run, CancellationToken cancellationToken)
+  {
+    if (run.CalculatedAt is not { } at || !run.IsComputed)
+      return null;
+
+    var employees = context.PayrollTransactions.Where(t => t.PayrollRunId == run.Id).Select(t => t.EmployeeId);
+    if (await context.PayRecords.AnyAsync(p => employees.Contains(p.EmployeeId) && p.CreatedAt > at, cancellationToken))
+      return "A pay record";
+    if (await context.PositionAssignments.AnyAsync(a => employees.Contains(a.EmployeeId) && a.CreatedAt > at, cancellationToken))
+      return "A post held";
+    if (await context.SalaryRules.AnyAsync(r => r.CreatedAt > at, cancellationToken))
+      return "A salary rule";
+    if (await context.SalaryOverrides.AnyAsync(o => employees.Contains(o.EmployeeId) && o.CreatedAt > at, cancellationToken))
+      return "A salary override";
+    if (await context.Loans.AnyAsync(l => employees.Contains(l.EmployeeId) && (l.CreatedAt > at || l.ClosedAt > at), cancellationToken))
+      return "A loan";
+    if (await context.LeaveApplications.AnyAsync(a => employees.Contains(a.EmployeeId) && a.DecidedAt > at, cancellationToken))
+      return "A leave decision";
+    return null;
+  }
+
+  /// People paid past the retirement age whose separation is not recorded: a problem line on the calculation.
+  private IEnumerable<string> PastRetirement(IEnumerable<Employee> employees, PayrollPeriod period)
+  {
+    foreach (var e in employees)
+    {
+      if (e.SuperannuationDate(retirementAge) is { } due && due <= period.EndDate && !e.HasLeftService)
+        yield return $"{e.EmployeeNumber}: reached the retirement age on {due:dd MMM yyyy} but no retirement is recorded - check before approving.";
+    }
+  }
+
   private async Task<List<PayrollRunDto>> MapRunsAsync(List<PayrollRun> runs, CancellationToken cancellationToken)
   {
     var ids = runs.Select(r => r.Id).ToList();
@@ -716,7 +768,8 @@ public class PayrollRunHandlers(
       var total = totals.GetValueOrDefault(r.Id);
       return new PayrollRunDto(r.Id.Value, r.PayrollPeriodId.Value, periods[r.PayrollPeriodId].Label, r.RunType, r.RunLabel, r.Status, r.ReversesRunId?.Value,
         r.PreparedBy, r.ReviewedBy, r.ApprovedBy, r.ApprovalDate, r.FinalizationDate, r.PaymentDate, total?.Count ?? 0, total?.Held ?? 0,
-        total?.Gross ?? 0, total?.Deductions ?? 0, total?.Net ?? 0, r.CreatedAt);
+        total?.Gross ?? 0, total?.Deductions ?? 0, total?.Net ?? 0, r.CreatedAt, r.CalculatedAt, r.FinalizedBy, r.PaidBy, r.ReversedBy, r.ReversedAt,
+        r.ReversalReason, options.Value.RequireSeparateApprover);
     }).ToList();
   }
 }

@@ -15,6 +15,8 @@ public class CreateCurrency : ICarterModule
       var response = result.Value.Adapt<CreateCurrencyResponse>();
       return Results.Created($"/currencies/{response!.Code}", response);
     })
+      .RequirePermission(PermissionCatalog.AssetTaxonomy.Create)
+
       .WithName("CreateCurrency")
       .Produces<CreateCurrencyResponse>(StatusCodes.Status201Created)
       .ProducesProblem(StatusCodes.Status400BadRequest)

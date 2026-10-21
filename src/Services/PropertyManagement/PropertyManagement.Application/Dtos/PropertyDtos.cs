@@ -9,7 +9,8 @@ public sealed record OwnerRef(Guid Id, string OwnerCode, string OwnerName);
 
 // ---- master data & numbering ----
 
-public sealed record MasterTypeDto(string Type, string Table, string Label, IReadOnlyList<string> ExtraFields);
+/// ReadOnly: only the system's acts set these values - no new value, nothing switched off; renaming is allowed.
+public sealed record MasterTypeDto(string Type, string Table, string Label, IReadOnlyList<string> ExtraFields, bool ReadOnly = false);
 
 public sealed record MasterDto(
   Guid Id,
@@ -22,7 +23,9 @@ public sealed record MasterDto(
   bool? IsBase,
   string? StorageFolder,
   bool? RequiresRelationship,
-  DocumentScope? AppliesTo);
+  DocumentScope? AppliesTo,
+  bool IsSystem = false,
+  int UsageCount = 0);
 
 public sealed record CodeSequenceDto(
   string Key,
@@ -60,6 +63,7 @@ public sealed record PropertyListItemDto(
   bool IsActive,
   DateTime? CreatedAt);
 
+/// DeactivatedOn / DeactivationReason: why and when an inactive property left the register.
 public sealed record PropertyDto(
   Guid Id,
   string PropertyCode,
@@ -78,7 +82,9 @@ public sealed record PropertyDto(
   DateTime? CreatedAt,
   Guid? CreatedBy,
   DateTime? UpdatedAt,
-  Guid? UpdatedBy);
+  Guid? UpdatedBy,
+  DateOnly? DeactivatedOn = null,
+  string? DeactivationReason = null);
 
 public sealed record StatusHistoryDto(
   Guid Id,
@@ -118,7 +124,8 @@ public sealed record RegularizationDto(
   DateOnly? EffectiveTo,
   bool CountsTowardArea,
   string? Remarks,
-  bool IsActive);
+  bool IsActive,
+  Guid? ApprovedByEmployeeId = null);
 
 /// All areas in square feet (the base unit). EncroachedAreaSqFt: unresolved encroachments.
 public sealed record AreaSummaryDto(
@@ -199,7 +206,8 @@ public sealed record OwnershipDto(
   DateOnly HoldingSince,
   string? AcquiredViaTransferNo,
   Guid? AcquiredViaAllotmentId,
-  string? AcquiredViaAllotmentNo);
+  string? AcquiredViaAllotmentNo,
+  string? EndReferenceNo = null);
 
 /// Read-side facts about an ownership row that need other rows: see OwnershipDto.
 public sealed record OwnershipLinks(DateOnly HoldingSince, string? TransferNo, string? AllotmentNo);
@@ -209,7 +217,9 @@ public sealed record TransferPartyDto(OwnerRef? Owner, TransferPartyRole Role, d
 /// Status: INITIATED (waiting for approval), COMPLETED (approved and registered), REJECTED, CANCELLED, or APPROVED
 /// for a row approved before approval and completion became one step (complete it).
 /// CompletedOn / CompletedBy: when and by whom the ownership register was changed. ClosedOn / ClosedBy /
-/// ClosingReason: the rejection or cancellation.
+/// ClosingReason: the rejection or cancellation. ApprovedBy: the approver's name as it stood (the signed-in officer);
+/// ApprovedByUserId / ApprovedByEmployeeId: who that is (Identity account, HRM record when linked). NoDuesCertificateNo:
+/// the Taxation clearance the approval relied on.
 public sealed record TransferDto(
   Guid Id,
   PropertyRef? Property,
@@ -232,7 +242,10 @@ public sealed record TransferDto(
   string? CompletedBy,
   DateOnly? ClosedOn,
   string? ClosedBy,
-  string? ClosingReason);
+  string? ClosingReason,
+  Guid? ApprovedByUserId = null,
+  Guid? ApprovedByEmployeeId = null,
+  string? NoDuesCertificateNo = null);
 
 public sealed record EncumbranceDto(
   Guid Id,
@@ -286,7 +299,11 @@ public sealed record AttributeDefinitionDto(
   IReadOnlyList<string> Options,
   string? DefaultValue,
   int DisplayOrder,
-  bool IsActive);
+  bool IsActive,
+  IReadOnlyList<Guid>? AppliesToPropertyTypeIds = null,
+  IReadOnlyList<Guid>? AppliesToClassificationIds = null,
+  int ValueCount = 0,
+  bool GroupIsActive = true);
 
 public sealed record PropertyAttributeValueDto(
   Guid? Id,
@@ -298,4 +315,5 @@ public sealed record PropertyAttributeValueDto(
   bool IsRequired,
   IReadOnlyList<string> Options,
   int DisplayOrder,
-  string? Value);
+  string? Value,
+  bool IsHidden = false);

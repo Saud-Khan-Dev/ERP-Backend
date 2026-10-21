@@ -15,6 +15,8 @@ public class CreateDisposalMethod : ICarterModule
       var response = result.Value.Adapt<CreateDisposalMethodResponse>();
       return Results.Created($"/disposal-methods/{response!.Id}", response);
     })
+      .RequirePermission(PermissionCatalog.AssetTaxonomy.Create)
+
       .WithName("CreateDisposalMethod")
       .Produces<CreateDisposalMethodResponse>(StatusCodes.Status201Created)
       .ProducesProblem(StatusCodes.Status400BadRequest)

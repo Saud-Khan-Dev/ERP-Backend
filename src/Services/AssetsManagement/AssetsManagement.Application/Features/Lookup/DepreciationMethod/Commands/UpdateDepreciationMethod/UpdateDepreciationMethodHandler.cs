@@ -15,7 +15,8 @@ public class UpdateDepreciationMethodHandler(IApplicationDbContext context)
     if (await context.DepreciationMethods.AnyAsync(m => m.Id != id && m.Code == code, cancellationToken))
       return Result<UpdateDepreciationMethodCommandResult>.Failure($"A depreciation method with code {code.Value} already exists.");
 
-    method.Update(code, Name.Of(input.Name, 100), input.Description, input.IsActive);
+    var inUse = await context.AssetDepreciationSchedules.AnyAsync(s => s.MethodId == id, cancellationToken);
+    method.Update(code, Name.Of(input.Name, 100), input.Description, input.Kind, input.IsActive, inUse);
     await context.SaveChangesAsync(cancellationToken);
 
     return Result<UpdateDepreciationMethodCommandResult>.Success(new UpdateDepreciationMethodCommandResult(true));

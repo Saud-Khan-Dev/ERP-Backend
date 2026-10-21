@@ -6,6 +6,7 @@ public class EnforceEncumbranceHandler(IApplicationDbContext context)
     var encumbrance = await context.LoadEncumbranceAsync(command.Id, cancellationToken);
     var property = await context.LoadPropertyAsync(encumbrance.PropertyId.Value, cancellationToken);
     encumbrance.Enforce(property, command.Remarks);
+    context.Touch(property);
 
     await context.SaveChangesAsync(cancellationToken);
     return Result<EnforceEncumbranceCommandResult>.Success(new EnforceEncumbranceCommandResult(encumbrance.Status));

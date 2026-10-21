@@ -20,16 +20,22 @@ public sealed record CircleTownDto(Guid Id, Guid TownId, string TownCode, string
 
 public sealed record CircleStaffDto(Guid Id, Guid? CircleId, Guid PostId, TaxRole TaxRole, DateOnly EffectiveFrom, DateOnly? EffectiveTo);
 
+/// SigningPostId: the circle's Taxation Officer post on the day (its tax_circle_staff row); its holder signs the notices.
 public sealed record CircleDto(
-  Guid Id, string Code, string Name, Guid? OrgUnitId, Guid? OfficerPostId, string? OfficeAddress, string? OfficeFax, string? OfficePhone,
-  int SortOrder, bool IsActive, IReadOnlyList<CircleTownDto> Towns, IReadOnlyList<CircleStaffDto> Staff);
+  Guid Id, string Code, string Name, Guid? OrgUnitId, string? OfficeAddress, string? OfficeFax, string? OfficePhone,
+  int SortOrder, bool IsActive, IReadOnlyList<CircleTownDto> Towns, IReadOnlyList<CircleStaffDto> Staff, Guid? SigningPostId, bool InUse);
 
 // ---- heads, categories, rates ----
 
 public sealed record HeadDto(
   Guid Id, string Code, string Name, HeadKind HeadKind, CalcMethod? CalcMethod, bool IsBuiltin, bool IsSystem, AppliesTo AppliesTo, ChargedFrom ChargedFrom,
   string? FacilityLabel, string? FormulaCom, string? FormulaRes, bool AppliesAnnualIncrease, bool OverrideAllowed, bool IsRefundable, string? AccountsHeadCode,
-  int SortOrder, bool IsActive, string? BoardReference, DateOnly? EffectiveFrom);
+  int SortOrder, bool IsActive, string? BoardReference, DateOnly? EffectiveFrom, bool ChargedOnNotice, bool OnNotice);
+
+/// What a head being defined would charge a file for a year (Amount 0 with the notes saying why when it charges nothing).
+public sealed record HeadPreviewDto(
+  Guid TaxFileId, string FileNo, int FiscalYear, string FiscalYearLabel, string RateSetName, bool Suspended, string? SuspendedReason, decimal Amount,
+  string? Explanation, decimal? Quantity, string? Unit, IReadOnlyList<string> Notes);
 
 public sealed record CategoryMapDto(Guid Id, Guid PropertyTypeId, string PropertyTypeCode, TaxCategory TaxCategory);
 
@@ -50,14 +56,16 @@ public sealed record RateSetDto(RateSetSummaryDto Summary, IReadOnlyList<LtfTabl
 
 public sealed record SettingDto(string Key, string Value, string Default, string Description, DateOnly? EffectiveFrom, DateOnly? EffectiveTo, Guid? RateSetId);
 
+/// UsedBy: the files it is assigned to now (through an override).
 public sealed record SpecialPolicyDto(
   Guid Id, string? Code, string Name, Guid HeadId, string HeadCode, string HeadName, PolicyMethod Method, decimal Value, AppliesTo AppliesTo, bool AnnualIncrease,
-  DateOnly EffectiveFrom, DateOnly? EffectiveTo, string? BoardReference, bool IsActive);
+  DateOnly EffectiveFrom, DateOnly? EffectiveTo, string? BoardReference, bool IsActive, int UsedBy);
 
+/// InForce: the version in force today; HasLater: a later version follows it (it changes from that date).
 public sealed record PenaltyRuleDto(
   Guid Id, string Code, string Name, PenaltyKind Kind, PenaltyTrigger Trigger, int? PeriodValue, PeriodUnit? PeriodUnit, PeriodAnchor? PeriodAnchor,
   PenaltyRateType RateType, decimal Rate, PenaltyBase Base, TargetSet TargetSet, bool IncludesCurrent, bool? StacksWithYearEnd, Guid? RateSetId,
-  DateOnly EffectiveFrom, DateOnly? EffectiveTo);
+  DateOnly EffectiveFrom, DateOnly? EffectiveTo, bool InForce, bool HasLater);
 
 public sealed record MessageTemplateDto(Guid Id, string Code, MessageChannel Channel, string Language, string Body, int VersionNo, bool IsActive);
 
@@ -74,22 +82,28 @@ public sealed record TableRowDto(Guid Id, string Label, int SortOrder, IReadOnly
 public sealed record TableColumnDto(Guid Id, TableColumnKey Key, string Heading, bool PrintedByDefault, int SortOrder);
 
 public sealed record TableLayoutDto(
-  Guid Id, string OtherLabel, bool HideZeroRows, string BoardReference, DateOnly EffectiveFrom, DateOnly? EffectiveTo,
+  Guid Id, bool HideZeroRows, string BoardReference, DateOnly EffectiveFrom, DateOnly? EffectiveTo,
   IReadOnlyList<TableRowDto> Rows, IReadOnlyList<TableColumnDto> Columns);
 
 public static class SetupMappings
 {
-  public static CircleDto ToDto(this TaxCircle c, IEnumerable<TaxCircleStaff> staff, DateOnly today) => new(
-    c.Id.Value, c.Code, c.Name, c.OrgUnitId, c.OfficerPostId, c.OfficeAddress, c.OfficeFax, c.OfficePhone, c.SortOrder, c.IsActive,
-    c.Towns.OrderBy(t => t.TownCode).ThenByDescending(t => t.EffectiveFrom)
-      .Select(t => new CircleTownDto(t.Id.Value, t.TownId, t.TownCode, t.ShortCode, t.EffectiveFrom, t.EffectiveTo, t.Covers(today))).ToList(),
-    staff.Select(s => s.ToDto()).ToList());
+  public static CircleDto ToDto(this TaxCircle c, IEnumerable<TaxCircleStaff> staff, DateOnly today, bool inUse = true)
+  {
+    var rows = staff.ToList();
+    return new(
+      c.Id.Value, c.Code, c.Name, c.OrgUnitId, c.OfficeAddress, c.OfficeFax, c.OfficePhone, c.SortOrder, c.IsActive,
+      c.Towns.OrderBy(t => t.TownCode).ThenByDescending(t => t.EffectiveFrom)
+        .Select(t => new CircleTownDto(t.Id.Value, t.TownId, t.TownCode, t.ShortCode, t.EffectiveFrom, t.EffectiveTo, t.Covers(today))).ToList(),
+      rows.Select(s => s.ToDto()).ToList(),
+      rows.Where(s => s.TaxRole == TaxRole.To && s.Covers(today)).OrderByDescending(s => s.EffectiveFrom).Select(s => (Guid?)s.PostId).FirstOrDefault(),
+      inUse);
+  }
 
   public static CircleStaffDto ToDto(this TaxCircleStaff s) => new(s.Id.Value, s.CircleId?.Value, s.PostId, s.TaxRole, s.EffectiveFrom, s.EffectiveTo);
 
   public static HeadDto ToDto(this TaxHead h) => new(
     h.Id.Value, h.Code, h.Name, h.HeadKind, h.CalcMethod, h.IsBuiltin, h.IsSystem, h.AppliesTo, h.ChargedFrom, h.FacilityLabel, h.FormulaCom, h.FormulaRes,
-    h.AppliesAnnualIncrease, h.OverrideAllowed, h.IsRefundable, h.AccountsHeadCode, h.SortOrder, h.IsActive, h.BoardReference, h.EffectiveFrom);
+    h.AppliesAnnualIncrease, h.OverrideAllowed, h.IsRefundable, h.AccountsHeadCode, h.SortOrder, h.IsActive, h.BoardReference, h.EffectiveFrom, h.ChargedOnNotice, h.OnNotice);
 
   public static RateSetSummaryDto ToSummary(this RateSet s) => new(
     s.Id.Value, s.Name, s.BoardReference, s.BoardDecisionDate, s.EffectiveFrom, s.EffectiveTo, s.Status, s.ApprovedBy, s.ApprovedAt, s.BaseFiscalYear,
@@ -115,13 +129,13 @@ public static class SetupMappings
     return new RateSetDto(s.ToSummary(), factors, rates);
   }
 
-  public static SpecialPolicyDto ToDto(this SpecialPolicy p, TaxHead? head) => new(
+  public static SpecialPolicyDto ToDto(this SpecialPolicy p, TaxHead? head, int usedBy = 0) => new(
     p.Id.Value, p.Code, p.Name, p.HeadId.Value, head?.Code ?? "", head?.Name ?? "", p.Method, p.Value, p.AppliesTo, p.AnnualIncrease, p.EffectiveFrom, p.EffectiveTo,
-    p.BoardReference, p.IsActive);
+    p.BoardReference, p.IsActive, usedBy);
 
-  public static PenaltyRuleDto ToDto(this PenaltyRule r) => new(
+  public static PenaltyRuleDto ToDto(this PenaltyRule r, DateOnly today, bool hasLater = false) => new(
     r.Id.Value, r.Code, r.Name, r.Kind, r.Trigger, r.PeriodValue, r.PeriodUnit, r.PeriodAnchor, r.RateType, r.Rate, r.Base, r.TargetSet, r.IncludesCurrent,
-    r.StacksWithYearEnd, r.RateSetId?.Value, r.EffectiveFrom, r.EffectiveTo);
+    r.StacksWithYearEnd, r.RateSetId?.Value, r.EffectiveFrom, r.EffectiveTo, r.Covers(today), hasLater);
 
   public static MessageTemplateDto ToDto(this MessageTemplate t) => new(t.Id.Value, t.Code, t.Channel, t.Language, t.Body, t.VersionNo, t.IsActive);
 
@@ -133,7 +147,7 @@ public static class SetupMappings
     l.Watermark, l.BoardReference, l.EffectiveFrom, l.EffectiveTo);
 
   public static TableLayoutDto ToDto(this NoticeTableLayout l) => new(
-    l.Id.Value, l.OtherLabel, l.HideZeroRows, l.BoardReference, l.EffectiveFrom, l.EffectiveTo,
+    l.Id.Value, l.HideZeroRows, l.BoardReference, l.EffectiveFrom, l.EffectiveTo,
     l.OrderedRows.Select(r => new TableRowDto(r.Id.Value, r.Label, r.SortOrder, r.Sources.Select(s => s.SourceCode).ToList())).ToList(),
     l.OrderedColumns.Select(c => new TableColumnDto(c.Id.Value, c.ColumnKey, c.Heading, c.PrintedByDefault, c.SortOrder)).ToList());
 }

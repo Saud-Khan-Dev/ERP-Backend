@@ -134,7 +134,7 @@ public sealed record CreateRoleResponse(Guid Id);
 public sealed record GetRolesResponse(IReadOnlyList<RoleDto> Roles);
 public sealed record GetRoleResponse(RoleDto Role, IReadOnlyList<PermissionDto> Permissions);
 
-public sealed record UpdateRoleRequest(string Code, string Name, string? Description, bool IsActive = true);
+public sealed record UpdateRoleRequest(string? Code, string Name, string? Description, bool IsActive = true);
 public sealed record UpdateRoleResponse(bool IsSuccess);
 
 public sealed record DeleteRoleResponse(bool IsSuccess);

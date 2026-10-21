@@ -47,7 +47,8 @@ public class NoticeTemplate : Aggregate<NoticeTemplateId>
     return true;
   }
 
-  private static string CheckParagraph(string paragraph)
+  /// A paragraph as printed: required, at most 4000 characters, only the known placeholders.
+  public static string CheckParagraph(string paragraph)
   {
     var text = Guard.RequiredText(paragraph, 4000, "Paragraph");
     var unknown = System.Text.RegularExpressions.Regex.Matches(text, @"\{(\w+)\}").Select(m => m.Groups[1].Value)
@@ -138,14 +139,14 @@ public sealed record LetterheadInput(
   string BoardReference);
 
 /// taxation.notice_table_layout: the table of particulars on printed notices, laid out by the admin: rows (label and
-/// the heads each adds up) and columns (heading, printed by default). A head in no row prints on the "other" row, so the
-/// grand total always equals the amount due.
+/// the heads each adds up) and columns (heading, printed by default). Every head a notice can carry has its own row (a
+/// new head gets one), so there is no catch-all row; a head left without one (deactivated since) prints under its own
+/// name, and the grand total always equals the amount due.
 public class NoticeTableLayout : Aggregate<NoticeTableLayoutId>
 {
   private readonly List<NoticeTableRow> _rows = new();
   private readonly List<NoticeTableColumn> _columns = new();
 
-  public string OtherLabel { get; private set; } = default!;
   public bool HideZeroRows { get; private set; }
   public string BoardReference { get; private set; } = default!;
   public DateOnly EffectiveFrom { get; private set; }
@@ -157,16 +158,19 @@ public class NoticeTableLayout : Aggregate<NoticeTableLayoutId>
   public IReadOnlyList<NoticeTableRow> OrderedRows => _rows.OrderBy(r => r.SortOrder).ToList();
   public IReadOnlyList<NoticeTableColumn> OrderedColumns => _columns.OrderBy(c => c.SortOrder).ToList();
 
+  public IReadOnlySet<string> PlacedCodes => _rows.SelectMany(r => r.Sources.Select(s => s.SourceCode)).ToHashSet(StringComparer.Ordinal);
+
   private NoticeTableLayout() { }
 
   public bool Covers(DateOnly date) => EffectiveFrom <= date && (EffectiveTo is null || EffectiveTo >= date);
 
-  public static NoticeTableLayout Create(NoticeTableLayoutId id, TableLayoutInput input, IReadOnlySet<string> knownHeadCodes, DateOnly effectiveFrom)
+  /// knownHeads: every head (code to name); requiredHeads: the codes of the active heads a notice can carry - each needs a row.
+  public static NoticeTableLayout Create(NoticeTableLayoutId id, TableLayoutInput input, IReadOnlyDictionary<string, string> knownHeads, IReadOnlyCollection<string> requiredHeads,
+      DateOnly effectiveFrom)
   {
     var layout = new NoticeTableLayout
     {
       Id = id,
-      OtherLabel = Guard.RequiredText(input.OtherLabel, 100, "Label of the row for charges in no row"),
       HideZeroRows = input.HideZeroRows,
       BoardReference = Guard.RequiredText(input.BoardReference, 100, "Reference"),
       EffectiveFrom = effectiveFrom
@@ -187,14 +191,18 @@ public class NoticeTableLayout : Aggregate<NoticeTableLayoutId>
         throw new DomainException($"\"{label}\": choose the heads it adds up.");
       foreach (var code in sources)
       {
-        if (!knownHeadCodes.Contains(code))
+        if (!knownHeads.ContainsKey(code))
           throw new DomainException($"\"{label}\": {code} is not a tax head.");
         if (seen.TryGetValue(code, out var other))
-          throw new DomainException($"{code} is in two rows: \"{other}\" and \"{label}\".");
+          throw new DomainException($"{knownHeads[code]} is in two rows: \"{other}\" and \"{label}\".");
         seen[code] = label;
       }
       layout._rows.Add(NoticeTableRow.Create(NoticeTableRowId.New(), id, label, ++order, sources));
     }
+
+    var missing = requiredHeads.Where(c => !seen.ContainsKey(c)).Select(c => knownHeads.GetValueOrDefault(c, c)).ToList();
+    if (missing.Count > 0)
+      throw new DomainException($"Every head a notice can carry needs a row; {string.Join(", ", missing)} {(missing.Count == 1 ? "has" : "have")} none.");
 
     var columns = input.Columns.ToDictionary(c => c.Key);
     var colOrder = 0;
@@ -241,7 +249,7 @@ public class NoticeTableLayout : Aggregate<NoticeTableLayoutId>
 
 public sealed record TableRowInput(string Label, IReadOnlyList<string> HeadCodes);
 public sealed record TableColumnInput(TableColumnKey Key, string? Heading, bool PrintedByDefault);
-public sealed record TableLayoutInput(IReadOnlyList<TableRowInput> Rows, IReadOnlyList<TableColumnInput> Columns, string OtherLabel, bool HideZeroRows, string BoardReference);
+public sealed record TableLayoutInput(IReadOnlyList<TableRowInput> Rows, IReadOnlyList<TableColumnInput> Columns, bool HideZeroRows, string BoardReference);
 
 /// taxation.notice_table_row: a printed row and the heads it adds up (notice_table_row_source).
 public class NoticeTableRow : Entity<NoticeTableRowId>

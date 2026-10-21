@@ -11,10 +11,10 @@ public class CreateDisposalMethodHandler(IApplicationDbContext context)
     if (await context.DisposalMethods.AnyAsync(m => m.Code == code, cancellationToken))
       return Result<CreateDisposalMethodCommandResult>.Failure($"A disposal method with code {code.Value} already exists.");
 
-    var method = DisposalMethod.Create(DisposalMethodId.Of(Guid.NewGuid()), code, Name.Of(input.Name, 100), input.RequiresValue);
+    var method = DisposalMethod.Create(DisposalMethodId.Of(Guid.NewGuid()), code, Name.Of(input.Name, 100), input.RequiresValue, input.AllowsValue);
 
     if (!input.IsActive)
-      method.Update(code, Name.Of(input.Name, 100), input.RequiresValue, false);
+      method.Update(code, Name.Of(input.Name, 100), input.RequiresValue, input.AllowsValue, false, inUse: false);
 
     await context.DisposalMethods.AddAsync(method, cancellationToken);
     await context.SaveChangesAsync(cancellationToken);

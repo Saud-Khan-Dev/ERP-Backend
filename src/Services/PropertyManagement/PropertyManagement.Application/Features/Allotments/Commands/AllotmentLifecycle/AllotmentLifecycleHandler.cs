@@ -1,4 +1,4 @@
-public class AllotmentLifecycleHandler(IApplicationDbContext context, MasterLookup masters)
+public class AllotmentLifecycleHandler(IApplicationDbContext context, MasterLookup masters, ICurrentUser currentUser)
   : ICommandHandler<CancelAllotmentCommand, Result<AllotmentLifecycleResult>>,
     ICommandHandler<RestoreAllotmentCommand, Result<AllotmentLifecycleResult>>,
     ICommandHandler<ChangeAllotmentStatusCommand, Result<AllotmentLifecycleResult>>,
@@ -20,6 +20,7 @@ public class AllotmentLifecycleHandler(IApplicationDbContext context, MasterLook
   {
     var allotment = await context.LoadAllotmentAsync(command.Id, cancellationToken);
     var property = await context.LoadPropertyAsync(allotment.PropertyId.Value, cancellationToken);
+    context.Touch(property);
 
     allotment.Restore(
       property, await CurrentStatusAsync(allotment, cancellationToken), await Status(SystemMasterCodes.Restored, cancellationToken),
@@ -33,11 +34,17 @@ public class AllotmentLifecycleHandler(IApplicationDbContext context, MasterLook
   public async Task<Result<AllotmentLifecycleResult>> Handle(ChangeAllotmentStatusCommand command, CancellationToken cancellationToken)
   {
     var allotment = await context.LoadAllotmentAsync(command.Id, cancellationToken);
+    var status = await masters.GetAsync<AllotmentStatus>(command.AllotmentStatusId, cancellationToken);
+
+    // a surrender ends the allottee's hold on the plot (and an ownership confirmed through it): a decision, not a record
+    if (status.Is(PropertyAllotment.SurrenderedCode) && !currentUser.HasPermission(PermissionCatalog.Property.Approve))
+      throw new PermissionRequiredException("Accepting the surrender of an allotment is an approver's act; ask an officer who can approve.");
+
     var record = await RecordAsync(allotment, cancellationToken);
 
     var ended = allotment.ChangeStatus(
       await CurrentStatusAsync(allotment, cancellationToken),
-      await masters.GetAsync<AllotmentStatus>(command.AllotmentStatusId, cancellationToken),
+      status,
       command.Date, record);
 
     return await SaveAsync(allotment, ended, cancellationToken);

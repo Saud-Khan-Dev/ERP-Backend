@@ -9,6 +9,8 @@ public class GetDepreciationSchedules : ICarterModule
       var result = await sender.Send(new GetDepreciationSchedulesQuery(id, includeInactive ?? false));
       return Results.Ok(new GetDepreciationSchedulesResponse(result.Value!.Schedules, result.Value.NetBookValue));
     })
+      .RequirePermission(PermissionCatalog.AssetFinance.View)
+
       .WithName("GetDepreciationSchedules")
       .Produces<GetDepreciationSchedulesResponse>(StatusCodes.Status200OK)
       .ProducesProblem(StatusCodes.Status404NotFound)

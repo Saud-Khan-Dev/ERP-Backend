@@ -87,6 +87,15 @@ public sealed record ApplyYearEndResult(int Surcharged);
 public sealed record GetPenaltyRunsQueryResult(IReadOnlyList<PenaltyRunDto> Runs);
 public sealed record GetPenaltyRunsQuery(int? FiscalYear) : IQuery<Result<GetPenaltyRunsQueryResult>>;
 
+/// A surcharge run with the surcharges it applied and the notices it prepared.
+public sealed record GetPenaltyRunQueryResult(PenaltyRunDto Run, IReadOnlyList<PenaltyListItemDto> Penalties, IReadOnlyList<NoticeListItemDto> Notices);
+public sealed record GetPenaltyRunQuery(Guid Id) : IQuery<Result<GetPenaltyRunQueryResult>>;
+
+/// Every surcharge applied (the Surcharges report): by year, kind, circle, run, file and date.
+public sealed record GetPenaltiesQueryResult(PaginatedResult<PenaltyListItemDto> Penalties, decimal Total);
+public sealed record GetPenaltiesQuery(PaginationRequest Pagination, int? FiscalYear, PenaltyKind? Kind, Guid? CircleId, Guid? RunId, Guid? TaxFileId, DateOnly? From,
+  DateOnly? To, string? Search) : IQuery<Result<GetPenaltiesQueryResult>>;
+
 public class SurchargeRequestValidator : AbstractValidator<SurchargeRequest>
 {
   public SurchargeRequestValidator()
@@ -118,14 +127,16 @@ public class PenaltyHandlers(
   IQueryHandler<PreviewSurchargeQuery, Result<SurchargePreviewDto>>,
   ICommandHandler<ApplySurchargeCommand, Result<ApplySurchargeResult>>,
   ICommandHandler<ApplyYearEndCommand, Result<ApplyYearEndResult>>,
-  IQueryHandler<GetPenaltyRunsQuery, Result<GetPenaltyRunsQueryResult>>
+  IQueryHandler<GetPenaltyRunsQuery, Result<GetPenaltyRunsQueryResult>>,
+  IQueryHandler<GetPenaltyRunQuery, Result<GetPenaltyRunQueryResult>>,
+  IQueryHandler<GetPenaltiesQuery, Result<GetPenaltiesQueryResult>>
 {
   public async Task<Result<SurchargePreviewDto>> Handle(PreviewSurchargeQuery query, CancellationToken cancellationToken)
   {
     var (_, rows) = await penalties.CandidatesAsync(await TermsAsync(query.Terms, cancellationToken), cancellationToken);
     var list = rows.Select(r => new SurchargeCandidateDto(r.Candidate.Demand.Id.Value, r.Candidate.Demand.DemandNo, r.File.Id.Value, r.File.FileNo,
-      r.Candidate.Demand.PayerName, r.Candidate.Demand.Balance, r.Candidate.Demand.ArrearsBf, r.Candidate.Base, r.Candidate.Amount, r.Candidate.Eligible,
-      r.Candidate.Reason)).ToList();
+      r.Candidate.Demand.PayerName, r.Candidate.Demand.Balance, r.Candidate.ArrearsOwed, r.Candidate.Base, r.Candidate.Amount, r.Candidate.Eligible,
+      r.Candidate.Reason, r.Candidate.SurchargedOn)).ToList();
     return Result<SurchargePreviewDto>.Success(new(list.Count(c => c.Eligible), list.Where(c => c.Eligible).Sum(c => c.Amount), list));
   }
 
@@ -168,10 +179,99 @@ public class PenaltyHandlers(
   {
     var runs = await context.PenaltyRuns.AsNoTracking().Where(r => query.FiscalYear == null || r.FiscalYear == query.FiscalYear)
       .OrderByDescending(r => r.RunOn).ThenByDescending(r => r.CreatedAt).ToListAsync(cancellationToken);
+    return Result<GetPenaltyRunsQueryResult>.Success(new(await RunDtosAsync(runs, cancellationToken)));
+  }
+
+  public async Task<Result<GetPenaltyRunQueryResult>> Handle(GetPenaltyRunQuery query, CancellationToken cancellationToken)
+  {
+    var id = PenaltyRunId.Of(query.Id);
+    var run = await context.PenaltyRuns.AsNoTracking().FirstOrDefaultAsync(r => r.Id == id, cancellationToken)
+      ?? throw new DemandRunNotFoundException($"Surcharge run {query.Id} was not found.");
+    var penalties = await PenaltyRowsAsync(context.Penalties.AsNoTracking().Where(p => p.RunId == id), 0, 5000, cancellationToken);
+    var notices = await context.Notices.AsNoTracking().Where(n => n.PenaltyRunId == id).OrderBy(n => n.NoticeNo).ToListAsync(cancellationToken);
+    var demandIds = notices.Select(n => n.DemandId).Distinct().ToList();
+    var demands = await context.Demands.AsNoTracking().Where(d => demandIds.Contains(d.Id)).ToDictionaryAsync(d => d.Id, cancellationToken);
+    var fileIds = demands.Values.Select(d => d.TaxFileId).Distinct().ToList();
+    var files = await context.TaxFiles.AsNoTracking().Where(f => fileIds.Contains(f.Id)).ToDictionaryAsync(f => f.Id, f => f.FileNo, cancellationToken);
+    return Result<GetPenaltyRunQueryResult>.Success(new((await RunDtosAsync([run], cancellationToken))[0], penalties,
+      notices.Select(n => n.ToListItem(demands[n.DemandId], files.GetValueOrDefault(demands[n.DemandId].TaxFileId) ?? "")).ToList()));
+  }
+
+  public async Task<Result<GetPenaltiesQueryResult>> Handle(GetPenaltiesQuery query, CancellationToken cancellationToken)
+  {
+    var rows = context.Penalties.AsNoTracking();
+    if (query.Kind is { } kind)
+      rows = rows.Where(p => p.Kind == kind);
+    if (query.RunId is { } run)
+    {
+      var runId = PenaltyRunId.Of(run);
+      rows = rows.Where(p => p.RunId == runId);
+    }
+    if (query.From is { } from)
+      rows = rows.Where(p => p.AppliedOn >= from);
+    if (query.To is { } to)
+      rows = rows.Where(p => p.AppliedOn <= to);
+    if (query.FiscalYear is not null || query.CircleId is not null || query.TaxFileId is not null || !string.IsNullOrWhiteSpace(query.Search))
+    {
+      var demands = context.Demands.AsQueryable();
+      if (query.FiscalYear is { } fy)
+        demands = demands.Where(d => d.FiscalYear == fy);
+      if (query.TaxFileId is { } f)
+      {
+        var fileId = TaxFileId.Of(f);
+        demands = demands.Where(d => d.TaxFileId == fileId);
+      }
+      if (query.CircleId is { } c)
+      {
+        var circleId = TaxCircleId.Of(c);
+        var inCircle = context.TaxFiles.Where(x => x.CircleId == circleId).Select(x => x.Id);
+        demands = demands.Where(d => inCircle.Contains(d.TaxFileId));
+      }
+      if (!string.IsNullOrWhiteSpace(query.Search))
+      {
+        var s = query.Search.Trim().ToUpperInvariant();
+        var files = context.TaxFiles.Where(x => x.FileNo.ToUpper().Contains(s)).Select(x => x.Id);
+        demands = demands.Where(d => d.DemandNo.ToUpper().Contains(s) || d.PayerName.ToUpper().Contains(s) || files.Contains(d.TaxFileId));
+      }
+      var ids = demands.Select(d => d.Id);
+      rows = rows.Where(p => ids.Contains(p.DemandId));
+    }
+    var total = await rows.LongCountAsync(cancellationToken);
+    var sum = await rows.SumAsync(p => (decimal?)p.Amount, cancellationToken) ?? 0m;
+    var data = await PenaltyRowsAsync(rows, query.Pagination.Pageindex, query.Pagination.PageSize, cancellationToken);
+    return Result<GetPenaltiesQueryResult>.Success(new(new PaginatedResult<PenaltyListItemDto>(query.Pagination.Pageindex, query.Pagination.PageSize, total, data), sum));
+  }
+
+  private async Task<List<PenaltyListItemDto>> PenaltyRowsAsync(IQueryable<Penalty> rows, int pageIndex, int pageSize, CancellationToken cancellationToken)
+  {
+    var page = await rows.OrderByDescending(p => p.AppliedOn).ThenBy(p => p.DemandId).Skip(pageIndex * pageSize).Take(pageSize).ToListAsync(cancellationToken);
+    var demandIds = page.Select(p => p.DemandId).Distinct().ToList();
+    var demands = await context.Demands.AsNoTracking().Where(d => demandIds.Contains(d.Id))
+      .Select(d => new { d.Id, d.DemandNo, d.TaxFileId, d.PayerName, d.FiscalYear }).ToDictionaryAsync(d => d.Id, cancellationToken);
+    var fileIds = demands.Values.Select(d => d.TaxFileId).Distinct().ToList();
+    var files = await context.TaxFiles.AsNoTracking().Where(f => fileIds.Contains(f.Id)).Select(f => new { f.Id, f.FileNo, f.CircleId }).ToDictionaryAsync(f => f.Id, cancellationToken);
     var circles = await context.TaxCircles.AsNoTracking().ToDictionaryAsync(c => c.Id, c => c.Code, cancellationToken);
-    return Result<GetPenaltyRunsQueryResult>.Success(new(runs.Select(r => new PenaltyRunDto(r.Id.Value, r.RuleId.Value, r.FiscalYear, FiscalYear.Label(r.FiscalYear),
-      r.CircleId?.Value, r.CircleId is { } c ? circles.GetValueOrDefault(c) : null, r.RunOn, r.TargetSet, r.RateType, r.Rate, r.IncludesCurrent, r.Reference,
-      r.PropertyCount, r.TotalAmount, r.ApprovedBy, r.CreatedAt)).ToList()));
+    var penaltyIds = page.Select(p => p.Id).ToList();
+    var posted = context.Payments.Where(p => p.Status == PaymentStatus.Posted).Select(p => p.Id);
+    var paid = await context.PaymentAllocations.AsNoTracking().Where(a => a.PenaltyId != null && penaltyIds.Contains(a.PenaltyId) && posted.Contains(a.PaymentId))
+      .GroupBy(a => a.PenaltyId).Select(g => new { g.Key, Paid = g.Sum(a => a.Amount) }).ToListAsync(cancellationToken);
+    return page.Select(p =>
+    {
+      var d = demands[p.DemandId];
+      var f = files.GetValueOrDefault(d.TaxFileId);
+      return new PenaltyListItemDto(p.Id.Value, p.DemandId.Value, d.DemandNo, d.TaxFileId.Value, f?.FileNo ?? "", d.PayerName, f?.CircleId.Value,
+        f is null ? null : circles.GetValueOrDefault(f.CircleId), d.FiscalYear, FiscalYear.Label(d.FiscalYear), p.Kind, p.BaseAmount, p.Pct, p.Amount, p.AppliedOn,
+        p.RunId?.Value, p.RuleRef, paid.FirstOrDefault(x => x.Key == p.Id)?.Paid ?? 0m);
+    }).ToList();
+  }
+
+  private async Task<List<PenaltyRunDto>> RunDtosAsync(IReadOnlyList<PenaltyRun> runs, CancellationToken cancellationToken)
+  {
+    var circles = await context.TaxCircles.AsNoTracking().ToDictionaryAsync(c => c.Id, c => c.Code, cancellationToken);
+    var rules = await context.PenaltyRules.AsNoTracking().ToDictionaryAsync(r => r.Id, r => new { r.Code, r.Name }, cancellationToken);
+    return runs.Select(r => new PenaltyRunDto(r.Id.Value, r.RuleId.Value, rules.GetValueOrDefault(r.RuleId)?.Code, rules.GetValueOrDefault(r.RuleId)?.Name, r.FiscalYear,
+      FiscalYear.Label(r.FiscalYear), r.CircleId?.Value, r.CircleId is { } c ? circles.GetValueOrDefault(c) : null, r.RunOn, r.TargetSet, r.RateType, r.Rate,
+      r.IncludesCurrent, r.Reference, r.PropertyCount, r.TotalAmount, r.ApprovedBy, r.CreatedAt)).ToList();
   }
 
   private async Task<SurchargeTerms> TermsAsync(SurchargeRequest r, CancellationToken cancellationToken)

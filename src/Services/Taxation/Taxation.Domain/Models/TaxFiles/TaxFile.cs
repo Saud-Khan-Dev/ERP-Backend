@@ -32,6 +32,10 @@ public class TaxFile : Aggregate<TaxFileId>
   public DateOnly? ClosedOn { get; private set; }
   public string? Remarks { get; private set; }
 
+  /// Concurrency token (Postgres xmin). A change to anything on the file touches the file row, so two people changing
+  /// the same file at once (two holds, two overrides) cannot both win.
+  public uint Version { get; private set; }
+
   public IReadOnlyList<TaxFileBasis> Bases => _bases.AsReadOnly();
   public IReadOnlyList<TaxFilePayer> Payers => _payers.AsReadOnly();
   public IReadOnlyList<TaxFileHeadValue> HeadValues => _headValues.AsReadOnly();
@@ -49,6 +53,12 @@ public class TaxFile : Aggregate<TaxFileId>
   public TaxFilePayer? Addressee(DateOnly asOf) => CurrentPayers(asOf).FirstOrDefault(p => p.IsAddressee) ?? CurrentPayers(asOf).FirstOrDefault();
 
   public bool IsAssessable => TaxStatus == TaxStatus.Active && TaxCategory != TaxCategory.Exempt;
+
+  /// Marks the file changed when only something under it changed (an override, a hold), so its concurrency token is checked.
+  private void Touch() => UpdatedAt = DateTime.UtcNow;
+
+  /// Whether the uplift settings of the file would change (they change the tax like an override, so need approval).
+  public bool UpliftDiffers(TaxFileDetails details) => details.UpliftRateBasis != UpliftRateBasis || details.UpliftPct != UpliftPct;
 
   public static TaxFile Open(TaxFileId id, string fileNo, string psid, PropertySnapshot snapshot, TaxCircleId circleId, TaxCategory category, TaxFileDetails details, DateOnly openedOn, DateTime now)
   {
@@ -211,6 +221,7 @@ public class TaxFile : Aggregate<TaxFileId>
       ?? throw new DomainException("Choose one of the current payers of the file.");
     foreach (var p in _payers.Where(p => p.EffectiveTo is null))
       p.SetAddressee(p == payer);
+    Touch();
   }
 
   private void SyncAgreements(IReadOnlyList<AgreementSnapshot> agreements)
@@ -256,6 +267,7 @@ public class TaxFile : Aggregate<TaxFileId>
 
     if (head.Code == HeadCodes.Water)
       WaterFacilityFrom = facilityFrom;
+    Touch();
   }
 
   /// The water connection fee sets the facility date when the file has none yet.
@@ -302,6 +314,7 @@ public class TaxFile : Aggregate<TaxFileId>
 
     var created = TaxFileOverride.Create(TaxFileOverrideId.New(), Id, head.Id, mode, policy?.Id, amount, followsIncrease, reason, reference, effectiveFrom, actor, now);
     _overrides.Add(created);
+    Touch();
     return created;
   }
 
@@ -309,6 +322,23 @@ public class TaxFile : Aggregate<TaxFileId>
   {
     var ov = _overrides.FirstOrDefault(o => o.Id == id) ?? throw new DomainException("The override was not found on this file.");
     ov.End(lastDay);
+    Touch();
+  }
+
+  /// An override set from a later date by mistake is taken back before it is in force (it never charged anything); an
+  /// open override of the head it ended runs on. Returns the voided override.
+  public TaxFileOverride VoidOverride(TaxFileOverrideId id, DateOnly today)
+  {
+    var ov = _overrides.FirstOrDefault(o => o.Id == id) ?? throw new DomainException("The override was not found on this file.");
+    if (ov.EffectiveFrom <= today)
+      throw new DomainException($"The override is in force since {ov.EffectiveFrom:dd MMM yyyy}; end it instead.");
+    if (_overrides.Any(o => o.HeadId == ov.HeadId && o.EffectiveFrom > ov.EffectiveFrom))
+      throw new DomainException("A later override of the head follows it; take that one back first.");
+    var previous = _overrides.Where(o => o.HeadId == ov.HeadId && o.EffectiveFrom < ov.EffectiveFrom).OrderByDescending(o => o.EffectiveFrom).FirstOrDefault();
+    previous?.Reopen(ov.EffectiveFrom.AddDays(-1));
+    _overrides.Remove(ov);
+    Touch();
+    return ov;
   }
 
   // ---- litigation holds ----
@@ -337,6 +367,7 @@ public class TaxFile : Aggregate<TaxFileId>
       throw new DomainException("A hold cannot start before an earlier hold ended.");
     var hold = LitigationHold.Create(LitigationHoldId.New(), Id, reason, reference, sourceLitigationId, startedOn, suspendsDemand, excludesCompletionClock);
     _holds.Add(hold);
+    Touch();
     return hold;
   }
 
@@ -344,6 +375,18 @@ public class TaxFile : Aggregate<TaxFileId>
   {
     var hold = _holds.FirstOrDefault(h => h.Id == id) ?? throw new DomainException("The hold was not found on this file.");
     hold.End(endedOn);
+    Touch();
+  }
+
+  /// A hold put from a later date by mistake is taken back before it begins (it never suspended anything).
+  public LitigationHold VoidHold(LitigationHoldId id, DateOnly today)
+  {
+    var hold = _holds.FirstOrDefault(h => h.Id == id) ?? throw new DomainException("The hold was not found on this file.");
+    if (hold.StartedOn <= today)
+      throw new DomainException($"The hold is in force since {hold.StartedOn:dd MMM yyyy}; give it its last day instead.");
+    _holds.Remove(hold);
+    Touch();
+    return hold;
   }
 
   // ---- agreements ----

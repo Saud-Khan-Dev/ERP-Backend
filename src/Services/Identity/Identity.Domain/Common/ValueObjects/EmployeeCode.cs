@@ -1,8 +1,7 @@
 using System.Text.RegularExpressions;
 
-/// Human-readable employee number shown on the account, e.g. EMP-101.
-/// Only the character set is checked here; whether it fits the organisation's numbering scheme is
-/// decided by <see cref="EmployeeCodeTemplate"/>, because that scheme is admin-editable.
+/// Human-readable employee number shown on the account, e.g. EMP-101 - HR's number for the person (HRM issues it;
+/// the account takes it when it is linked to the HR record). Only the character set is checked here.
 public sealed record EmployeeCode
 {
   public const int MaxLength = 30;

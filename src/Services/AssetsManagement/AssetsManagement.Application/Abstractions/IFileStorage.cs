@@ -7,6 +7,9 @@ public interface IFileStorage
 
   /// Null when the file is missing from storage.
   Task<Stream?> OpenReadAsync(string relativePath, CancellationToken cancellationToken);
+
+  /// Removes the file; nothing happens when it is already gone.
+  Task DeleteAsync(string relativePath, CancellationToken cancellationToken);
 }
 
 public sealed record StoredFileInfo(string StoredFileName, string RelativePath, long FileSizeBytes, string ChecksumSha256);

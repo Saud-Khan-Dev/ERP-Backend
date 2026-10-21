@@ -49,6 +49,7 @@ public class UserConfiguration : EntityConfiguration<User, UserId>
     builder.Property(x => x.EmailVerifiedAt).IsRequired(false);
 
     builder.Property(x => x.FailedLoginAttempts).IsRequired().HasDefaultValue(0);
+    builder.Property(x => x.LastFailedLoginAt).IsRequired(false);
     builder.Property(x => x.LockedUntil).IsRequired(false);
 
     builder.Property(x => x.PasswordChangedAt).IsRequired(false);
@@ -68,10 +69,18 @@ public class UserConfiguration : EntityConfiguration<User, UserId>
     // soft delete: a deleted account stays for audit history but disappears from every query
     builder.HasQueryFilter(x => x.DeletedAt == null);
 
+    // What the Users register's search box matches, part of any word: username, email, employee code and name.
+    // Username, email and code are value-converted (so LINQ cannot LIKE them); one generated column keeps the search
+    // a single indexed-friendly expression and keeps the handler provider-agnostic.
+    builder.Property<string>(UserSearch.Property)
+      .HasColumnName("search_text")
+      .HasComputedColumnSql("lower(username || ' ' || email || ' ' || coalesce(employee_code, '') || ' ' || display_name)", stored: true);
+
     builder.HasIndex(x => x.Username).IsUnique();
     builder.HasIndex(x => x.Email).IsUnique();
     builder.HasIndex(x => x.EmployeeId).IsUnique().HasFilter("employee_id IS NOT NULL");
-    builder.HasIndex(x => x.EmployeeCode).IsUnique().HasFilter("employee_code IS NOT NULL");
+    // HR's number is unique among linked accounts; an older code Identity issued (unlinked) may repeat one of them.
+    builder.HasIndex(x => x.EmployeeCode).IsUnique().HasFilter("employee_code IS NOT NULL AND employee_id IS NOT NULL");
     builder.HasIndex(x => x.IsActive);
   }
 }

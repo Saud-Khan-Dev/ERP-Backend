@@ -39,6 +39,7 @@
     <Project Path="Services/Taxation/Taxation.Infrastructure/Taxation.Infrastructure.csproj" />
   </Folder>
   <Folder Name="/Tests/">
+    <Project Path="Tests/AssetsManagement.Domain.Tests/AssetsManagement.Domain.Tests.csproj" />
     <Project Path="Tests/HRM.Domain.Tests/HRM.Domain.Tests.csproj" />
     <Project Path="Tests/PropertyManagement.Domain.Tests/PropertyManagement.Domain.Tests.csproj" />
     <Project Path="Tests/Taxation.Domain.Tests/Taxation.Domain.Tests.csproj" />

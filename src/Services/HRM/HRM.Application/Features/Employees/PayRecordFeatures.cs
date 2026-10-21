@@ -14,16 +14,19 @@ public sealed record RecordPayChangeCommand(
   DateOnly EffectiveFrom,
   string Reason,
   string? OrderNumber,
-  DateOnly? NextIncrementDate) : ICommand<Result<CreatedResult>>;
+  DateOnly? NextIncrementDate) : ICommand<Result<RecordPayChangeResult>>;
 
-public sealed record SetNextIncrementDateCommand(Guid PayRecordId, DateOnly? NextIncrementDate) : ICommand<Result<UpdatedResult>>;
+public sealed record RecordPayChangeResult(Guid Id, IReadOnlyList<PayrollImpactDto> PayrollImpact);
+
+public sealed record SetNextIncrementDateCommand(Guid PayRecordId, DateOnly? NextIncrementDate, string? Reason = null) : ICommand<Result<UpdatedResult>>;
 
 public sealed record PayRunSkip(Guid EmployeeId, string EmployeeNumber, string Reason);
 
 public sealed record PayRunResult(int Considered, int Moved, IReadOnlyList<PayRunSkip> Skipped, bool DryRun);
 
 /// The annual increment (1 December in KP): every employee in service whose next increment falls on or before the date
-/// moves one stage up their scale. Employees at the top of the scale are reported, not moved. DryRun saves nothing.
+/// moves one stage up their scale. Employees at the top of the scale are reported, not moved; leave without pay puts the
+/// increment back by its days (reported as deferred). DryRun saves nothing.
 public sealed record RunAnnualIncrementCommand(DateOnly EffectiveDate, bool DryRun, IReadOnlyList<Guid>? EmployeeIds) : ICommand<Result<PayRunResult>>;
 
 /// A pay revision: everyone on an older scale of a grade whose new scale starts on the date moves to the same stage
@@ -42,9 +45,10 @@ public class RecordPayChangeCommandValidator : AbstractValidator<RecordPayChange
   }
 }
 
-public class PayRecordHandlers(IApplicationDbContext context, PayService pay, HrLookup lookup) :
+public class PayRecordHandlers(IApplicationDbContext context, PayService pay, HrLookup lookup, ServiceRecordReader reader, ChangeLog log,
+  PayrollImpactFinder payroll, IClock clock) :
   IQueryHandler<GetPayRecordsQuery, Result<GetPayRecordsQueryResult>>,
-  ICommandHandler<RecordPayChangeCommand, Result<CreatedResult>>,
+  ICommandHandler<RecordPayChangeCommand, Result<RecordPayChangeResult>>,
   ICommandHandler<SetNextIncrementDateCommand, Result<UpdatedResult>>,
   ICommandHandler<RunAnnualIncrementCommand, Result<PayRunResult>>,
   ICommandHandler<ApplyPayRevisionCommand, Result<PayRunResult>>
@@ -62,31 +66,55 @@ public class PayRecordHandlers(IApplicationDbContext context, PayService pay, Hr
     var versions = await context.PayScaleVersions.AsNoTracking().Where(v => versionIds.Contains(v.Id)).ToDictionaryAsync(v => v.Id, cancellationToken);
     var grades = await lookup.GradesAsync(cancellationToken);
 
+    var today = clock.Today;
     var data = records.Select(r =>
     {
       var stage = stages[r.PayScaleStageId];
       var version = versions[stage.PayScaleVersionId];
       return new PayRecordDto(r.Id.Value, stage.Id.Value, version.Id.Value, version.VersionLabel, grades[version.GradeId.Value].BpsNumber,
-        stage.StageNumber, r.BasicPay, r.LastIncrementDate, r.NextIncrementDate, r.Reason, r.OrderNumber, r.EffectiveFrom, r.EffectiveTo, r.CreatedAt);
+        stage.StageNumber, r.BasicPay, r.LastIncrementDate, r.NextIncrementDate, r.Reason, r.OrderNumber, r.EffectiveFrom, r.EffectiveTo, r.CreatedAt,
+        r.IsIncrementOverdue(today), r.IncrementDeferredDays);
     }).ToList();
 
     return Result<GetPayRecordsQueryResult>.Success(new(data));
   }
 
-  public async Task<Result<CreatedResult>> Handle(RecordPayChangeCommand command, CancellationToken cancellationToken)
+  public async Task<Result<RecordPayChangeResult>> Handle(RecordPayChangeCommand command, CancellationToken cancellationToken)
   {
     var employee = await context.LoadEmployeeAsync(command.EmployeeId, cancellationToken);
     employee.EnsureInService();
+    var date = command.EffectiveFrom;
 
     var stageId = PayScaleStageId.Of(command.PayScaleStageId);
     var scale = await pay.ScaleOfStageAsync(stageId, cancellationToken);
-    if (scale.Status != RecordStatus.Active || !scale.Range.Contains(command.EffectiveFrom))
-      return Result<CreatedResult>.Failure($"That stage belongs to a scale not in force on {command.EffectiveFrom:yyyy-MM-dd}.");
+    if (scale.Status != RecordStatus.Active || !scale.Range.Contains(date))
+      return Result<RecordPayChangeResult>.Failure($"That stage belongs to a scale not in force on {date:dd MMM yyyy}.");
 
-    var record = await pay.StartAsync(employee.Id, scale.Stage(stageId)!, command.BasicPay, command.EffectiveFrom, command.Reason,
+    // the pay follows the grade of the regular post held that day
+    var held = await reader.RegularPostOnAsync(employee.Id, date, cancellationToken);
+    if (held is null)
+      return Result<RecordPayChangeResult>.Failure($"{employee.DisplayName} holds no regular post on {date:dd MMM yyyy}; the pay follows the post's grade. Place the employee on a post first.");
+    if (held.Version.GradeId != scale.GradeId)
+    {
+      var grades = await lookup.GradesAsync(cancellationToken);
+      var postBps = grades[held.Version.GradeId.Value].BpsNumber;
+      var stageBps = grades[scale.GradeId.Value].BpsNumber;
+      return Result<RecordPayChangeResult>.Failure($"Post {held.Post.PostCode} is BPS-{postBps} on {date:dd MMM yyyy}, but that stage is of the BPS-{stageBps} scale. "
+        + $"Choose a stage of the BPS-{postBps} scale; a move to another grade is a promotion or a demotion.");
+    }
+
+    var before = await pay.RecordOnAsync(employee.Id, date.AddDays(-1), cancellationToken);
+    var stage = scale.Stage(stageId)!;
+    var record = await pay.StartAsync(employee.Id, stage, command.BasicPay, date, command.Reason,
       command.OrderNumber, null, command.NextIncrementDate, cancellationToken);
+    log.Add(employee.Id, EmployeeFields.Pay, before is null ? null : $"Rs {before.BasicPay:#,##0.##}", $"Rs {record.BasicPay:#,##0.##} (stage {stage.StageNumber}) from {date:yyyy-MM-dd}",
+      command.Reason);
+
+    var impact = before is null || before.BasicPay == record.BasicPay
+      ? []
+      : await payroll.RunsAsync(employee.Id, date, null, record.BasicPay > before.BasicPay ? PayrollImpactFinder.Arrears : PayrollImpactFinder.Recovery, cancellationToken);
     await context.SaveChangesAsync(cancellationToken);
-    return CommandResults.Created(record.Id);
+    return Result<RecordPayChangeResult>.Success(new(record.Id.Value, impact));
   }
 
   public async Task<Result<UpdatedResult>> Handle(SetNextIncrementDateCommand command, CancellationToken cancellationToken)
@@ -97,7 +125,9 @@ public class PayRecordHandlers(IApplicationDbContext context, PayService pay, Hr
     if (!record.IsOpen)
       return Result<UpdatedResult>.Failure("Only the current pay record has a next increment.");
 
+    var old = record.NextIncrementDate;
     record.SetNextIncrementDate(command.NextIncrementDate);
+    log.Add(record.EmployeeId, EmployeeFields.NextIncrement, EmployeeChangeLogEntry.Day(old), EmployeeChangeLogEntry.Day(record.NextIncrementDate), command.Reason);
     await context.SaveChangesAsync(cancellationToken);
     return CommandResults.Updated();
   }
@@ -115,6 +145,7 @@ public class PayRecordHandlers(IApplicationDbContext context, PayService pay, Hr
     var records = await open.ToListAsync(cancellationToken);
     var employees = await EmployeesAsync(records.Select(r => r.EmployeeId), cancellationToken);
     var scales = await ScalesOfAsync(records.Select(r => r.PayScaleStageId), cancellationToken);
+    var unpaid = await UnpaidLeaveAsync(records.Select(r => r.EmployeeId), cancellationToken);
     var skipped = new List<PayRunSkip>();
     var moved = 0;
 
@@ -124,6 +155,15 @@ public class PayRecordHandlers(IApplicationDbContext context, PayService pay, Hr
       if (employee.HasLeftService || employee.EmploymentStatus == EmploymentStatus.Suspended || employee.ProfileStatus != RecordStatus.Active)
       {
         skipped.Add(new(employee.Id.Value, employee.EmployeeNumber, $"Not in service ({EnumText.Words(employee.EmploymentStatus)})."));
+        continue;
+      }
+
+      // leave without pay does not count towards the increment: it falls that many days later
+      var leave = unpaid.GetValueOrDefault(record.EmployeeId) ?? [];
+      if (record.DeferIncrement((from, to) => leave.Sum(r => r.Clip(from, to)?.Days ?? 0)) && record.NextIncrementDate > date)
+      {
+        skipped.Add(new(employee.Id.Value, employee.EmployeeNumber,
+          $"Deferred to {record.NextIncrementDate:dd MMM yyyy} by {record.IncrementDeferredDays} day(s) of leave without pay."));
         continue;
       }
 
@@ -198,6 +238,20 @@ public class PayRecordHandlers(IApplicationDbContext context, PayService pay, Hr
       await context.SaveChangesAsync(cancellationToken);
 
     return Result<PayRunResult>.Success(new(records.Count, moved, skipped, command.DryRun));
+  }
+
+  /// Each employee's approved leave without pay (types deducted from pay), as date ranges.
+  private async Task<Dictionary<EmployeeId, List<DateRange>>> UnpaidLeaveAsync(IEnumerable<EmployeeId> ids, CancellationToken cancellationToken)
+  {
+    var list = ids.Distinct().ToList();
+    var rows = await (
+        from a in context.LeaveApplications.AsNoTracking()
+        where list.Contains(a.EmployeeId) && a.Status == LeaveStatus.Approved
+        join t in context.LeaveTypes on a.LeaveTypeId equals t.Id
+        where t.AffectsPayroll
+        select new { a.EmployeeId, a.StartDate, a.EndDate })
+      .ToListAsync(cancellationToken);
+    return rows.GroupBy(r => r.EmployeeId).ToDictionary(g => g.Key, g => g.Select(r => new DateRange(r.StartDate, r.EndDate)).ToList());
   }
 
   private async Task<Dictionary<EmployeeId, Employee>> EmployeesAsync(IEnumerable<EmployeeId> ids, CancellationToken cancellationToken)

@@ -64,15 +64,17 @@ public class GetPropertiesHandler(IApplicationDbContext context, MasterLookup ma
       });
   }
 
-  /// For properties nobody holds: the allottee of the allotment in force (the latest one, should there be more).
+  /// For properties nobody holds: the allottee of the allotment in force (the latest one, should there be more) - one that
+  /// takes effect later does not hold the plot yet.
   private async Task<Dictionary<PropertyId, string>> AllotteesAsync(List<PropertyId> propertyIds, CancellationToken cancellationToken)
   {
     if (propertyIds.Count == 0)
       return [];
 
+    var today = PakistanDate.Today;
     var inForce = await InForce.StatusIdsAsync<AllotmentStatus>(context, InForce.AllotmentStatuses, cancellationToken);
     var allotments = await context.Allotments.AsNoTracking()
-        .Where(a => propertyIds.Contains(a.PropertyId) && a.IsActive && inForce.Contains(a.AllotmentStatusId))
+        .Where(a => propertyIds.Contains(a.PropertyId) && a.IsActive && inForce.Contains(a.AllotmentStatusId) && (a.EffectiveDate ?? a.AllotmentDate) <= today)
         .Select(a => new { a.PropertyId, a.AllotteeOwnerId, a.AllotmentDate })
         .ToListAsync(cancellationToken);
 

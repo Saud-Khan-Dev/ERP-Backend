@@ -8,6 +8,9 @@ internal static class OwnershipFixture
   public static readonly TenureType Owned = Master<TenureType>("OWNED");
   public static readonly TransferType Sale = Master<TransferType>("SALE");
 
+  /// The signed-in approving officer (an Identity account of their own, not linked to HRM).
+  public static readonly Approver Director = new(Guid.NewGuid(), null, "Director Estate");
+
   public static readonly AllotmentType Plot = Master<AllotmentType>("PLOT");
   public static readonly AllotmentStatus Active = Master<AllotmentStatus>(SystemMasterCodes.Active);
   public static readonly AllotmentStatus Cancelled = Master<AllotmentStatus>(SystemMasterCodes.Cancelled);
@@ -46,7 +49,7 @@ internal static class OwnershipFixture
       PropertyTransfer.Initiate(TransferId.New(), BusinessCode.Of(no), Sale, D(date), "MUT-1", null, null, null, parties, record);
 
   public static PropertyTransfer.OwnershipChange Approve(PropertyTransfer transfer, OwnershipRecord record, string? approvalDate = null) =>
-      transfer.Approve("Director Estate", approvalDate is null ? record.Today : D(approvalDate), "ORDER-9", "clerk1", record, Owned);
+      transfer.Approve(Director, approvalDate is null ? record.Today : D(approvalDate), "ORDER-9", null, "clerk1", record, Owned);
 
   public static PropertyEncumbrance Charge(Property property, PropertyOwnership? share, string holder = "Bank of Khyber", string? reference = "MRT-1") =>
       PropertyEncumbrance.Register(EncumbranceId.New(), property, Master<EncumbranceType>("MORTGAGE"), share, holder, null, reference,

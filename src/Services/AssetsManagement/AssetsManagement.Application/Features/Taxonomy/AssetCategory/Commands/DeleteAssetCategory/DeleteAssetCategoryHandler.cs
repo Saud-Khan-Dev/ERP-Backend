@@ -10,10 +10,14 @@ public class DeleteAssetCategoryHandler(IApplicationDbContext context)
       ?? throw new AssetCategoryNotFoundException($"Asset category {command.Id} was not found.");
 
     if (await context.AssetCategories.AnyAsync(c => c.ParentCategoryId == id, cancellationToken))
-      return Result<DeleteAssetCategoryCommandResult>.Failure("This category has sub-categories. Delete or move them first.");
+      return Result<DeleteAssetCategoryCommandResult>.Failure($"'{category.Name.Value}' has sub-categories. Delete or move them first.");
+
+    var live = await context.Assets.CountAsync(a => a.CategoryId == id, cancellationToken);
+    if (live > 0)
+      return Result<DeleteAssetCategoryCommandResult>.Failure($"{live} {(live == 1 ? "asset is" : "assets are")} in '{category.Name.Value}'. Move them to another category first, or switch the category off.");
 
     if (await context.Assets.IgnoreQueryFilters().AnyAsync(a => a.CategoryId == id, cancellationToken))
-      return Result<DeleteAssetCategoryCommandResult>.Failure("This category has assets attached. Move them first or deactivate the category.");
+      return Result<DeleteAssetCategoryCommandResult>.Failure($"Deleted assets are kept on record in '{category.Name.Value}', so it cannot be deleted. Switch it off instead - it then disappears from the forms.");
 
     context.AssetCategories.Remove(category);
 

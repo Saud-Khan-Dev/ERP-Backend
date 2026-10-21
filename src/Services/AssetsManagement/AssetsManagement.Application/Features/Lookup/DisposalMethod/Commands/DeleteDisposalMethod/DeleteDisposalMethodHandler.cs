@@ -10,7 +10,7 @@ public class DeleteDisposalMethodHandler(IApplicationDbContext context)
       ?? throw new DisposalMethodNotFoundException($"Disposal method {command.Id} was not found.");
 
     if (await context.AssetDisposals.AnyAsync(d => d.DisposalMethodId == id, cancellationToken))
-      return Result<DeleteDisposalMethodCommandResult>.Failure("This method is used by disposal records. Deactivate it instead.");
+      return Result<DeleteDisposalMethodCommandResult>.Failure($"'{method.Name.Value}' is used by disposals, so it cannot be deleted. Switch it off instead.");
 
     context.DisposalMethods.Remove(method);
     await context.SaveChangesAsync(cancellationToken);

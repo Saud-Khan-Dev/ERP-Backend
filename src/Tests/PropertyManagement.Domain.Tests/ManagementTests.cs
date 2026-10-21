@@ -145,7 +145,7 @@ public class ViolationTests
   {
     var violation = Record(Lease(), "2026-02-01", null, Array.Empty<AgreementViolation>());
     violation.ImposeFine(50000, Guid.NewGuid());
-    violation.SetFineStatus(FineStatus.RecoveryAsArrears);
+    violation.ChangeFineStatus(new AgreementViolation.FineChange(FineStatus.RecoveryAsArrears), D("2026-10-13"), null);
 
     Assert.Equal((ViolationStatus.Fined, FineStatus.RecoveryAsArrears), (violation.ViolationStatus, violation.FineStatus));
   }

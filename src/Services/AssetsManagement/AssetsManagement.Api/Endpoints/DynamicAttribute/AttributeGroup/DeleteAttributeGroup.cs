@@ -13,6 +13,8 @@ public class DeleteAttributeGroup : ICarterModule
 
       return Results.Ok(result.Value.Adapt<DeleteAttributeGroupResponse>());
     })
+      .RequirePermission(PermissionCatalog.AssetAttributes.Delete)
+
       .WithName("DeleteAttributeGroup")
       .Produces<DeleteAttributeGroupResponse>(StatusCodes.Status200OK)
       .ProducesProblem(StatusCodes.Status404NotFound)

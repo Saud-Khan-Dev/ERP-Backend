@@ -5,6 +5,7 @@ public class ResetUserPasswordHandler(
     IPasswordHasher passwordHasher,
     IPasswordGenerator passwordGenerator,
     ISecuritySettingsProvider securitySettings,
+    IdentityGuard guard,
     IActivityRecorder activity)
   : ICommandHandler<ResetUserPasswordCommand, Result<ResetUserPasswordCommandResult>>
 {
@@ -14,7 +15,11 @@ public class ResetUserPasswordHandler(
     var policy = (await securitySettings.GetAsync(cancellationToken)).PasswordPolicy;
 
     var user = await context.Users.FirstOrDefaultAsync(u => u.Id == UserId.Of(command.Id), cancellationToken)
-      ?? throw new UserNotFoundException($"User {command.Id} was not found.");
+      ?? throw new UserNotFoundException("This account was not found.");
+
+    // your own password is changed under My account, where the old one is asked for
+    guard.EnsureNotSelf(user.Id, "reset the password of");
+    await guard.EnsureCanActOnAsync(user.Id, "reset the password of", cancellationToken);
 
     var generated = command.NewPassword is null;
     var password = command.NewPassword ?? passwordGenerator.Generate(policy);

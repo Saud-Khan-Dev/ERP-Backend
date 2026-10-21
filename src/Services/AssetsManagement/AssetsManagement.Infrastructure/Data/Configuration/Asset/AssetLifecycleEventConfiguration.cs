@@ -18,6 +18,7 @@ public class AssetLifecycleEventConfiguration : EntityConfiguration<AssetLifecyc
     builder.Property(x => x.FromStatusId).HasConversion(id => id!.Value, dbId => AssetStatusId.Of(dbId)).IsRequired(false);
     builder.Property(x => x.ToStatusId).HasConversion(id => id!.Value, dbId => AssetStatusId.Of(dbId)).IsRequired(false);
     builder.Property(x => x.PerformedBy).IsRequired(false);
+    builder.Property(x => x.PerformedByName).HasMaxLength(100).IsRequired(false);
     builder.Property(x => x.Notes).IsRequired(false);
     builder.Property(x => x.Details).HasJsonb().IsRequired(false);
 

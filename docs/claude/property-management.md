@@ -89,9 +89,11 @@ Ids are Guids wrapped in strongly typed ids. Users live in the Identity service,
    editable only while DRAFT (after that, `renew` creates a new row pointing back), a renewed rental ends the day
    before its renewal starts, and a building plan revision keeps the plan number with `revision_no + 1`.
 3. An owner has at most one primary contact and one primary address. Setting a new primary clears the old one.
-4. An agreement violation points at **exactly one** agreement (lease, rental or transfer), matching
-   its `agreement_type`. The DB enforces this with a check using `num_nonnulls`.
-5. The **3rd violation inside the notice period** cancels the lease or rental: `occurrence_no` counts the agreement's
+4. An agreement violation points at **exactly one** agreement (lease, rental, transfer or allotment - type ALLOTMENT,
+   a breach of allotment conditions), matching its `agreement_type`; the violator must be that agreement's party
+   (lessee / tenant / a transferee / allottee). The DB enforces one agreement with a check using `num_nonnulls`.
+5. The **3rd violation inside the notice period** cancels the lease, rental or allotment (recording such a violation
+   needs `PROPERTY.APPROVE`, else 403): `occurrence_no` counts the agreement's
    violations dated on or before this one, and the 3rd (or later) cancels only when it falls inside the period of a
    notice served on an earlier violation (`notice_date <= violation_date <= notice_deadline`). A violation carries one
    notice; a notice without a comply-by date is accepted with a warning (the rule cannot apply to it).
@@ -111,7 +113,9 @@ Ids are Guids wrapped in strongly typed ids. Users live in the Identity service,
     deactivated properties don't count. The refusal lists what blocks it (`PropertyOwner.Deactivate(Commitments)`).
 
 GDA Act rules:
-- s.28-A: a fine is at most Rs 1,000,000.
+- s.28-A: a fine is at most Rs 1,000,000. Fine status (`POST /violations/{id}/fine-status`): PAID needs receipt no. +
+  paid-on date (not future, not before imposed); WAIVED needs a reason and APPROVE; RECOVERY_AS_ARREARS needs APPROVE;
+  PAID and WAIVED are final. Who / when is stored (`fine_status_changed_by/_on`).
 - s.28-A fines and s.30 criminal complaints need an **authorized officer**, the Identity flag
   `is_authorized_officer`. It arrives as JWT claim `ao` and is read through `ICurrentUser.IsAuthorizedOfficer`.
   Without it the API returns 403 (`AuthorizedOfficerRequiredException`). A complaint is recorded against the
@@ -121,12 +125,21 @@ GDA Act rules:
 ## Ownership, transfers, allotments, charges (the rules the register depends on)
 
 All of them read one `OwnershipRecord` (Domain/Models/Ownership): every ownership row of the property (tracked),
-the owners involved, the other waiting transfers, the ACTIVE charges, and today. Handlers build it with
-`context.LoadOwnershipRecordAsync(property, partyIds)`; "today" is `EntityLoaders.Today` (UTC date).
+the owners involved, the other waiting transfers, the ACTIVE and ENFORCED charges, the allotment in force, and today.
+Handlers build it with `context.LoadOwnershipRecordAsync(property, partyIds)`; "today" is `PakistanDate.Today`
+(Asia/Karachi). Loading the record **touches the property row** (`IApplicationDbContext.Touch`), so two acts on one
+property at the same moment clash on its `xmin` row version and the second gets 409 ("Someone else changed this
+property's records at the same moment…"). `property`, `property_transfer` and `property_allotment` carry `xmin`.
 
 - **Approving a transfer IS the mutation.** `POST /transfers/{id}/approve` re-checks every rule and, in the same save,
   closes the givers' rows and opens the receivers' rows (status COMPLETED, `completedOn` = today, `completedBy` = the
-  signed-in user, optional `approvalOrderRef`). The only waiting state is INITIATED. `/complete` only registers rows still
+  signed-in user, optional `approvalOrderRef`). The approver is the **signed-in officer** (`approved_by_user_id`,
+  `approved_by_employee_id` when linked) - the request carries no "approved by". Maker-checker:
+  `Transfers:RequireSeparateApprover` (appsettings, default true; Development false; `GET /property-settings`) refuses the
+  person who started a transfer ("…one person cannot both start and approve a transfer"). `/transfers/completed` never
+  applies it (one officer records a past transfer). `noDuesCertificateNo` (Taxation clearance, checked and consumed by
+  the UI through Taxation's API - a missing one is only a warning) is stored. A transfer dated more than 90 days ahead
+  is refused unless `confirmFarFuture`. The only waiting state is INITIATED. `/complete` only registers rows still
   in the legacy APPROVED state. `/transfers/completed` = initiate + approve in one step. `/reject {reason}` (APPROVE
   permission) and `/cancel {reason}` (EDIT; a legacy APPROVED one also needs APPROVE, else 403) record `closedOn`,
   `closedBy`, `closingReason`. A completed transfer is reversed by a new transfer.
@@ -141,17 +154,26 @@ the owners involved, the other waiting transfers, the ACTIVE charges, and today.
   charged row is left as it is. `OwnershipDto.HoldingSince` walks back through the owner's rows that ended where the next
   began (`OwnershipHistory.HoldingSince`).
 - **Add owner / end ownership**: effectiveFrom / effectiveTo not in the future; add refuses an owner who already holds a
-  share and dates before the owner's earlier entries; end refuses a charged share (row or whole property) and a share being
-  given in a waiting transfer.
-- **Allotments**: only GDA_PROPERTY (`PropertyAllotment.GdaPropertyClassificationCode`) is allotted; at most one allotment in
+  share and dates before the owner's earlier entries, and is refused while an allotment is in force (the plot gets an owner
+  only by confirming the allottee). Adding needs EDIT only on a property nobody has held yet (entered from the register),
+  otherwise APPROVE. End needs APPROVE and `endReferenceNo` (the order it ends under); it refuses a charged share (row or
+  whole property), a share being given in a waiting transfer, and a share confirmed through an allotment still in force.
+- **Allotments** (allot, cancel, restore, surrender, confirm: APPROVE): only GDA_PROPERTY
+  (`PropertyAllotment.GdaPropertyClassificationCode`) is allotted, and only land no private holder has a share in (a
+  GOVERNMENT owner's share is fine; "PROP-x is held by A (61%)…; only land GDA holds can be allotted"). `TakesEffectOn`
+  (allotment or restoration date) may be in the future: such an allotment is current (`isCurrent`) but not in force
+  (`isInForce`) until then, and confirm waits for it. Classification cannot change while an allotment is in force; at most one allotment in
   force (ACTIVE / RESTORED, active) per property, checked at allot and restore; allotment date not in the future. Status act:
   in force -> SURRENDERED (date, `surrenderDate`) or EXPIRED (after `expiryDate`; without one the given date becomes it);
   never back to ACTIVE. Cancel only from in force. Cancel / surrender end the ownership confirmed through the allotment
   (remark "Ended by cancellation of ALT-…"); restore does not reopen it. Confirm as owner: in force, not confirmed since the
   last restoration, effectiveFrom between the allotment (or restoration) date and today, refused when someone holds 100%.
-- **Charges (encumbrances)**: only against a current ownership row; release date between start and today.
-- **Deactivating a property** is refused while it has a waiting transfer, an allotment in force, an ACTIVE lease, rental
-  or contract, or an open legal matter (OpenMatters); the message lists them. Every write in this area refuses a
+- **Charges (encumbrances)**: only against a current ownership row; start date not in the future; release date between
+  start and today. Release / enforce need APPROVE; enforce needs `holderOwnerId`. An ENFORCED charge still blocks the share
+  except a transfer to the charge holder, and that transfer, once registered, releases it (`releaseReferenceNo` = TRF no.).
+- **Deactivating a property** needs a reason (`deactivated_on`, `deactivation_reason`) and is refused while it has a
+  waiting transfer, a current share or charge, an allotment in force, an ACTIVE or DRAFT lease, rental or contract, a
+  running auction, a plan under consideration, or an open legal matter (OpenMatters); the message lists them. Every write in this area refuses a
   deactivated property.
 
 ## Land and legal lifecycle rules (domain methods; tests in `LandAndLegalTests.cs`)
@@ -181,8 +203,21 @@ the owners involved, the other waiting transfers, the ACTIVE charges, and today.
 - **Auctions**: AWARDED, UNSUCCESSFUL and CANCELLED are closed (`PropertyAuction.ClosedStatusCodes`); SUCCESSFUL only
   through award; the award needs the auction date and is dated from it up to today.
   `POST /auctions/{id}/re-auction` plans a RE_AUCTION (once per auction) linked by `previous_auction_id`.
-- **Leases / contracts**: "mark expired" only after the end date (a DRAFT lease cannot expire; an open-ended contract
-  is terminated instead).
+- **Leases / rentals / contracts** (`AgreementSpan`, `AgreementOverlap`, `AgreementDates`): DRAFT or ACTIVE on create
+  (`asDraft`), `activate`; terms change only while DRAFT, once ACTIVE the PUT takes only reference / date / remarks (a
+  contract also `moneyDirection` once); `renew` (rental from ACTIVE or EXPIRED; contract -> old RENEWED, ends the day
+  before); `expire` only after the end date (open-ended -> terminate); `terminate` (APPROVE) -> TERMINATED, dated not in
+  the future, not after the agreed end, not before the start - an agreement not started yet is called off today;
+  `withdraw {reason}` a draft -> WITHDRAWN. One ACTIVE lease / rental at a time (contracts: one per type); other kinds
+  running give `warnings[]`. Contract `moneyDirection` RECEIVABLE / PAYABLE is required on create. Rental
+  `CurrentRent(asOf)` = rent x (1 + escalation)^full years. Auctions are never "in force".
+- **Encroachment resolve, court decision, appeal decision, plan approve/reject, regularization Regularized/Rejected**:
+  APPROVE; their dates are never in the future. A decision needs `decisionResult` (IN_FAVOUR_OF_GDA / AGAINST_GDA /
+  PARTLY_IN_FAVOUR) and may resolve the related encroachment (`effects[]`). An appeal ALLOWED against an allotment
+  cancellation restores it, against a plan rejection reopens the plan. A decided regularization is final (only
+  effective-to, order ref, remarks change). Plan approval warns on a steep plot (> 45 degrees). Staff named on a record
+  (hearing attended by, GDA counsel, delegated officer, plan / regularization approver) carry an HRM employee id plus the
+  name; outsiders are a name only.
 
 ## Dynamic master data
 
@@ -191,20 +226,38 @@ the owners involved, the other waiting transfers, the ACTIVE charges, and today.
 **Adding a master** takes a class in `Masters.cs`, one line in `MasterRegistry.All`, EF config in
 `MasterDataConfiguration.cs`, seed rows in `MasterDataSeed.cs`, and a migration. No endpoints are needed. Code and name
 lengths per table come from `MasterLimits`. Seeded values follow the schema guide. Since Saad's change there is
-no "Other" value in any master list.
+no "Other" value in any master list. `GET /masters` marks `readOnly` lists (allotment / lease / rental / contract
+statuses, agreement types: rename only); items carry `isSystem` (a `SystemMasterCodes` value: cannot be switched off or
+deleted) and `usageCount` (generic FK count, `ReferenceCountsAsync`). `DELETE /masters/{slug}/{id}` (PROPERTY_SETUP.DELETE)
+only at usage 0. A measurement unit in use keeps its factor.
+
+Custom fields: the code is optional (made from the label, `AttributeCodes.FromLabel`); `appliesToPropertyTypeIds` /
+`appliesToClassificationIds` (uuid[], empty = all) scope a field; `GET /attribute-definitions?propertyTypeId=&classificationId=`
+returns what a registration of such a property shows. Once a field holds values its data type and the options in use
+are locked; `DELETE /attribute-definitions/{id}` only when no property holds a value. `GET /properties/{id}/attributes`
+returns applicable fields, then `isHidden` read-only values of switched-off / not-applying fields.
+
+Change log: `PropertyChangeLogInterceptor` writes `property_change` rows (who, when, entity, field, old -> new) for every
+change to a property's or an owner's records; read at `GET /properties/{id}/changes` and `/owners/{id}/changes`.
+
+Bell: `GET /attention` (any signed-in user; counts follow the caller's rights): transfers.pending,
+transfers.unregistered, appeals.overdue, plans.waiting, allotments.unconfirmed (APPROVE); agreements.ending (60 days),
+agreements.overdue, hearings.week, legal.next-passed, encroachments.open, fines.unpaid (EDIT). The frontend maps them in
+`features/property/property.attention.ts`.
 
 ## API map (permissions from `PermissionCatalog`)
 
 | Area | Routes | Permission |
 | --- | --- | --- |
-| Masters, code sequences, custom-field definitions | `/masters/*`, `/code-sequences`, `/attribute-definitions` | `PROPERTY_SETUP.*` |
-| Register | `GET /properties` (filters, sort, paging 1-200), `GET /properties/next-code`, `POST /properties` (can also save owners, boundary and custom fields in one transaction), `/properties/{id}/status`, `/measurements`, `/regularizations`, `/area`, `/attributes` | `PROPERTY.VIEW/CREATE/EDIT` |
-| Owners | `/owners` (search: code, CNIC or its first 5+ digits, NTN, name; `cnic` / `ntn` exact lookup; `hasHoldings`; `sortBy` code / name / type / holdings), contacts, addresses, documents | `PROPERTY.*` |
+| Masters, code sequences, custom-field definitions | `/masters/*`, `/code-sequences`, `/attribute-definitions` | `PROPERTY_SETUP.*`; reads of masters and definitions also accept `PROPERTY.VIEW`; deletes need `PROPERTY_SETUP.DELETE` |
+| Settings, bell, change log | `GET /property-settings`, `GET /attention` (signed in), `GET /properties/{id}/changes`, `GET /owners/{id}/changes` | `PROPERTY.VIEW` (settings also `PROPERTY_SETUP.VIEW`) |
+| Register | `GET /properties` (filters incl. transferPending, allotted, agreementInForce, hasHolder, charged, disputed, measured, hasBoundary; sort incl. holder; paging 1-200), `GET /properties/next-code`, `POST /properties` (can also save owners, boundary and custom fields in one transaction), `/properties/{id}/status`, `/measurements`, `/regularizations`, `/area`, `/attributes` | `PROPERTY.VIEW/CREATE/EDIT` |
+| Owners | `/owners` (search: code, CNIC or its first 5+ digits, NTN, name; `cnic` / `ntn` exact lookup; `hasHoldings`; `role` holder / allottee / lessee / tenant / contractor / bidder / encroacher / litigant / appellant / violator; `sortBy` code / name / type / holdings), contacts, addresses, documents | `PROPERTY.*` |
 | Ownership | `/properties/{id}/ownerships`, `/transfers` (initiate), `/transfers/completed` (one step), `/transfers/{id}/approve|reject|complete|cancel`, `/encumbrances/*` | approve, reject, complete and the one-step record need `PROPERTY.APPROVE`; cancelling a legacy APPROVED transfer too |
 | Management | `/properties/{id}/allotments|leases|rentals|violations|auctions|outsourcing-contracts` + action routes (`/leases/{id}/renew`, `/violations/{id}/fine` …) | official orders need `PROPERTY.APPROVE` |
 | Compliance | `/properties/{id}/boundaries|encroachments|litigations|appeals|building-plans` + action routes | official orders need `PROPERTY.APPROVE` |
 | Documents | `/properties/{id}/documents` (PROPERTY kinds), `/owners/{id}/documents` (OWNER kinds, no `propertyId`), `/documents/{id}` (details, re-type within scope), `/documents/{id}/versions|content|activate|deactivate` | `PROPERTY.*` |
-| Cross-property lists | `GET /agreements`, `/legal-matters`, `/transfers` (pageSize 1-5000) | `PROPERTY.VIEW` |
+| Cross-property lists | `GET /agreements` (+ `direction`, `unconfirmed`), `/legal-matters` (+ `fineUnpaid`), `/transfers`, `/building-plans` (`awaitingDecision`, latest revision per plan) (pageSize 1-5000) | `PROPERTY.VIEW` |
 | Reports | `GET /property-reports/register` (same filters as `/properties`, max 5000, or picked `ids`), `/property-reports/ownership?asOf=` | `PROPERTY.VIEW` |
 
 Errors are ProblemDetails, mapped in `PropertyExceptionHandler.cs`:
@@ -247,6 +300,11 @@ Migrations:
 2. `PropertyManagementAndCompliance`
 3. `AlignWithErd`: drops audit columns the ERD doesn't have and makes `property_document.property_id`
    NOT NULL. It **stops with an error** if old documents have no property, and the message says how to fix them.
+4. `PropertyRulesOverhaul` (2026-10-13)
+5. `PropertyAuditFixes` (2026-10-20): approver / employee ids, no-dues certificate nos., end reference, deactivation
+   reason, contract money direction and renewal link, case result and counsel, fine payment columns, violation on an
+   allotment (check widened), xmin row versions (property, transfer, allotment - system column, nothing to create).
+6. `PropertyScopesAndChangeLog` (2026-10-20): custom-field scope arrays, `property_change`.
 
 Create migrations from `src/` with
 `dotnet ef migrations add <Name> -p Services/PropertyManagement/PropertyManagement.Infrastructure -s Services/PropertyManagement/PropertyManagement.Api`.
@@ -257,10 +315,12 @@ Config (`appsettings.json`):
 - `Jwt:Issuer/Audience/SigningKey`: the key must equal Identity's
 - `FileStorage:RootPath`: documents folder; compose mounts the `property-files` volume
 - `Documents:MaxFileSizeBytes` (25 MB) and `Documents:AllowedExtensions`
+- `Transfers:RequireSeparateApprover` (true; `appsettings.Development.json` false; in compose set
+  `Transfers__RequireSeparateApprover`)
 
 ## Testing
 
-- `dotnet test src/ERP.slnx` runs the domain tests. Add a test for every new domain rule, named after the rule or
+- `dotnet test src/ERP.slnx` runs the domain tests (the 2026-10-20 audit rules: `AuditFixRuleTests.cs`; API flows: `ERP-Frontend/tools/e2e/property-api.e2e.mjs`). Add a test for every new domain rule, named after the rule or
   Act section. Use `Fixture.cs` helpers (`Master<T>`, `Unit`, `Property`, `Owner`, `D("2026-01-01")`).
 - For API behavior, run Identity + Property against Postgres, then step through `PropertyManagement.Api.http`.
 
@@ -281,3 +341,6 @@ Config (`appsettings.json`):
 - The cross-property lists merge several tables in memory after SQL filtering. Keep paging through
   `ListSorting.Page` so ordering stays stable.
 - Don't add CHECK constraints, columns or tables that aren't in the DBML. Extra rules belong in the domain.
+- New DTO fields are appended with defaults so positional constructors keep compiling. A `DateOnly` default must be
+  nullable (`DateOnly? X = null`): a `default(DateOnly)` breaks the OpenAPI document ("could not be converted to DateOnly").
+- Unexpected errors return a plain sentence with a trace reference; never leak exception text to the user.

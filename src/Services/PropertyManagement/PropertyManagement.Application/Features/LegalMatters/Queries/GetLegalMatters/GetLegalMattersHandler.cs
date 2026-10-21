@@ -46,8 +46,11 @@ public class GetLegalMattersHandler(IApplicationDbContext context, MasterLookup 
         .LoadAsync(cancellationToken);
     StatusRef? StatusOf(Row r) => r.FixedStatus ?? refs[r.StatusId].ToStatusRef();
 
-    var today = DateOnly.FromDateTime(DateTime.UtcNow);
+    var today = PakistanDate.Today;
     IEnumerable<Row> filtered = rows;
+    // a fine imposed and not yet paid or waived (also one sent for recovery), whether the violation is open or not
+    if (query.FineUnpaid is { } unpaid)
+      filtered = filtered.Where(r => (r.Kind == LegalMatterKind.Violation && r.FineStatus is FineStatus.Imposed or FineStatus.RecoveryAsArrears) == unpaid);
     if (query.Statuses is { Count: > 0 })
     {
       var wanted = query.Statuses.Select(StatusKey).ToHashSet();

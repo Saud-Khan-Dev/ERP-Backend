@@ -54,6 +54,7 @@ public class AttributeAssignmentConfiguration : EntityConfiguration<AttributeAss
 
     builder.Property(x => x.DependsOnValue).HasJsonb().IsRequired(false);
     builder.Property(x => x.IsActive).IsRequired().HasDefaultValue(true);
+    builder.Property(x => x.IsHidden).IsRequired().HasDefaultValue(false);
 
     builder.Ignore(x => x.IsProjected);
 

@@ -9,6 +9,8 @@ public class GetAttributeGroups : ICarterModule
       var result = await sender.Send(new GetAttributeGroupsQuery(includeInactive ?? false));
       return Results.Ok(new GetAttributeGroupsResponse(result.Value!.Groups));
     })
+      .RequireAnyPermission(AssetsAuthorization.AnyAssetsReader)
+
       .WithName("GetAttributeGroups")
       .Produces<GetAttributeGroupsResponse>(StatusCodes.Status200OK)
       .WithSummary("Get Attribute Groups")

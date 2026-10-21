@@ -9,6 +9,7 @@ public class SavePropertyAttributesHandler(IApplicationDbContext context)
 
     var definitionIds = command.Values.Select(v => AttributeDefinitionId.Of(v.AttributeDefinitionId)).Distinct().ToList();
     var definitions = await context.AttributeDefinitions.Where(d => definitionIds.Contains(d.Id)).ToListAsync(cancellationToken);
+    var activeGroups = (await context.Set<AttributeGroup>().AsNoTracking().Where(g => g.IsActive).Select(g => g.Id).ToListAsync(cancellationToken)).ToHashSet();
     var existing = await context.PropertyAttributeValues
         .Where(v => v.PropertyId == property.Id && definitionIds.Contains(v.AttributeDefinitionId))
         .ToListAsync(cancellationToken);
@@ -18,6 +19,12 @@ public class SavePropertyAttributesHandler(IApplicationDbContext context)
       var definitionId = AttributeDefinitionId.Of(input.AttributeDefinitionId);
       var definition = definitions.FirstOrDefault(d => d.Id == definitionId)
         ?? throw new AttributeDefinitionNotFoundException($"Custom field {input.AttributeDefinitionId} was not found.");
+
+      if (!activeGroups.Contains(definition.AttributeGroupId))
+        throw new DomainException($"'{definition.Label.Value}' is in a group that is switched off; its value can be read but not changed.");
+
+      if (!definition.AppliesTo(property.PropertyTypeId.Value, property.PropertyClassificationId.Value))
+        throw new DomainException($"'{definition.Label.Value}' does not apply to this kind of property; its value can be read but not changed.");
 
       var value = existing.FirstOrDefault(v => v.AttributeDefinitionId == definitionId);
 

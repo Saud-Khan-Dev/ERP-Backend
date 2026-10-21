@@ -40,7 +40,7 @@ public class OptionSet : Aggregate<OptionSetId>
   public void EnsureDeletable()
   {
     if (IsSystem)
-      throw new DomainException($"Option set '{Code.Value}' is a system set and cannot be deleted.");
+      throw new DomainException($"The list '{Label.Value}' is one the system relies on and cannot be deleted.");
   }
 
   public OptionSetValue AddValue(
@@ -53,7 +53,10 @@ public class OptionSet : Aggregate<OptionSetId>
       int? displayOrder)
   {
     if (_values.Any(v => v.Value == value))
-      throw new DomainException($"Option set '{Code.Value}' already contains the value '{value.Value}'.");
+      throw new DomainException($"The list already has the choice '{label.Trim()}'.");
+
+    if (_values.Any(v => string.Equals(v.Label, label.Trim(), StringComparison.OrdinalIgnoreCase)))
+      throw new DomainException($"The list already has a choice called '{label.Trim()}'.");
 
     EnsureParentBelongsToSet(parentValueId, null);
 
@@ -75,7 +78,10 @@ public class OptionSet : Aggregate<OptionSetId>
     var optionValue = FindValue(valueId);
 
     if (_values.Any(v => v.Id != valueId && v.Value == value))
-      throw new DomainException($"Option set '{Code.Value}' already contains the value '{value.Value}'.");
+      throw new DomainException($"The list already has the choice '{label.Trim()}'.");
+
+    if (_values.Any(v => v.Id != valueId && string.Equals(v.Label, label.Trim(), StringComparison.OrdinalIgnoreCase)))
+      throw new DomainException($"The list already has a choice called '{label.Trim()}'.");
 
     EnsureParentBelongsToSet(parentValueId, valueId);
 
@@ -87,7 +93,7 @@ public class OptionSet : Aggregate<OptionSetId>
     var optionValue = FindValue(valueId);
 
     if (_values.Any(v => v.ParentValueId == valueId))
-      throw new DomainException("This option value has child values. Remove them first.");
+      throw new DomainException("Other choices depend on this one. Remove them first.");
 
     _values.Remove(optionValue);
   }
@@ -99,9 +105,21 @@ public class OptionSet : Aggregate<OptionSetId>
   public IReadOnlyCollection<string> ActiveCodes() =>
       _values.Where(v => v.IsActive).Select(v => v.Value.Value).ToArray();
 
+  /// The choices a value may take: every active one, plus switched-off ones in `alsoAllowed` (an asset keeps a
+  /// choice it already holds after the choice is switched off; it is just not offered any more).
+  public IReadOnlyCollection<OptionChoice> Choices(IEnumerable<string> alsoAllowed)
+  {
+    var kept = new HashSet<string>(alsoAllowed, StringComparer.OrdinalIgnoreCase);
+    return _values
+      .Where(v => v.IsActive || kept.Contains(v.Value.Value))
+      .OrderBy(v => v.DisplayOrder ?? int.MaxValue).ThenBy(v => v.Label, StringComparer.OrdinalIgnoreCase)
+      .Select(v => new OptionChoice(v.Value.Value, v.Label, v.IsActive))
+      .ToArray();
+  }
+
   private OptionSetValue FindValue(OptionSetValueId valueId) =>
       _values.FirstOrDefault(v => v.Id == valueId)
-      ?? throw new DomainException($"Option value {valueId.Value} does not belong to option set '{Code.Value}'.");
+      ?? throw new DomainException("That choice is not on this list.");
 
   private void EnsureParentBelongsToSet(OptionSetValueId? parentValueId, OptionSetValueId? self)
   {
@@ -109,9 +127,9 @@ public class OptionSet : Aggregate<OptionSetId>
       return;
 
     if (self is not null && parentValueId == self)
-      throw new DomainException("An option value cannot be its own parent.");
+      throw new DomainException("A choice cannot depend on itself.");
 
     if (_values.All(v => v.Id != parentValueId))
-      throw new DomainException("The parent option value must belong to the same option set.");
+      throw new DomainException("A choice can only depend on a choice of the same list.");
   }
 }

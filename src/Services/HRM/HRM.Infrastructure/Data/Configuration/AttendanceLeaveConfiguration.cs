@@ -108,6 +108,7 @@ public class LeaveTypeConfiguration : EntityConfiguration<LeaveType, LeaveTypeId
     builder.Property(x => x.AccrualRule).Text();
     builder.Property(x => x.CarryForwardAllowed).HasDefaultValue(false);
     builder.Property(x => x.AffectsPayroll).HasDefaultValue(false);
+    builder.Property(x => x.IsActive).HasDefaultValue(true);
     builder.HasIndex(x => x.Name).IsUnique().HasDatabaseName("leave_type_name_key");
   }
 }
@@ -126,6 +127,7 @@ public class LeaveEntitlementConfiguration : EntityConfiguration<LeaveEntitlemen
     });
 
     builder.Property(x => x.EntitledDays).Numeric(6, 2).HasDefaultValueSql("0");
+    builder.Property(x => x.IsPlaceholder).HasDefaultValue(false);
 
     builder.HasOne<Employee>().WithMany().HasForeignKey(x => x.EmployeeId).OnDelete(DeleteBehavior.NoAction);
     builder.HasOne<LeaveType>().WithMany().HasForeignKey(x => x.LeaveTypeId).OnDelete(DeleteBehavior.NoAction);
@@ -148,18 +150,23 @@ public class LeaveApplicationConfiguration : EntityConfiguration<LeaveApplicatio
       t.HasCheckConstraint("leave_application_days_check", "days > 0");
       t.HasCheckConstraint("ck_la_dates", "end_date >= start_date");
       t.HasCheckConstraint("ck_la_approval", "status <> 'approved' OR (approved_by IS NOT NULL AND approval_date IS NOT NULL)");
+      t.HasCheckConstraint("ck_la_rejection", "status <> 'rejected' OR decision_reason IS NOT NULL OR decided_at IS NULL");
     });
 
     builder.Property(x => x.Days).Numeric(6, 2);
     builder.Property(x => x.Status).HasDefaultValue(LeaveStatus.Pending);
     builder.Property(x => x.AppliedDate).HasDefaultValueSql("CURRENT_DATE");
     builder.Property(x => x.Reason).Text();
+    builder.Property(x => x.DecisionReason).Text();
     builder.Property<uint>("xmin").HasColumnName("xmin").IsRowVersion();
 
     builder.HasOne<Employee>().WithMany().HasForeignKey(x => x.EmployeeId).OnDelete(DeleteBehavior.NoAction);
     builder.HasOne<LeaveType>().WithMany().HasForeignKey(x => x.LeaveTypeId).OnDelete(DeleteBehavior.NoAction);
+    builder.HasOne<HrActionRequest>().WithMany().HasForeignKey(x => x.HrActionId).OnDelete(DeleteBehavior.NoAction)
+      .HasConstraintName("fk_la_hr_action");
 
     builder.HasIndex(x => new { x.EmployeeId, x.StartDate }).HasDatabaseName("idx_la_employee_start");
+    builder.HasIndex(x => x.HrActionId).HasDatabaseName("idx_leave_application_hr_action_id");
     builder.HasIndex(x => x.Status).HasDatabaseName("idx_la_status");
     builder.HasIndex(x => x.LeaveTypeId).HasDatabaseName("idx_leave_application_leave_type_id");
   }

@@ -7,7 +7,7 @@ public class EndOwnershipHandler(IApplicationDbContext context)
     var property = await context.LoadPropertyAsync(ownership.PropertyId.Value, cancellationToken);
     var record = await context.LoadOwnershipRecordAsync(property, new[] { ownership.OwnerId }, cancellationToken);
 
-    ownership.EndHolding(command.EffectiveTo, command.Remarks, record);
+    ownership.EndHolding(command.EffectiveTo, command.EndReferenceNo, command.Remarks, record);
 
     await context.SaveChangesAsync(cancellationToken);
     return Result<EndOwnershipCommandResult>.Success(new EndOwnershipCommandResult(true));

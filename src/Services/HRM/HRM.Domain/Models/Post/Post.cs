@@ -71,12 +71,15 @@ public class Post : Aggregate<PostId>
     return Append(Latest.Details with { NotificationRef = notificationRef ?? Latest.NotificationRef }, PostLifecycle.Abolished, effectiveFrom, approvedBy);
   }
 
-  /// Fixes a mistake in the latest version without starting a new period.
-  public void CorrectLatest(PostDetails details, int filledSeats)
+  /// Fixes a mistake in the version in force on a date (today's by default) without starting a new period. A version
+  /// planned for later keeps its own values: correcting today's never overwrites a planned change.
+  public PostVersion CorrectOn(DateOnly asOf, PostDetails details, int filledSeats)
   {
     EnsureNotReportingToItself(details);
     EnsureSeatsCover(details.SanctionedCount, filledSeats);
-    Latest.Correct(details);
+    var version = VersionOn(asOf) ?? throw new DomainException($"Post {PostCode} has no version in force on {asOf:dd MMM yyyy}.");
+    version.Correct(details);
+    return version;
   }
 
   private PostVersion Append(PostDetails details, PostLifecycle lifecycle, DateOnly effectiveFrom, Guid? approvedBy)

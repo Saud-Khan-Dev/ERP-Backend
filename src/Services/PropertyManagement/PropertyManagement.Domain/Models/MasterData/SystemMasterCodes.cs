@@ -48,6 +48,9 @@ public static class SystemMasterCodes
   public const string Unsuccessful = "UNSUCCESSFUL";
   public const string UnderNotice = "UNDER_NOTICE";
   public const string UnderLitigation = "UNDER_LITIGATION";
+  public const string UnderReview = "UNDER_REVIEW";
+  public const string Announced = "ANNOUNCED";
+  public const string Conducted = "CONDUCTED";
 
   /// The only classification that can be allotted (PropertyAllotment).
   public const string ClassificationGdaProperty = "GDA_PROPERTY";
@@ -60,6 +63,12 @@ public static class SystemMasterCodes
   public const string AgreementLease = "LEASE";
   public const string AgreementRent = "RENT";
   public const string AgreementSale = "SALE";
+  public const string AgreementAllotment = "ALLOTMENT";
+
+  // ---- codes other modules rely on (Taxation maps its categories and fees onto them) ----
+  public const string PropertyTypeResidential = "RESIDENTIAL";
+  public const string PropertyTypeCommercial = "COMMERCIAL";
+  public const string BuildingPlanCompletion = "COMPLETION_PLAN";
 
   // ---- litigation that only an authorized officer may file (Act s.30) ----
   public const string LitigationCriminalComplaint = "CRIMINAL_COMPLAINT";
@@ -93,20 +102,30 @@ public static class SystemMasterCodes
     new(typeof(LeaseStatus), Renewed, "Renewed"),
     new(typeof(LeaseStatus), Terminated, "Terminated"),
     new(typeof(LeaseStatus), Cancelled, "Cancelled"),
+    new(typeof(LeaseStatus), Withdrawn, "Withdrawn"),
 
+    new(typeof(RentalStatus), Draft, "Draft"),
     new(typeof(RentalStatus), Active, "Active"),
     new(typeof(RentalStatus), Ended, "Ended"),
+    new(typeof(RentalStatus), Expired, "Expired"),
+    new(typeof(RentalStatus), Terminated, "Terminated"),
     new(typeof(RentalStatus), Cancelled, "Cancelled"),
+    new(typeof(RentalStatus), Withdrawn, "Withdrawn"),
 
     new(typeof(AuctionStatus), Planned, "Planned"),
+    new(typeof(AuctionStatus), Announced, "Announced"),
+    new(typeof(AuctionStatus), Conducted, "Conducted"),
     new(typeof(AuctionStatus), Awarded, "Awarded"),
     new(typeof(AuctionStatus), Cancelled, "Cancelled"),
     new(typeof(AuctionStatus), Unsuccessful, "Unsuccessful"),
     new(typeof(AuctionType), AuctionReAuction, "Re-auction"),
 
+    new(typeof(ContractStatus), Draft, "Draft"),
     new(typeof(ContractStatus), Active, "Active"),
     new(typeof(ContractStatus), Expired, "Expired"),
+    new(typeof(ContractStatus), Renewed, "Renewed"),
     new(typeof(ContractStatus), Terminated, "Terminated"),
+    new(typeof(ContractStatus), Withdrawn, "Withdrawn"),
 
     new(typeof(EncroachmentStatus), Active, "Active"),
     new(typeof(EncroachmentStatus), Regularized, "Regularized"),
@@ -122,6 +141,7 @@ public static class SystemMasterCodes
     new(typeof(LitigationStatus), Closed, "Closed"),
 
     new(typeof(BuildingPlanStatus), Submitted, "Submitted"),
+    new(typeof(BuildingPlanStatus), UnderReview, "Under Review"),
     new(typeof(BuildingPlanStatus), Approved, "Approved"),
     new(typeof(BuildingPlanStatus), Rejected, "Rejected"),
     new(typeof(BuildingPlanStatus), Revised, "Revised"),
@@ -130,6 +150,11 @@ public static class SystemMasterCodes
     new(typeof(AgreementType), AgreementLease, "Lease"),
     new(typeof(AgreementType), AgreementRent, "Rent"),
     new(typeof(AgreementType), AgreementSale, "Sale"),
+    new(typeof(AgreementType), AgreementAllotment, "Allotment"),
+
+    new(typeof(PropertyType), PropertyTypeResidential, "Residential"),
+    new(typeof(PropertyType), PropertyTypeCommercial, "Commercial"),
+    new(typeof(BuildingPlanType), BuildingPlanCompletion, "Completion Plan"),
   };
 
   public static bool IsRequired(Type masterType, string code) =>

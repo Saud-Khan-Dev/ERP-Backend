@@ -22,7 +22,11 @@ public class PropertyOwnership : Aggregate<OwnershipId>
   public AllotmentId? AcquiredViaAllotmentId { get; private set; }
   /// Mutation / registry / deed no.
   public string? ReferenceNo { get; private set; }
+  /// The order or reference under which a share was ended by hand (no successor took it over).
+  public string? EndReferenceNo { get; private set; }
   public string? Remarks { get; private set; }
+
+  public const int ReferenceMaxLength = 100;
 
   /// Held now: counts toward the 100% total and toward "current owners". A disputed share is still held.
   public bool IsCurrent => OwnershipStatus is OwnershipStatus.Active or OwnershipStatus.Disputed;
@@ -58,8 +62,10 @@ public class PropertyOwnership : Aggregate<OwnershipId>
       acquisitionTransferType?.Id, acquiredViaTransferId: null, acquiredViaAllotmentId: null, referenceNo, remarks);
   }
 
-  /// The clerk's "add owner" act on a property that may already have owners: the owner may not already
-  /// hold a share, the shares held stay within 100%, and the new period may not overlap the owner's history.
+  /// The "add owner" act on a property that may already have owners: the owner may not already hold a share, the
+  /// shares held stay within 100%, and the new period may not overlap the owner's history. Refused while an
+  /// allotment is in force: the allottee becomes owner through "Confirm as owner". Who may do it (the clerk on a
+  /// property with no holder history, an approver otherwise) is decided by the handler.
   public static PropertyOwnership AddOwner(
       OwnershipId id,
       PropertyOwner owner,
@@ -73,6 +79,11 @@ public class PropertyOwnership : Aggregate<OwnershipId>
   {
     ArgumentNullException.ThrowIfNull(owner);
     ArgumentNullException.ThrowIfNull(record);
+
+    if (record.AllotmentInForce is { } allotted)
+      throw new DomainException(
+        $"{record.Property.PropertyCode.Value} is allotted to {allotted.AllotteeName} ({allotted.Allotment.AllotmentNo.Value}); "
+        + "while the allotment is in force the plot gets an owner only by confirming the allottee as owner.");
 
     EnsureCanOpen(owner, sharePct, effectiveFrom, record);
 
@@ -150,10 +161,12 @@ public class PropertyOwnership : Aggregate<OwnershipId>
     AddRemark(remarks);
   }
 
-  /// The clerk's "end ownership" act (e.g. surrender to GDA), without a transfer. Refused in the future, on a
-  /// deactivated property, while a charge is registered on the share or the property, and while the share
-  /// is being given away in a pending transfer.
-  public void EndHolding(DateOnly effectiveTo, string? remarks, OwnershipRecord record)
+  /// The approver's "end ownership" act (e.g. surrender to GDA, an order cancelling the entry), without a transfer:
+  /// nobody takes the share over, so the order or reference it ends under is required. Refused in the future, on a
+  /// deactivated property, while a charge holds the share or the property, while the share is being given away in a
+  /// pending transfer, and for a share confirmed through an allotment still in force (surrender or cancel that
+  /// allotment instead).
+  public void EndHolding(DateOnly effectiveTo, string? endReferenceNo, string? remarks, OwnershipRecord record)
   {
     ArgumentNullException.ThrowIfNull(record);
     EnsureOn(record.Property);
@@ -161,11 +174,19 @@ public class PropertyOwnership : Aggregate<OwnershipId>
     if (!IsCurrent)
       throw new DomainException("This ownership has already ended.");
 
+    var reference = Guard.Text(endReferenceNo, ReferenceMaxLength, "Order / reference no.")
+      ?? throw new DomainException("Give the order or reference under which the share ends; nobody takes it over, so the register must say why it ended.");
+
     if (effectiveTo > record.Today)
       throw new DomainException($"An ownership cannot end in the future ({effectiveTo:yyyy-MM-dd}); today is {record.Today:yyyy-MM-dd}.");
 
+    if (record.AllotmentInForce is { } allotted && AcquiredViaAllotmentId == allotted.Allotment.Id)
+      throw new DomainException(
+        $"This share was confirmed through {allotted.Allotment.AllotmentNo.Value}, which is still in force; surrender or cancel the allotment to end it.");
+
     EnsureCanEnd(record, "the ownership is ended");
     End(effectiveTo, remarks);
+    EndReferenceNo = reference;
   }
 
   /// A share cannot be ended while a charge sits on it or on the whole property, or while it is being
@@ -175,10 +196,14 @@ public class PropertyOwnership : Aggregate<OwnershipId>
     var name = record.NameOf(OwnerId);
 
     if (record.ChargeOn(this) is { } charge)
-      throw new DomainException($"{name}'s {OwnershipSharePct:0.####}% is under {charge.Describe()}; release it before {act}.");
+      throw new DomainException(charge.Status == EncumbranceStatus.Enforced
+        ? $"{name}'s {OwnershipSharePct:0.####}% is under {charge.Describe()}, which was enforced; the share can only be transferred to {charge.HolderName}."
+        : $"{name}'s {OwnershipSharePct:0.####}% is under {charge.Describe()}; release it before {act}.");
 
     if (record.PropertyCharge is { } propertyCharge)
-      throw new DomainException($"{record.Property.PropertyCode.Value} is under {propertyCharge.Describe()} on the whole property; release it before {act}.");
+      throw new DomainException(propertyCharge.Status == EncumbranceStatus.Enforced
+        ? $"{record.Property.PropertyCode.Value} is under {propertyCharge.Describe()} on the whole property, which was enforced; shares can only be transferred to {propertyCharge.HolderName}."
+        : $"{record.Property.PropertyCode.Value} is under {propertyCharge.Describe()} on the whole property; release it before {act}.");
 
     var pending = record.PendingTransfersGivenBy(OwnerId).ToList();
     if (pending.Count > 0)

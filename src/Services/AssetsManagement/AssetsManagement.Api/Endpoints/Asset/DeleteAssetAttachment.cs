@@ -13,6 +13,8 @@ public class DeleteAssetAttachment : ICarterModule
 
       return Results.Ok(result.Value.Adapt<DeleteAssetAttachmentResponse>());
     })
+      .RequirePermission(PermissionCatalog.Assets.Edit)
+
       .WithName("DeleteAssetAttachment")
       .Produces<DeleteAssetAttachmentResponse>(StatusCodes.Status200OK)
       .ProducesProblem(StatusCodes.Status400BadRequest)

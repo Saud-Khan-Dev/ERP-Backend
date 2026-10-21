@@ -36,7 +36,11 @@ public class AssetConfiguration : EntityConfiguration<Asset, AssetId>
     builder.Property(x => x.StatusId).HasConversion(id => id.Value, dbId => AssetStatusId.Of(dbId)).IsRequired();
 
     builder.Property(x => x.DepartmentId).IsRequired(false);
+    builder.Property(x => x.DepartmentName).HasMaxLength(200).IsRequired(false);
     builder.Property(x => x.CustodianId).IsRequired(false);
+    builder.Property(x => x.CustodianName).HasMaxLength(200).IsRequired(false);
+    builder.Property(x => x.CustodianNumber).HasMaxLength(50).IsRequired(false);
+    builder.Ignore(x => x.Custody);
 
     builder.Property(x => x.CurrentLocationId)
       .HasConversion(id => id!.Value, dbId => LocationId.Of(dbId))
@@ -56,6 +60,7 @@ public class AssetConfiguration : EntityConfiguration<Asset, AssetId>
     builder.Property(x => x.IsActive).IsRequired().HasDefaultValue(true);
     builder.Property(x => x.DeletedAt).IsRequired(false);
     builder.Property(x => x.DeletedBy).HasMaxLength(100).IsRequired(false);
+    builder.Property(x => x.DeletionReason).HasMaxLength(500).IsRequired(false);
     builder.Ignore(x => x.IsDeleted);
 
     // EF Core optimistic concurrency token backed by PostgreSQL's xmin system column.

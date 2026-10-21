@@ -16,14 +16,16 @@ The GDA HRMS, in one service:
 - OpenAPI at `/openapi/v1.json` (about 340 operations). Every route needs a token. There is no anonymous endpoint.
 
 **Schema source: [`docs/gda_hrms_schema.sql`](../gda_hrms_schema.sql)**, the client's SQL.
-[`docs/gda_hrms_schema.dbml`](../gda_hrms_schema.dbml) holds the same schema for dbdiagram.io. The single migration
-`InitialHrmsSchema` builds it, plus the raw SQL in `Data/Sql/HrmsSchemaSql.cs`. A catalog diff against the SQL file
-found only these differences, all on purpose:
+[`docs/gda_hrms_schema.dbml`](../gda_hrms_schema.dbml) holds the same schema for dbdiagram.io. The migration
+`InitialHrmsSchema` builds it, plus the raw SQL in `Data/Sql/HrmsSchemaSql.cs`; later migrations add to it (see
+"Database and migrations") and are folded into the SQL file. A catalog diff against the SQL file found only these
+differences, all on purpose:
 
 - **Deferred constraints.** Every EXCLUDE constraint is `DEFERRABLE INITIALLY DEFERRED`. The three partial unique
   indexes `uq_employee_contact_primary`, `uq_eba_one_primary` and `uq_edu_one_highest` are deferrable btree exclusions
   with the same names, so a flag or a period can move between rows in one save.
-- **Post capacity.** The check is a deferred constraint trigger that locks the post row.
+- **Post capacity.** The check is a deferred constraint trigger that locks the post row and counts the busiest day of
+  the new holding (holders who follow one another share a seat).
 - **Business triggers moved to C#** (the "hybrid" choice). The run status workflow, loan posting on finalize, task
   progress mirroring, the payment bank snapshot and the request and goal-weight checks are domain code. The guard
   triggers stay:
@@ -41,12 +43,15 @@ Four modules in `PermissionCatalog` (the Identity seeder reads it; the frontend'
 
 | Module | Codes | Used for |
 | --- | --- | --- |
-| `HR` | VIEW, CREATE, EDIT, DELETE, APPROVE | employees, documents, service history, assignments, HR actions (APPROVE approves and applies), separations, performance reviews (APPROVE finalizes), tasks, employee requests (APPROVE decides), people reports |
+| `HR` | VIEW, CREATE, EDIT, DELETE, APPROVE | employees, documents, service history, assignments, HR actions (APPROVE approves; EDIT applies an approved action), separations, performance reviews (APPROVE finalizes), tasks, employee requests (APPROVE decides), people reports. APPROVE also changes an employee's pay and next increment date |
 | `HR_SETUP` | VIEW, CREATE, EDIT, DELETE | catalogues (unit types, locations, designations, document types, recruitment methods, event types, request types, BPS names), org units, pay scales, posts, performance periods |
-| `ATTENDANCE` | VIEW, CREATE, EDIT, DELETE, APPROVE | shifts, holidays, attendance, leave types, entitlements, applications (APPROVE approves / rejects, posts ledger rows, runs the year-end), leave report |
-| `PAYROLL` | VIEW, CREATE, EDIT, DELETE, APPROVE, POST | components, rules (APPROVE), overrides, tax, loans (APPROVE sanctions / waives / writes off), GP Fund, bank accounts, pay records, payroll (APPROVE approves runs, holds salaries; POST finalizes, reverses, pays, locks months, credits GPF interest), pay reports |
+| `ATTENDANCE` | VIEW, CREATE, EDIT, DELETE, APPROVE | shifts, holidays, attendance, leave types, entitlements, applications (APPROVE approves / rejects / cancels an approved leave, posts ledger rows, runs the year-end), leave report |
+| `PAYROLL` | VIEW, CREATE, EDIT, DELETE, APPROVE, POST | components, rules (APPROVE), overrides, tax and tax openings, loans (APPROVE sanctions / records repayments / waives / writes off), GP Fund, bank accounts, payroll (APPROVE approves runs, holds salaries; POST finalizes, reverses, pays, locks months, credits GPF interest), arrears, payment reconciliation, pay reports |
 
-Readers of the structure (org units, posts, pay scales, shifts) need any one HRM module (`HrmAuthorization.AnyHrmReader`).
+Readers of the structure (org units, posts, pay scales, shifts) and the establishment report need any one HRM module
+(`HrmAuthorization.AnyHrmReader`). Linking an employee to a sign-in account takes `HR.EDIT` or `IAM_USERS.EDIT`.
+Catalogue, loan-type, component, shift and org-unit DELETE use the `*.DELETE` codes and are refused (409, a sentence)
+while anything uses the row. `GET /attention`, `GET /settings` and `GET /me/link` need only a signed-in token.
 Catalogues, holidays and leave types are readable by any signed-in user. `/me/*` needs only a token whose account is
 linked to an employee (the `emp` claim, else `employee.user_id`); an unlinked account gets 403.
 
@@ -72,14 +77,17 @@ HRM.Infrastructure/
   Data/Seed/HrmSeeder.cs      seeds (below)    Data/DatabaseInitializer.cs   wait for DB, migrate, reload types, seed
   Storage/LocalFileStorage    documents and photos under FileStorage:RootPath
 HRM.Api/  Endpoints/ (Carter modules), HrmExceptionHandler, HrmAuthorization, LenientEnumConverter
-src/Tests/HRM.Domain.Tests/  xUnit, ~100 tests named after the rules
+src/Tests/HRM.Domain.Tests/  xUnit, ~150 tests named after the rules
 ```
 
 Application services: `HrLookup` (batch labels: names, placements, posts, units, subtrees, employees in a unit),
 `ServiceRecordReader` / `ServiceRecordWriter` (posts held; appointments, moves with pay fixation, separations),
 `HrActionApplier`, `PayService` (scales and pay records), `CodeIssuer` (EMP-###, POST-####), `FileUploads`,
 `WorkCalendar` (an employee's working days: shift weekdays, gazetted and local holidays), `LeaveService` (days and
-balances), `PayrollInputBuilder`, `PayrollEngine` and `PayslipBuilder` (payroll), `CurrentEmployee` (self-service).
+balances), `PayrollInputBuilder`, `PayrollEngine` and `PayslipBuilder` (payroll), `CurrentEmployee` (self-service),
+`HrmSettings` (the configured rules in one place), `ChangeLog` (employee_change_log rows), `HrActionChecks` with
+the domain's `HrActionRules` (what an action may do to whom), `PayrollImpactFinder` (finalized runs a backdated change
+touches).
 
 ## How the main flows work
 
@@ -89,16 +97,36 @@ balances), `PayrollInputBuilder`, `PayrollEngine` and `PayslipBuilder` (payroll)
 - **Employees.** Registration is one request: master record, contacts, addresses, family and, optionally, the
   appointment. The appointment writes the service-history row, the regular assignment and the starting pay. Numbers
   are issued as `EMP-###` when left blank.
-- **HR actions.** draft → pending → approved → applied. Applying writes everything the action means: transfer,
-  promotion with pay fixation, LWOP, suspension, retirement and so on. The service history is append-only.
+- **HR actions.** draft → pending → approved → applied. `HrActionRules` checks every kind against the employee's
+  state and post at draft, submit and apply (`GET .../hr-actions/options` lists what is possible and why not;
+  `.../preview` gives the consequence line). Maker-checker: whoever drafted or submitted may not approve
+  (`Hrm:RequireSeparateApprover`, else the payroll switch). Reject needs remarks. An approved action dated in the
+  future waits ("takes effect on") and cannot be applied early. Applying writes everything the action means (transfer,
+  promotion with pay fixation and the grade check, LWOP as an approved leave-without-pay application, suspension,
+  separation kinds, reinstatement only after termination / dismissal / removal / suspension) and returns the finalized
+  payroll runs a backdated change touches. The service history is append-only.
+- **Separation** closes what the person holds (posts, open tasks, pending leave and requests, active pay record) and
+  returns a checklist (sign-in account, assets in custody, loans, GP Fund, settlement). A settlement linked to a
+  payroll slip is locked.
+- **Employee changes.** CNIC, date of birth, employment terms, the account link and pay changes need a reason and are
+  written to the append-only `employee_change_log` (`GET /employees/{id}/change-log`). Appointment needs a date of
+  birth and an age of 18 to 60. A non-regular employee becomes Regular only through a Regularization action. Contract,
+  ad hoc, project and deputation-in employees carry a term (`term_from / term_to`); the register's `termEndingWithinDays`
+  and the bell list those ending.
 - **Attendance.** Recorded, imported by employee number, or created by "close day". Close day marks everyone holding a
   post without a record as on leave, holiday, weekend or absent. Future dates are refused.
-- **Leave.** Balance = entitlement + the signed `leave_ledger`. Applying checks overlap and the days available (pending
-  applications count against them). Approving writes usage rows per calendar year and turns closed absences into
-  leave. Cancelling reverses the ledger rows. The year-end is idempotent: a carry-forward or a lapse per balance.
+- **Leave.** Balance = entitlement + the signed `leave_ledger`. Days are the working days of the employee's calendar
+  (a half day takes 0.5 off). Applying checks overlap and the days available (pending applications count against
+  them). No one approves their own leave; reject needs a reason; cancelling an approved leave needs ATTENDANCE.APPROVE
+  and a reason; the decider, date and reason are kept. Approving writes usage rows per calendar year and turns closed
+  absences into leave. Cancelling reverses the ledger rows. An inactive leave type is offered to no one. The year-end
+  is idempotent (a carry-forward or a lapse per balance) and opens placeholder entitlements that a later grant fills.
+  Optional holidays are not days off for everyone.
 - **Performance.** Periods; reviews opened one by one or in bulk. The evaluator in bulk is the holder of the post's
-  reporting post. draft → submitted → acknowledged → finalized; weights must total 100; the score and PER category
-  are worked out from the goals.
+  reporting post. draft → submitted → (countersigned, when a countersigning officer is named) → acknowledged →
+  finalized. Everything is locked after submit; the employee sees the review only once submitted (and countersigned).
+  Weights must total 100; the score is worked out with the `Hrm:Per*Weight` setting (goals only by default) and a
+  final score that differs needs a reason.
 - **Payroll engine** (`PayrollCalculator`, pure, unit-tested):
   - The month is split wherever the post, the post version or the pay record changes.
   - Earnings are prorated by payable days; LWOP and days without a regular post are not paid.
@@ -111,7 +139,9 @@ balances), `PayrollInputBuilder`, `PayrollEngine` and `PayslipBuilder` (payroll)
 - **Payroll runs.**
   - Runs move draft → calculated → reviewed → approved → finalized → paid; each can step back one stage before
     finalization.
-  - Maker-checker: `Payroll:RequireSeparateApprover`, on by default.
+  - Maker-checker: `Payroll:RequireSeparateApprover`, on by default. The approver may not be the preparer, the
+    reviewer or anyone who entered an adjustment. Approval refuses figures older than a change to the pay inputs.
+    Who calculated, finalized, paid and reversed (with the reason) is kept.
   - Calculation can be repeated and keeps hand-entered adjustments.
   - **Finalize** runs in one DB transaction. It writes the tax ledger, loan recoveries, GPF subscriptions and advance
     recoveries, then issues the frozen JSON payslips and flips the status. The ledgers must be written before the
@@ -121,13 +151,31 @@ balances), `PayrollInputBuilder`, `PayrollEngine` and `PayslipBuilder` (payroll)
     `payroll_loan_deduction`. GPF rows are offset with adjustments. A replacement run then references the reversed one.
   - Regular runs: one live regular run per month. Supplementary runs pay those on no other run of the month. Arrears,
     bonus and final-settlement runs are made of adjustments; the engine adds only the extra tax they cause.
-- **Payments.** Generated per finalized run into the primary bank account, which is snapshotted on the payment.
-  Processed with the bank reference; failed or returned payments are re-generated. The bank advice groups payments by
-  bank. A run is marked paid when every slip not held has a processed payment.
+  - **Arrears** (`POST /payroll-runs/{id}/arrears`, dry run first): a finalized past month is worked out again on
+    today's records and the earnings difference per employee becomes an Arrears or Recovery adjustment on the run.
+    Running it again replaces its own adjustments. Loans, GPF and tax of the past month are untouched.
+  - Months: a day belongs to one month (overlap refused); an open month without runs can change dates or be deleted.
+  - Tax: `employee_tax_opening` (income and tax before this payroll paid the person) counts in the year-to-date.
+- **Payments.** Generated per finalized run into the primary bank account (snapshotted), or as cheque / cash with no
+  account. Processed with the bank reference; failed or returned payments are re-generated. The bank advice lists
+  transfers only, grouped by bank; `GET /payroll-runs/{id}/reconciliation` compares net pay with payments. A run is
+  marked paid when every slip not held has a processed payment.
 - **Loans and GP Fund.** Sanction lays out the installment schedule; the last installment absorbs the rounding. A GPF
-  advance is paid out of the fund and its recoveries go back into it. Repayments outside payroll, waivers and
-  cancellations are refused while a pending run is deducting the loan. GPF interest for a fiscal year is rate / 12 on
+  advance is paid out of the fund and its recoveries go back into it. Repayments outside payroll are kept in the
+  append-only `loan_repayment` with the receipt number; waivers, cancellations and write-offs need a reason (who and
+  when are kept). All are refused while a pending run is deducting the loan. A loan cannot start in a past month. GPF interest for a fiscal year is rate / 12 on
   each month-end balance, posted once per account.
+
+## Attention (the bell)
+
+`GET /attention` counts only queues the caller may act on (oldest item's date where it means something). HR.APPROVE:
+`hrActions.toApprove` (not the caller's own when maker-checker is on), `requests.toDecide`, `documents.toVerify`,
+`increments.overdue`, `reviews.toFinalize`. HR.EDIT: `hrActions.toApply`, `hrActions.takeEffectLater`,
+`hrActions.myDrafts` (forMe), `tasks.overdue`, `documents.expiring`, `separations.unsettled`, `retirements.past`,
+`retirements.due`, `contracts.ending`, `employees.noDateOfBirth`, `employees.unplaced`. ATTENDANCE.APPROVE: `leave.toDecide`. PAYROLL.EDIT
+/ APPROVE / POST: `payroll.toReview`, `payroll.toApprove`, `payroll.toFinalize`, `payroll.toPay`. A linked employee:
+`my.tasks`, `my.tasksOverdue`, `my.reviewsToAcknowledge`, `my.evaluationsToWrite`, `my.countersignings`. The frontend
+maps each key to a filtered screen in `features/hrm/hrm.attention.ts`; keep the two in step.
 
 ## Seeds (`HrmSeeder`)
 
@@ -172,18 +220,28 @@ balances), `PayrollInputBuilder`, `PayrollEngine` and `PayslipBuilder` (payroll)
   On this machine `dotnet ef` needs the ASP.NET runtime workaround from the assistant memory.
 - Keep `docs/gda_hrms_schema.sql` and the DBML in step with any schema change, and list new deliberate differences in
   the comment at the top of `HrmsSchemaSql` and in this file.
+- Migrations after the first: `PeopleRulesAndLeaveDecisions` (2026-10-20, raw SQL in `Data/Sql/PeopleRulesSql.cs`)
+  and `PayAuditRepaymentsAndPer` (2026-10-21, `Data/Sql/PayAuditSql.cs`). New enum labels are added there with
+  `ALTER TYPE ... ADD VALUE` in the C# order, not through Npgsql's annotations (which would place them
+  alphabetically); a label can never be dropped. Trigger SQL goes at the end of `Up` (its table must exist) and at
+  the start of `Down`.
 
 ## Configuration
 
 - `FileStorage:RootPath`: `storage` by default (gitignored). In compose it is the `hrm-files` volume.
 - `Documents`: 25 MB per document; pdf, images and office files; photos jpg / png / webp up to 5 MB.
 - `Hrm`: employee number prefix `EMP` with 3 digits, post code prefix `POST` with 4 digits, retirement age 60, annual
-  increment on 1 December.
-- `Payroll:RequireSeparateApprover`: true. Compose and `appsettings.Development.json` turn it off for one-person testing.
+  increment on 1 December. Rules GDA still has to confirm keep the old behaviour by default:
+  `IncrementQualifyingMonths` 0, `RetireOnDayBeforeBirthday` false, `PerGoalWeight / PerKpiWeight /
+  PerCompetencyWeight` 100 / 0 / 0, `RequireSeparateApprover` unset (follows the payroll switch). `GET /settings`
+  shows the frontend what is in force.
+- `Payroll:RequireSeparateApprover`: true. Compose and `appsettings.Development.json` turn it off for one-person testing
+  (HR actions follow it unless `Hrm__RequireSeparateApprover` is set).
 
 ## Testing
 
-`dotnet test src/ERP.slnx` runs `src/Tests/HRM.Domain.Tests`. `Fixture.cs` builds employees, components, rules, a
+`dotnet test src/ERP.slnx` runs `src/Tests/HRM.Domain.Tests` (146 tests). The API flows are in the frontend repo:
+`node tools/e2e/hrm-api.e2e.mjs` (72 steps; it cleans up after itself and never touches the standing fixtures). `Fixture.cs` builds employees, components, rules, a
 tax year (FY 2025-26 salaried slabs) and loans. Add a test for every new domain rule, named after the rule, e.g.
 `Net_pay_never_goes_below_zero_the_least_important_loan_is_left_for_later`.
 
@@ -191,6 +249,10 @@ tax year (FY 2025-26 salaried slabs) and loans. Add a test for every new domain 
 
 - `employee.full_name` is generated by Postgres: never assign it. Use `DisplayName` on an unsaved employee.
 - Inside LINQ query syntax, `from` is a keyword: don't name locals `from` / `to` in methods that use `from x in ...`.
+- `FirstOrDefault()` on a list of value tuples returns a default tuple, not null, so `is { Field: var f }` always
+  matches. Check `Count` or use a nullable projection.
+- Employment statuses are grouped in `Employee.EmploymentStatuses` (InService, LeftService, Reinstatable): use them
+  instead of listing statuses by hand.
 - `fn_block_if_run_locked` refuses tax-ledger, slip, line, adjustment and loan-deduction writes once a run is
   finalized, paid or reversed. Write them before the status changes, in the same transaction.
 - Superseded installments (after a reversal) are stored as `waived` with nothing paid. `installment_status` has no

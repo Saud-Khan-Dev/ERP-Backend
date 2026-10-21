@@ -18,9 +18,11 @@ public class AllotmentDetailsInputValidator : AbstractValidator<AllotmentDetails
   }
 }
 
-public sealed record AllotPropertyCommandResult(Guid Id, string AllotmentNo);
+/// Warnings: other agreements running on the plot at the same time (a lease, a rental, a contract).
+public sealed record AllotPropertyCommandResult(Guid Id, string AllotmentNo, IReadOnlyList<string> Warnings);
 
-/// Allots the plot (ALT-00001 is generated). The allotment starts ACTIVE; it is not ownership.
+/// An approver allots the plot (ALT-00001 is generated). The allotment starts ACTIVE and is in force from its effective
+/// date (the allotment date when none is given); it is not ownership. Only GDA property nobody holds privately.
 public sealed record AllotPropertyCommand(Guid PropertyId, Guid AllotteeOwnerId, AllotmentDetailsInput Allotment) : ICommand<Result<AllotPropertyCommandResult>>;
 
 public class AllotPropertyCommandValidator : AbstractValidator<AllotPropertyCommand>

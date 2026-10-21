@@ -14,7 +14,8 @@ public interface IPropertyDirectory
   Task<ExternalRef?> PropertyTypeAsync(Guid propertyTypeId, CancellationToken cancellationToken);
 }
 
-/// The HRM service: the holiday calendar for notice periods and who holds a post on a date (the signing officer).
+/// The HRM service: the holiday calendar for notice periods and who holds a post on a date (the officer who signs a
+/// notice, the Tax Collector who serves it). Both reads are open to any signed-in person (HRM's staff directory).
 public interface IHrmDirectory
 {
   /// False when no HRM address is configured: notice periods then skip weekends only.
@@ -22,9 +23,13 @@ public interface IHrmDirectory
 
   Task<IReadOnlySet<DateOnly>> HolidaysAsync(DateOnly from, DateOnly to, CancellationToken cancellationToken);
 
-  /// The employee holding the post on the date; null when vacant.
-  Task<SigningOfficer?> PostHolderAsync(Guid postId, DateOnly asOf, CancellationToken cancellationToken);
+  /// The post and who holds it on the date (no holder when vacant); null when HRM has no such post.
+  Task<PostHolderInfo?> PostHolderAsync(Guid postId, DateOnly asOf, CancellationToken cancellationToken);
 }
+
+/// A post of HRM and the employee holding it on a date (EmployeeId null when vacant).
+public sealed record PostHolderInfo(Guid PostId, string? PostCode, string? Designation, Guid? EmployeeId, string? EmployeeNumber, string? Name,
+  string? HolderDesignation);
 
 public sealed record ExternalRef(Guid Id, string Code, string Name);
 

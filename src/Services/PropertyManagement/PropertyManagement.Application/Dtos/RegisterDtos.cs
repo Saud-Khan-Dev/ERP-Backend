@@ -14,7 +14,11 @@ public enum AgreementSort { Ends, Starts, Code, Property, Amount, Kind, Party, S
 /// Amount: lease amount / rent / contract amount / winning bid (else the reserve price); none for an allotment.
 /// AnnualAmount: the yearly equivalent (monthly x 12, quarterly x 4, annual and one-off amounts as they are).
 /// Deposit: security deposit of a lease or rental, performance guarantee of a contract; none otherwise.
-/// Status is the record's own master status; InForce is defined per kind in InForce.
+/// Status is the record's own master status; InForce is defined per kind in InForce (in force today: started, not ended).
+/// CurrentAnnualAmount: the yearly equivalent as it stands today - a rental's rent raised by its annual increase for
+/// every full year since it started; the same as AnnualAmount for the other kinds.
+/// Direction: who pays - Receivable (GDA receives: leases, rentals, auctions, a contractor paying GDA) or Payable (GDA
+/// pays a contractor); null for an allotment and for a contract whose direction was never recorded.
 public sealed record AgreementListItemDto(
   AgreementKind Kind,
   Guid Id,
@@ -34,7 +38,9 @@ public sealed record AgreementListItemDto(
   string? AmountFrequency,
   decimal? AnnualAmount,
   decimal? Deposit,
-  bool InForce);
+  bool InForce,
+  decimal? CurrentAnnualAmount = null,
+  MoneyDirection? Direction = null);
 
 // ---- legal matters: encroachments, court cases, appeals and agreement violations in one list ----
 

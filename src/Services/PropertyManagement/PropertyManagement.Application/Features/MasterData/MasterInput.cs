@@ -42,7 +42,10 @@ public static class MasterRules
   public static void EnsureCanDeactivate(MasterDescriptor descriptor, MasterData master)
   {
     if (SystemMasterCodes.IsRequired(descriptor.ClrType, master.Code.Value))
-      throw new DomainException($"{descriptor.Label} {master.Code.Value} is used by the system and cannot be deactivated.");
+      throw new DomainException($"'{master.Name.Value}' is used by the system - it can be renamed but not switched off.");
+
+    if (descriptor.ReadOnly)
+      throw new DomainException($"{descriptor.Label} values are set by the system's own acts and cannot be switched off; they can be renamed.");
   }
 
   /// A document type's applies_to (PROPERTY | OWNER) is fixed once documents of that type are filed: they would

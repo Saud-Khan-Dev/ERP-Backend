@@ -1,7 +1,9 @@
 /// Kinds of service event (Appointment, Transfer, Promotion ...). category groups them: entry, movement, status,
-/// disciplinary, exit.
+/// disciplinary, exit (a fixed list).
 public class ServiceEventType : Aggregate<ServiceEventTypeId>
 {
+  public static readonly IReadOnlyList<string> Categories = ["entry", "movement", "status", "disciplinary", "exit"];
+
   public string Name { get; private set; } = default!;
   public string? Category { get; private set; }
   public bool IsActive { get; private set; }
@@ -16,7 +18,11 @@ public class ServiceEventType : Aggregate<ServiceEventTypeId>
   public void Update(string name, string? category)
   {
     Name = Guard.RequiredText(name, 100, "Event type name");
-    Category = Guard.Text(category, 50, "Category")?.ToLowerInvariant();
+    var group = Guard.Text(category, 50, "Category")?.ToLowerInvariant()
+      ?? throw new DomainException("Choose the group of the event: entry, movement, status, disciplinary or exit.");
+    if (!Categories.Contains(group))
+      throw new DomainException($"The group of an event is one of: {string.Join(", ", Categories)}.");
+    Category = group;
   }
 
   public void SetActive(bool isActive) => IsActive = isActive;
@@ -50,13 +56,17 @@ public static class ServiceEventNames
   public const string Dismissal = "Dismissal";
   public const string EndOfContract = "End of Contract";
   public const string DeputationEnd = "Deputation End";
+  public const string CompulsoryRetirement = "Compulsory Retirement";
+  public const string PrematureRetirement = "Premature Retirement";
+  public const string RemovalFromService = "Removal from Service";
 
   public static readonly IReadOnlyList<(string Name, string Category)> All =
   [
     (Appointment, "entry"), (Joining, "entry"), (Transfer, "movement"), (Promotion, "movement"), (Demotion, "movement"),
     (DeputationIn, "movement"), (DeputationOut, "movement"), (Regularization, "status"), (Lwop, "status"),
     (Suspension, "disciplinary"), (Reinstatement, "disciplinary"), (Retirement, "exit"), (Resignation, "exit"),
-    (Termination, "exit"), (Death, "exit"), (Dismissal, "exit"), (EndOfContract, "exit"), (DeputationEnd, "exit")
+    (Termination, "exit"), (Death, "exit"), (Dismissal, "exit"), (EndOfContract, "exit"), (DeputationEnd, "exit"),
+    (CompulsoryRetirement, "exit"), (PrematureRetirement, "exit"), (RemovalFromService, "exit")
   ];
 
   public static bool IsSystem(string name) => All.Any(e => string.Equals(e.Name, name, StringComparison.OrdinalIgnoreCase));
@@ -79,6 +89,12 @@ public static class ServiceEventNames
     HrActionType.Resignation => Resignation,
     HrActionType.Termination => Termination,
     HrActionType.Death => Death,
+    HrActionType.Dismissal => Dismissal,
+    HrActionType.RemovalFromService => RemovalFromService,
+    HrActionType.CompulsoryRetirement => CompulsoryRetirement,
+    HrActionType.PrematureRetirement => PrematureRetirement,
+    HrActionType.EndOfContract => EndOfContract,
+    HrActionType.DeputationEnd => DeputationEnd,
     _ => null
   };
 
@@ -92,7 +108,23 @@ public static class ServiceEventNames
     SeparationType.Death => Death,
     SeparationType.EndOfContract => EndOfContract,
     SeparationType.DeputationEnd => DeputationEnd,
+    SeparationType.CompulsoryRetirement => CompulsoryRetirement,
+    SeparationType.PrematureRetirement => PrematureRetirement,
+    SeparationType.RemovalFromService => RemovalFromService,
     _ => null
+  };
+
+  /// The service status a separation leaves the employee in.
+  public static EmploymentStatus StatusAfter(SeparationType type) => type switch
+  {
+    SeparationType.Retirement or SeparationType.CompulsoryRetirement or SeparationType.PrematureRetirement => EmploymentStatus.Retired,
+    SeparationType.Resignation => EmploymentStatus.Resigned,
+    SeparationType.Death => EmploymentStatus.Deceased,
+    SeparationType.Dismissal => EmploymentStatus.Dismissed,
+    SeparationType.RemovalFromService => EmploymentStatus.Removed,
+    SeparationType.EndOfContract => EmploymentStatus.ContractEnded,
+    SeparationType.DeputationEnd => EmploymentStatus.Repatriated,
+    _ => EmploymentStatus.Terminated
   };
 }
 

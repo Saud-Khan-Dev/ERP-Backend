@@ -11,7 +11,12 @@ public sealed record RunProblemDto(Guid TaxFileId, string FileNo, string Problem
 /// litigation hold or not assessable; Problems: files that could not be computed and why.
 public sealed record ComputeRunResult(Guid RunId, int Computed, int Skipped, int Held, decimal TotalAmount, IReadOnlyList<RunProblemDto> Problems);
 
-public sealed record ApproveRunResult(Guid RunId, int Issued, int NoticesIssued, int SmsQueued, int YearEndSurcharges);
+/// HeldWithoutNotice: demands issued on files under a litigation hold - no first notice went out (the daily job prepares it
+/// once the hold ends). Stale: drafts whose file changed after the run was worked out (the amount issued is the draft's;
+/// work the run out again first to take the change). CreditsCarried: what earlier payments beyond their charges paid of
+/// the new demands.
+public sealed record ApproveRunResult(Guid RunId, int Issued, int NoticesIssued, int SmsQueued, int YearEndSurcharges, IReadOnlyList<RunProblemDto> HeldWithoutNotice,
+  IReadOnlyList<RunProblemDto> Stale, decimal CreditsCarried);
 
 public sealed record DemandSummaryDto(
   Guid Id, string DemandNo, Guid TaxFileId, string FileNo, string? Psid, Guid? RunId, int FiscalYear, string FiscalYearLabel, string PayerName, string? PayerMobile,
@@ -23,9 +28,11 @@ public sealed record DemandLineDto(
   decimal OverrideAmount, decimal Amount, LineMode LineMode, Guid? OverrideId, Guid? PolicyId, decimal? NormalAmount, string? Explanation, decimal Paid,
   decimal Outstanding);
 
+/// Correctable: an opening due of the old register not billed yet (it can be corrected, or removed while nothing was paid on it).
 public sealed record ArrearsDto(
   Guid Id, Guid HeadId, string HeadCode, string HeadName, int? FiscalYear, string? FiscalYearLabel, decimal OriginalAmount, decimal PenaltyAmount, decimal Outstanding,
-  ArrearsSource Source, Guid? SourceDemandId, Guid? AddedToDemandId, string? Description, Guid? EnteredBy, DateTime? EnteredAt, string? Reason);
+  ArrearsSource Source, Guid? SourceDemandId, Guid? AddedToDemandId, string? Description, Guid? EnteredBy, DateTime? EnteredAt, string? Reason, decimal Settled,
+  bool Correctable);
 
 public sealed record PenaltyDto(
   Guid Id, Guid? RuleId, Guid? RunId, PenaltyKind Kind, decimal BaseAmount, decimal? Pct, decimal Amount, DateOnly AppliedOn, string? RuleRef, decimal Paid);
@@ -47,7 +54,7 @@ public static class DemandMappings
   public static ArrearsDto ToDto(this Arrears a, IReadOnlyDictionary<TaxHeadId, TaxHead> heads) => new(
     a.Id.Value, a.HeadId.Value, heads.GetValueOrDefault(a.HeadId)?.Code ?? "", heads.GetValueOrDefault(a.HeadId)?.Name ?? "", a.FiscalYear,
     a.FiscalYear is { } fy ? FiscalYear.Label(fy) : null, a.OriginalAmount, a.PenaltyAmount, a.Outstanding, a.Source, a.SourceDemandId?.Value,
-    a.AddedToDemandId?.Value, a.Description, a.EnteredBy, a.EnteredAt, a.Reason);
+    a.AddedToDemandId?.Value, a.Description, a.EnteredBy, a.EnteredAt, a.Reason, a.Settled, a.IsUnbilledOpening);
 
   public static NoticeBriefDto ToBrief(this Notice n) => new(n.Id.Value, n.NoticeNo, n.Stage, n.Status, n.Origin, n.IssueDate, n.ReplyBy, n.AmountWithinDue, n.ServedOn);
 
@@ -72,11 +79,18 @@ public static class DemandMappings
 // ---- penalties ----
 
 public sealed record PenaltyRunDto(
-  Guid Id, Guid RuleId, int FiscalYear, string FiscalYearLabel, Guid? CircleId, string? CircleCode, DateOnly RunOn, TargetSet TargetSet, PenaltyRateType RateType,
-  decimal Rate, bool IncludesCurrent, string? Reference, int? PropertyCount, decimal? TotalAmount, Guid? ApprovedBy, DateTime? CreatedAt);
+  Guid Id, Guid RuleId, string? RuleCode, string? RuleName, int FiscalYear, string FiscalYearLabel, Guid? CircleId, string? CircleCode, DateOnly RunOn, TargetSet TargetSet,
+  PenaltyRateType RateType, decimal Rate, bool IncludesCurrent, string? Reference, int? PropertyCount, decimal? TotalAmount, Guid? ApprovedBy, DateTime? CreatedAt);
 
+/// ArrearsOwed: what the earlier years' rows billed on it still owe (a defaulter owes some). SurchargedOn: the day an
+/// earlier run of the rule surcharged it (it is not surcharged twice).
 public sealed record SurchargeCandidateDto(
-  Guid DemandId, string DemandNo, Guid TaxFileId, string FileNo, string PayerName, decimal Balance, decimal Arrears, decimal Base, decimal Amount, bool Eligible,
-  string? Reason);
+  Guid DemandId, string DemandNo, Guid TaxFileId, string FileNo, string PayerName, decimal Balance, decimal ArrearsOwed, decimal Base, decimal Amount, bool Eligible,
+  string? Reason, DateOnly? SurchargedOn);
+
+/// A surcharge line, for the Surcharges report and a run's page.
+public sealed record PenaltyListItemDto(
+  Guid Id, Guid DemandId, string DemandNo, Guid TaxFileId, string FileNo, string PayerName, Guid? CircleId, string? CircleCode, int FiscalYear, string FiscalYearLabel,
+  PenaltyKind Kind, decimal BaseAmount, decimal? Pct, decimal Amount, DateOnly AppliedOn, Guid? RunId, string? RuleRef, decimal Paid);
 
 public sealed record SurchargePreviewDto(int Eligible, decimal Total, IReadOnlyList<SurchargeCandidateDto> Candidates);

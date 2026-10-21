@@ -22,4 +22,8 @@ public static class ErpClaimTypes
 
   /// Present ("true") only for an officer authorized by the DG (GDA Act s.2(a-i), s.28, s.30).
   public const string AuthorizedOfficer = "ao";
+
+  /// Present ("change") on the token of an account that still holds a temporary password: it carries no permissions
+  /// and no roles, and opens nothing but the caller's own /auth routes until the password is changed.
+  public const string PasswordChange = "pwd";
 }

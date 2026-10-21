@@ -18,8 +18,9 @@ public class AssetStatusInputValidator : AbstractValidator<AssetStatusInput>
 {
   public AssetStatusInputValidator()
   {
-    RuleFor(x => x.Code).NotEmpty().MaximumLength(50);
-    RuleFor(x => x.Name).NotEmpty().MaximumLength(100);
+    RuleFor(x => x.Code).NotEmpty().WithMessage("Give the status a code.").MaximumLength(50);
+    RuleFor(x => x.Name).NotEmpty().WithMessage("Give the status a name.").MaximumLength(100);
+    RuleFor(x => x).Must(x => !(x.IsTerminal && x.AllowsAssignment)).WithMessage("A final status cannot allow moves: the record is closed in it.");
     RuleFor(x => x.Color).MaximumLength(20);
   }
 }

@@ -67,7 +67,7 @@ public class Location : Aggregate<LocationId>
         throw new DomainException("A location cannot be its own parent.");
 
       if (Path is not null && IsAncestorOf(parent))
-        throw new DomainException("Moving a location under one of its own descendants would create a cycle.");
+        throw new DomainException("A location cannot be moved inside one of its own places.");
     }
 
     ParentLocationId = parent?.Id;

@@ -60,7 +60,16 @@ public class MasterDataTests
   {
     Assert.True(SystemMasterCodes.IsRequired(typeof(RentalStatus), "CANCELLED"));
     Assert.True(SystemMasterCodes.IsRequired(typeof(MeasurementUnit), "SQFT"));
-    Assert.False(SystemMasterCodes.IsRequired(typeof(PropertyType), "RESIDENTIAL"));
+    Assert.False(SystemMasterCodes.IsRequired(typeof(PropertyType), "INDUSTRIAL"));
+  }
+
+  [Fact]
+  public void Codes_Taxation_maps_on_are_system_codes()
+  {
+    // Taxation maps its categories and fees onto these: switching one off would break its demand runs
+    Assert.True(SystemMasterCodes.IsRequired(typeof(PropertyType), SystemMasterCodes.PropertyTypeResidential));
+    Assert.True(SystemMasterCodes.IsRequired(typeof(PropertyType), SystemMasterCodes.PropertyTypeCommercial));
+    Assert.True(SystemMasterCodes.IsRequired(typeof(BuildingPlanType), SystemMasterCodes.BuildingPlanCompletion));
   }
 }
 
@@ -168,13 +177,14 @@ public class PropertyCoreTests
   [Fact]
   public void Regularized_area_counts_only_while_in_force()
   {
-    var regularization = PropertyAreaRegularization.Open(AreaRegularizationId.New(), Property(), Unit("SQFT", 1, true), 500,
-      RegularizationStatus.Regularized, null, D("2026-02-01"), null, null, null, null);
+    var regularization = PropertyAreaRegularization.Open(AreaRegularizationId.New(), Property(), Unit("SQFT", 1, true), 500, null,
+      new PropertyAreaRegularization.Decision(RegularizationStatus.Regularized, D("2026-02-01"), null, null, null, null, null, null), D("2026-10-13"));
 
     Assert.True(regularization.CountsTowardArea(D("2026-03-01")));
     Assert.False(regularization.CountsTowardArea(D("2026-01-01")));
 
-    regularization.UpdateCase(RegularizationStatus.Regularized, D("2026-02-01"), null, null, null, D("2026-06-01"), null);
+    regularization.UpdateCase(
+      new PropertyAreaRegularization.Decision(RegularizationStatus.Regularized, D("2026-02-01"), null, null, null, null, D("2026-06-01"), null), D("2026-10-13"));
     Assert.False(regularization.CountsTowardArea(D("2026-07-01")));
   }
 
@@ -182,7 +192,7 @@ public class PropertyCoreTests
   public void Regularized_case_needs_its_date()
   {
     Assert.Throws<DomainException>(() => PropertyAreaRegularization.Open(AreaRegularizationId.New(), Property(), Unit("SQFT", 1, true),
-      500, RegularizationStatus.Regularized, null, null, null, null, null, null));
+      500, null, new PropertyAreaRegularization.Decision(RegularizationStatus.Regularized, null, null, null, null, null, null, null), D("2026-10-13")));
   }
 
   [Fact]

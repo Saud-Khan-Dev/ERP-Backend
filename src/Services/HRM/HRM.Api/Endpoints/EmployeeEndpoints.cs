@@ -6,11 +6,12 @@ public sealed class FileUploadForm
   public IFormFile? File { get; set; }
 }
 
-public sealed record ChangeEmploymentRequest(EmploymentType EmploymentType, EmploymentMethod? EmploymentMethod, Guid? ProjectId);
-public sealed record CorrectEmployeeNumberRequest(string EmployeeNumber);
+public sealed record ChangeEmploymentRequest(EmploymentType EmploymentType, EmploymentMethod? EmploymentMethod, Guid? ProjectId, string? Reason);
+public sealed record CorrectEmployeeNumberRequest(string EmployeeNumber, string? Reason);
+public sealed record SetTermRequest(DateOnly? TermFrom, DateOnly? TermTo, string? LendingDepartment, string? Reason);
 public sealed record LinkUserRequest(Guid UserId);
 public sealed record RecordPayChangeRequest(Guid PayScaleStageId, decimal? BasicPay, DateOnly EffectiveFrom, string Reason, string? OrderNumber, DateOnly? NextIncrementDate);
-public sealed record SetNextIncrementRequest(DateOnly? NextIncrementDate);
+public sealed record SetNextIncrementRequest(DateOnly? NextIncrementDate, string? Reason);
 public sealed record AnnualIncrementRequest(DateOnly EffectiveDate, bool DryRun, IReadOnlyList<Guid>? EmployeeIds);
 public sealed record PayRevisionRequest(DateOnly EffectiveDate, bool DryRun, IReadOnlyList<Guid>? GradeIds);
 
@@ -24,14 +25,16 @@ public class EmployeeEndpoints : ICarterModule
 
     employees.MapGet("/", async (int? pageIndex, int? pageSize, string? search, string? employmentType, [FromQuery(Name = "employmentStatus")] string[]? employmentStatus,
         bool? includeInactive, Guid? orgUnitId, bool? includeSubUnits, Guid? designationId, Guid? gradeId, Guid? postId, string? gender, bool? unplaced,
-        int? retiringWithinMonths, string? sortBy, string? sortDir, ISender sender) =>
+        int? retiringWithinMonths, string? sortBy, string? sortDir, bool? inService, int? termEndingWithinDays, bool? withoutDateOfBirth, bool? pastRetirement,
+        bool? incrementOverdue, ISender sender) =>
         (await sender.Send(new GetEmployeesQuery(
           QueryParsing.Page(pageIndex, pageSize), search, QueryParsing.ParseEnum<EmploymentType>(employmentType, "employmentType"),
           (employmentStatus ?? []).SelectMany(s => s.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
             .Select(s => QueryParsing.ParseEnum<EmploymentStatus>(s, "employmentStatus")!.Value).Distinct().ToList(),
           includeInactive ?? false, orgUnitId, includeSubUnits ?? true, designationId, gradeId, postId,
           QueryParsing.ParseEnum<Gender>(gender, "gender"), unplaced, retiringWithinMonths,
-          QueryParsing.ParseEnum<EmployeeSort>(sortBy, "sortBy") ?? EmployeeSort.Number, QueryParsing.ParseDescending(sortDir) ?? false))).ToOk())
+          QueryParsing.ParseEnum<EmployeeSort>(sortBy, "sortBy") ?? EmployeeSort.Number, QueryParsing.ParseDescending(sortDir) ?? false,
+          inService, termEndingWithinDays, withoutDateOfBirth, pastRetirement, incrementOverdue))).ToOk())
       .RequireAnyPermission(PermissionCatalog.Hr.View, PermissionCatalog.Attendance.View, PermissionCatalog.Payroll.View)
       .WithName("GetEmployees")
       .Produces<GetEmployeesQueryResult>()
@@ -39,7 +42,10 @@ public class EmployeeEndpoints : ICarterModule
       .WithSummary("Get Employees")
       .WithDescription("The employee register (pageSize 1-200). search = part of the number or name, or the CNIC. employmentStatus repeats (active,on_leave ...). "
         + "orgUnitId / designationId / gradeId / postId filter on today's post (the unit includes sub-units unless includeSubUnits=false); unplaced=true lists those without a regular post. "
-        + "retiringWithinMonths = superannuation within that many months. sortBy = number | name | registered | retirement.");
+        + "retiringWithinMonths = in service and superannuation within that many months (already past it included); pastRetirement / withoutDateOfBirth = in service and "
+        + "past the retirement age / without a date of birth; inService = true | false; termEndingWithinDays = the contract or deputation term ends within that many days; "
+        + "incrementOverdue = in service and the next increment date has passed. "
+        + "sortBy = number | name | registered | retirement.");
 
     employees.MapGet("/next-number", async (ISender sender) => (await sender.Send(new GetNextEmployeeNumberQuery())).ToOk())
       .RequirePermission(PermissionCatalog.Hr.Create)
@@ -76,37 +82,58 @@ public class EmployeeEndpoints : ICarterModule
       .WithSummary("Update Personal Details");
 
     employees.MapPut("/{id:guid}/employment", async (Guid id, ChangeEmploymentRequest request, ISender sender) =>
-        (await sender.Send(new ChangeEmploymentCommand(id, request.EmploymentType, request.EmploymentMethod, request.ProjectId))).ToOk())
+        (await sender.Send(new ChangeEmploymentCommand(id, request.EmploymentType, request.EmploymentMethod, request.ProjectId, request.Reason))).ToOk())
       .RequirePermission(PermissionCatalog.Hr.Edit)
       .WithName("ChangeEmployment")
       .Produces<UpdatedResult>()
       .ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Correct Employment Type")
-      .WithDescription("Corrects the employment type / method / project. A regularization is recorded as an HR action so it enters the service history.");
+      .WithDescription("Corrects a mistake in the employment type / method / project, with the reason (kept in the change log). Making a contract or other "
+        + "employee regular is refused here: it is the Regularization HR action, approved and recorded in the service book.");
+
+    employees.MapPut("/{id:guid}/term", async (Guid id, SetTermRequest request, ISender sender) =>
+        (await sender.Send(new SetEmployeeTermCommand(id, request.TermFrom, request.TermTo, request.LendingDepartment, request.Reason))).ToOk())
+      .RequirePermission(PermissionCatalog.Hr.Edit)
+      .WithName("SetEmployeeTerm")
+      .Produces<UpdatedResult>()
+      .ProducesProblem(StatusCodes.Status400BadRequest)
+      .WithSummary("Set Contract or Deputation Term")
+      .WithDescription("The engagement period of a contract, deputation-in, ad hoc, daily-wage or project employee (an extension is a new end date), and a "
+        + "deputationist's parent department. Kept in the change log.");
+
+    employees.MapGet("/{id:guid}/change-log", async (Guid id, ISender sender) => (await sender.Send(new GetEmployeeChangeLogQuery(id))).ToOk())
+      .RequirePermission(PermissionCatalog.Hr.View)
+      .WithName("GetEmployeeChangeLog")
+      .Produces<GetEmployeeChangeLogQueryResult>()
+      .WithSummary("Employee Change Log")
+      .WithDescription("Every change to the employee's identity (names, CNIC, date of birth ...), employment, sign-in account and pay: old -> new, why, who and when.");
 
     employees.MapPut("/{id:guid}/number", async (Guid id, CorrectEmployeeNumberRequest request, ISender sender) =>
-        (await sender.Send(new CorrectEmployeeNumberCommand(id, request.EmployeeNumber))).ToOk())
+        (await sender.Send(new CorrectEmployeeNumberCommand(id, request.EmployeeNumber, request.Reason))).ToOk())
       .RequirePermission(PermissionCatalog.Hr.Edit)
       .WithName("CorrectEmployeeNumber")
       .Produces<UpdatedResult>()
       .ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Correct Employee Number");
 
+    // the link is made from either side: the HR record (HR.EDIT) or the sign-in account in Administration (IAM_USERS.EDIT);
+    // both screens then tell Identity too (PUT /users/{userId}/employee-link), which shows the HR number as the account's code
     employees.MapPost("/{id:guid}/user", async (Guid id, LinkUserRequest request, ISender sender) =>
         (await sender.Send(new LinkEmployeeUserCommand(id, request.UserId))).ToOk())
-      .RequirePermission(PermissionCatalog.Hr.Edit)
+      .RequireAnyPermission(PermissionCatalog.Hr.Edit, PermissionCatalog.Users.Edit)
       .WithName("LinkEmployeeUser")
       .Produces<UpdatedResult>()
       .ProducesProblem(StatusCodes.Status400BadRequest)
-      .WithSummary("Link Login")
-      .WithDescription("Links the employee to an Identity user account (no cross-service check: give the id shown in Administration › Users). Self-service (/me) finds the employee this way or by the token's employee claim.");
+      .WithSummary("Link Sign-in Account")
+      .WithDescription("Links the employee to an Identity user account (HR.EDIT or IAM_USERS.EDIT). An account linked to another employee is refused; "
+        + "relinking the same employee to another account replaces the link. Self-service (/me) finds the employee this way or by the token's employee claim.");
 
     employees.MapDelete("/{id:guid}/user", async (Guid id, ISender sender) =>
         (await sender.Send(new LinkEmployeeUserCommand(id, null))).ToOk())
-      .RequirePermission(PermissionCatalog.Hr.Edit)
+      .RequireAnyPermission(PermissionCatalog.Hr.Edit, PermissionCatalog.Users.Edit)
       .WithName("UnlinkEmployeeUser")
       .Produces<UpdatedResult>()
-      .WithSummary("Unlink Login");
+      .WithSummary("Unlink Sign-in Account");
 
     employees.MapPost("/{id:guid}/activate", async (Guid id, ISender sender) =>
         (await sender.Send(new SetEmployeeProfileStatusCommand(id, RecordStatus.Active))).ToOk())
@@ -176,24 +203,25 @@ public class EmployeeEndpoints : ICarterModule
     employees.MapPost("/{id:guid}/pay-records", async (Guid id, RecordPayChangeRequest request, ISender sender) =>
         (await sender.Send(new RecordPayChangeCommand(id, request.PayScaleStageId, request.BasicPay, request.EffectiveFrom, request.Reason,
           request.OrderNumber, request.NextIncrementDate))).ToOk())
-      .RequirePermission(PermissionCatalog.Hr.Edit)
+      .RequirePermission(PermissionCatalog.Hr.Approve)
       .WithTags("Pay Records")
       .WithName("RecordPayChange")
-      .Produces<CreatedResult>()
+      .Produces<RecordPayChangeResult>()
       .ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Record Pay Change")
-      .WithDescription("A new pay position from a date (correction, advance increments, personal pay). Promotions and appointments fix the pay themselves.");
+      .WithDescription("A new pay position from a date (correction, advance increments) - a money change, so HR.APPROVE. The stage must belong to the scale of the "
+        + "grade of the post held that day. Kept in the change log; payrollImpact lists posted months a back-dated change reaches. Promotions and appointments fix the pay themselves.");
 
     var pay = app.MapGroup("/pay-records").WithTags("Pay Records");
 
     pay.MapPut("/{id:guid}/next-increment", async (Guid id, SetNextIncrementRequest request, ISender sender) =>
-        (await sender.Send(new SetNextIncrementDateCommand(id, request.NextIncrementDate))).ToOk())
-      .RequirePermission(PermissionCatalog.Hr.Edit)
+        (await sender.Send(new SetNextIncrementDateCommand(id, request.NextIncrementDate, request.Reason))).ToOk())
+      .RequirePermission(PermissionCatalog.Hr.Approve)
       .WithName("SetNextIncrementDate")
       .Produces<UpdatedResult>()
       .ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Set Next Increment Date")
-      .WithDescription("e.g. an increment withheld as a penalty, or deferred.");
+      .WithDescription("e.g. an increment withheld as a penalty, or deferred (HR.APPROVE; kept in the change log). The date set is the one before any leave-without-pay deferral.");
 
     pay.MapPost("/annual-increment", async (AnnualIncrementRequest request, ISender sender) =>
         (await sender.Send(new RunAnnualIncrementCommand(request.EffectiveDate, request.DryRun, request.EmployeeIds))).ToOk())

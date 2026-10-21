@@ -9,6 +9,10 @@ public sealed record GetLeaveTypesQueryResult(IReadOnlyList<LeaveTypeDto> LeaveT
 public sealed record GetLeaveTypesQuery : IQuery<Result<GetLeaveTypesQueryResult>>;
 public sealed record CreateLeaveTypeCommand(LeaveTypeInput Type) : ICommand<Result<CreatedResult>>;
 public sealed record UpdateLeaveTypeCommand(Guid Id, LeaveTypeInput Type) : ICommand<Result<UpdatedResult>>;
+/// An inactive leave type is no longer offered for new applications; old ones keep it.
+public sealed record SetLeaveTypeActiveCommand(Guid Id, bool IsActive) : ICommand<Result<UpdatedResult>>;
+/// Deletes a leave type nobody has used (no application, entitlement or ledger row); a used one is deactivated instead.
+public sealed record DeleteLeaveTypeCommand(Guid Id) : ICommand<Result<UpdatedResult>>;
 
 public class LeaveTypeInputValidator : AbstractValidator<LeaveTypeInput>
 {
@@ -60,10 +64,15 @@ public sealed record PostLeaveLedgerEntryCommand(
   DateOnly? TransactionDate,
   string? Remarks) : ICommand<Result<CreatedResult>>;
 
-public sealed record LeaveYearEndResult(int Year, int CarriedForward, int Lapsed, decimal DaysCarried, decimal DaysLapsed, bool DryRun);
+/// A leave application still waiting for a decision in the year being closed.
+public sealed record PendingLeaveDto(Guid Id, Guid EmployeeId, string EmployeeNumber, string EmployeeName, string? LeaveType, DateOnly StartDate, DateOnly EndDate, decimal Days);
+
+public sealed record LeaveYearEndResult(int Year, int CarriedForward, int Lapsed, decimal DaysCarried, decimal DaysLapsed, bool DryRun,
+  IReadOnlyList<PendingLeaveDto>? PendingApplications = null);
 
 /// Closes a leave year: what is left of each balance is carried into the next year (types that allow it) or lapses.
-/// Balances already closed are skipped, so it can be run again safely.
+/// Balances already closed are skipped, so it can be run again safely. Applications of that year still pending are
+/// listed in the preview and must be decided first (closing would lapse the days they hold).
 public sealed record RunLeaveYearEndCommand(int Year, bool DryRun) : ICommand<Result<LeaveYearEndResult>>;
 
 public class SetLeaveEntitlementCommandValidator : AbstractValidator<SetLeaveEntitlementCommand>
@@ -134,7 +143,18 @@ public enum LeaveDecision
 }
 
 /// Approve / reject (approvers), or cancel. OnlyForEmployee: self-service may only act on its own applications.
-public sealed record DecideLeaveCommand(Guid Id, LeaveDecision Decision, Guid? OnlyForEmployee = null) : ICommand<Result<UpdatedResult>>;
+/// Reason: required to reject, and to cancel an approved leave; kept with who decided and when.
+public sealed record DecideLeaveCommand(Guid Id, LeaveDecision Decision, Guid? OnlyForEmployee = null, string? Reason = null) : ICommand<Result<UpdatedResult>>;
+
+public class DecideLeaveCommandValidator : AbstractValidator<DecideLeaveCommand>
+{
+  public DecideLeaveCommandValidator()
+  {
+    RuleFor(x => x.Decision).IsInEnum();
+    RuleFor(x => x.Reason).MaximumLength(1000);
+    RuleFor(x => x.Reason).NotEmpty().When(x => x.Decision == LeaveDecision.Reject).WithMessage("Give the reason for rejecting the leave; the employee sees it.");
+  }
+}
 
 public class LeaveApplicationInputValidator : AbstractValidator<LeaveApplicationInput>
 {
@@ -158,10 +178,12 @@ public class ChangeLeaveApplicationCommandValidator : AbstractValidator<ChangeLe
   public ChangeLeaveApplicationCommandValidator() => RuleFor(x => x.Leave).NotNull().SetValidator(new LeaveApplicationInputValidator());
 }
 
-public class LeaveHandlers(IApplicationDbContext context, LeaveService leave, HrLookup lookup, ICurrentUser currentUser, IClock clock) :
+public class LeaveHandlers(IApplicationDbContext context, LeaveService leave, HrLookup lookup, CurrentEmployee me, ICurrentUser currentUser, IClock clock) :
   IQueryHandler<GetLeaveTypesQuery, Result<GetLeaveTypesQueryResult>>,
   ICommandHandler<CreateLeaveTypeCommand, Result<CreatedResult>>,
   ICommandHandler<UpdateLeaveTypeCommand, Result<UpdatedResult>>,
+  ICommandHandler<SetLeaveTypeActiveCommand, Result<UpdatedResult>>,
+  ICommandHandler<DeleteLeaveTypeCommand, Result<UpdatedResult>>,
   IQueryHandler<GetLeaveEntitlementsQuery, Result<GetLeaveEntitlementsQueryResult>>,
   ICommandHandler<SetLeaveEntitlementCommand, Result<CreatedResult>>,
   ICommandHandler<GrantLeaveEntitlementsCommand, Result<GrantEntitlementsResult>>,
@@ -214,6 +236,27 @@ public class LeaveHandlers(IApplicationDbContext context, LeaveService leave, Hr
     return CommandResults.Updated();
   }
 
+  public async Task<Result<UpdatedResult>> Handle(SetLeaveTypeActiveCommand command, CancellationToken cancellationToken)
+  {
+    var type = await context.LoadLeaveTypeAsync(command.Id, cancellationToken);
+    type.SetActive(command.IsActive);
+    await context.SaveChangesAsync(cancellationToken);
+    return CommandResults.Updated();
+  }
+
+  public async Task<Result<UpdatedResult>> Handle(DeleteLeaveTypeCommand command, CancellationToken cancellationToken)
+  {
+    var type = await context.LoadLeaveTypeAsync(command.Id, cancellationToken);
+    if (await context.LeaveApplications.AnyAsync(a => a.LeaveTypeId == type.Id, cancellationToken)
+        || await context.LeaveEntitlements.AnyAsync(e => e.LeaveTypeId == type.Id, cancellationToken)
+        || await context.LeaveLedger.AnyAsync(l => l.LeaveTypeId == type.Id, cancellationToken))
+      throw new InUseException($"'{type.Name}' is used on leave records, so it cannot be deleted. Deactivate it instead.");
+
+    context.LeaveTypes.Remove(type);
+    await context.SaveChangesAsync(cancellationToken);
+    return CommandResults.Updated();
+  }
+
   // ---- entitlements, balances, ledger ----
 
   public async Task<Result<GetLeaveEntitlementsQueryResult>> Handle(GetLeaveEntitlementsQuery query, CancellationToken cancellationToken)
@@ -255,9 +298,9 @@ public class LeaveHandlers(IApplicationDbContext context, LeaveService leave, Hr
     var days = command.EntitledDays ?? type.MaxDaysPerYear
       ?? throw new DomainException($"'{type.Name}' has no days per year; give the days to grant.");
 
-    var employees = context.Employees.AsNoTracking().Where(e => e.ProfileStatus == RecordStatus.Active
-      && e.EmploymentStatus != EmploymentStatus.Retired && e.EmploymentStatus != EmploymentStatus.Resigned
-      && e.EmploymentStatus != EmploymentStatus.Terminated && e.EmploymentStatus != EmploymentStatus.Deceased);
+    type.EnsureActive();
+    var inService = EmploymentStatuses.InService;
+    var employees = context.Employees.AsNoTracking().Where(e => e.ProfileStatus == RecordStatus.Active && inService.Contains(e.EmploymentStatus));
     if (command.EmployeeIds is { Count: > 0 })
     {
       var only = command.EmployeeIds.Select(EmployeeId.Of).ToList();
@@ -265,14 +308,29 @@ public class LeaveHandlers(IApplicationDbContext context, LeaveService leave, Hr
     }
 
     var ids = await employees.Select(e => e.Id).ToListAsync(cancellationToken);
-    var have = (await context.LeaveEntitlements.Where(e => ids.Contains(e.EmployeeId) && e.LeaveTypeId == type.Id && e.Year == command.Year)
-      .Select(e => e.EmployeeId).ToListAsync(cancellationToken)).ToHashSet();
+    var existing = (await context.LeaveEntitlements.Where(e => ids.Contains(e.EmployeeId) && e.LeaveTypeId == type.Id && e.Year == command.Year)
+      .ToListAsync(cancellationToken)).ToDictionary(e => e.EmployeeId);
+    var ledger = (await context.LeaveLedger.Where(l => ids.Contains(l.EmployeeId) && l.LeaveTypeId == type.Id && l.Year == command.Year)
+        .GroupBy(l => l.EmployeeId).Select(g => new { EmployeeId = g.Key, Total = g.Sum(l => l.Days) }).ToListAsync(cancellationToken))
+      .ToDictionary(x => x.EmployeeId, x => x.Total);
 
-    foreach (var id in ids.Where(id => !have.Contains(id)))
+    var granted = 0;
+    foreach (var id in ids)
+    {
+      if (existing.TryGetValue(id, out var entitlement))
+      {
+        // a 0-day row the system made for a carried or opening balance is filled in, not skipped
+        if (entitlement.Grant(days, ledger.GetValueOrDefault(id)))
+          granted++;
+        continue;
+      }
+
       context.LeaveEntitlements.Add(LeaveEntitlement.Create(LeaveEntitlementId.New(), id, type, command.Year, days));
+      granted++;
+    }
 
     await context.SaveChangesAsync(cancellationToken);
-    return Result<GrantEntitlementsResult>.Success(new(ids.Count - have.Count, have.Count));
+    return Result<GrantEntitlementsResult>.Success(new(granted, ids.Count - granted));
   }
 
   public async Task<Result<GetLeaveBalancesQueryResult>> Handle(GetLeaveBalancesQuery query, CancellationToken cancellationToken)
@@ -328,9 +386,10 @@ public class LeaveHandlers(IApplicationDbContext context, LeaveService leave, Hr
       _ => LeaveLedgerEntry.Adjustment(employee.Id, type.Id, command.Year, command.Days, date, command.Remarks)
     };
 
-    // the balance a ledger row belongs to needs its entitlement row (balances are read from entitlements)
+    // the balance a ledger row belongs to needs its entitlement row (balances are read from entitlements); a 0-day
+    // placeholder, which granting the year fills in later
     if (!await context.LeaveEntitlements.AnyAsync(e => e.EmployeeId == employee.Id && e.LeaveTypeId == type.Id && e.Year == command.Year, cancellationToken))
-      context.LeaveEntitlements.Add(LeaveEntitlement.Create(LeaveEntitlementId.New(), employee.Id, type, command.Year, 0));
+      context.LeaveEntitlements.Add(LeaveEntitlement.Placeholder(LeaveEntitlementId.New(), employee.Id, type, command.Year));
 
     if (entry.Days < 0)
     {
@@ -349,6 +408,17 @@ public class LeaveHandlers(IApplicationDbContext context, LeaveService leave, Hr
     var year = command.Year;
     if (year >= clock.Today.Year)
       return Result<LeaveYearEndResult>.Failure($"{year} has not ended yet.");
+
+    // applications of that year still waiting: closing would lapse the days they hold, so they are decided first
+    var pendingRows = await context.LeaveApplications.AsNoTracking()
+      .Where(a => a.Status == LeaveStatus.Pending && a.StartDate.Year <= year && a.EndDate.Year >= year)
+      .OrderBy(a => a.StartDate).ToListAsync(cancellationToken);
+    var pendingPeople = await lookup.EmployeesAsync(pendingRows.Select(a => (EmployeeId?)a.EmployeeId), cancellationToken);
+    var pendingTypes = await TypeNamesAsync(cancellationToken);
+    var pending = pendingRows.Select(a => new PendingLeaveDto(a.Id.Value, a.EmployeeId.Value, pendingPeople.GetValueOrDefault(a.EmployeeId.Value)?.EmployeeNumber ?? "",
+      pendingPeople.GetValueOrDefault(a.EmployeeId.Value)?.FullName ?? "", pendingTypes.GetValueOrDefault(a.LeaveTypeId), a.StartDate, a.EndDate, a.Days)).ToList();
+    if (!command.DryRun && pending.Count > 0)
+      return Result<LeaveYearEndResult>.Failure($"{pending.Count} leave application(s) of {year} are still waiting for a decision. Approve or reject them before closing the year.");
 
     var closed = (await context.LeaveLedger.AsNoTracking()
         .Where(l => l.Year == year && (l.TransactionType == LeaveTransactionType.Lapse || l.TransactionType == LeaveTransactionType.CarryForward))
@@ -379,12 +449,12 @@ public class LeaveHandlers(IApplicationDbContext context, LeaveService leave, Hr
       var days = balance.BalanceDays;
 
       context.LeaveLedger.Add(LeaveLedgerEntry.Lapse(employeeId, type.Id, year, days, yearEnd,
-        type.CarryForwardAllowed ? $"Carried into {year + 1}" : "Lapsed at the end of the year"));
+        type.CarryForwardAllowed ? $"Closed: carried into {year + 1}" : "Lapsed at the end of the year"));
 
       if (type.CarryForwardAllowed)
       {
         if (!hasNext.Contains(key))
-          context.LeaveEntitlements.Add(LeaveEntitlement.Create(LeaveEntitlementId.New(), employeeId, type, year + 1, 0));
+          context.LeaveEntitlements.Add(LeaveEntitlement.Placeholder(LeaveEntitlementId.New(), employeeId, type, year + 1));
         context.LeaveLedger.Add(LeaveLedgerEntry.CarryForward(employeeId, type.Id, year + 1, days, yearEnd.AddDays(1), $"Brought forward from {year}"));
         carried++;
         daysCarried += days;
@@ -399,7 +469,7 @@ public class LeaveHandlers(IApplicationDbContext context, LeaveService leave, Hr
     if (!command.DryRun)
       await context.SaveChangesAsync(cancellationToken);
 
-    return Result<LeaveYearEndResult>.Success(new(year, carried, lapsed, daysCarried, daysLapsed, command.DryRun));
+    return Result<LeaveYearEndResult>.Success(new(year, carried, lapsed, daysCarried, daysLapsed, command.DryRun, pending));
   }
 
   // ---- applications ----
@@ -444,7 +514,7 @@ public class LeaveHandlers(IApplicationDbContext context, LeaveService leave, Hr
 
   public async Task<Result<LeaveDayCountResult>> Handle(CountLeaveDaysQuery query, CancellationToken cancellationToken)
   {
-    var days = await leave.DaysAsync(EmployeeId.Of(query.EmployeeId), query.StartDate, query.EndDate, null, cancellationToken);
+    var days = await leave.CountAsync(EmployeeId.Of(query.EmployeeId), query.StartDate, query.EndDate, cancellationToken);
     return Result<LeaveDayCountResult>.Success(new(days.Sum(d => d.Days), days));
   }
 
@@ -487,31 +557,47 @@ public class LeaveHandlers(IApplicationDbContext context, LeaveService leave, Hr
     var application = await context.LoadLeaveApplicationAsync(command.Id, cancellationToken);
     EnsureOwn(application, command.OnlyForEmployee);
     var today = clock.Today;
+    var now = clock.UtcNow;
 
     switch (command.Decision)
     {
       case LeaveDecision.Approve:
+      {
         var type = await context.LeaveTypes.FirstAsync(t => t.Id == application.LeaveTypeId, cancellationToken);
-        var days = await leave.DaysAsync(application.EmployeeId, application.StartDate, application.EndDate, application.Days, cancellationToken);
+        // the applied days stand (the calendar may have changed since); they are spread over the years they fall in
+        var counted = await leave.CountAsync(application.EmployeeId, application.StartDate, application.EndDate, cancellationToken);
+        var days = LeaveDayCounter.Split(application.Days, counted, application.StartDate);
         await leave.EnsureAvailableAsync(application.EmployeeId, type, days, application.Id, cancellationToken);
-        foreach (var entry in application.Approve(currentUser.UserId, today, days))
+        foreach (var entry in application.Approve(currentUser.UserId, await me.TryIdAsync(cancellationToken), now, days))
           context.LeaveLedger.Add(entry);
 
         // days already closed as absent become leave
         foreach (var record in await ClosedDaysAsync(application, AttendanceStatus.Absent, cancellationToken))
           record.MarkOnLeave(type.Name);
         break;
+      }
 
       case LeaveDecision.Reject:
-        application.Reject();
+        application.Reject(currentUser.UserId, await me.TryIdAsync(cancellationToken), now, command.Reason);
         break;
 
       case LeaveDecision.Cancel:
-        if (command.OnlyForEmployee is not null && application.Status == LeaveStatus.Approved && application.StartDate <= today)
-          return Result<UpdatedResult>.Failure("The leave has started; ask HR to cancel it.");
         var wasApproved = application.Status == LeaveStatus.Approved;
+        var reason = command.Reason;
+        if (command.OnlyForEmployee is not null)
+        {
+          if (wasApproved && application.StartDate <= today)
+            return Result<UpdatedResult>.Failure("The leave has started; ask HR to cancel it.");
+          reason ??= "Withdrawn by the employee.";
+        }
+        else if (wasApproved && !currentUser.HasPermission(PermissionCatalog.Attendance.Approve))
+        {
+          // an approval is undone only by someone who may approve: the days already taken come back to the balance
+          return Result<UpdatedResult>.Failure("Cancelling an approved leave needs the right to approve leave. Ask a leave approver.");
+        }
+
         var usage = await context.LeaveLedger.Where(l => l.LeaveApplicationId == application.Id).ToListAsync(cancellationToken);
-        foreach (var entry in application.Cancel(usage, today))
+        foreach (var entry in application.Cancel(usage, currentUser.UserId, now, reason))
           context.LeaveLedger.Add(entry);
 
         // days already closed as leave become absences again
@@ -549,6 +635,7 @@ public class LeaveHandlers(IApplicationDbContext context, LeaveService leave, Hr
     var types = await TypeNamesAsync(cancellationToken);
     return rows.Select(a => new LeaveApplicationDto(a.Id.Value, a.EmployeeId.Value, people.GetValueOrDefault(a.EmployeeId.Value)?.EmployeeNumber ?? "",
       people.GetValueOrDefault(a.EmployeeId.Value)?.FullName ?? "", a.LeaveTypeId.Value, types.GetValueOrDefault(a.LeaveTypeId), a.StartDate, a.EndDate,
-      a.Days, a.Status, a.AppliedDate, a.ApprovedBy, a.ApprovalDate, a.Reason, a.CreatedAt, a.UpdatedBy)).ToList();
+      a.Days, a.Status, a.AppliedDate, a.ApprovedBy, a.ApprovalDate, a.Reason, a.CreatedAt, a.UpdatedBy, a.DecidedBy, a.DecidedAt, a.DecisionReason,
+      a.HrActionId?.Value)).ToList();
   }
 }

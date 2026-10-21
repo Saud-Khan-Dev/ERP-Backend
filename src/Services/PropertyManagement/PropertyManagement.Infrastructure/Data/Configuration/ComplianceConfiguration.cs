@@ -140,6 +140,10 @@ public class PropertyLitigationConfiguration : EntityConfiguration<PropertyLitig
     builder.Property(x => x.AppealedTo).HasMaxLength(200);
     builder.Property(x => x.ParentLitigationId).HasConversion(id => id!.Value, value => LitigationId.Of(value));
     builder.Property(x => x.GdaCounsel).HasMaxLength(150);
+    // GDA counsel's HRM employee id when picked from the staff list (another service, so no database FK)
+    builder.Property(x => x.GdaCounselEmployeeId);
+    // IN_FAVOUR_OF_GDA, AGAINST_GDA, PARTLY_IN_FAVOUR — how a decided case came out for GDA
+    builder.Property(x => x.DecisionResult).HasNullableUpperSnakeEnum(20);
 
     builder.HasIndex(x => new { x.PropertyId, x.LitigationStatusId });
     builder.HasIndex(x => new { x.CaseNo, x.CourtAuthority }).IsUnique();
@@ -199,6 +203,7 @@ public class LitigationHearingConfiguration : EntityConfiguration<LitigationHear
     builder.Property(x => x.LitigationId).HasConversion(id => id.Value, value => LitigationId.Of(value)).IsRequired();
     builder.Property(x => x.HearingDate).IsRequired();
     builder.Property(x => x.AttendedBy).HasMaxLength(150);
+    builder.Property(x => x.AttendedByEmployeeId);
   }
 }
 
@@ -222,6 +227,7 @@ public class PropertyAppealConfiguration : EntityConfiguration<PropertyAppeal, A
     builder.Property(x => x.AppealDate).IsRequired();
     builder.Property(x => x.AppellateAuthority).HasMaxLength(150).IsRequired().HasDefaultValue(PropertyAppeal.DefaultAppellateAuthority);
     builder.Property(x => x.DelegatedOfficer).HasMaxLength(150);
+    builder.Property(x => x.DelegatedOfficerEmployeeId);
     // ALLOWED, DISMISSED, REMANDED, MODIFIED
     builder.Property(x => x.DecisionOutcome).HasNullableUpperSnakeEnum(30);
     // FILED (default), UNDER_HEARING, DECIDED, WITHDRAWN
@@ -252,8 +258,12 @@ public class BuildingPlanConfiguration : EntityConfiguration<BuildingPlan, Build
     builder.Property(x => x.SupersedesPlanId).HasConversion(id => id!.Value, value => BuildingPlanId.Of(value));
     builder.Property(x => x.ApplicantOwnerId).HasConversion(id => id!.Value, value => OwnerId.Of(value));
     builder.Property(x => x.ApprovedBy).HasMaxLength(150);
+    builder.Property(x => x.ApprovedByEmployeeId);
     builder.Property(x => x.ApprovalReferenceNo).HasMaxLength(100);
+    builder.Property(x => x.NoDuesCertificateNo).HasMaxLength(BuildingPlan.NoDuesCertificateMaxLength);
     builder.Property(x => x.CoveredArea).HasPrecision(18, 4);
+    // rule 7: the covered area also in square feet
+    builder.Property(x => x.CoveredAreaBase).HasPrecision(18, 4);
     builder.Property(x => x.MeasurementUnitId).HasOptionalMasterId();
     builder.Property(x => x.ArchitectName).HasMaxLength(150);
 

@@ -1,7 +1,8 @@
 using System.Text.Json;
 
 /// One asset in a report: the register facts plus its money - purchase, depreciation written off up to the report
-/// date, book value, latest valuation on or before that date, and the disposal if there was one.
+/// date, book value, latest valuation on or before that date, and the disposal if there was one. Without
+/// ASSET_FINANCE.VIEW every money figure is null (the purchase and disposal dates stay).
 public sealed record AssetReportRowDto(
   Guid Id,
   string AssetCode,
@@ -13,7 +14,10 @@ public sealed record AssetReportRowDto(
   Guid CategoryId,
   Guid StatusId,
   Guid? DepartmentId,
+  string? DepartmentName,
   Guid? CustodianId,
+  string? CustodianName,
+  string? CustodianNumber,
   Guid? CurrentLocationId,
   string? Barcode,
   bool IsActive,
@@ -24,7 +28,7 @@ public sealed record AssetReportRowDto(
   decimal? AcquisitionCost,
   string? CurrencyCode,
   string? PurchaseReference,
-  Guid? SupplierId,
+  string? SupplierName,
   DateOnly? WarrantyExpiryDate,
   Guid? DepreciationMethodId,
   int? UsefulLifeMonths,

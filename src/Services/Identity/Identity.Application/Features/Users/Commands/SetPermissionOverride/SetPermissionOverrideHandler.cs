@@ -10,17 +10,23 @@ public class SetPermissionOverrideHandler(IApplicationDbContext context, Identit
     var userId = UserId.Of(command.UserId);
     var permissionId = PermissionId.Of(command.PermissionId);
 
-    guard.EnsureNotSelf(userId, "change permissions");
+    guard.EnsureNotSelf(userId, "make exceptions on");
 
     if (!await context.Users.AnyAsync(u => u.Id == userId, cancellationToken))
-      throw new UserNotFoundException($"User {command.UserId} was not found.");
+      throw new UserNotFoundException("This account was not found.");
+
+    await guard.EnsureCanActOnAsync(userId, "make exceptions on", cancellationToken);
 
     var permission = await context.Permissions.AsNoTracking()
         .FirstOrDefaultAsync(p => p.Id == permissionId, cancellationToken)
-      ?? throw new PermissionNotFoundException($"Permission {command.PermissionId} was not found.");
+      ?? throw new PermissionNotFoundException("This permission was not found.");
 
     if (!permission.IsActive)
-      return Result<SetPermissionOverrideCommandResult>.Failure($"Permission '{permission.Code.Value}' is inactive.");
+      return Result<SetPermissionOverrideCommandResult>.Failure($"'{permission.PermissionName.Value}' is switched off.");
+
+    // an Allow exception is a grant: nobody grants what they do not hold
+    if (command.Effect == OverrideEffect.Allow)
+      await guard.EnsureCanGrantAsync([permission.Id], "allow this", cancellationToken);
 
     var existing = await context.UserPermissionOverrides
         .FirstOrDefaultAsync(o => o.UserId == userId && o.PermissionId == permissionId, cancellationToken);

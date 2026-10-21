@@ -1,7 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 
 /// The Super Admin provisioning workflow, in one transaction:
-/// create the account → link the employee and give it an employee code → assign roles → hand back a one-time password.
+/// create the account → link it to the person's HR record (taking HR's employee number) → assign roles → hand back a
+/// one-time password, which the person must change at first sign-in.
 ///
 /// There is deliberately no public counterpart to this handler: an employee cannot create an account.
 public class CreateUserHandler(
@@ -9,7 +10,6 @@ public class CreateUserHandler(
     IPasswordHasher passwordHasher,
     IPasswordGenerator passwordGenerator,
     IdentityGuard guard,
-    EmployeeCodeService employeeCodes,
     ICurrentUser currentUser,
     ISecuritySettingsProvider securitySettings,
     IActivityRecorder activity)
@@ -30,18 +30,25 @@ public class CreateUserHandler(
     if (await context.Users.IgnoreQueryFilters().AnyAsync(u => u.Email == email, cancellationToken))
       return Result<CreateUserCommandResult>.Failure($"Email '{email.Value}' is already registered.");
 
-    if (input.EmployeeId is { } employeeId && employeeId != Guid.Empty
-        && await context.Users.IgnoreQueryFilters().AnyAsync(u => u.EmployeeId == employeeId, cancellationToken))
-      return Result<CreateUserCommandResult>.Failure("That employee already has a login account.");
-
-    var employeeCode = await employeeCodes.ForNewUserAsync(input.EmployeeCode, input.AutoGenerateEmployeeCode, cancellationToken);
-    if (!employeeCode.IsSuccess)
-      return Result<CreateUserCommandResult>.Failure(employeeCode.Message!);
+    if (input.EmployeeId is { } employeeId && employeeId != Guid.Empty)
+    {
+      var holder = await context.Users.IgnoreQueryFilters().AsNoTracking()
+        .Where(u => u.EmployeeId == employeeId).Select(u => u.Username.Value).FirstOrDefaultAsync(cancellationToken);
+      if (holder is not null)
+        return Result<CreateUserCommandResult>.Failure($"This person already has an account ({holder}).");
+    }
+    var employeeCode = input.EmployeeId is null || string.IsNullOrWhiteSpace(input.EmployeeCode) ? null : EmployeeCode.Of(input.EmployeeCode);
 
     // roles are resolved and authorized before anything is written
     var roles = await LoadRolesAsync(input.RoleIds, cancellationToken);
     foreach (var role in roles)
       guard.EnsureCanAdministerRole(role);
+    if (roles.Count > 0)
+    {
+      // giving roles is the role-giving right, not the account-creating one - and nobody gives what they do not hold
+      guard.EnsurePermission(PermissionCatalog.Users.Assign, "give roles to a new account (that needs the right to give roles)");
+      await guard.EnsureCanGrantRolesAsync(roles.Select(r => r.Id), "give these roles", cancellationToken);
+    }
 
     var generated = input.TemporaryPassword is null;
     var password = input.TemporaryPassword ?? passwordGenerator.Generate(policy);
@@ -54,9 +61,9 @@ public class CreateUserHandler(
       displayName: Name.Of(input.DisplayName),
       passwordHash: PasswordHash.Of(passwordHasher.Hash(password)),
       employeeId: input.EmployeeId,
-      employeeCode: employeeCode.Value,
-      // a generated password must always be changed on first use
-      mustChangePassword: input.MustChangePassword || generated,
+      employeeCode: employeeCode,
+      // whoever typed or generated it, the administrator knows the first password - the person always changes it
+      mustChangePassword: true,
       now: now);
 
     await context.Users.AddAsync(user, cancellationToken);
@@ -65,7 +72,7 @@ public class CreateUserHandler(
       await context.UserRoles.AddAsync(
         UserRole.Create(user.Id, role.Id, currentUser.UserId, expiresAt: null, now), cancellationToken);
 
-    await activity.RecordAsync(ActivityAction.UserCreated, ActivityTargetType.User, user.Id.Value, user.Username.Value,
+    await activity.RecordAsync(ActivityAction.UserCreated, ActivityTargetType.User, user.Id.Value, user.DisplayName.Value,
       roles.Count == 0 ? null : string.Join(", ", roles.Select(r => r.RoleName.Value)), cancellationToken);
 
     await context.SaveChangesAsync(cancellationToken);
@@ -88,7 +95,7 @@ public class CreateUserHandler(
 
     var inactive = roles.FirstOrDefault(r => !r.IsActive);
     if (inactive is not null)
-      throw new DomainException($"Role '{inactive.Code.Value}' is inactive and cannot be assigned.");
+      throw new DomainException($"The role {inactive.RoleName.Value} is switched off and cannot be given.");
 
     return roles;
   }

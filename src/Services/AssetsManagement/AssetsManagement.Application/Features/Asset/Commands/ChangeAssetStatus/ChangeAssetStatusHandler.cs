@@ -1,45 +1,52 @@
 using Microsoft.EntityFrameworkCore;
 
-public class ChangeAssetStatusHandler(IApplicationDbContext context)
+public class ChangeAssetStatusHandler(IApplicationDbContext context, ICurrentUser currentUser, IClock clock)
   : ICommandHandler<ChangeAssetStatusCommand, Result<ChangeAssetStatusCommandResult>>
 {
   public async Task<Result<ChangeAssetStatusCommandResult>> Handle(ChangeAssetStatusCommand command, CancellationToken cancellationToken)
   {
     var assetId = AssetId.Of(command.AssetId);
-    var asset = await context.Assets.FirstOrDefaultAsync(a => a.Id == assetId, cancellationToken)
-      ?? throw new AssetNotFoundException($"Asset {command.AssetId} was not found.");
+    var asset = await AssetRecordGuard.LoadAsync(context, assetId, track: true, cancellationToken);
+    await AssetRecordGuard.EnsureOpenAsync(context, asset, cancellationToken);
 
     var fromStatus = await context.AssetStatuses.AsNoTracking().FirstAsync(s => s.Id == asset.StatusId, cancellationToken);
 
     var toStatusId = AssetStatusId.Of(command.ToStatusId);
     var toStatus = await context.AssetStatuses.AsNoTracking().FirstOrDefaultAsync(s => s.Id == toStatusId, cancellationToken)
-      ?? throw new AssetStatusNotFoundException($"Asset status {command.ToStatusId} was not found.");
+      ?? throw new AssetStatusNotFoundException("The status was not found. Choose it again.");
 
-    var eventTypeId = LifecycleEventTypeId.Of(command.EventTypeId);
-    var eventType = await context.LifecycleEventTypes.AsNoTracking().FirstOrDefaultAsync(t => t.Id == eventTypeId, cancellationToken)
-      ?? throw new LifecycleEventTypeNotFoundException($"Lifecycle event type {command.EventTypeId} was not found.");
+    var eventDate = EventDates.Check(command.EventDate, clock, asset);
+    asset.ChangeStatus(fromStatus, toStatus);
 
-    if (fromStatus.Id == toStatus.Id)
-      return Result<ChangeAssetStatusCommandResult>.Failure($"Asset is already in status '{toStatus.Name.Value}'.");
-
-    var hasActiveSchedule = await context.AssetDepreciationSchedules.AnyAsync(s => s.AssetId == assetId && s.IsActive, cancellationToken);
-
-    asset.ChangeStatus(fromStatus, toStatus, hasActiveSchedule);
-
-    var lifecycleEvent = AssetLifecycleEvent.Create(
-      AssetLifecycleEventId.Of(Guid.NewGuid()),
-      assetId,
-      eventType,
-      command.EventDate ?? DateTime.UtcNow,
-      fromStatus.Id,
-      toStatus.Id,
-      command.PerformedBy,
-      command.Notes,
-      details: null);
-
-    await context.AssetLifecycleEvents.AddAsync(lifecycleEvent, cancellationToken);
+    var lifecycleEvent = await SystemEvents.AddAsync(context, assetId, EventPurpose.StatusChange, eventDate, currentUser.Actor(), command.Notes,
+      fromStatusId: fromStatus.Id, toStatusId: toStatus.Id, cancellationToken: cancellationToken);
     await context.SaveChangesAsync(cancellationToken);
 
     return Result<ChangeAssetStatusCommandResult>.Success(new ChangeAssetStatusCommandResult(lifecycleEvent.Id.Value));
+  }
+}
+
+/// When something happened to an asset: given by the clerk (the minute they typed) or now. Never in the future, never
+/// before the asset was registered unless it was registered with an older purchase date (a back-dated record).
+public static class EventDates
+{
+  public static DateTime Check(DateTime? given, IClock clock, Asset asset, DateOnly? purchaseDate = null)
+  {
+    var now = clock.UtcNow;
+    if (given is null)
+      return now;
+
+    var at = DateTime.SpecifyKind(given.Value, given.Value.Kind == DateTimeKind.Unspecified ? DateTimeKind.Utc : given.Value.Kind).ToUniversalTime();
+    if (at > now.AddMinutes(5))
+      throw new DomainException("It cannot be dated in the future.");
+
+    if (at.Year < 1900)
+      throw new DomainException("The date is not a real date. Check the year.");
+
+    // a record registered today for an asset bought years ago may log older events, but not before the purchase
+    if (purchaseDate is { } bought && clock.DayOf(at) < bought)
+      throw new DomainException($"It cannot be dated before the asset was acquired ({bought:d MMM yyyy}).");
+
+    return at;
   }
 }

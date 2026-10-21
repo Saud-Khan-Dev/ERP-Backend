@@ -26,7 +26,7 @@ public sealed record MoveSpec(
   string? Remarks,
   Guid? ApprovedBy);
 
-/// Leaving service.
+/// Leaving service. FromActionId: the HR action being applied (it is not closed with the other open actions).
 public sealed record SeparationSpec(
   SeparationType Type,
   DateOnly SeparationDate,
@@ -36,17 +36,27 @@ public sealed record SeparationSpec(
   EmploymentStatus? EmploymentStatus,
   ServiceEventTypeId? EventTypeId,
   EmployeeDocumentId? SupportingDocumentId,
-  Guid? ApprovedBy);
+  Guid? ApprovedBy,
+  HrActionRequestId? FromActionId = null);
+
+/// One thing a separation leaves for a person to do (or done). Key: account, assets, loans, gpFund, postsHeaded,
+/// signingPosts, settlement, leave, appraisals, evaluations.
+public sealed record SeparationChecklistItem(string Key, string Title, string Detail, bool Done, Guid? RefId = null);
+
+/// What a separation closed by itself, what still needs a person, and the posted payroll it reaches.
+public sealed record SeparationChecklistDto(Guid EmployeeId, IReadOnlyList<string> Closed, IReadOnlyList<SeparationChecklistItem> Items, IReadOnlyList<PayrollImpactDto> PayrollImpact);
 
 /// Writes the service record: every change of post or service status is one service-history row plus the matching
 /// assignment, pay and status changes, so the history always explains the current state. Nothing here saves; the
 /// caller saves once, so each use case is one transaction.
-public class ServiceRecordWriter(IApplicationDbContext context, ServiceRecordReader reader, PayService pay)
+public class ServiceRecordWriter(IApplicationDbContext context, ServiceRecordReader reader, PayService pay, HrmSettings settings,
+  PayrollImpactFinder payroll, ICurrentUser currentUser, IClock clock)
 {
   public async Task<EmployeeServiceHistory> AppointAsync(Employee employee, AppointmentSpec spec, CancellationToken cancellationToken)
   {
     employee.EnsureInService();
     var date = spec.EffectiveFrom;
+    employee.EnsureAppointable(date, settings.RetirementAge);
     var post = await context.LoadPostAsync(spec.PostId.Value, cancellationToken);
     var version = post.VersionOn(date)
       ?? throw new DomainException($"Post {post.PostCode} does not exist on {date:yyyy-MM-dd}.");
@@ -133,6 +143,36 @@ public class ServiceRecordWriter(IApplicationDbContext context, ServiceRecordRea
     return history;
   }
 
+  /// Puts back on a post someone who held none (joining after deputation out, reinstatement after dismissal): the
+  /// regular assignment from the date and the pay reopened on the post's scale - at the stage last drawn when it fits,
+  /// so the person comes back on the pay they left on.
+  public async Task<(PositionAssignment Assignment, EmployeePayRecord? Pay)> PlaceAsync(Employee employee, PostId postId, DateOnly date,
+      ServiceHistoryId historyId, string? orderNumber, EmployeeDocumentId? orderDocumentId, string payReason, CancellationToken cancellationToken)
+  {
+    var post = await context.LoadPostAsync(postId.Value, cancellationToken);
+    var version = post.VersionOn(date)
+      ?? throw new DomainException($"Post {post.PostCode} does not exist on {date:yyyy-MM-dd}.");
+
+    var assignment = PositionAssignment.Create(PositionAssignmentId.New(), post, employee, AssignmentType.Regular, date, null, historyId,
+      orderNumber, orderDocumentId, null,
+      await reader.LiveAssignmentsOfPostAsync(post.Id, cancellationToken),
+      await reader.LiveAssignmentsOfEmployeeAsync(employee.Id, cancellationToken));
+    context.PositionAssignments.Add(assignment);
+
+    var open = await pay.OpenRecordAsync(employee.Id, cancellationToken);
+    if (open is not null && open.EffectiveFrom < date)
+      return (assignment, null);
+
+    var last = await context.PayRecords.AsNoTracking().Where(p => p.EmployeeId == employee.Id && p.EffectiveFrom < date)
+      .OrderByDescending(p => p.EffectiveFrom).FirstOrDefaultAsync(cancellationToken);
+    var scale = await pay.ScaleInForceAsync(version.GradeId, date, cancellationToken);
+    var stageNumber = last is null ? 0
+      : await context.PayScaleStages.AsNoTracking().Where(s => s.Id == last.PayScaleStageId).Select(s => s.StageNumber).FirstAsync(cancellationToken);
+    var stage = scale.Stage(stageNumber) ?? scale.Stages.OrderByDescending(s => s.StageNumber).First();
+    var record = await pay.StartAsync(employee.Id, stage, null, date, payReason, orderNumber, last?.LastIncrementDate, null, cancellationToken);
+    return (assignment, record);
+  }
+
   /// A service event that changes no post (joining, LWOP, suspension, regularization ...), or one that only leaves a
   /// post (deputation out).
   public EmployeeServiceHistory RecordEvent(
@@ -160,12 +200,22 @@ public class ServiceRecordWriter(IApplicationDbContext context, ServiceRecordRea
     : new ServiceChange(current.Post.Id, current.Post.Id, current.Version.GradeId, current.Version.GradeId, current.Version.OrgUnitId, current.Version.OrgUnitId);
 
   /// Ends the employee's service on the separation date (the last day of service): posts relieved, pay closed, shift
-  /// ended, service status set, a service-history row and the separation record written. Loans still owed are noted.
-  public async Task<(EmployeeServiceHistory History, EmployeeSeparation Separation)> SeparateAsync(Employee employee, SeparationSpec spec, CancellationToken cancellationToken)
+  /// ended, service status set, a service-history row and the separation record written. What waits on the person is
+  /// closed (open HR actions, pending and future leave, open tasks, pending requests, empty draft appraisals) and the
+  /// checklist of what still needs someone is returned.
+  public async Task<(EmployeeServiceHistory History, EmployeeSeparation Separation, SeparationChecklistDto Checklist)> SeparateAsync(
+      Employee employee, SeparationSpec spec, CancellationToken cancellationToken)
   {
-    employee.EnsureInService();
-    var date = spec.SeparationDate;
+    if (spec.Type == SeparationType.Death)
+      employee.EnsureProfileActive();
+    else
+      employee.EnsureInService();
+    if (employee.EmploymentStatus == EmploymentStatus.Deceased)
+      throw new DomainException($"{employee.DisplayName} is already recorded as deceased.");
+    if (spec.Type == SeparationType.Other)
+      throw new DomainException("Choose the kind of separation (retirement, resignation, dismissal ...).");
 
+    var date = spec.SeparationDate;
     if (await context.Separations.AnyAsync(s => s.EmployeeId == employee.Id, cancellationToken))
       throw new DomainException($"{employee.DisplayName}'s separation is already recorded.");
 
@@ -180,12 +230,17 @@ public class ServiceRecordWriter(IApplicationDbContext context, ServiceRecordRea
       null, null, spec.OrderNumber, spec.SupportingDocumentId, spec.Reason, null, spec.ApprovedBy);
     context.ServiceHistory.Add(history);
 
+    // the posts held on the last day, for the checklist (heads of units, signing officers)
+    var heldPosts = new List<PostId>();
     foreach (var assignment in await reader.LiveAssignmentsOfEmployeeAsync(employee.Id, cancellationToken))
     {
       if (assignment.EffectiveFrom > date)
         assignment.Cancel("Service ended before this assignment started.");
       else if (assignment.EffectiveTo is null || assignment.EffectiveTo > date)
+      {
+        heldPosts.Add(assignment.PostId);
         assignment.End(date);
+      }
     }
 
     await pay.CloseAsync(employee.Id, date, cancellationToken);
@@ -196,23 +251,139 @@ public class ServiceRecordWriter(IApplicationDbContext context, ServiceRecordRea
         shift.EndOn(date);
     }
 
-    employee.ChangeEmploymentStatus(spec.EmploymentStatus ?? StatusAfter(spec.Type));
+    employee.ChangeEmploymentStatus(spec.EmploymentStatus ?? ServiceEventNames.StatusAfter(spec.Type));
 
     var owed = await context.Loans.Where(l => l.EmployeeId == employee.Id && l.Status == LoanStatus.Active).SumAsync(l => l.RemainingBalance, cancellationToken);
     var separation = EmployeeSeparation.Record(SeparationId.New(), employee.Id, spec.Type, date, history.Id, spec.OrderNumber, spec.Reason,
       spec.NoticePeriodDays, owed > 0 ? owed : null);
     context.Separations.Add(separation);
 
-    return (history, separation);
+    var closed = await CloseOpenItemsAsync(employee, spec, cancellationToken);
+    var checklist = await ChecklistAsync(employee, separation, heldPosts, cancellationToken);
+    return (history, separation, checklist with { Closed = closed });
   }
 
-  /// The service status a separation leaves the employee in. A deputationist going back, a contract ending or any
-  /// other separation ends GDA service like a termination.
-  public static EmploymentStatus StatusAfter(SeparationType type) => type switch
+  /// Closes what waits on someone who has left: it can no longer be acted on.
+  private async Task<IReadOnlyList<string>> CloseOpenItemsAsync(Employee employee, SeparationSpec spec, CancellationToken cancellationToken)
   {
-    SeparationType.Retirement => EmploymentStatus.Retired,
-    SeparationType.Resignation => EmploymentStatus.Resigned,
-    SeparationType.Death => EmploymentStatus.Deceased,
-    _ => EmploymentStatus.Terminated
-  };
+    var date = spec.SeparationDate;
+    var now = clock.UtcNow;
+    var remark = $"Closed: {employee.DisplayName} left service on {date:dd MMM yyyy} ({EnumText.Words(spec.Type)}).";
+    var closed = new List<string>();
+
+    var actions = await context.HrActions.Where(a => a.EmployeeId == employee.Id && a.Id != spec.FromActionId
+      && (a.Status == HrActionStatus.Draft || a.Status == HrActionStatus.Pending || a.Status == HrActionStatus.Approved)).ToListAsync(cancellationToken);
+    foreach (var action in actions)
+      action.Close(remark, now);
+    if (actions.Count > 0)
+      closed.Add($"{actions.Count} open HR action(s) cancelled.");
+
+    var leave = await context.LeaveApplications.Where(a => a.EmployeeId == employee.Id
+      && (a.Status == LeaveStatus.Pending || (a.Status == LeaveStatus.Approved && a.StartDate > date))).ToListAsync(cancellationToken);
+    foreach (var application in leave)
+    {
+      var usage = await context.LeaveLedger.Where(l => l.LeaveApplicationId == application.Id).ToListAsync(cancellationToken);
+      foreach (var entry in application.Cancel(usage, currentUser.UserId, now, remark))
+        context.LeaveLedger.Add(entry);
+    }
+    if (leave.Count > 0)
+      closed.Add($"{leave.Count} pending or later leave application(s) cancelled.");
+
+    var tasks = await context.Tasks.Where(t => t.EmployeeId == employee.Id && t.Status != EmployeeTaskStatus.Completed
+      && t.Status != EmployeeTaskStatus.Cancelled).ToListAsync(cancellationToken);
+    foreach (var task in tasks)
+      task.Cancel();
+    if (tasks.Count > 0)
+      closed.Add($"{tasks.Count} open task(s) cancelled.");
+
+    var requests = await context.Requests.Where(r => r.EmployeeId == employee.Id && r.Status == EmployeeRequestStatus.Pending).ToListAsync(cancellationToken);
+    foreach (var request in requests)
+      request.Withdraw(currentUser.UserId, now, remark);
+    if (requests.Count > 0)
+      closed.Add($"{requests.Count} pending request(s) withdrawn.");
+
+    // draft appraisals of the leaver with nothing written yet are removed; those with content stay (see the checklist)
+    var drafts = await context.PerformanceReviews.Include(r => r.Goals).Include(r => r.Kpis).Include(r => r.Competencies)
+      .Where(r => r.EmployeeId == employee.Id && r.Status == ReviewStatus.Draft).ToListAsync(cancellationToken);
+    var empty = drafts.Where(r => r.Goals.Count == 0 && r.Kpis.Count == 0 && r.Competencies.Count == 0).ToList();
+    foreach (var review in empty)
+      context.PerformanceReviews.Remove(review);
+    if (empty.Count > 0)
+      closed.Add($"{empty.Count} empty draft appraisal(s) removed.");
+
+    return closed;
+  }
+
+  /// What still needs a person after a separation, as it stands now (the record shows it until it is all done).
+  public async Task<SeparationChecklistDto> ChecklistAsync(Employee employee, EmployeeSeparation separation, IReadOnlyCollection<PostId>? heldPosts, CancellationToken cancellationToken)
+  {
+    var date = separation.SeparationDate;
+    var items = new List<SeparationChecklistItem>();
+
+    items.Add(employee.UserId is { } userId
+      ? new("account", "Deactivate the sign-in account", "The account linked to this employee can still sign in. Deactivate it in Administration › Users.", false, userId)
+      : new("account", "Sign-in account", "No sign-in account is linked to this employee.", true));
+
+    items.Add(new("assets", "Assets in custody", "Collect every asset in the employee's custody before the final settlement (Assets register).", false));
+
+    var loans = await context.Loans.AsNoTracking().Where(l => l.EmployeeId == employee.Id && l.Status == LoanStatus.Active).ToListAsync(cancellationToken);
+    var owed = loans.Sum(l => l.RemainingBalance);
+    items.Add(loans.Count > 0
+      ? new("loans", "Recover the loans", $"{loans.Count} loan(s) still owe Rs {owed:#,##0.##}: recover them from the final settlement or record the repayment.", false)
+      : new("loans", "Loans", "No loan is outstanding.", true));
+
+    var gpf = await context.GpFundAccounts.AsNoTracking().FirstOrDefaultAsync(a => a.EmployeeId == employee.Id, cancellationToken);
+    if (gpf is not null)
+    {
+      var balance = await context.GpFundBalances.AsNoTracking().Where(b => b.GpFundAccountId == gpf.Id.Value).Select(b => b.Balance).FirstOrDefaultAsync(cancellationToken);
+      items.Add(gpf.IsOpen || balance > 0
+        ? new("gpFund", "Pay the GP Fund final payment", $"The GP Fund balance is Rs {balance:#,##0.##}; pay it out and close the account.", false)
+        : new("gpFund", "GP Fund", "The GP Fund account is closed.", true));
+    }
+
+    var posts = heldPosts is { Count: > 0 }
+      ? heldPosts.ToList()
+      : await context.PositionAssignments.AsNoTracking().Where(a => a.EmployeeId == employee.Id && a.Status == RecordStatus.Active && a.EffectiveTo == date)
+          .Select(a => a.PostId).Distinct().ToListAsync(cancellationToken);
+    if (posts.Count > 0)
+    {
+      var day = date.AddDays(1);
+      var headed = await (
+          from v in context.OrganizationUnitVersions.AsNoTracking()
+          where v.HeadPostId != null && posts.Contains(v.HeadPostId!) && v.Status == RecordStatus.Active
+            && v.EffectiveFrom <= day && (v.EffectiveTo == null || v.EffectiveTo >= day)
+          join p in context.Posts.AsNoTracking() on v.HeadPostId equals p.Id
+          select new { v.Name, p.PostCode, PostId = p.Id })
+        .ToListAsync(cancellationToken);
+      foreach (var unit in headed)
+      {
+        var filled = await context.PositionAssignments.AnyAsync(a => a.PostId == unit.PostId && a.Status == RecordStatus.Active
+          && a.EffectiveFrom <= day && (a.EffectiveTo == null || a.EffectiveTo >= day), cancellationToken);
+        items.Add(new("postsHeaded", $"{unit.Name} needs a head", $"Post {unit.PostCode} heads {unit.Name} and is vacant now: give its charge to someone.", filled, unit.PostId.Value));
+      }
+
+      var codes = await context.Posts.AsNoTracking().Where(p => posts.Contains(p.Id)).Select(p => p.PostCode).ToListAsync(cancellationToken);
+      items.Add(new("signingPosts", "Signing officer posts", $"If post {string.Join(", ", codes)} signs tax notices or certificates, check its new holder in Taxation.", false));
+    }
+
+    items.Add(separation.SettlementPayrollTransactionId is not null || separation.FinalSettlementAmount is not null
+      ? new("settlement", "Final settlement", "The final settlement is worked out.", true)
+      : new("settlement", "Work out the final settlement", "Leave encashment, loans and GP Fund go into the final settlement payroll run.", false));
+
+    var runningOn = await context.LeaveApplications.AsNoTracking().Where(a => a.EmployeeId == employee.Id && a.Status == LeaveStatus.Approved
+      && a.StartDate <= date && a.EndDate > date).ToListAsync(cancellationToken);
+    foreach (var leave in runningOn)
+      items.Add(new("leave", "Leave runs past the last day", $"Approved leave from {leave.StartDate:dd MMM yyyy} to {leave.EndDate:dd MMM yyyy} runs past the last day of service.", false, leave.Id.Value));
+
+    var appraisals = await context.PerformanceReviews.AsNoTracking().CountAsync(r => r.EmployeeId == employee.Id && r.Status == ReviewStatus.Draft, cancellationToken);
+    if (appraisals > 0)
+      items.Add(new("appraisals", "Finish the appraisal", $"{appraisals} draft appraisal(s) with content were kept: the reporting officer finishes them for the period served, or HR deletes them.", false));
+
+    var evaluations = await context.PerformanceReviews.AsNoTracking().CountAsync(r => r.EvaluatorId == employee.Id && r.Status == ReviewStatus.Draft, cancellationToken);
+    if (evaluations > 0)
+      items.Add(new("evaluations", "Appraisals they were writing", $"{evaluations} appraisal(s) had this employee as reporting officer: give them another evaluator.", false));
+
+    var impact = await payroll.RunsAsync(employee.Id, date.AddDays(1), null, PayrollImpactFinder.Recovery, cancellationToken);
+    return new SeparationChecklistDto(employee.Id.Value, [], items, impact);
+  }
 }

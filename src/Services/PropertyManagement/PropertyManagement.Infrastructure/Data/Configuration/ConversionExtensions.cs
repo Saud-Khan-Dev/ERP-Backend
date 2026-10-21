@@ -21,6 +21,16 @@ public static class ConversionExtensions
       builder.HasConversion(value => EnumText.ToUpperSnake(value.ToString()), text => EnumText.Parse<TEnum>(text))
         .HasMaxLength(maxLength);
 
+  /// PostgreSQL's xmin system column as the row version (a shadow property: the domain does not see it). Every UPDATE of
+  /// the row carries "WHERE xmin = <as read>", so a row changed by someone else since it was read fails the save with a
+  /// concurrency conflict. xmin exists on every table already: no column is added.
+  public static void HasXminRowVersion<TEntity>(this EntityTypeBuilder<TEntity> builder) where TEntity : class =>
+      builder.Property<uint>("RowVersion")
+        .HasColumnName("xmin")
+        .HasColumnType("xid")
+        .ValueGeneratedOnAddOrUpdate()
+        .IsConcurrencyToken();
+
   /// Same, for an optional value (null stays NULL).
   public static PropertyBuilder<TEnum?> HasNullableUpperSnakeEnum<TEnum>(this PropertyBuilder<TEnum?> builder, int maxLength = 30)
       where TEnum : struct, Enum =>

@@ -1,13 +1,12 @@
 using Microsoft.EntityFrameworkCore;
 
-public class GetAssetsHandler(IApplicationDbContext context, IAttributeSchemaService schemaService)
+public class GetAssetsHandler(IApplicationDbContext context, IAttributeSchemaService schemaService, IAssetDataQueries queries, IHrmDirectory hrm, IClock clock)
   : IQueryHandler<GetAssetsQuery, Result<GetAssetsQueryResult>>
 {
   public async Task<Result<GetAssetsQueryResult>> Handle(GetAssetsQuery query, CancellationToken cancellationToken)
   {
-    var assets = await AssetQueryFilter.ApplyAsync(context, query, cancellationToken);
-    var acquisitions = context.AssetAcquisitions.AsNoTracking();
-    var disposals = context.AssetDisposals.AsNoTracking();
+    var extra = await AssetFilterContext.BuildAsync(query, queries, hrm, clock, cancellationToken);
+    var assets = await AssetQueryFilter.ApplyAsync(context, query, extra, cancellationToken);
 
     var totalCount = await assets.LongCountAsync(cancellationToken);
 
@@ -16,10 +15,18 @@ public class GetAssetsHandler(IApplicationDbContext context, IAttributeSchemaSer
       .Take(query.Pagination.PageSize)
       .ToListAsync(cancellationToken);
 
-    // purchase and disposal facts of the page, for the register's columns
+    // purchase, disposal, loan and status facts of the page, for the register's columns
     var pageIds = page.Select(a => a.Id).ToList();
-    var pageAcquisitions = await acquisitions.Where(q => pageIds.Contains(q.AssetId)).ToDictionaryAsync(q => q.AssetId, cancellationToken);
-    var pageDisposals = await disposals.Where(d => pageIds.Contains(d.AssetId)).ToDictionaryAsync(d => d.AssetId, cancellationToken);
+    var pageAcquisitions = await context.AssetAcquisitions.AsNoTracking().Where(q => pageIds.Contains(q.AssetId)).ToDictionaryAsync(q => q.AssetId, cancellationToken);
+    var pageDisposals = await context.AssetDisposals.AsNoTracking().Where(d => pageIds.Contains(d.AssetId)).ToDictionaryAsync(d => d.AssetId, cancellationToken);
+    var openLoans = (await context.AssetAssignments.AsNoTracking()
+        .Where(x => pageIds.Contains(x.AssetId) && x.ExpectedReturnDate != null && x.ActualReturnDate == null)
+        .ToListAsync(cancellationToken))
+      .GroupBy(x => x.AssetId).ToDictionary(g => g.Key, g => g.Min(x => x.ExpectedReturnDate));
+    var statusEvents = (await context.AssetLifecycleEvents.AsNoTracking()
+        .Where(e => pageIds.Contains(e.AssetId) && e.ToStatusId != null)
+        .Select(e => new { e.AssetId, e.ToStatusId, e.EventDate })
+        .ToListAsync(cancellationToken));
 
     // grid columns: attributes flagged is_visible_in_list for each (class, type, category) combination on the page
     var listCodes = new Dictionary<(AssetClassId, AssetTypeId, AssetCategoryId), HashSet<string>>();
@@ -34,7 +41,9 @@ public class GetAssetsHandler(IApplicationDbContext context, IAttributeSchemaSer
         listCodes[key] = codes;
       }
 
-      data.Add(asset.ToListItemDto(codes, pageAcquisitions.GetValueOrDefault(asset.Id), pageDisposals.GetValueOrDefault(asset.Id)));
+      var since = statusEvents.Where(e => e.AssetId == asset.Id && e.ToStatusId == asset.StatusId).Select(e => (DateTime?)e.EventDate).Max() ?? asset.CreatedAt;
+      data.Add(asset.ToListItemDto(codes, pageAcquisitions.GetValueOrDefault(asset.Id), pageDisposals.GetValueOrDefault(asset.Id),
+        query.IncludeMoney, openLoans.GetValueOrDefault(asset.Id), since));
     }
 
     return Result<GetAssetsQueryResult>.Success(new GetAssetsQueryResult(

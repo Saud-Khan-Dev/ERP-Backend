@@ -15,6 +15,8 @@ public class CreateLifecycleEventType : ICarterModule
       var response = result.Value.Adapt<CreateLifecycleEventTypeResponse>();
       return Results.Created($"/lifecycle-event-types/{response!.Id}", response);
     })
+      .RequirePermission(PermissionCatalog.AssetTaxonomy.Create)
+
       .WithName("CreateLifecycleEventType")
       .Produces<CreateLifecycleEventTypeResponse>(StatusCodes.Status201Created)
       .ProducesProblem(StatusCodes.Status400BadRequest)

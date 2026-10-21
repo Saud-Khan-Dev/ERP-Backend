@@ -53,6 +53,11 @@ public class TaxYear : Aggregate<TaxYearId>
         throw new DomainException($"Slab {slab.SlabOrder} is open-ended, so it must be the highest slab.");
       if (i > 0 && ordered[i - 1].MaxIncome is { } previousMax && slab.MinIncome < previousMax)
         throw new DomainException($"Slab {slab.SlabOrder} overlaps the slab below it.");
+      // no income may fall between two slabs (it would be taxed nothing)
+      if (i == 0 && slab.MinIncome != 0)
+        throw new DomainException($"The lowest slab must start at 0; incomes below {slab.MinIncome:#,##0} would fall in no slab.");
+      if (i > 0 && ordered[i - 1].MaxIncome is { } before && slab.MinIncome > before)
+        throw new DomainException($"Slab {slab.SlabOrder} starts at {slab.MinIncome:#,##0} but the slab below ends at {before:#,##0}; incomes in between would fall in no slab.");
     }
 
     _slabs.Clear();
@@ -153,5 +158,35 @@ public class EmployeeTaxLedgerEntry : Aggregate<TaxLedgerEntryId>
   {
     TaxableIncome = Guard.Money(taxableIncome, "Taxable income");
     TaxWithheld = Guard.Money(taxWithheld, "Tax withheld");
+  }
+}
+
+/// The taxable income and the tax already withheld in a tax year before this payroll paid the employee (going live
+/// mid-year, a transfer from another office). Payroll counts it in the year-to-date, so the tax projected over the
+/// months left is right. One per employee and tax year.
+public class EmployeeTaxOpening : Aggregate<TaxOpeningId>
+{
+  public EmployeeId EmployeeId { get; private set; } = default!;
+  public TaxYearId TaxYearId { get; private set; } = default!;
+  public decimal TaxableIncome { get; private set; }
+  public decimal TaxWithheld { get; private set; }
+  public string? Remarks { get; private set; }
+
+  public static EmployeeTaxOpening Create(EmployeeId employeeId, TaxYear year, decimal taxableIncome, decimal taxWithheld, string? remarks)
+  {
+    ArgumentNullException.ThrowIfNull(employeeId);
+    ArgumentNullException.ThrowIfNull(year);
+    var opening = new EmployeeTaxOpening { Id = TaxOpeningId.New(), EmployeeId = employeeId, TaxYearId = year.Id };
+    opening.Change(taxableIncome, taxWithheld, remarks);
+    return opening;
+  }
+
+  public void Change(decimal taxableIncome, decimal taxWithheld, string? remarks)
+  {
+    TaxableIncome = Guard.Money(taxableIncome, "Taxable income so far");
+    TaxWithheld = Guard.Money(taxWithheld, "Tax withheld so far");
+    if (TaxWithheld > TaxableIncome)
+      throw new DomainException("The tax withheld cannot be more than the taxable income.");
+    Remarks = Guard.Text(remarks, 1000, "Remarks") ?? throw new DomainException("Say where the figures come from (the previous office's certificate, the old system ...).");
   }
 }

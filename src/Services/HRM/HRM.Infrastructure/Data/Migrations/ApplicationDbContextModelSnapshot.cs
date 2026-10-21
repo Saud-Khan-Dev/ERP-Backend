@@ -30,13 +30,13 @@ namespace HRM.Infrastructure.Data.Migrations
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "hrms", "contact_type_enum", new[] { "email", "mobile", "other", "phone", "whatsapp" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "hrms", "employee_request_status_enum", new[] { "approved", "cancelled", "pending", "rejected" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "hrms", "employment_method_enum", new[] { "gda_personal", "scheduled_seat" });
-            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "hrms", "employment_status_enum", new[] { "active", "deceased", "deputed_out", "on_leave", "resigned", "retired", "suspended", "terminated" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "hrms", "employment_status_enum", new[] { "active", "contract_ended", "deceased", "deputed_out", "dismissed", "on_leave", "removed", "repatriated", "resigned", "retired", "suspended", "terminated" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "hrms", "employment_type_enum", new[] { "adhoc", "contract", "daily_wage", "deputation_in", "project_based", "regular" });
-            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "hrms", "gender_enum", new[] { "female", "male", "other" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "hrms", "gender_enum", new[] { "female", "male", "other", "transgender" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "hrms", "gpf_txn_type_enum", new[] { "adjustment", "advance", "advance_recovery", "final_payment", "interest", "opening", "subscription", "withdrawal" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "hrms", "holiday_type_enum", new[] { "optional", "provincial", "public", "religious" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "hrms", "hr_action_status_enum", new[] { "applied", "approved", "cancelled", "draft", "pending", "rejected" });
-            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "hrms", "hr_action_type_enum", new[] { "appointment", "death", "demotion", "deputation_in", "deputation_out", "joining", "lwop", "other", "promotion", "regularization", "reinstatement", "resignation", "retirement", "suspension", "termination", "transfer" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "hrms", "hr_action_type_enum", new[] { "appointment", "compulsory_retirement", "death", "demotion", "deputation_end", "deputation_in", "deputation_out", "dismissal", "end_of_contract", "joining", "lwop", "other", "premature_retirement", "promotion", "regularization", "reinstatement", "removal_from_service", "resignation", "retirement", "suspension", "termination", "transfer" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "hrms", "installment_status_enum", new[] { "paid", "partial", "pending", "waived" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "hrms", "leave_status_enum", new[] { "approved", "cancelled", "pending", "rejected" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "hrms", "leave_txn_type_enum", new[] { "accrual", "adjustment", "carry_forward", "encashment", "lapse", "opening", "usage", "usage_reversal" });
@@ -50,10 +50,10 @@ namespace HRM.Infrastructure.Data.Migrations
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "hrms", "payroll_txn_status_enum", new[] { "calculated", "held", "released" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "hrms", "position_status_enum", new[] { "abolished", "filled", "frozen", "partially_filled", "sanctioned", "vacant" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "hrms", "post_lifecycle_enum", new[] { "abolished", "frozen", "sanctioned" });
-            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "hrms", "qualification_level_enum", new[] { "bachelors", "intermediate", "masters", "matric", "mphil", "other", "phd" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "hrms", "qualification_level_enum", new[] { "bachelors", "diploma", "intermediate", "masters", "matric", "middle", "mphil", "other", "phd", "primary" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "hrms", "record_status_enum", new[] { "active", "inactive" });
-            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "hrms", "review_status_enum", new[] { "acknowledged", "draft", "finalized", "submitted" });
-            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "hrms", "separation_type_enum", new[] { "death", "deputation_end", "dismissal", "end_of_contract", "other", "resignation", "retirement", "termination" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "hrms", "review_status_enum", new[] { "acknowledged", "countersigned", "draft", "finalized", "submitted" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "hrms", "separation_type_enum", new[] { "compulsory_retirement", "death", "deputation_end", "dismissal", "end_of_contract", "other", "premature_retirement", "removal_from_service", "resignation", "retirement", "termination" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "hrms", "task_priority_enum", new[] { "high", "low", "medium", "urgent" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "hrms", "task_status_enum", new[] { "cancelled", "completed", "in_progress", "on_hold", "pending" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "hrms", "verification_status_enum", new[] { "pending", "rejected", "unverified", "verified" });
@@ -286,6 +286,10 @@ namespace HRM.Infrastructure.Data.Migrations
                         .HasColumnType("varchar")
                         .HasColumnName("last_name");
 
+                    b.Property<string>("LendingDepartment")
+                        .HasColumnType("varchar")
+                        .HasColumnName("lending_department");
+
                     b.Property<MaritalStatus?>("MaritalStatus")
                         .HasColumnType("hrms.marital_status_enum")
                         .HasColumnName("marital_status");
@@ -311,6 +315,14 @@ namespace HRM.Infrastructure.Data.Migrations
                     b.Property<Guid?>("ProjectId")
                         .HasColumnType("uuid")
                         .HasColumnName("project_id");
+
+                    b.Property<DateOnly?>("TermFrom")
+                        .HasColumnType("date")
+                        .HasColumnName("term_from");
+
+                    b.Property<DateOnly?>("TermTo")
+                        .HasColumnType("date")
+                        .HasColumnName("term_to");
 
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone")
@@ -347,6 +359,9 @@ namespace HRM.Infrastructure.Data.Migrations
                     b.HasIndex("EmploymentType")
                         .HasDatabaseName("idx_employee_type");
 
+                    b.HasIndex("TermTo")
+                        .HasDatabaseName("idx_employee_term_to");
+
                     b.HasIndex("UserId")
                         .IsUnique()
                         .HasDatabaseName("employee_user_id_key");
@@ -360,6 +375,8 @@ namespace HRM.Infrastructure.Data.Migrations
                             t.HasCheckConstraint("ck_emp_dob", "date_of_birth IS NULL OR date_of_birth < current_date");
 
                             t.HasCheckConstraint("ck_emp_method", "(employment_type = 'regular' AND employment_method IS NOT NULL) OR (employment_type <> 'regular' AND employment_method IS NULL)");
+
+                            t.HasCheckConstraint("ck_emp_term", "term_to IS NULL OR term_from IS NULL OR term_to >= term_from");
                         });
                 });
 
@@ -481,6 +498,56 @@ namespace HRM.Infrastructure.Data.Migrations
 
                             t.HasCheckConstraint("ck_eba_ident", "account_number IS NOT NULL OR iban IS NOT NULL");
                         });
+                });
+
+            modelBuilder.Entity("EmployeeChangeLogEntry", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<DateTime>("ChangedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("changed_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid?>("ChangedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("changed_by");
+
+                    b.Property<string>("ChangedByName")
+                        .HasColumnType("varchar")
+                        .HasColumnName("changed_by_name");
+
+                    b.Property<Guid>("EmployeeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("employee_id");
+
+                    b.Property<string>("Field")
+                        .IsRequired()
+                        .HasColumnType("varchar")
+                        .HasColumnName("field");
+
+                    b.Property<string>("NewValue")
+                        .HasColumnType("varchar")
+                        .HasColumnName("new_value");
+
+                    b.Property<string>("OldValue")
+                        .HasColumnType("varchar")
+                        .HasColumnName("old_value");
+
+                    b.Property<string>("Reason")
+                        .HasColumnType("text")
+                        .HasColumnName("reason");
+
+                    b.HasKey("Id")
+                        .HasName("employee_change_log_pkey");
+
+                    b.HasIndex("EmployeeId", "ChangedAt")
+                        .HasDatabaseName("idx_ecl_employee_at");
+
+                    b.ToTable("employee_change_log", "hrms");
                 });
 
             modelBuilder.Entity("EmployeeContact", b =>
@@ -758,6 +825,18 @@ namespace HRM.Infrastructure.Data.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("approved_by");
 
+                    b.Property<DateTime?>("ClosedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("closed_at");
+
+                    b.Property<Guid?>("ClosedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("closed_by");
+
+                    b.Property<string>("ClosureReason")
+                        .HasColumnType("text")
+                        .HasColumnName("closure_reason");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at")
@@ -889,6 +968,11 @@ namespace HRM.Infrastructure.Data.Migrations
                     b.Property<Guid>("EmployeeId")
                         .HasColumnType("uuid")
                         .HasColumnName("employee_id");
+
+                    b.Property<int>("IncrementDeferredDays")
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0)
+                        .HasColumnName("increment_deferred_days");
 
                     b.Property<DateOnly?>("LastIncrementDate")
                         .HasColumnType("date")
@@ -1562,6 +1646,68 @@ namespace HRM.Infrastructure.Data.Migrations
                         });
                 });
 
+            modelBuilder.Entity("EmployeeTaxOpening", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid>("EmployeeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("employee_id");
+
+                    b.Property<string>("Remarks")
+                        .HasColumnType("text")
+                        .HasColumnName("remarks");
+
+                    b.Property<decimal>("TaxWithheld")
+                        .HasPrecision(14, 2)
+                        .HasColumnType("numeric(14,2)")
+                        .HasColumnName("tax_withheld");
+
+                    b.Property<Guid>("TaxYearId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tax_year_id");
+
+                    b.Property<decimal>("TaxableIncome")
+                        .HasPrecision(14, 2)
+                        .HasColumnType("numeric(14,2)")
+                        .HasColumnName("taxable_income");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("employee_tax_opening_pkey");
+
+                    b.HasIndex("TaxYearId")
+                        .HasDatabaseName("idx_employee_tax_opening_tax_year_id");
+
+                    b.HasIndex("EmployeeId", "TaxYearId")
+                        .IsUnique()
+                        .HasDatabaseName("uq_eto_employee_year");
+
+                    b.ToTable("employee_tax_opening", "hrms", t =>
+                        {
+                            t.HasCheckConstraint("ck_eto_amounts", "taxable_income >= 0 AND tax_withheld >= 0 AND tax_withheld <= taxable_income");
+                        });
+                });
+
             modelBuilder.Entity("EmployeeTaxYtd", b =>
                 {
                     b.Property<Guid>("EmployeeId")
@@ -1838,6 +1984,14 @@ namespace HRM.Infrastructure.Data.Migrations
                         .HasColumnType("hrms.hr_action_type_enum")
                         .HasColumnName("action_type");
 
+                    b.Property<DateTime?>("AppliedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("applied_at");
+
+                    b.Property<Guid?>("AppliedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("applied_by");
+
                     b.Property<Guid?>("ApprovalRequestId")
                         .HasColumnType("uuid")
                         .HasColumnName("approval_request_id");
@@ -1850,6 +2004,11 @@ namespace HRM.Infrastructure.Data.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("approved_by");
 
+                    b.Property<decimal?>("BasicPay")
+                        .HasPrecision(14, 2)
+                        .HasColumnType("numeric(14,2)")
+                        .HasColumnName("basic_pay");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at")
@@ -1859,6 +2018,18 @@ namespace HRM.Infrastructure.Data.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("created_by");
 
+                    b.Property<DateTime?>("DecidedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("decided_at");
+
+                    b.Property<Guid?>("DecidedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("decided_by");
+
+                    b.Property<string>("DecisionRemarks")
+                        .HasColumnType("text")
+                        .HasColumnName("decision_remarks");
+
                     b.Property<DateOnly>("EffectiveDate")
                         .HasColumnType("date")
                         .HasColumnName("effective_date");
@@ -1866,6 +2037,26 @@ namespace HRM.Infrastructure.Data.Migrations
                     b.Property<Guid>("EmployeeId")
                         .HasColumnType("uuid")
                         .HasColumnName("employee_id");
+
+                    b.Property<EmploymentMethod?>("EmploymentMethod")
+                        .HasColumnType("hrms.employment_method_enum")
+                        .HasColumnName("employment_method");
+
+                    b.Property<DateOnly?>("EndDate")
+                        .HasColumnType("date")
+                        .HasColumnName("end_date");
+
+                    b.Property<Guid?>("EventTypeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("event_type_id");
+
+                    b.Property<string>("ExternalReferenceOrg")
+                        .HasColumnType("varchar")
+                        .HasColumnName("external_reference_org");
+
+                    b.Property<Guid?>("LeaveApplicationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("leave_application_id");
 
                     b.Property<Guid?>("NewGradeId")
                         .HasColumnType("uuid")
@@ -1878,6 +2069,10 @@ namespace HRM.Infrastructure.Data.Migrations
                     b.Property<Guid?>("NewPostId")
                         .HasColumnType("uuid")
                         .HasColumnName("new_post_id");
+
+                    b.Property<int?>("NoticePeriodDays")
+                        .HasColumnType("integer")
+                        .HasColumnName("notice_period_days");
 
                     b.Property<Guid?>("OldGradeId")
                         .HasColumnType("uuid")
@@ -1899,14 +2094,30 @@ namespace HRM.Infrastructure.Data.Migrations
                         .HasColumnType("text")
                         .HasColumnName("reason");
 
+                    b.Property<Guid?>("RecruitmentMethodId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("recruitment_method_id");
+
                     b.Property<Guid?>("ResultingServiceHistoryId")
                         .HasColumnType("uuid")
                         .HasColumnName("resulting_service_history_id");
+
+                    b.Property<int?>("StageNumber")
+                        .HasColumnType("integer")
+                        .HasColumnName("stage_number");
 
                     b.Property<HrActionStatus>("Status")
                         .HasColumnType("hrms.hr_action_status_enum")
                         .HasDefaultValue(HrActionStatus.Draft)
                         .HasColumnName("status");
+
+                    b.Property<DateTime?>("SubmittedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("submitted_at");
+
+                    b.Property<Guid?>("SubmittedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("submitted_by");
 
                     b.Property<Guid?>("SupportingDocumentId")
                         .HasColumnType("uuid")
@@ -1929,6 +2140,12 @@ namespace HRM.Infrastructure.Data.Migrations
                     b.HasKey("Id")
                         .HasName("hr_action_request_pkey");
 
+                    b.HasIndex("EventTypeId")
+                        .HasDatabaseName("idx_hr_action_request_event_type_id");
+
+                    b.HasIndex("LeaveApplicationId")
+                        .HasDatabaseName("idx_hr_action_request_leave_application_id");
+
                     b.HasIndex("NewGradeId")
                         .HasDatabaseName("idx_hr_action_request_new_grade_id");
 
@@ -1947,6 +2164,9 @@ namespace HRM.Infrastructure.Data.Migrations
                     b.HasIndex("OldPostId")
                         .HasDatabaseName("idx_hr_action_request_old_post_id");
 
+                    b.HasIndex("RecruitmentMethodId")
+                        .HasDatabaseName("idx_hr_action_request_recruitment_method_id");
+
                     b.HasIndex("ResultingServiceHistoryId")
                         .HasDatabaseName("idx_hr_action_request_resulting_service_history_id");
 
@@ -1962,6 +2182,10 @@ namespace HRM.Infrastructure.Data.Migrations
                     b.ToTable("hr_action_request", "hrms", t =>
                         {
                             t.HasCheckConstraint("ck_har_applied", "status <> 'applied' OR resulting_service_history_id IS NOT NULL");
+
+                            t.HasCheckConstraint("ck_har_end", "end_date IS NULL OR end_date >= effective_date");
+
+                            t.HasCheckConstraint("ck_har_pay", "(stage_number IS NULL OR stage_number >= 0) AND (basic_pay IS NULL OR basic_pay >= 0) AND (notice_period_days IS NULL OR notice_period_days >= 0)");
                         });
                 });
 
@@ -1995,6 +2219,18 @@ namespace HRM.Infrastructure.Data.Migrations
                         .HasColumnType("numeric(6,2)")
                         .HasColumnName("days");
 
+                    b.Property<DateTime?>("DecidedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("decided_at");
+
+                    b.Property<Guid?>("DecidedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("decided_by");
+
+                    b.Property<string>("DecisionReason")
+                        .HasColumnType("text")
+                        .HasColumnName("decision_reason");
+
                     b.Property<Guid>("EmployeeId")
                         .HasColumnType("uuid")
                         .HasColumnName("employee_id");
@@ -2002,6 +2238,10 @@ namespace HRM.Infrastructure.Data.Migrations
                     b.Property<DateOnly>("EndDate")
                         .HasColumnType("date")
                         .HasColumnName("end_date");
+
+                    b.Property<Guid?>("HrActionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("hr_action_id");
 
                     b.Property<Guid>("LeaveTypeId")
                         .HasColumnType("uuid")
@@ -2037,6 +2277,9 @@ namespace HRM.Infrastructure.Data.Migrations
                     b.HasKey("Id")
                         .HasName("leave_application_pkey");
 
+                    b.HasIndex("HrActionId")
+                        .HasDatabaseName("idx_leave_application_hr_action_id");
+
                     b.HasIndex("LeaveTypeId")
                         .HasDatabaseName("idx_leave_application_leave_type_id");
 
@@ -2051,6 +2294,8 @@ namespace HRM.Infrastructure.Data.Migrations
                             t.HasCheckConstraint("ck_la_approval", "status <> 'approved' OR (approved_by IS NOT NULL AND approval_date IS NOT NULL)");
 
                             t.HasCheckConstraint("ck_la_dates", "end_date >= start_date");
+
+                            t.HasCheckConstraint("ck_la_rejection", "status <> 'rejected' OR decision_reason IS NOT NULL OR decided_at IS NULL");
 
                             t.HasCheckConstraint("leave_application_days_check", "days > 0");
                         });
@@ -2120,6 +2365,11 @@ namespace HRM.Infrastructure.Data.Migrations
                         .HasColumnType("numeric(6,2)")
                         .HasColumnName("entitled_days")
                         .HasDefaultValueSql("0");
+
+                    b.Property<bool>("IsPlaceholder")
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_placeholder");
 
                     b.Property<Guid>("LeaveTypeId")
                         .HasColumnType("uuid")
@@ -2240,6 +2490,11 @@ namespace HRM.Infrastructure.Data.Migrations
                         .HasDefaultValue(false)
                         .HasColumnName("carry_forward_allowed");
 
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("is_active");
+
                     b.Property<bool>("IsPaid")
                         .HasColumnType("boolean")
                         .HasDefaultValue(true)
@@ -2303,6 +2558,18 @@ namespace HRM.Infrastructure.Data.Migrations
                         .HasDefaultValue(InstallmentStatus.Pending)
                         .HasColumnName("status");
 
+                    b.Property<string>("WaiveReason")
+                        .HasColumnType("text")
+                        .HasColumnName("waive_reason");
+
+                    b.Property<DateTime?>("WaivedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("waived_at");
+
+                    b.Property<Guid?>("WaivedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("waived_by");
+
                     b.HasKey("Id")
                         .HasName("loan_installment_schedule_pkey");
 
@@ -2326,6 +2593,56 @@ namespace HRM.Infrastructure.Data.Migrations
                             t.HasCheckConstraint("loan_installment_schedule_installment_number_check", "installment_number > 0");
 
                             t.HasCheckConstraint("loan_installment_schedule_paid_amount_check", "paid_amount >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("LoanRepayment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(14, 2)
+                        .HasColumnType("numeric(14,2)")
+                        .HasColumnName("amount");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid>("EmployeeLoanId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("employee_loan_id");
+
+                    b.Property<DateOnly>("PaidOn")
+                        .HasColumnType("date")
+                        .HasColumnName("paid_on");
+
+                    b.Property<string>("ReceiptNumber")
+                        .IsRequired()
+                        .HasColumnType("varchar")
+                        .HasColumnName("receipt_number");
+
+                    b.Property<string>("Remarks")
+                        .HasColumnType("text")
+                        .HasColumnName("remarks");
+
+                    b.HasKey("Id")
+                        .HasName("loan_repayment_pkey");
+
+                    b.HasIndex("EmployeeLoanId")
+                        .HasDatabaseName("idx_loan_repayment_employee_loan_id");
+
+                    b.ToTable("loan_repayment", "hrms", t =>
+                        {
+                            t.HasCheckConstraint("ck_lr_amount", "amount > 0");
                         });
                 });
 
@@ -2959,7 +3276,7 @@ namespace HRM.Infrastructure.Data.Migrations
                         .HasColumnType("varchar")
                         .HasColumnName("account_number_snapshot");
 
-                    b.Property<Guid>("BankAccountId")
+                    b.Property<Guid?>("BankAccountId")
                         .HasColumnType("uuid")
                         .HasColumnName("bank_account_id");
 
@@ -3025,6 +3342,8 @@ namespace HRM.Infrastructure.Data.Migrations
 
                     b.ToTable("payroll_payment", "hrms", t =>
                         {
+                            t.HasCheckConstraint("ck_pp_bank_transfer", "payment_method <> 'bank_transfer' OR bank_account_id IS NOT NULL");
+
                             t.HasCheckConstraint("ck_pp_processed", "payment_status <> 'processed' OR (payment_date IS NOT NULL AND payment_reference IS NOT NULL)");
                         });
                 });
@@ -3089,6 +3408,10 @@ namespace HRM.Infrastructure.Data.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("approved_by");
 
+                    b.Property<DateTime?>("CalculatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("calculated_at");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at")
@@ -3097,6 +3420,14 @@ namespace HRM.Infrastructure.Data.Migrations
                     b.Property<DateTime?>("FinalizationDate")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("finalization_date");
+
+                    b.Property<Guid?>("FinalizedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("finalized_by");
+
+                    b.Property<Guid?>("PaidBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("paid_by");
 
                     b.Property<DateTime?>("PaymentDate")
                         .HasColumnType("timestamp with time zone")
@@ -3109,6 +3440,18 @@ namespace HRM.Infrastructure.Data.Migrations
                     b.Property<Guid?>("PreparedBy")
                         .HasColumnType("uuid")
                         .HasColumnName("prepared_by");
+
+                    b.Property<string>("ReversalReason")
+                        .HasColumnType("text")
+                        .HasColumnName("reversal_reason");
+
+                    b.Property<DateTime?>("ReversedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("reversed_at");
+
+                    b.Property<Guid?>("ReversedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("reversed_by");
 
                     b.Property<Guid?>("ReversesRunId")
                         .HasColumnType("uuid")
@@ -3514,6 +3857,22 @@ namespace HRM.Infrastructure.Data.Migrations
                         .HasColumnName("id")
                         .HasDefaultValueSql("gen_random_uuid()");
 
+                    b.Property<DateTime?>("AcknowledgedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("acknowledged_at");
+
+                    b.Property<string>("CountersignRemarks")
+                        .HasColumnType("text")
+                        .HasColumnName("countersign_remarks");
+
+                    b.Property<DateTime?>("CountersignedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("countersigned_at");
+
+                    b.Property<Guid?>("CountersigningOfficerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("countersigning_officer_id");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at")
@@ -3535,6 +3894,18 @@ namespace HRM.Infrastructure.Data.Migrations
                         .HasPrecision(6, 2)
                         .HasColumnType("numeric(6,2)")
                         .HasColumnName("final_score");
+
+                    b.Property<string>("FinalScoreReason")
+                        .HasColumnType("text")
+                        .HasColumnName("final_score_reason");
+
+                    b.Property<DateTime?>("FinalizedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("finalized_at");
+
+                    b.Property<Guid?>("FinalizedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("finalized_by");
 
                     b.Property<string>("PerformanceGrade")
                         .HasColumnType("varchar")
@@ -3558,6 +3929,10 @@ namespace HRM.Infrastructure.Data.Migrations
                         .HasDefaultValue(ReviewStatus.Draft)
                         .HasColumnName("status");
 
+                    b.Property<DateTime?>("SubmittedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("submitted_at");
+
                     b.Property<bool>("TrainingRecommended")
                         .HasColumnType("boolean")
                         .HasDefaultValue(false)
@@ -3574,6 +3949,9 @@ namespace HRM.Infrastructure.Data.Migrations
                     b.HasKey("Id")
                         .HasName("performance_review_pkey");
 
+                    b.HasIndex("CountersigningOfficerId")
+                        .HasDatabaseName("idx_pr_countersigning_officer");
+
                     b.HasIndex("EvaluatorId")
                         .HasDatabaseName("idx_pr_evaluator");
 
@@ -3586,6 +3964,8 @@ namespace HRM.Infrastructure.Data.Migrations
 
                     b.ToTable("performance_review", "hrms", t =>
                         {
+                            t.HasCheckConstraint("ck_pr_cso", "countersigning_officer_id IS NULL OR (countersigning_officer_id <> employee_id AND countersigning_officer_id <> evaluator_id)");
+
                             t.HasCheckConstraint("ck_pr_not_self", "employee_id <> evaluator_id");
 
                             t.HasCheckConstraint("performance_review_final_score_check", "final_score IS NULL OR final_score BETWEEN 0 AND 100");
@@ -4260,6 +4640,16 @@ namespace HRM.Infrastructure.Data.Migrations
                         .HasConstraintName("employee_bank_account_employee_id_fkey");
                 });
 
+            modelBuilder.Entity("EmployeeChangeLogEntry", b =>
+                {
+                    b.HasOne("Employee", null)
+                        .WithMany()
+                        .HasForeignKey("EmployeeId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired()
+                        .HasConstraintName("employee_change_log_employee_id_fkey");
+                });
+
             modelBuilder.Entity("EmployeeContact", b =>
                 {
                     b.HasOne("Employee", null)
@@ -4562,6 +4952,23 @@ namespace HRM.Infrastructure.Data.Migrations
                         .HasConstraintName("employee_tax_ledger_tax_year_id_fkey");
                 });
 
+            modelBuilder.Entity("EmployeeTaxOpening", b =>
+                {
+                    b.HasOne("Employee", null)
+                        .WithMany()
+                        .HasForeignKey("EmployeeId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired()
+                        .HasConstraintName("employee_tax_opening_employee_id_fkey");
+
+                    b.HasOne("TaxYear", null)
+                        .WithMany()
+                        .HasForeignKey("TaxYearId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired()
+                        .HasConstraintName("employee_tax_opening_tax_year_id_fkey");
+                });
+
             modelBuilder.Entity("GpFundAccount", b =>
                 {
                     b.HasOne("Employee", null)
@@ -4612,6 +5019,18 @@ namespace HRM.Infrastructure.Data.Migrations
                         .IsRequired()
                         .HasConstraintName("hr_action_request_employee_id_fkey");
 
+                    b.HasOne("ServiceEventType", null)
+                        .WithMany()
+                        .HasForeignKey("EventTypeId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .HasConstraintName("hr_action_request_event_type_id_fkey");
+
+                    b.HasOne("LeaveApplication", null)
+                        .WithMany()
+                        .HasForeignKey("LeaveApplicationId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .HasConstraintName("hr_action_request_leave_application_id_fkey");
+
                     b.HasOne("PayScaleGrade", null)
                         .WithMany()
                         .HasForeignKey("NewGradeId")
@@ -4648,6 +5067,12 @@ namespace HRM.Infrastructure.Data.Migrations
                         .OnDelete(DeleteBehavior.NoAction)
                         .HasConstraintName("hr_action_request_old_post_id_fkey");
 
+                    b.HasOne("RecruitmentMethod", null)
+                        .WithMany()
+                        .HasForeignKey("RecruitmentMethodId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .HasConstraintName("hr_action_request_recruitment_method_id_fkey");
+
                     b.HasOne("EmployeeServiceHistory", null)
                         .WithMany()
                         .HasForeignKey("ResultingServiceHistoryId")
@@ -4669,6 +5094,12 @@ namespace HRM.Infrastructure.Data.Migrations
                         .OnDelete(DeleteBehavior.NoAction)
                         .IsRequired()
                         .HasConstraintName("leave_application_employee_id_fkey");
+
+                    b.HasOne("HrActionRequest", null)
+                        .WithMany()
+                        .HasForeignKey("HrActionId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .HasConstraintName("fk_la_hr_action");
 
                     b.HasOne("LeaveType", null)
                         .WithMany()
@@ -4726,6 +5157,16 @@ namespace HRM.Infrastructure.Data.Migrations
                         .OnDelete(DeleteBehavior.ClientCascade)
                         .IsRequired()
                         .HasConstraintName("loan_installment_schedule_employee_loan_id_fkey");
+                });
+
+            modelBuilder.Entity("LoanRepayment", b =>
+                {
+                    b.HasOne("EmployeeLoan", null)
+                        .WithMany()
+                        .HasForeignKey("EmployeeLoanId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired()
+                        .HasConstraintName("loan_repayment_employee_loan_id_fkey");
                 });
 
             modelBuilder.Entity("LoanType", b =>
@@ -4883,7 +5324,6 @@ namespace HRM.Infrastructure.Data.Migrations
                         .HasForeignKey("BankAccountId", "EmployeeId")
                         .HasPrincipalKey("Id", "EmployeeId")
                         .OnDelete(DeleteBehavior.NoAction)
-                        .IsRequired()
                         .HasConstraintName("fk_pp_bank_owner");
                 });
 
@@ -4992,6 +5432,12 @@ namespace HRM.Infrastructure.Data.Migrations
 
             modelBuilder.Entity("PerformanceReview", b =>
                 {
+                    b.HasOne("Employee", null)
+                        .WithMany()
+                        .HasForeignKey("CountersigningOfficerId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .HasConstraintName("performance_review_countersigning_officer_id_fkey");
+
                     b.HasOne("Employee", null)
                         .WithMany()
                         .HasForeignKey("EmployeeId")

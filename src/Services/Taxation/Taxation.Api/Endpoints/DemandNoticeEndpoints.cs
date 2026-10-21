@@ -22,10 +22,11 @@ public class DemandNoticeEndpoints : ICarterModule
 
     var runs = app.MapGroup("/demand-runs").WithTags("Demands");
 
-    runs.MapGet("/", async (int? fiscalYear, ISender sender) => (await sender.Send(new GetDemandRunsQuery(fiscalYear))).ToOk())
+    runs.MapGet("/", async (int? fiscalYear, string? status, ISender sender) =>
+        (await sender.Send(new GetDemandRunsQuery(fiscalYear, QueryParsing.ParseEnum<DemandRunStatus>(status, "status")))).ToOk())
       .RequirePermission(PermissionCatalog.Tax.View)
-      .WithName("GetDemandRuns").Produces<GetDemandRunsQueryResult>()
-      .WithSummary("Get Demand Runs");
+      .WithName("GetDemandRuns").Produces<GetDemandRunsQueryResult>().ProducesProblem(StatusCodes.Status400BadRequest)
+      .WithSummary("Get Demand Runs").WithDescription("status = computed | approved | cancelled.");
 
     runs.MapGet("/{id:guid}", async (Guid id, ISender sender) => (await sender.Send(new GetDemandRunQuery(id))).ToOk())
       .RequirePermission(PermissionCatalog.Tax.View)
@@ -63,13 +64,15 @@ public class DemandNoticeEndpoints : ICarterModule
     var demands = app.MapGroup("/demands").WithTags("Demands");
 
     demands.MapGet("/", async (int? pageIndex, int? pageSize, int? fiscalYear, Guid? circleId, string? status, string? stage, Guid? runId, Guid? taxFileId, string? search,
-        bool? withBalance, ISender sender) =>
+        bool? withBalance, bool? overdue, bool? noticeDue, bool? yearEndDue, ISender sender) =>
         (await sender.Send(new GetDemandsQuery(QueryParsing.Page(pageIndex, pageSize), fiscalYear, circleId, QueryParsing.ParseEnum<DemandStatus>(status, "status"),
-          QueryParsing.ParseEnum<DemandStage>(stage, "stage"), runId, taxFileId, search, withBalance))).ToOk())
+          QueryParsing.ParseEnum<DemandStage>(stage, "stage"), runId, taxFileId, search, withBalance, overdue, noticeDue, yearEndDue))).ToOk())
       .RequirePermission(PermissionCatalog.Tax.View)
       .WithName("GetDemands").Produces<GetDemandsQueryResult>().ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Get Demands")
-      .WithDescription("status = draft | issued | part_paid | paid | defaulted | carried; stage = first | second | final | show_cause | penalty | sealed.");
+      .WithDescription("status = draft | issued | part_paid | paid | defaulted | carried; stage = first | second | final | show_cause | penalty | sealed. "
+        + "withBalance: still owing; overdue: still owing after its due date; noticeDue: its next notice is due today (the bell's count); yearEndDue: a "
+        + "year that is over, still owing, its year-end surcharge not applied yet. search matches the demand no., payer, file no. or reference (spaces ignored).");
 
     demands.MapGet("/{id:guid}", async (Guid id, ISender sender) => (await sender.Send(new GetDemandQuery(id))).ToOk())
       .RequirePermission(PermissionCatalog.Tax.View)

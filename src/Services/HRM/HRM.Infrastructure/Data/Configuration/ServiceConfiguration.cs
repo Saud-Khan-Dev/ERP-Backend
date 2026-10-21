@@ -87,9 +87,15 @@ public class HrActionRequestConfiguration : EntityConfiguration<HrActionRequest,
   {
     base.Configure(builder);
     builder.ToTable("hr_action_request", t =>
-      t.HasCheckConstraint("ck_har_applied", "status <> 'applied' OR resulting_service_history_id IS NOT NULL"));
+    {
+      t.HasCheckConstraint("ck_har_applied", "status <> 'applied' OR resulting_service_history_id IS NOT NULL");
+      t.HasCheckConstraint("ck_har_end", "end_date IS NULL OR end_date >= effective_date");
+      t.HasCheckConstraint("ck_har_pay", "(stage_number IS NULL OR stage_number >= 0) AND (basic_pay IS NULL OR basic_pay >= 0) AND (notice_period_days IS NULL OR notice_period_days >= 0)");
+    });
 
     builder.Property(x => x.Reason).Text();
+    builder.Property(x => x.DecisionRemarks).Text();
+    builder.Property(x => x.BasicPay).Money();
     builder.Property(x => x.Status).HasDefaultValue(HrActionStatus.Draft);
     builder.Property<uint>("xmin").HasColumnName("xmin").IsRowVersion();
 
@@ -102,8 +108,14 @@ public class HrActionRequestConfiguration : EntityConfiguration<HrActionRequest,
     builder.HasOne<OrganizationUnit>().WithMany().HasForeignKey(x => x.NewOrgUnitId).OnDelete(DeleteBehavior.NoAction);
     builder.HasOne<EmployeeDocument>().WithMany().HasForeignKey(x => x.SupportingDocumentId).OnDelete(DeleteBehavior.NoAction);
     builder.HasOne<EmployeeServiceHistory>().WithMany().HasForeignKey(x => x.ResultingServiceHistoryId).OnDelete(DeleteBehavior.NoAction);
+    builder.HasOne<ServiceEventType>().WithMany().HasForeignKey(x => x.EventTypeId).OnDelete(DeleteBehavior.NoAction);
+    builder.HasOne<RecruitmentMethod>().WithMany().HasForeignKey(x => x.RecruitmentMethodId).OnDelete(DeleteBehavior.NoAction);
+    builder.HasOne<LeaveApplication>().WithMany().HasForeignKey(x => x.LeaveApplicationId).OnDelete(DeleteBehavior.NoAction);
 
     builder.HasIndex(x => new { x.EmployeeId, x.EffectiveDate }).HasDatabaseName("idx_har_employee");
+    builder.HasIndex(x => x.EventTypeId).HasDatabaseName("idx_hr_action_request_event_type_id");
+    builder.HasIndex(x => x.RecruitmentMethodId).HasDatabaseName("idx_hr_action_request_recruitment_method_id");
+    builder.HasIndex(x => x.LeaveApplicationId).HasDatabaseName("idx_hr_action_request_leave_application_id");
     builder.HasIndex(x => x.Status).HasDatabaseName("idx_har_status");
     builder.HasIndex(x => x.NewGradeId).HasDatabaseName("idx_hr_action_request_new_grade_id");
     builder.HasIndex(x => x.NewOrgUnitId).HasDatabaseName("idx_hr_action_request_new_org_unit_id");
@@ -169,9 +181,14 @@ public class PerformanceReviewConfiguration : EntityConfiguration<PerformanceRev
     {
       t.HasCheckConstraint("performance_review_final_score_check", "final_score IS NULL OR final_score BETWEEN 0 AND 100");
       t.HasCheckConstraint("ck_pr_not_self", "employee_id <> evaluator_id");
+      t.HasCheckConstraint("ck_pr_cso", "countersigning_officer_id IS NULL OR (countersigning_officer_id <> employee_id AND countersigning_officer_id <> evaluator_id)");
     });
 
     builder.Property(x => x.Status).HasDefaultValue(ReviewStatus.Draft);
+    builder.Property(x => x.CountersignRemarks).Text();
+    builder.Property(x => x.FinalScoreReason).Text();
+    builder.HasOne<Employee>().WithMany().HasForeignKey(x => x.CountersigningOfficerId).OnDelete(DeleteBehavior.NoAction);
+    builder.HasIndex(x => x.CountersigningOfficerId).HasDatabaseName("idx_pr_countersigning_officer");
     builder.Property(x => x.FinalScore).Numeric(6, 2);
     builder.Property(x => x.PromotionRecommended).HasDefaultValue(false);
     builder.Property(x => x.TrainingRecommended).HasDefaultValue(false);

@@ -1,6 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 
-/// multipart/form-data: file (required), attachmentType (Image | Document | Other, optional), title, isPrimaryImage.
+/// multipart/form-data: file (required), attachmentType (Image | Document, optional - a picture file is an Image), title, isPrimaryImage.
 public sealed class UploadAssetAttachmentForm
 {
   public IFormFile? File { get; set; }
@@ -32,6 +32,8 @@ public class AddAssetAttachment : ICarterModule
     })
       .DisableAntiforgery()
       .Accepts<UploadAssetAttachmentForm>("multipart/form-data")
+      .RequireAnyPermission(PermissionCatalog.Assets.Create, PermissionCatalog.Assets.Edit)
+
       .WithName("AddAssetAttachment")
       .Produces<AddAssetAttachmentResponse>(StatusCodes.Status201Created)
       .ProducesProblem(StatusCodes.Status400BadRequest)
@@ -45,6 +47,8 @@ public class AddAssetAttachment : ICarterModule
       var file = result.Value!;
       return Results.File(file.Content, file.MimeType, file.FileName);
     })
+      .RequirePermission(PermissionCatalog.Assets.View)
+
       .WithName("GetAssetAttachmentContent")
       .Produces(StatusCodes.Status200OK)
       .ProducesProblem(StatusCodes.Status404NotFound)

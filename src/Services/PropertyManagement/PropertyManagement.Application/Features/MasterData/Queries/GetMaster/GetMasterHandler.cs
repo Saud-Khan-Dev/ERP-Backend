@@ -7,6 +7,7 @@ public class GetMasterHandler(IApplicationDbContext context)
     var master = await descriptor.FindAsync(context, MasterId.Of(query.Id), cancellationToken)
       ?? throw new MasterDataNotFoundException($"{descriptor.Label} {query.Id} was not found.");
 
-    return Result<GetMasterQueryResult>.Success(new GetMasterQueryResult(master.ToDto()));
+    var usage = await context.ReferenceCountsAsync(descriptor.ClrType, new[] { master.Id.Value }, cancellationToken);
+    return Result<GetMasterQueryResult>.Success(new GetMasterQueryResult(master.ToDto(usage.GetValueOrDefault(master.Id.Value))));
   }
 }

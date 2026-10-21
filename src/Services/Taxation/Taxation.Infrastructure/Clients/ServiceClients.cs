@@ -195,7 +195,9 @@ public sealed class PropertyServiceClient(HttpClient http, ILogger<PropertyServi
   private sealed record MasterEnvelope(MasterRow Item);
 }
 
-/// Reads the holiday calendar and post holders from the HRM service.
+/// Reads the holiday calendar and post holders from the HRM service. Both are open to any signed-in person: holidays
+/// through /holidays, who holds a post through the staff directory (/directory/posts/{id}/holder), so a clerk without
+/// HR access still gets the officer who signs.
 public sealed class HrmServiceClient(HttpClient http, ILogger<HrmServiceClient> logger) : IHrmDirectory
 {
   private const string Service = "HRM";
@@ -208,18 +210,17 @@ public sealed class HrmServiceClient(HttpClient http, ILogger<HrmServiceClient> 
     return (result?.Holidays ?? []).Select(h => h.HolidayDate).ToHashSet();
   }
 
-  public async Task<SigningOfficer?> PostHolderAsync(Guid postId, DateOnly asOf, CancellationToken cancellationToken)
+  public async Task<PostHolderInfo?> PostHolderAsync(Guid postId, DateOnly asOf, CancellationToken cancellationToken)
   {
-    var post = (await ServiceJson.GetAsync<PostEnvelope>(http, Service, $"posts/{postId}", logger, cancellationToken))?.Post;
-    var holder = post?.Assignments?
-      .Where(a => a.EffectiveFrom <= asOf && (a.EffectiveTo is null || a.EffectiveTo >= asOf))
-      .OrderBy(a => a.AssignmentType == "Regular" ? 0 : 1).ThenByDescending(a => a.EffectiveFrom).FirstOrDefault();
-    return holder is null ? null : new SigningOfficer(postId, holder.EmployeeId, holder.FullName);
+    var post = await ServiceJson.GetAsync<HolderEnvelope>(http, Service, $"directory/posts/{postId}/holder?on={asOf:yyyy-MM-dd}", logger, cancellationToken);
+    if (post is null)
+      return null;
+    var h = post.Holder;
+    return new PostHolderInfo(postId, post.PostCode, post.Designation, h?.Id, h?.EmployeeNumber, h?.Name, h?.Designation);
   }
 
   private sealed record HolidayRow(DateOnly HolidayDate);
   private sealed record HolidaysEnvelope(IReadOnlyList<HolidayRow> Holidays);
-  private sealed record HolderRow(Guid EmployeeId, string FullName, string? AssignmentType, DateOnly EffectiveFrom, DateOnly? EffectiveTo);
-  private sealed record PostRow(Guid Id, IReadOnlyList<HolderRow>? Assignments);
-  private sealed record PostEnvelope(PostRow Post);
+  private sealed record DirectoryEmployee(Guid Id, string? EmployeeNumber, string? Name, string? Designation);
+  private sealed record HolderEnvelope(Guid PostId, string? PostCode, string? Designation, DirectoryEmployee? Holder);
 }

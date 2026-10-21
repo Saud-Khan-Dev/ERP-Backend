@@ -13,6 +13,8 @@ public class DeleteLifecycleEventType : ICarterModule
 
       return Results.Ok(result.Value.Adapt<DeleteLifecycleEventTypeResponse>());
     })
+      .RequirePermission(PermissionCatalog.AssetTaxonomy.Delete)
+
       .WithName("DeleteLifecycleEventType")
       .Produces<DeleteLifecycleEventTypeResponse>(StatusCodes.Status200OK)
       .ProducesProblem(StatusCodes.Status400BadRequest)

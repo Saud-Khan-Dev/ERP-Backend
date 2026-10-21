@@ -35,6 +35,24 @@
 --   * section 3 of FINISHING (access roles and grants) is not run by the
 --     migration: it is a DBA step;
 --   * section 4 (seeds) is replaced by the service's own seeder.
+--
+-- Later migrations, folded into this file:
+--   * PeopleRulesAndLeaveDecisions (2026-10-20): enum labels (transgender;
+--     dismissed / removed / contract_ended / repatriated; primary / middle /
+--     diploma; compulsory / premature retirement and removal from service;
+--     the matching HR action types); employee term_from / term_to /
+--     lending_department; employee_pay_record.increment_deferred_days;
+--     hr_action_request extras and maker-checker columns; leave_type
+--     .is_active, leave_entitlement.is_placeholder, leave_application
+--     decision columns and hr_action_id; employee_change_log (append-only);
+--     fn_check_post_capacity counts the busiest day of the new holding,
+--     so holders who follow one another share a seat.
+--   * PayAuditRepaymentsAndPer (2026-10-21): review status countersigned
+--     and countersigning / audit columns on performance_review; payroll_run
+--     audit (calculated_at, finalized_by, paid_by, reversed_*); payroll_payment
+--     bank account only for bank transfers (cheque / cash); loan closure and
+--     installment waiver reasons; loan_repayment (append-only);
+--     employee_tax_opening.
 -- =====================================================================
 
 CREATE EXTENSION IF NOT EXISTS btree_gist;
@@ -46,9 +64,10 @@ SET search_path = hrms, public;
 -- ---------------------------------------------------------------------
 -- ENUMS
 -- ---------------------------------------------------------------------
-CREATE TYPE gender_enum            AS ENUM ('male','female','other');
+CREATE TYPE gender_enum            AS ENUM ('male','female','other','transgender');
 CREATE TYPE marital_status_enum    AS ENUM ('single','married','divorced','widowed');
-CREATE TYPE employment_status_enum AS ENUM ('active','on_leave','suspended','deputed_out','retired','resigned','terminated','deceased');
+CREATE TYPE employment_status_enum AS ENUM ('active','on_leave','suspended','deputed_out','retired','resigned','terminated','deceased',
+                                             'dismissed','removed','contract_ended','repatriated');
 
 -- regular = Permanent (see employment_method), deputation_in = Permanent deputed in from
 -- another department, contract = Contingent, project_based = Project-Based, daily_wage = Daily Wages
@@ -81,13 +100,15 @@ CREATE TYPE employee_request_status_enum AS ENUM ('pending','approved','rejected
 
 CREATE TYPE contact_type_enum  AS ENUM ('mobile','phone','email','whatsapp','other');
 CREATE TYPE address_type_enum  AS ENUM ('permanent','current','mailing','other');
-CREATE TYPE qualification_level_enum AS ENUM ('matric','intermediate','bachelors','masters','mphil','phd','other');
-CREATE TYPE separation_type_enum AS ENUM ('retirement','resignation','termination','dismissal','death','end_of_contract','deputation_end','other');
+CREATE TYPE qualification_level_enum AS ENUM ('primary','middle','matric','intermediate','diploma','bachelors','masters','mphil','phd','other');
+CREATE TYPE separation_type_enum AS ENUM ('retirement','resignation','termination','dismissal','death','end_of_contract','deputation_end','other',
+                                          'compulsory_retirement','premature_retirement','removal_from_service');
 
-CREATE TYPE hr_action_type_enum   AS ENUM ('appointment','joining','transfer','promotion','demotion','deputation_in','deputation_out','regularization','lwop','suspension','reinstatement','retirement','resignation','termination','death','other');
+CREATE TYPE hr_action_type_enum   AS ENUM ('appointment','joining','transfer','promotion','demotion','deputation_in','deputation_out','regularization','lwop','suspension','reinstatement','retirement','resignation','termination','death','other',
+                                         'dismissal','removal_from_service','compulsory_retirement','premature_retirement','end_of_contract','deputation_end');
 CREATE TYPE hr_action_status_enum AS ENUM ('draft','pending','approved','rejected','cancelled','applied');
 
-CREATE TYPE review_status_enum AS ENUM ('draft','submitted','acknowledged','finalized');
+CREATE TYPE review_status_enum AS ENUM ('draft','submitted','acknowledged','finalized','countersigned');
 CREATE TYPE attendance_status_enum AS ENUM ('present','absent','late','half_day','on_leave','official_duty','holiday','weekend');
 CREATE TYPE holiday_type_enum  AS ENUM ('public','religious','provincial','optional');
 
@@ -315,11 +336,17 @@ CREATE TABLE employee (
   employment_status employment_status_enum NOT NULL DEFAULT 'active',
   photo_reference   varchar,
 
+  -- the term of a contract / ad hoc / project / deputation-in employee; lending_department for deputation in
+  term_from          date,
+  term_to            date,
+  lending_department varchar,
+
   created_at timestamptz NOT NULL DEFAULT now(),
   created_by uuid,
   updated_at timestamptz,
   updated_by uuid,
 
+  CONSTRAINT ck_emp_term CHECK (term_to IS NULL OR term_from IS NULL OR term_to >= term_from),
   CONSTRAINT ck_emp_method CHECK (
     (employment_type = 'regular' AND employment_method IS NOT NULL) OR
     (employment_type <> 'regular' AND employment_method IS NULL)
@@ -330,6 +357,7 @@ CREATE TABLE employee (
 );
 CREATE INDEX idx_employee_type   ON employee (employment_type);
 CREATE INDEX idx_employee_status ON employee (employment_status);
+CREATE INDEX idx_employee_term_to ON employee (term_to);
 COMMENT ON TABLE employee IS 'Core identity only. full_name is a generated column. CNIC is stored in plain text (needed for uniqueness/search): protect with column privileges (see security section) and disk/backup encryption.';
 COMMENT ON COLUMN employee.cnic IS 'Accepts 13 digits with or without dashes (35202-1234567-1). Normalise in the application so the UNIQUE index is meaningful.';
 
@@ -341,6 +369,7 @@ CREATE TABLE employee_pay_record (
   basic_pay          numeric(14,2) NOT NULL CHECK (basic_pay >= 0),
   last_increment_date date,
   next_increment_date date,
+  increment_deferred_days int NOT NULL DEFAULT 0,  -- days of leave without pay that moved the next increment
   reason             varchar,                -- appointment / annual increment / promotion / pay revision ...
   order_number       varchar,
   effective_from     date NOT NULL,
@@ -355,6 +384,22 @@ CREATE TABLE employee_pay_record (
 );
 COMMENT ON TABLE employee_pay_record IS
   'Effective-dated pay position of an employee (stage + actual basic pay). Annual increments close the current row and open the next stage. Payroll reads Basic Pay from here.';
+
+CREATE TABLE employee_change_log (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  employee_id     uuid NOT NULL REFERENCES employee(id),
+  field           varchar NOT NULL,
+  old_value       varchar,
+  new_value       varchar,
+  reason          text,
+  changed_by      uuid,
+  changed_by_name varchar,
+  changed_at      timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_ecl_employee_at ON employee_change_log (employee_id, changed_at);
+COMMENT ON TABLE employee_change_log IS 'Append-only trail of changes to an employee''s identity, employment, sign-in account and pay: old -> new, reason, who and when.';
+CREATE TRIGGER trg_ecl_append_only BEFORE UPDATE OR DELETE ON employee_change_log
+  FOR EACH ROW EXECUTE FUNCTION fn_block_mutation();
 
 CREATE TABLE employee_contact (
   id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -542,39 +587,55 @@ CREATE INDEX idx_pa_employee  ON position_assignment (employee_id);
 COMMENT ON TABLE position_assignment IS
   'Employee occupancy of a sanctioned post. Acting / additional-charge assignments can coexist with a regular one. A trigger stops regular assignments exceeding the post''s sanctioned_count and refuses frozen / abolished posts.';
 
+-- The service runs this as a DEFERRABLE INITIALLY DEFERRED constraint trigger: it re-reads the row at commit, locks the
+-- post and counts the busiest day of the new holding, so holders who follow one another share a seat.
 CREATE OR REPLACE FUNCTION fn_check_post_capacity() RETURNS trigger
 LANGUAGE plpgsql AS $$
 DECLARE
-  v_seats int; v_life post_lifecycle_enum; v_taken int;
+  v_seats int; v_life post_lifecycle_enum; v_taken int; v_row position_assignment%ROWTYPE;
 BEGIN
-  IF NEW.assignment_type <> 'regular' OR NEW.status <> 'active' THEN
-    RETURN NEW;
+  SELECT * INTO v_row FROM position_assignment WHERE id = NEW.id;
+  IF NOT FOUND OR v_row.assignment_type <> 'regular' OR v_row.status <> 'active' THEN
+    RETURN NULL;
   END IF;
+
+  PERFORM 1 FROM post WHERE id = v_row.post_id FOR UPDATE;
 
   SELECT sanctioned_count, lifecycle_status INTO v_seats, v_life
     FROM post_version
-   WHERE post_id = NEW.post_id
-     AND NEW.effective_from BETWEEN effective_from AND coalesce(effective_to, 'infinity'::date);
+   WHERE post_id = v_row.post_id
+     AND v_row.effective_from BETWEEN effective_from AND coalesce(effective_to, 'infinity'::date);
   IF NOT FOUND THEN
-    RAISE EXCEPTION 'post % has no post_version in effect on %', NEW.post_id, NEW.effective_from;
+    RAISE EXCEPTION 'post % has no post_version in effect on %', v_row.post_id, v_row.effective_from;
   END IF;
   IF v_life <> 'sanctioned' THEN
-    RAISE EXCEPTION 'post % is % and cannot receive a regular assignment', NEW.post_id, v_life;
+    RAISE EXCEPTION 'post % is % and cannot receive a regular assignment', v_row.post_id, v_life;
   END IF;
 
-  SELECT count(*) INTO v_taken
-    FROM position_assignment pa
-   WHERE pa.post_id = NEW.post_id
-     AND pa.assignment_type = 'regular' AND pa.status = 'active'
-     AND pa.id IS DISTINCT FROM NEW.id
-     AND daterange(pa.effective_from, pa.effective_to, '[]') && daterange(NEW.effective_from, NEW.effective_to, '[]');
+  -- the busiest day of this holding: its first day or a day another holding starts inside it
+  SELECT coalesce(max(x.cnt), 0) INTO v_taken
+    FROM (
+      SELECT (SELECT count(*) FROM position_assignment pa
+               WHERE pa.post_id = v_row.post_id AND pa.assignment_type = 'regular' AND pa.status = 'active'
+                 AND pa.id <> v_row.id
+                 AND d.day BETWEEN pa.effective_from AND coalesce(pa.effective_to, 'infinity'::date)) AS cnt
+        FROM (
+          SELECT v_row.effective_from AS day
+          UNION
+          SELECT pa.effective_from
+            FROM position_assignment pa
+           WHERE pa.post_id = v_row.post_id AND pa.assignment_type = 'regular' AND pa.status = 'active' AND pa.id <> v_row.id
+             AND pa.effective_from BETWEEN v_row.effective_from AND coalesce(v_row.effective_to, 'infinity'::date)
+        ) d
+    ) x;
   IF v_taken >= v_seats THEN
-    RAISE EXCEPTION 'post % is full: % of % seats already held in the requested period', NEW.post_id, v_taken, v_seats;
+    RAISE EXCEPTION 'post % is full: % of % seats already held in the requested period', v_row.post_id, v_taken, v_seats;
   END IF;
-  RETURN NEW;
+  RETURN NULL;
 END $$;
-CREATE TRIGGER trg_pa_capacity
-  BEFORE INSERT OR UPDATE ON position_assignment
+CREATE CONSTRAINT TRIGGER trg_pa_capacity
+  AFTER INSERT OR UPDATE ON position_assignment
+  DEFERRABLE INITIALLY DEFERRED
   FOR EACH ROW EXECUTE FUNCTION fn_check_post_capacity();
 
 -- Derived occupancy replaces the old stored post_version.status
@@ -613,16 +674,37 @@ CREATE TABLE hr_action_request (
   order_number     varchar,
   reason           text,
   supporting_document_id uuid REFERENCES employee_document(id),
+  -- what the kind of action needs (an end date for LWOP / suspension / deputation, the custom event, the joining
+  -- terms, the pay fixed on promotion, the notice period of a resignation)
+  end_date               date,
+  event_type_id          uuid REFERENCES service_event_type(id),
+  external_reference_org varchar,
+  employment_method      employment_method_enum,
+  recruitment_method_id  uuid REFERENCES recruitment_method(id),
+  stage_number           int,
+  basic_pay              numeric(14,2),
+  notice_period_days     int,
   status           hr_action_status_enum NOT NULL DEFAULT 'draft',
   approval_request_id uuid,                  -- pointer into the platform's generic approval workflow
+  submitted_by     uuid,
+  submitted_at     timestamptz,
   approved_by      uuid,
   approved_at      timestamptz,
+  decided_by       uuid,                     -- who approved, returned or rejected it, when and why
+  decided_at       timestamptz,
+  decision_remarks text,
+  applied_by       uuid,
+  applied_at       timestamptz,
+  leave_application_id uuid,                 -- the leave without pay it recorded (FK added after leave_application)
   resulting_service_history_id uuid REFERENCES employee_service_history(id),
   created_by       uuid,
   created_at       timestamptz NOT NULL DEFAULT now(),
   updated_at       timestamptz,
   updated_by       uuid,
-  CONSTRAINT ck_har_applied CHECK (status <> 'applied' OR resulting_service_history_id IS NOT NULL)
+  CONSTRAINT ck_har_applied CHECK (status <> 'applied' OR resulting_service_history_id IS NOT NULL),
+  CONSTRAINT ck_har_end CHECK (end_date IS NULL OR end_date >= effective_date),
+  CONSTRAINT ck_har_pay CHECK ((stage_number IS NULL OR stage_number >= 0) AND (basic_pay IS NULL OR basic_pay >= 0)
+                               AND (notice_period_days IS NULL OR notice_period_days >= 0))
 );
 CREATE INDEX idx_har_employee ON hr_action_request (employee_id, effective_date);
 CREATE INDEX idx_har_status   ON hr_action_request (status);
@@ -666,20 +748,31 @@ CREATE TABLE performance_review (
   employee_id           uuid NOT NULL REFERENCES employee(id),
   performance_period_id uuid NOT NULL REFERENCES performance_period(id),
   evaluator_id          uuid NOT NULL REFERENCES employee(id),
+  countersigning_officer_id uuid REFERENCES employee(id),
   status                review_status_enum NOT NULL DEFAULT 'draft',
   final_score           numeric(6,2) CHECK (final_score IS NULL OR final_score BETWEEN 0 AND 100),
   performance_grade     varchar,
   promotion_recommended boolean NOT NULL DEFAULT false,
   training_recommended  boolean NOT NULL DEFAULT false,
   remarks               text,
+  countersign_remarks   text,
+  final_score_reason    text,                -- why the final score differs from the worked-out one
+  submitted_at          timestamptz,
+  acknowledged_at       timestamptz,
+  countersigned_at      timestamptz,
+  finalized_at          timestamptz,
+  finalized_by          uuid,
   created_at            timestamptz NOT NULL DEFAULT now(),
   created_by            uuid,
   updated_at            timestamptz,
   updated_by            uuid,
   UNIQUE (employee_id, performance_period_id),
-  CONSTRAINT ck_pr_not_self CHECK (employee_id <> evaluator_id)
+  CONSTRAINT ck_pr_not_self CHECK (employee_id <> evaluator_id),
+  CONSTRAINT ck_pr_cso CHECK (countersigning_officer_id IS NULL OR
+                              (countersigning_officer_id <> employee_id AND countersigning_officer_id <> evaluator_id))
 );
 CREATE INDEX idx_pr_evaluator ON performance_review (evaluator_id);
+CREATE INDEX idx_pr_countersigning_officer ON performance_review (countersigning_officer_id);
 
 CREATE TABLE performance_goal (
   id                    uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -792,7 +885,8 @@ CREATE TABLE leave_type (
   max_days_per_year     numeric(6,2) CHECK (max_days_per_year IS NULL OR max_days_per_year >= 0),
   accrual_rule          text,
   carry_forward_allowed boolean NOT NULL DEFAULT false,
-  affects_payroll       boolean NOT NULL DEFAULT false      -- true for LWOP-style types: days are deducted from days_payable
+  affects_payroll       boolean NOT NULL DEFAULT false,     -- true for LWOP-style types: days are deducted from days_payable
+  is_active             boolean NOT NULL DEFAULT true       -- inactive types are offered to no one; history keeps them
 );
 
 -- Yearly entitlement; running balances are computed from leave_ledger (no denormalised balance column)
@@ -802,6 +896,7 @@ CREATE TABLE leave_entitlement (
   leave_type_id uuid NOT NULL REFERENCES leave_type(id),
   year          int NOT NULL CHECK (year BETWEEN 2000 AND 2100),
   entitled_days numeric(6,2) NOT NULL DEFAULT 0 CHECK (entitled_days >= 0),
+  is_placeholder boolean NOT NULL DEFAULT false,   -- opened by the year-end only to carry days forward; a grant fills it
   created_at    timestamptz NOT NULL DEFAULT now(),
   created_by    uuid,
   UNIQUE (employee_id, leave_type_id, year)
@@ -819,10 +914,15 @@ CREATE TABLE leave_application (
   approved_by   uuid,                        -- platform users.id
   approval_date date,
   reason        text,
+  decided_by    uuid,                        -- who approved, rejected or cancelled it, when and why
+  decided_at    timestamptz,
+  decision_reason text,
+  hr_action_id  uuid,                        -- the LWOP HR action that recorded it (FK below)
   created_at    timestamptz NOT NULL DEFAULT now(),
   updated_at    timestamptz,
   updated_by    uuid,
   CONSTRAINT ck_la_dates    CHECK (end_date >= start_date),
+  CONSTRAINT ck_la_rejection CHECK (status <> 'rejected' OR decision_reason IS NOT NULL OR decided_at IS NULL),
   CONSTRAINT ck_la_approval CHECK (status <> 'approved' OR (approved_by IS NOT NULL AND approval_date IS NOT NULL)),
   CONSTRAINT ex_la_no_overlap EXCLUDE USING gist (
     employee_id WITH =, daterange(start_date, end_date, '[]') WITH &&
@@ -830,6 +930,10 @@ CREATE TABLE leave_application (
 );
 CREATE INDEX idx_la_employee_start ON leave_application (employee_id, start_date);
 CREATE INDEX idx_la_status         ON leave_application (status);
+CREATE INDEX idx_leave_application_hr_action_id ON leave_application (hr_action_id);
+ALTER TABLE leave_application ADD CONSTRAINT fk_la_hr_action FOREIGN KEY (hr_action_id) REFERENCES hr_action_request(id);
+ALTER TABLE hr_action_request ADD CONSTRAINT hr_action_request_leave_application_id_fkey
+  FOREIGN KEY (leave_application_id) REFERENCES leave_application(id);
 
 CREATE TABLE leave_ledger (
   id                   uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -995,6 +1099,23 @@ CREATE TABLE employee_tax_exemption (
   UNIQUE (employee_id, tax_year_id, exemption_type)
 );
 
+CREATE TABLE employee_tax_opening (
+  id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  employee_id    uuid NOT NULL REFERENCES employee(id),
+  tax_year_id    uuid NOT NULL REFERENCES tax_year(id),
+  taxable_income numeric(14,2) NOT NULL,
+  tax_withheld   numeric(14,2) NOT NULL,
+  remarks        text,
+  created_at     timestamptz NOT NULL DEFAULT now(),
+  created_by     uuid,
+  updated_at     timestamptz,
+  updated_by     uuid,
+  CONSTRAINT ck_eto_amounts CHECK (taxable_income >= 0 AND tax_withheld >= 0 AND tax_withheld <= taxable_income)
+);
+CREATE UNIQUE INDEX uq_eto_employee_year ON employee_tax_opening (employee_id, tax_year_id);
+CREATE INDEX idx_employee_tax_opening_tax_year_id ON employee_tax_opening (tax_year_id);
+COMMENT ON TABLE employee_tax_opening IS 'Taxable income and tax withheld in a tax year before this payroll paid the employee; counted in the year-to-date.';
+
 -- =====================================================================
 -- MODULE 13: LOANS / ADVANCES
 -- =====================================================================
@@ -1022,6 +1143,9 @@ CREATE TABLE employee_loan (
   deduction_priority  int NOT NULL DEFAULT 100,
   status              loan_status_enum NOT NULL DEFAULT 'active',
   approved_by         uuid,
+  closure_reason      text,                -- why it was cancelled or written off, by whom and when
+  closed_by           uuid,
+  closed_at           timestamptz,
   created_at          timestamptz NOT NULL DEFAULT now(),
   created_by          uuid,
   updated_at          timestamptz,
@@ -1038,11 +1162,30 @@ CREATE TABLE loan_installment_schedule (
   amount             numeric(14,2) NOT NULL CHECK (amount > 0),
   paid_amount        numeric(14,2) NOT NULL DEFAULT 0 CHECK (paid_amount >= 0),
   status             installment_status_enum NOT NULL DEFAULT 'pending',
+  waive_reason       text,
+  waived_by          uuid,
+  waived_at          timestamptz,
   UNIQUE (employee_loan_id, installment_number),
   CONSTRAINT uq_lis_id_loan UNIQUE (id, employee_loan_id),      -- target of payroll_loan_deduction composite FK
   CONSTRAINT ck_lis_paid CHECK (paid_amount <= amount)
 );
 CREATE INDEX idx_lis_due ON loan_installment_schedule (due_date) WHERE status IN ('pending','partial');
+
+CREATE TABLE loan_repayment (
+  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  employee_loan_id uuid NOT NULL REFERENCES employee_loan(id),
+  paid_on          date NOT NULL,
+  amount           numeric(14,2) NOT NULL,
+  receipt_number   varchar NOT NULL,
+  remarks          text,
+  created_at       timestamptz NOT NULL DEFAULT now(),
+  created_by       uuid,
+  CONSTRAINT ck_lr_amount CHECK (amount > 0)
+);
+CREATE INDEX idx_loan_repayment_employee_loan_id ON loan_repayment (employee_loan_id);
+CREATE TRIGGER trg_lr_append_only BEFORE UPDATE OR DELETE ON loan_repayment
+  FOR EACH ROW EXECUTE FUNCTION fn_block_mutation();
+COMMENT ON TABLE loan_repayment IS 'Append-only: money paid back on a loan outside payroll, with the receipt or challan and who recorded it.';
 
 -- =====================================================================
 -- GP FUND  (new: GP Fund and GPF Advance were deducted but had no ledger)
@@ -1127,6 +1270,12 @@ CREATE TABLE payroll_run (
   approval_date     timestamptz,
   finalization_date timestamptz,
   payment_date      timestamptz,
+  calculated_at     timestamptz,                     -- approval refuses figures older than a change to the pay inputs
+  finalized_by      uuid,
+  paid_by           uuid,
+  reversed_by       uuid,
+  reversed_at       timestamptz,
+  reversal_reason   text,
   created_at        timestamptz NOT NULL DEFAULT now(),
   updated_at        timestamptz,
   CONSTRAINT ck_pr_approved CHECK (status NOT IN ('approved','finalized','paid') OR approved_by IS NOT NULL),
@@ -1260,7 +1409,7 @@ CREATE TABLE payroll_payment (
   id                     uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   payroll_transaction_id uuid NOT NULL REFERENCES payroll_transaction(id),
   employee_id            uuid NOT NULL REFERENCES employee(id),
-  bank_account_id        uuid NOT NULL,
+  bank_account_id        uuid,                -- required for a bank transfer; none for cheque or cash
   -- snapshot of the destination at payment time (bank record may later change)
   bank_name_snapshot       varchar,
   branch_name_snapshot     varchar,
@@ -1274,7 +1423,8 @@ CREATE TABLE payroll_payment (
   -- the account must belong to the same employee as the payment
   CONSTRAINT fk_pp_bank_owner FOREIGN KEY (bank_account_id, employee_id)
     REFERENCES employee_bank_account (id, employee_id),
-  CONSTRAINT ck_pp_processed CHECK (payment_status <> 'processed' OR (payment_date IS NOT NULL AND payment_reference IS NOT NULL))
+  CONSTRAINT ck_pp_processed CHECK (payment_status <> 'processed' OR (payment_date IS NOT NULL AND payment_reference IS NOT NULL)),
+  CONSTRAINT ck_pp_bank_transfer CHECK (payment_method <> 'bank_transfer' OR bank_account_id IS NOT NULL)
 );
 CREATE UNIQUE INDEX uq_pp_one_live ON payroll_payment (payroll_transaction_id) WHERE payment_status IN ('pending','processed');
 CREATE INDEX idx_pp_bank ON payroll_payment (bank_account_id);

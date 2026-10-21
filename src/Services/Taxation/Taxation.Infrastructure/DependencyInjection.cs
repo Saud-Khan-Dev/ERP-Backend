@@ -11,6 +11,7 @@ public static class DependencyInjection
 
     services.AddScoped<ISaveChangesInterceptor, AuditableEntityInterceptors>();
     services.AddScoped<ISaveChangesInterceptor, DispatchDomainEventInterceptor>();
+    services.AddScoped<ISaveChangesInterceptor, AuditLogInterceptor>();
 
     services.AddDbContext<ApplicationDbContext>((sp, opt) =>
     {

@@ -17,6 +17,7 @@ public static class DependencyInjection
     services.Configure<FormOptions>(options => options.MultipartBodyLengthLimit = 2 * 1024 * 1024);
 
     services.AddCarter();
+    services.AddHostedService<DailyJobService>();
     services.AddOpenApi();
     services.AddExceptionHandler<TaxationExceptionHandler>();
     services.AddProblemDetails();

@@ -6,4 +6,5 @@ public sealed record GetUserQueryResult(
 
 /// The full administrative view of one account: profile, role grants, overrides, and the permission
 /// set those actually add up to.
-public sealed record GetUserQuery(Guid Id) : IQuery<Result<GetUserQueryResult>>;
+/// `IncludeDeleted` opens a deleted account read-only (to show it, and to restore it).
+public sealed record GetUserQuery(Guid Id, bool IncludeDeleted = false) : IQuery<Result<GetUserQueryResult>>;

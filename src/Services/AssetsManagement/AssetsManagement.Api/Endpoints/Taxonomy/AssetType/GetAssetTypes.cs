@@ -9,6 +9,8 @@ public class GetAssetTypes : ICarterModule
       var result = await sender.Send(new GetAssetTypesQuery(assetClassId, includeInactive ?? false));
       return Results.Ok(new GetAssetTypesResponse(result.Value!.AssetTypes));
     })
+      .RequireAnyPermission(AssetsAuthorization.AnyAssetsReader)
+
       .WithName("GetAssetTypes")
       .Produces<GetAssetTypesResponse>(StatusCodes.Status200OK)
       .WithSummary("Get Asset Types")

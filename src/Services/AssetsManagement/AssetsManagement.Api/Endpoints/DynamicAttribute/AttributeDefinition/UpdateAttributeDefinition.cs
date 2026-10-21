@@ -14,6 +14,8 @@ public class UpdateAttributeDefinition : ICarterModule
 
       return Results.Ok(result.Value.Adapt<UpdateAttributeDefinitionResponse>());
     })
+      .RequirePermission(PermissionCatalog.AssetAttributes.Edit)
+
       .WithName("UpdateAttributeDefinition")
       .Produces<UpdateAttributeDefinitionResponse>(StatusCodes.Status200OK)
       .ProducesProblem(StatusCodes.Status400BadRequest)

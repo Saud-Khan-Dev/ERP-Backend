@@ -2,6 +2,7 @@ using FluentValidation;
 
 public sealed record TransferPartyInput(Guid OwnerId, TransferPartyRole Role, decimal SharePct);
 
+/// ConfirmFarFuture: the clerk confirms a transfer dated more than 90 days ahead (PropertyTransfer.FarFutureDays).
 public sealed record TransferInput(
   Guid TransferTypeId,
   DateOnly TransferDate,
@@ -9,7 +10,8 @@ public sealed record TransferInput(
   string? TransferReferenceNo = null,
   decimal? ConsiderationAmount = null,
   string? Relationship = null,
-  string? Remarks = null);
+  string? Remarks = null,
+  bool ConfirmFarFuture = false);
 
 public sealed record InitiateTransferCommandResult(Guid Id, string TransferNo);
 

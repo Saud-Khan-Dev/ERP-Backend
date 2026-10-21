@@ -13,6 +13,8 @@ public class DeleteAssetType : ICarterModule
 
       return Results.Ok(result.Value.Adapt<DeleteAssetTypeResponse>());
     })
+      .RequirePermission(PermissionCatalog.AssetTaxonomy.Delete)
+
       .WithName("DeleteAssetType")
       .Produces<DeleteAssetTypeResponse>(StatusCodes.Status200OK)
       .ProducesProblem(StatusCodes.Status400BadRequest)

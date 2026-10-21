@@ -26,7 +26,7 @@ public class AddStructureFieldHandler(IApplicationDbContext context)
         ?? throw new AttributeDefinitionNotFoundException($"Field {existingId} was not found.");
 
       if (!definition.IsActive)
-        return Result<AddStructureFieldCommandResult>.Failure($"The field '{definition.Name.Value}' is switched off. Switch it on first.");
+        return Result<AddStructureFieldCommandResult>.Failure($"The field '{definition.Name.Value}' is switched off. Switch it on in Configuration › Fields first.");
     }
     else
     {
@@ -73,13 +73,15 @@ public class AddStructureFieldHandler(IApplicationDbContext context)
       await context.AttributeDefinitions.AddAsync(definition, cancellationToken);
     }
 
-    var duplicate = await context.AttributeAssignments.AnyAsync(a =>
+    var duplicate = await context.AttributeAssignments.AsNoTracking().FirstOrDefaultAsync(a =>
         a.AttributeDefinitionId == definition.Id
         && a.AssetClassId == target.AssetClassId
         && a.AssetTypeId == target.AssetTypeId
         && a.CategoryId == target.CategoryId
         && a.AssetId == null, cancellationToken);
-    if (duplicate)
+    if (duplicate is { IsHidden: true })
+      return Result<AddStructureFieldCommandResult>.Failure($"'{definition.Name.Value}' is marked \"not used here\" on this node. Use it here again instead.");
+    if (duplicate is not null)
       return Result<AddStructureFieldCommandResult>.Failure($"'{definition.Name.Value}' is already on this form.");
 
     // ---- the form section ----

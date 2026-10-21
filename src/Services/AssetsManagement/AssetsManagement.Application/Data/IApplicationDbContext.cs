@@ -48,4 +48,13 @@ public interface IApplicationDbContext
   DbSet<AssetDisposal> AssetDisposals { get; }
 
   Task<int> SaveChangesAsync(CancellationToken cancellationToken);
+
+  /// One database transaction around several saves - for changes whose order matters to a unique index (a schedule
+  /// closed before its successor opens). Commit it, or dispose it to roll back.
+  Task<IUnitOfWorkTransaction> BeginTransactionAsync(CancellationToken cancellationToken);
+}
+
+public interface IUnitOfWorkTransaction : IAsyncDisposable
+{
+  Task CommitAsync(CancellationToken cancellationToken);
 }

@@ -9,6 +9,8 @@ public class GetDepreciationMethods : ICarterModule
       var result = await sender.Send(new GetDepreciationMethodsQuery(includeInactive ?? false));
       return Results.Ok(new GetDepreciationMethodsResponse(result.Value!.Methods));
     })
+      .RequireAnyPermission(AssetsAuthorization.AnyAssetsReader)
+
       .WithName("GetDepreciationMethods")
       .Produces<GetDepreciationMethodsResponse>(StatusCodes.Status200OK)
       .WithSummary("Get Depreciation Method list")

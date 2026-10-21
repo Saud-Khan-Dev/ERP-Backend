@@ -9,7 +9,7 @@ public static class AttributeHistoryDiff
       IReadOnlyDictionary<string, JsonElement> after,
       IReadOnlyDictionary<string, AttributeDefinitionId> definitionIdsByCode,
       DateTime changedAt,
-      Guid? changedBy,
+      ActorRef changedBy,
       string? changeReason)
   {
     ArgumentNullException.ThrowIfNull(assetId);

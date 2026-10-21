@@ -9,8 +9,10 @@ public sealed record IssueViolationNoticeCommand(Guid Id, string NoticeNo, DateO
 /// s.28-A fine (up to Rs 1,000,000), imposed by the signed-in authorized officer.
 public sealed record ImposeFineCommand(Guid Id, decimal FineAmount) : ICommand<Result<ViolationActionResult>>;
 
-/// Paid / Waived / RecoveryAsArrears (s.28(2)). Collecting the money is the Tax / Finance Module's job.
-public sealed record SetFineStatusCommand(Guid Id, FineStatus FineStatus) : ICommand<Result<ViolationActionResult>>;
+/// Paid (ReceiptNo and PaidOn required), Waived (Reason required; an approver's decision) or RecoveryAsArrears (s.28(2);
+/// an approver's order). Paid and Waived are final. Collecting the money is the Tax / Finance Module's job.
+public sealed record SetFineStatusCommand(Guid Id, FineStatus FineStatus, string? ReceiptNo = null, DateOnly? PaidOn = null, string? Reason = null)
+  : ICommand<Result<ViolationActionResult>>;
 
 public sealed record RectifyViolationCommand(Guid Id, string? Remarks = null) : ICommand<Result<ViolationActionResult>>;
 
@@ -39,5 +41,13 @@ public class ImposeFineCommandValidator : AbstractValidator<ImposeFineCommand>
 
 public class SetFineStatusCommandValidator : AbstractValidator<SetFineStatusCommand>
 {
-  public SetFineStatusCommandValidator() => RuleFor(x => x.FineStatus).IsInEnum();
+  public SetFineStatusCommandValidator()
+  {
+    RuleFor(x => x.FineStatus).IsInEnum();
+    RuleFor(x => x.ReceiptNo).NotEmpty().When(x => x.FineStatus == FineStatus.Paid).WithMessage("Give the receipt no. the fine was paid against.")
+      .MaximumLength(AgreementViolation.ReceiptNoMaxLength);
+    RuleFor(x => x.PaidOn).NotNull().When(x => x.FineStatus == FineStatus.Paid).WithMessage("Give the date the fine was paid.");
+    RuleFor(x => x.Reason).NotEmpty().When(x => x.FineStatus == FineStatus.Waived).WithMessage("Give the reason the fine is waived.")
+      .MaximumLength(AgreementViolation.TextMaxLength);
+  }
 }

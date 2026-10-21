@@ -7,6 +7,7 @@ public sealed record CreatePropertyRequest(
   BoundaryInput? Boundary = null,
   IReadOnlyList<AttributeValueInput>? Attributes = null);
 public sealed record ChangeStatusRequest(Guid PropertyStatusId, DateOnly? EffectiveFrom = null, string? Reason = null, string? ReferenceNo = null);
+public sealed record DeactivatePropertyRequest(string? Reason = null);
 
 /// The property register: core record, status history, measurements, area regularization.
 public class PropertyEndpoints : ICarterModule
@@ -41,10 +42,12 @@ public class PropertyEndpoints : ICarterModule
       .Produces<GetPropertiesQueryResult>()
       .ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Get Properties")
-      .WithDescription("Paginated register (pageSize 1-200). search matches part of the property code, name, khasra number or address, ignoring case. "
+      .WithDescription("Paginated register (pageSize 1-200). search matches part of the property code, name, khasra number or address, ignoring case, "
+        + "or a party holding it now (current holder, allottee, lessee, tenant or contractor in force) by part of the name or a CNIC (5+ digits). "
         + "registeredFrom / registeredTo: instants on the registration time (inclusive); areaMin / areaMax: current total area in sq ft; "
-        + "ownerId: properties where that owner holds a current share; hasOpenEncroachment / hasOpenCase: true or false. "
-        + "sortBy = code | name | registered | area | town | status (default code), sortDir = asc | desc.");
+        + "ownerId: properties where that owner holds a current share; hasOpenEncroachment / hasOpenCase / steepSlope / transferPending / allotted / "
+        + "agreementInForce / hasHolder / charged / disputed / measured / hasBoundary: true or false. "
+        + "sortBy = code | name | registered | area | town | status | type | owners | holder (default code), sortDir = asc | desc.");
 
     properties.MapGet("/{id:guid}", async (Guid id, ISender sender) => (await sender.Send(new GetPropertyQuery(id))).ToOk())
       .RequirePermission(PermissionCatalog.Property.View)
@@ -62,7 +65,8 @@ public class PropertyEndpoints : ICarterModule
       .ProducesProblem(StatusCodes.Status400BadRequest)
       .ProducesProblem(StatusCodes.Status404NotFound)
       .WithSummary("Update Property")
-      .WithDescription("Core details only. The code never changes and the status has its own endpoint.");
+      .WithDescription("Core details only. The code never changes and the status has its own endpoint. The classification cannot change while an "
+        + "allotment is in force. warnings: a new town (the tax file's number and circle follow it).");
 
     properties.MapPost("/{id:guid}/activate", async (Guid id, ISender sender) =>
         (await sender.Send(new SetPropertyActivationCommand(id, true))).ToOk())
@@ -71,14 +75,16 @@ public class PropertyEndpoints : ICarterModule
       .Produces<SetPropertyActivationCommandResult>()
       .WithSummary("Activate Property");
 
-    properties.MapPost("/{id:guid}/deactivate", async (Guid id, ISender sender) =>
-        (await sender.Send(new SetPropertyActivationCommand(id, false))).ToOk())
+    properties.MapPost("/{id:guid}/deactivate", async (Guid id, DeactivatePropertyRequest request, ISender sender) =>
+        (await sender.Send(new SetPropertyActivationCommand(id, false, request.Reason))).ToOk())
       .RequirePermission(PermissionCatalog.Property.Delete)
       .WithName("DeactivateProperty")
       .Produces<SetPropertyActivationCommandResult>()
       .ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Deactivate Property")
-      .WithDescription("Nothing is hard-deleted: the property and its whole history stay on record.");
+      .WithDescription("Nothing is hard-deleted: the property and its whole history stay on record. reason is required. Refused while anyone holds a "
+        + "share, or a transfer, charge, allotment, lease / rental / contract (also a draft), auction, building plan or legal matter is still open on it; "
+        + "the message lists them.");
 
     // ---- status history ----
 

@@ -11,7 +11,7 @@ public class AttributeSchemaService(IApplicationDbContext context) : IAttributeS
 
     while (current is not null && visited.Add(current.Value))
     {
-      var category = await context.AssetCategories.FirstOrDefaultAsync(c => c.Id == current, cancellationToken);
+      var category = await context.AssetCategories.AsNoTracking().FirstOrDefaultAsync(c => c.Id == current, cancellationToken);
       if (category is null)
         break;
 
@@ -36,13 +36,14 @@ public class AttributeSchemaService(IApplicationDbContext context) : IAttributeS
 
     var categoryIds = chain.Select(c => c.Id).ToList();
 
+    // switched-off and "not used here" rows count too: they take a field off the form at their level
     var assignments = await context.AttributeAssignments
         .AsNoTracking()
-        .Where(a => a.IsActive && (
+        .Where(a =>
             (a.Scope == AttributeScope.AssetClass && a.AssetClassId == assetClassId) ||
             (assetTypeId != null && a.Scope == AttributeScope.AssetType && a.AssetTypeId == assetTypeId) ||
             (a.Scope == AttributeScope.Category && a.CategoryId != null && categoryIds.Contains(a.CategoryId)) ||
-            (assetId != null && a.Scope == AttributeScope.Asset && a.AssetId == assetId)))
+            (assetId != null && a.Scope == AttributeScope.Asset && a.AssetId == assetId))
         .ToListAsync(cancellationToken);
 
     if (assignments.Count == 0)
@@ -58,29 +59,27 @@ public class AttributeSchemaService(IApplicationDbContext context) : IAttributeS
     return AttributeSchemaResolver.Resolve(assignments, assetClassId, assetTypeId, chain, assetId, definitions);
   }
 
-  public async Task<IReadOnlyDictionary<OptionSetId, OptionSet>> LoadOptionSetsAsync(ResolvedAttributeSchema schema, CancellationToken cancellationToken)
+  public async Task<IReadOnlyDictionary<OptionSetId, OptionSet>> LoadOptionSetsAsync(IEnumerable<OptionSetId> optionSetIds, CancellationToken cancellationToken)
   {
-    var optionSetIds = schema.Attributes
-        .Where(a => a.Definition.OptionSetId is not null)
-        .Select(a => a.Definition.OptionSetId!)
-        .Distinct()
-        .ToList();
-
-    if (optionSetIds.Count == 0)
+    var ids = optionSetIds.Distinct().ToList();
+    if (ids.Count == 0)
       return new Dictionary<OptionSetId, OptionSet>();
 
     return await context.OptionSets
         .AsNoTracking()
         .Include(o => o.Values)
-        .Where(o => optionSetIds.Contains(o.Id))
+        .Where(o => ids.Contains(o.Id))
         .ToDictionaryAsync(o => o.Id, cancellationToken);
   }
+
+  public Task<IReadOnlyDictionary<OptionSetId, OptionSet>> LoadOptionSetsAsync(ResolvedAttributeSchema schema, CancellationToken cancellationToken) =>
+      LoadOptionSetsAsync(schema.Attributes.Where(a => a.Definition.OptionSetId is not null).Select(a => a.Definition.OptionSetId!), cancellationToken);
 
   public async Task<ResolvedAttributeSchema> ApplyAttributesAsync(
       Asset asset,
       IReadOnlyDictionary<string, JsonElement> input,
       bool isNewAsset,
-      Guid? changedBy,
+      ActorRef changedBy,
       string? changeReason,
       CancellationToken cancellationToken)
   {
@@ -95,7 +94,7 @@ public class AttributeSchemaService(IApplicationDbContext context) : IAttributeS
         schema,
         input,
         isNewAsset ? null : before,
-        optionSetId => optionSets.TryGetValue(optionSetId, out var set) ? set.ActiveCodes() : null);
+        optionSetId => optionSets.GetValueOrDefault(optionSetId));
 
     var projection = AttributeValueProjector.Project(
         asset.Id,
@@ -122,6 +121,25 @@ public class AttributeSchemaService(IApplicationDbContext context) : IAttributeS
     return schema;
   }
 
+  public async Task<int> ReprojectAsync(IReadOnlyCollection<Asset> assets, CancellationToken cancellationToken)
+  {
+    var count = 0;
+    foreach (var asset in assets)
+    {
+      var schema = await ResolveAsync(asset.AssetClassId, asset.AssetTypeId, asset.CategoryId, asset.Id, cancellationToken);
+      var optionSets = await LoadOptionSetsAsync(schema, cancellationToken);
+      var projection = AttributeValueProjector.Project(
+          asset.Id, schema, asset.ExtraAttributes,
+          (optionSetId, code) => optionSets.TryGetValue(optionSetId, out var set) ? set.FindByCode(code)?.Id : null);
+
+      var stale = await context.AssetAttributeValues.Where(v => v.AssetId == asset.Id).ToListAsync(cancellationToken);
+      context.AssetAttributeValues.RemoveRange(stale);
+      await context.AssetAttributeValues.AddRangeAsync(projection, cancellationToken);
+      count++;
+    }
+    return count;
+  }
+
   /// is_unique_per_category: e.g. serial_number must not repeat inside the same category.
   private async Task EnsureUniquePerCategoryAsync(Asset asset, ResolvedAttributeSchema schema, IReadOnlyList<AssetAttributeValue> projection, CancellationToken cancellationToken)
   {
@@ -141,7 +159,7 @@ public class AttributeSchemaService(IApplicationDbContext context) : IAttributeS
               && texts.Contains(x.Value.ValueText!), cancellationToken);
 
       if (duplicate)
-        throw new DomainException($"'{attribute.Label}' must be unique within the category; another asset already uses this value.");
+        throw new DomainException($"Another asset in this category already has this '{attribute.Label}'. It must be different for every asset.");
     }
   }
 
@@ -153,7 +171,7 @@ public class AttributeSchemaService(IApplicationDbContext context) : IAttributeS
     if (missing.Count == 0)
       return map;
 
-    // keys that dropped out of the schema (e.g. after re-classification) still get a history row
+    // keys that are not on the form any more (kept values) still get a history row when they change
     var attributeCodes = missing.Select(AttributeCode.Of).ToList();
     var extra = await context.AttributeDefinitions
         .AsNoTracking()

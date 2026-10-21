@@ -15,6 +15,8 @@ public class CreateAttributeAssignment : ICarterModule
       var response = result.Value.Adapt<CreateAttributeAssignmentResponse>();
       return Results.Created($"/attribute-assignments/{response!.Id}", response);
     })
+      .RequirePermission(PermissionCatalog.AssetAttributes.Create)
+
       .WithName("CreateAttributeAssignment")
       .Produces<CreateAttributeAssignmentResponse>(StatusCodes.Status201Created)
       .ProducesProblem(StatusCodes.Status400BadRequest)

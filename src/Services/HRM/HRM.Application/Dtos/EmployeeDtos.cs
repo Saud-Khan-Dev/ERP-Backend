@@ -25,7 +25,9 @@ public sealed record EmployeeListItemDto(
   PlacementDto? Placement,
   DateOnly? SuperannuationDate,
   string? Mobile,
-  DateTime? CreatedAt);
+  DateTime? CreatedAt,
+  DateOnly? TermTo = null,
+  bool InService = true);
 
 public sealed record EmployeeContactDto(Guid Id, ContactType ContactType, string Value, bool IsPrimary);
 
@@ -35,8 +37,10 @@ public sealed record EmergencyContactDto(Guid Id, string Name, string? Relation,
 
 public sealed record FamilyMemberDto(Guid Id, string? Relation, string? Name, DateOnly? DateOfBirth, string? Cnic, string? Occupation);
 
-/// The pay the employee draws now: stage and basic pay, with the scale and grade they sit in.
-public sealed record CurrentPayDto(Guid PayRecordId, int Bps, string? ScaleLabel, int StageNumber, decimal BasicPay, DateOnly Since, DateOnly? NextIncrementDate);
+/// The pay the employee draws now: stage and basic pay, with the scale and grade they sit in. IncrementOverdue: the
+/// next increment date has passed and the increment was not given; IncrementDeferredDays: put back by leave without pay.
+public sealed record CurrentPayDto(Guid PayRecordId, int Bps, string? ScaleLabel, int StageNumber, decimal BasicPay, DateOnly Since, DateOnly? NextIncrementDate,
+  bool IncrementOverdue = false, int IncrementDeferredDays = 0);
 
 public sealed record EmployeeDto(
   Guid Id,
@@ -67,7 +71,14 @@ public sealed record EmployeeDto(
   IReadOnlyList<EmergencyContactDto> EmergencyContacts,
   IReadOnlyList<FamilyMemberDto> FamilyMembers,
   DateTime? CreatedAt,
-  DateTime? UpdatedAt);
+  DateTime? UpdatedAt,
+  DateOnly? TermFrom = null,
+  DateOnly? TermTo = null,
+  string? LendingDepartment = null,
+  bool InService = true);
+
+/// One change to the employee's identity, employment or pay (employee_change_log).
+public sealed record EmployeeChangeDto(Guid Id, string Field, string? OldValue, string? NewValue, string? Reason, Guid? ChangedBy, string? ChangedByName, DateTime ChangedAt);
 
 public sealed record PayRecordDto(
   Guid Id,
@@ -83,7 +94,9 @@ public sealed record PayRecordDto(
   string? OrderNumber,
   DateOnly EffectiveFrom,
   DateOnly? EffectiveTo,
-  DateTime? CreatedAt);
+  DateTime? CreatedAt,
+  bool IncrementOverdue = false,
+  int IncrementDeferredDays = 0);
 
 public sealed record AssignmentDto(
   Guid Id,

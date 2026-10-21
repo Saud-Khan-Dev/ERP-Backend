@@ -14,6 +14,8 @@ public class UpdateAssetStatus : ICarterModule
 
       return Results.Ok(result.Value.Adapt<UpdateAssetStatusResponse>());
     })
+      .RequirePermission(PermissionCatalog.AssetTaxonomy.Edit)
+
       .WithName("UpdateAssetStatus")
       .Produces<UpdateAssetStatusResponse>(StatusCodes.Status200OK)
       .ProducesProblem(StatusCodes.Status400BadRequest)

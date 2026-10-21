@@ -1,7 +1,9 @@
 using FluentValidation;
 using Microsoft.EntityFrameworkCore;
 
-public sealed record RateSetInput(string Name, string BoardReference, DateOnly? BoardDecisionDate, DateOnly EffectiveFrom);
+/// BaseFiscalYear: the year the rates are stated for (the annual increase compounds from it); empty = the first year the
+/// set is used for (the year of the first 1 July on or after its date).
+public sealed record RateSetInput(string Name, string BoardReference, DateOnly? BoardDecisionDate, DateOnly EffectiveFrom, int? BaseFiscalYear = null);
 
 public sealed record GetRateSetsQueryResult(IReadOnlyList<RateSetSummaryDto> RateSets);
 public sealed record GetRateSetsQuery : IQuery<Result<GetRateSetsQueryResult>>;
@@ -93,7 +95,7 @@ public class RateSetHandlers(IApplicationDbContext context, IPropertyDirectory p
   public async Task<Result<CreatedResult>> Handle(CreateRateSetCommand command, CancellationToken cancellationToken)
   {
     var r = command.RateSet;
-    var set = RateSet.Create(RateSetId.New(), r.Name, r.BoardReference, r.BoardDecisionDate, r.EffectiveFrom);
+    var set = RateSet.Create(RateSetId.New(), r.Name, r.BoardReference, r.BoardDecisionDate, r.EffectiveFrom, r.BaseFiscalYear);
     if (command.CopyFromId is { } sourceId)
       set.CopyRatesFrom(await context.LoadRateSetAsync(sourceId, cancellationToken));
     context.RateSets.Add(set);
@@ -105,7 +107,7 @@ public class RateSetHandlers(IApplicationDbContext context, IPropertyDirectory p
   {
     var set = await context.LoadRateSetAsync(command.Id, cancellationToken);
     var r = command.RateSet;
-    set.UpdateDetails(r.Name, r.BoardReference, r.BoardDecisionDate, r.EffectiveFrom);
+    set.UpdateDetails(r.Name, r.BoardReference, r.BoardDecisionDate, r.EffectiveFrom, r.BaseFiscalYear);
     await context.SaveChangesAsync(cancellationToken);
     return CommandResults.Updated();
   }

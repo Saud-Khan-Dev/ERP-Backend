@@ -61,6 +61,20 @@ public class PayrollInputBuilder(IApplicationDbContext context)
         select new PostVersionSlice(v.PostId, v.GradeId, g.BpsNumber, v.DesignationId, v.OrgUnitId, v.EffectiveFrom, v.EffectiveTo))
       .ToListAsync(cancellationToken);
 
+    // a rule for a unit reaches the units under it: each post's unit with every unit above it (as structured at month end)
+    var unitParents = await context.OrganizationUnitVersions.AsNoTracking()
+      .Where(v => v.EffectiveFrom <= end && (v.EffectiveTo == null || v.EffectiveTo >= end))
+      .Select(v => new { v.OrgUnitId, v.ParentUnitId }).ToListAsync(cancellationToken);
+    var parentOf = unitParents.GroupBy(u => u.OrgUnitId).ToDictionary(g => g.Key, g => g.First().ParentUnitId);
+    IReadOnlyCollection<OrganizationUnitId> PathOf(OrganizationUnitId unit)
+    {
+      var path = new List<OrganizationUnitId> { unit };
+      for (var at = parentOf.GetValueOrDefault(unit); at is not null && !path.Contains(at) && path.Count < 50; at = parentOf.GetValueOrDefault(at))
+        path.Add(at);
+      return path;
+    }
+    versions = versions.Select(v => v with { UnitPath = PathOf(v.OrgUnitId) }).ToList();
+
     // ---- pay ----
     var pay = await (
         from p in context.PayRecords.AsNoTracking()
@@ -141,6 +155,15 @@ public class PayrollInputBuilder(IApplicationDbContext context)
         .ToListAsync(cancellationToken))
       .GroupBy(x => x.EmployeeId)
       .ToDictionary(g => g.Key, g => (Taxable: g.Sum(x => x.TaxableIncome), Withheld: g.Sum(x => x.TaxWithheld)));
+
+    // tax already withheld this year before this payroll paid them (going live mid-year, a transfer in)
+    var openings = await context.TaxOpenings.AsNoTracking().Where(o => ids.Contains(o.EmployeeId) && o.TaxYearId == year.Id)
+      .ToDictionaryAsync(o => o.EmployeeId, cancellationToken);
+    foreach (var (employeeId, opening) in openings)
+    {
+      var (taxable, withheld) = ytd.GetValueOrDefault(employeeId);
+      ytd[employeeId] = (taxable + opening.TaxableIncome, withheld + opening.TaxWithheld);
+    }
 
     var exemptions = (await context.TaxExemptions.AsNoTracking().Where(e => ids.Contains(e.EmployeeId) && e.TaxYearId == year.Id)
         .Select(e => new { e.EmployeeId, e.Amount }).ToListAsync(cancellationToken))

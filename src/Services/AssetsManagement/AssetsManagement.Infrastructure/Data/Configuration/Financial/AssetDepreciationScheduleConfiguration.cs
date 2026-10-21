@@ -16,7 +16,11 @@ public class AssetDepreciationScheduleConfiguration : EntityConfiguration<AssetD
     builder.Property(x => x.MethodId).HasConversion(id => id.Value, dbId => DepreciationMethodId.Of(dbId)).IsRequired();
     builder.Property(x => x.UsefulLifeMonths).IsRequired();
     builder.Property(x => x.SalvageValue).HasPrecision(18, 2).IsRequired().HasDefaultValue(0m);
+    builder.Property(x => x.OpeningBookValue).HasPrecision(18, 2).IsRequired();
     builder.Property(x => x.DepreciableBase).HasPrecision(18, 2).IsRequired();
+    builder.Ignore(x => x.LiveEntries);
+    builder.Ignore(x => x.PostedThrough);
+    builder.Ignore(x => x.HasPostedEntries);
     builder.Property(x => x.DecliningRate).HasPrecision(9, 6).IsRequired(false);
     builder.Property(x => x.StartDate).IsRequired();
     builder.Property(x => x.EndDate).IsRequired(false);

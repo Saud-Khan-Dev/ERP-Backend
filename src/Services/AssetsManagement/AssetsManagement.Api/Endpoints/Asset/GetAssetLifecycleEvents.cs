@@ -9,6 +9,8 @@ public class GetAssetLifecycleEvents : ICarterModule
       var result = await sender.Send(new GetAssetLifecycleEventsQuery(id, eventTypeId));
       return Results.Ok(new GetAssetLifecycleEventsResponse(result.Value!.Events));
     })
+      .RequirePermission(PermissionCatalog.Assets.View)
+
       .WithName("GetAssetLifecycleEvents")
       .Produces<GetAssetLifecycleEventsResponse>(StatusCodes.Status200OK)
       .ProducesProblem(StatusCodes.Status404NotFound)

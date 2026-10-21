@@ -314,6 +314,9 @@ Table property {
   description                 text
   remarks                     text
   is_active                   boolean [default: true]
+  deactivated_on              date [note: 'day it was taken off the register (Pakistan date)']
+  deactivation_reason         varchar(500) [note: 'required when deactivating']
+  xmin                        xid [note: 'row version: every ownership / allotment / charge act touches the property, so two clashing acts get 409']
   created_at  timestamp [default: `now()`]
   created_by  bigint
   updated_at  timestamp
@@ -386,6 +389,7 @@ Table property_area_regularization {
   effective_to          date
   remarks               text
   is_active             boolean [default: true]
+  approved_by_employee_id  uuid [note: 'HRM employee who decided']
   created_at timestamp [default: `now()`]
   created_by bigint
   updated_at timestamp
@@ -499,6 +503,7 @@ Table property_ownership {
   acquired_via_allotment_id    bigint [note: 'FK property_allotment if ownership arises from allotment']
   reference_no        varchar(100) [note: 'mutation / registry / deed no.']
   remarks             text
+  end_reference_no  varchar(100) [note: 'order / reference the share ended under (required to end one)']
   created_at timestamp [default: `now()`]
   created_by bigint
   updated_at timestamp
@@ -537,6 +542,10 @@ Table property_transfer {
   closing_reason        text [note: 'why it was rejected or cancelled']
   transfer_status       varchar(20) [default: 'COMPLETED', note: 'INITIATED, APPROVED (legacy: approved before approve = complete), COMPLETED, CANCELLED, REJECTED']
   remarks               text
+  approved_by_user_id      uuid [note: 'Identity user who approved (= registered) it; the signed-in officer']
+  approved_by_employee_id  uuid [note: 'HRM employee of that officer, when linked']
+  no_dues_certificate_no   varchar(50) [note: 'Taxation clearance CLR-… checked and consumed by the UI']
+  xmin                     xid [note: 'row version']
   created_at timestamp [default: `now()`]
   created_by bigint
   updated_at timestamp
@@ -609,6 +618,7 @@ Table property_allotment {
   surrender_date      date [note: 'set when the allotment is SURRENDERED']
   remarks             text
   is_active           boolean [default: true]
+  xmin  xid [note: 'row version']
   created_at timestamp [default: `now()`]
   created_by bigint
   updated_at timestamp
@@ -718,6 +728,13 @@ Table agreement_violation {
   violation_status    varchar(20) [default: 'OPEN', note: 'OPEN, RECTIFIED, FINED, CANCELLED, APPEALED']
   pre_appeal_status   varchar(20) [note: 'the violation_status when an appeal (s.32) was filed against it; restored when the appeal is dismissed / remanded / modified / withdrawn; null when no appeal is pending']
   remarks             text
+  allotment_id            bigint [note: 'FK property_allotment (breach of allotment conditions)']
+  fine_imposed_on         date
+  fine_receipt_no         varchar(50) [note: 'required for PAID']
+  fine_paid_on            date [note: 'required for PAID; not future, not before imposed']
+  fine_status_reason      varchar(500) [note: 'required for WAIVED']
+  fine_status_changed_by  uuid [note: 'Identity user']
+  fine_status_changed_on  date
   created_at timestamp [default: `now()`]
   created_by bigint
   updated_at timestamp
@@ -728,7 +745,7 @@ Table agreement_violation {
     (lease_id)
     (rental_id)
   }
-  Note: 'Exactly one of lease_id / rental_id / transfer_id should be set (check constraint). Fine collection & arrears recovery handled by Tax/Finance Module.'
+  Note: 'Exactly one of lease_id / rental_id / transfer_id / allotment_id is set (check ck_agreement_violation_one_agreement). Fine collection & arrears recovery handled by Tax/Finance Module.'
 }
 
 // ---------------------------------------------------------------------
@@ -797,6 +814,8 @@ Table property_outsourcing {
   termination_date      date
   termination_reason    text
   remarks               text
+  money_direction           varchar(20) [note: 'RECEIVABLE (contractor pays GDA) / PAYABLE (GDA pays); required on create']
+  renewed_from_contract_id  bigint [note: 'FK property_outsourcing: the contract this one renews (that one becomes RENEWED)']
   created_at timestamp [default: `now()`]
   created_by bigint
   updated_at timestamp
@@ -877,6 +896,8 @@ Table property_litigation {
   parent_litigation_id  bigint [note: 'self FK: lower-court case this appeal arises from']
   gda_counsel           varchar(150)
   remarks               text
+  decision_result          varchar(20) [note: 'IN_FAVOUR_OF_GDA / AGAINST_GDA / PARTLY_IN_FAVOUR; required to decide']
+  gda_counsel_employee_id  uuid [note: 'HRM employee when counsel is staff; outside advocate: name only']
   created_at timestamp [default: `now()`]
   created_by bigint
   updated_at timestamp
@@ -907,6 +928,7 @@ Table litigation_hearing {
   order_passed    text
   next_hearing_date date
   attended_by     varchar(150)
+  attended_by_employee_id  uuid [note: 'HRM employee who attended']
   created_at timestamp [default: `now()`]
   Note: 'Optional hearing log'
 }
@@ -930,6 +952,7 @@ Table property_appeal {
   decision_details    text
   appeal_status       varchar(20) [default: 'FILED', note: 'FILED, UNDER_HEARING, DECIDED, WITHDRAWN']
   remarks             text
+  delegated_officer_employee_id  uuid [note: 'HRM employee; a provincial officer is a name only']
   created_at timestamp [default: `now()`]
   created_by bigint
   updated_at timestamp
@@ -959,6 +982,9 @@ Table building_plan {
   floors                  int
   architect_name          varchar(150)
   remarks                 text
+  covered_area_base        decimal(18,4) [note: 'covered area in square feet']
+  approved_by_employee_id  uuid [note: 'HRM employee who approved']
+  no_dues_certificate_no   varchar(50) [note: 'Taxation clearance for the plan']
   created_at timestamp [default: `now()`]
   created_by bigint
   updated_at timestamp
@@ -969,6 +995,35 @@ Table building_plan {
     (plan_no, revision_no) [unique]
   }
   Note: 'Structured plan data; the drawing file itself is a property_document (req. §29)'
+}
+
+
+// ---------------------------------------------------------------------
+// CHANGE LOG (2026-10-20) - written by a SaveChanges interceptor for every insert / update / delete
+// on a property's or an owner's records; read at GET /properties/{id}/changes and /owners/{id}/changes.
+// Custom fields (attribute_group / attribute_definition / property_attribute_value, not drawn here) gained
+// attribute_definition.applies_to_property_type_ids uuid[] and applies_to_classification_ids uuid[]
+// (empty = every property).
+// ---------------------------------------------------------------------
+Table property_change {
+  id               uuid [pk]
+  property_id      uuid [note: 'set for a property''s records']
+  owner_id         uuid [note: 'set for an owner''s records']
+  entity           varchar(60) [not null, note: 'e.g. PropertyOwnership, PropertyLease']
+  entity_id        uuid [not null]
+  entity_code      varchar(100) [note: 'TRF-…, LSE-… when the record has a code']
+  action           varchar(20) [not null, note: 'Added / Changed / Removed']
+  field            varchar(100)
+  old_value        varchar(1000)
+  new_value        varchar(1000)
+  changed_by       uuid [note: 'Identity user']
+  changed_by_name  varchar(150)
+  changed_at       timestamptz [not null]
+
+  indexes {
+    (property_id, changed_at)
+    (owner_id, changed_at)
+  }
 }
 
 // ---------------------------------------------------------------------
@@ -1015,6 +1070,8 @@ Table property_document {
 // =====================================================================
 
 // -- property core
+Ref: agreement_violation.allotment_id > property_allotment.id
+Ref: property_outsourcing.renewed_from_contract_id > property_outsourcing.id
 Ref: property.town_id > town.id
 Ref: property.property_type_id > property_type.id
 Ref: property.property_status_id > property_status.id
