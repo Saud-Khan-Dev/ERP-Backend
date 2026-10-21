@@ -21,11 +21,15 @@ All ids are Guid-backed strongly typed ids; `.Of(guid)` rejects `Guid.Empty`.
 - **User**:
   - username: lower-cased, 3–100 chars of `[a-z0-9._-]`; email: lower-cased.
   - `PasswordHash`, `DisplayName`, `IsActive`.
-  - `EmployeeId`: HRM reference, no FK.
-  - **`EmployeeCode`**: e.g. `EMP-101`, unique when present.
+  - `EmployeeId`: the HRM employee record, no FK. **`EmployeeCode`**: HR's employee number (`EMP-101`), set together
+    with it by `LinkEmployee` (`PUT /users/{id}/employee-link`); unique among linked accounts. Identity issues no codes
+    (the template was removed 2026-10-20, migration `UserSearchLockoutWindowHrNumbers`); an older code on an unlinked
+    account is shown as "old" and cleared when the account is unlinked.
+  - Generated column `search_text` (lower username, email, code, name) behind the Users search.
   - **`IsAuthorizedOfficer`**: the DG's designation under GDA Act s.2(a-i)/28/30. It is a designation, not a
     role, and can't be set on an inactive account.
-  - Lockout fields, `MustChangePassword`, last login, and soft delete (`DeletedAt/By`).
+  - Lockout fields (`FailedLoginAttempts`, `LastFailedLoginAt` - failures older than the lockout window are forgotten,
+    `LockedUntil`), `MustChangePassword`, last login, and soft delete (`DeletedAt/By`; `Restore()` brings it back switched off).
   - No MFA: it was removed (migration `RemoveMfa`).
 - **Role**: UPPER_SNAKE `Code`, `IsSystem`, `IsActive`, soft delete. `SUPER_ADMIN` is a system role: it can't be
   renamed, deactivated or deleted, and its permissions can't be removed.
@@ -37,10 +41,6 @@ All ids are Guid-backed strongly typed ids; `.Of(guid)` rejects `Guid.Empty`.
 - **Session**: one per refresh token. Stores only the SHA-256 of the token and keeps the rotation chain
   (`ReplacedBySessionId`).
 - **LoginAttempt**: every attempt, including unknown usernames.
-- **EmployeeCodeTemplate**: a singleton row with Prefix, Separator, MinimumDigits and NextNumber (default `EMP-###`
-  from 1), protected by an xmin row version. `Application/Services/EmployeeCodeService.cs` issues the next free code,
-  or validates a typed code against the template and moves the counter past it. A template edit may not re-issue a code
-  already in use.
 - **SecuritySettings** (`Models/Settings/SecuritySettings.cs`): a singleton row holding the live security policy.
   - Contents: password rules, lockout (failed attempts, minutes), access-token minutes, refresh-token days.
   - Read through `ISecuritySettingsProvider` at sign-in, password change and token issue. Built-in defaults apply
@@ -51,7 +51,8 @@ All ids are Guid-backed strongly typed ids; `.Of(guid)` rejects `Guid.Empty`.
   administrative changes.
   - Each row records who did it, the action, and the target type, id and label, plus a readable detail, IP and user
     agent.
-  - The actor and target names are snapshotted, so a row still reads after a rename or deletion.
+  - The actor and target names are snapshotted as DISPLAY names (older rows were rewritten 2026-10-20), so a row
+    still reads after a rename or deletion.
   - Only changes are recorded, not views. A save that changes nothing (same settings, same role details, same
     permissions) records nothing.
   - The detail says WHAT changed, in two fixed shapes the Administration screens parse (`Application/Abstractions/
@@ -62,28 +63,35 @@ All ids are Guid-backed strongly typed ids; `.Of(guid)` rejects `Guid.Empty`.
 ## Auth flow
 
 - **Login** (`Features/Auth/Commands/Login`) accepts a username or an email.
-  - A wrong password or unknown user gets **401** with a generic message. The real reason goes only to the log and
-    `login_attempts`.
+  - A wrong password or unknown user gets **401** with a generic message (an unknown user is checked against a dummy
+    hash, so it takes as long). The real reason goes only to the log and `login_attempts` ("Wrong password", "Unknown
+    username", "Account locked", "Account deactivated", "Account deleted").
   - A correct password on a locked, inactive or deleted account gets **403**.
+  - Sessions that ended more than 30 days ago are purged at sign-in.
 - **JWT** (HS256, `Infrastructure/Security/JwtTokenService.cs`). Claim names are in
   `BuildingBlock.Authentication/ErpClaimTypes.cs`:
   - `sub`, `jti`, `username`, `email`, `sid`
   - `emp`, only if linked to an employee
+  - **`pwd`** = `"change"` while the account holds a temporary password: such a token carries NO `perm` and NO `role`
+    claims, so it opens only the caller's own `/auth/*` routes (`RequireSignedIn` refuses it too)
   - **`ao`** = `"true"`, only for authorized officers
   - one **`role`** claim per role and one **`perm`** claim per effective permission
-- **Lifetimes** come from the security settings (defaults: access token 15 min, refresh token 7 days, absolute).
+- **Lifetimes** come from the security settings (defaults: access token 15 min, refresh token 7 days). The refresh
+  token SLIDES: each rotation issues a full new lifetime, so the setting reads "sign people out after N days without use".
   Validators allow 30 s clock skew.
-- **Refresh rotates on every call.** Reusing an already-rotated refresh token revokes all of the user's sessions
-  and returns 401.
+- **Refresh rotates on every call.** Reusing an already-rotated refresh token revokes that sign-in's chain (the
+  successors) and returns 401; a reuse within 30 s of the rotation (a lost answer, a double click) is refused without
+  revoking anything.
 - **Logout** is anonymous, takes the refresh token, and is idempotent. `AllSessions=true` revokes every session.
 - **Passwords**:
   - Hashed with ASP.NET Core `PasswordHasher` (PBKDF2).
   - Policy from the security settings (defaults: minimum 8 characters, at least one upper, lower and digit),
     applied by `PasswordPolicy`.
   - Generated passwords are 14+ characters and returned once.
-- **Lockout** from the security settings (default: 5 failures lock the account for 15 min). Admin reset and unlock
-  clear it.
-- **Must change password** is only a flag in the response. The server does not block other calls.
+- **Lockout** from the security settings (default: 5 failures within 15 min lock the account for 15 min). Wrong
+  current passwords at change-password count too. Admin reset and unlock clear it.
+- **Must change password** is enforced by the token (`pwd` claim, no permissions). Every new account must change its
+  first password, typed or generated.
 - **Change password** revokes all of the caller's sessions.
 
 ## Authorization model
@@ -92,17 +100,26 @@ All ids are Guid-backed strongly typed ids; `.Of(guid)` rejects `Guid.Empty`.
   (`PermissionCatalog.Property.Approve` = `"PROPERTY.APPROVE"`) and the registry the seeder uses (`AllModules`,
   `BuildAll()`).
 - Modules: ASSETS, ASSET_TAXONOMY, ASSET_ATTRIBUTES, ASSET_FINANCE, INVENTORY, PROCUREMENT, PROPERTY,
-  PROPERTY_SETUP, IAM_USERS, IAM_ROLES, IAM_PERMISSIONS, IAM_SECURITY, HR.
+  PROPERTY_SETUP, IAM_USERS, IAM_ROLES, IAM_PERMISSIONS, IAM_SECURITY, HR, HR_SETUP, ATTENDANCE, PAYROLL, TAX, TAX_SETUP,
+  DASHBOARD (`DASHBOARD.VIEW` = the organisation dashboard; seeded and given to SUPER_ADMIN).
 - **Effective permissions** (`Domain/Services/PermissionResolver.cs`), in order of precedence:
   1. A live **DENY** override wins.
   2. Otherwise a live ALLOW override grants the permission.
   3. Otherwise a live role grant gives it. The grant must be unexpired, and its role active and not deleted.
   4. Otherwise the permission is denied.
 - **Guards** (`Application/Services/IdentityGuard.cs`). Call them in every admin handler:
-  - `EnsureNotSelf`: nobody changes their own roles, overrides, active status, authorized-officer flag or deletion.
-    Self-service goes through `/auth/*`.
+  - `EnsureNotSelf`: nobody changes their own roles, overrides, active status, authorized-officer flag, password or
+    deletion from Administration. Self-service goes through `/auth/*`.
+  - `EnsureCanActOnAsync`: only a Super Administrator acts on a Super Administrator's account (reset, edit, unlock,
+    activate, delete, sign out, roles, exceptions, link, restore).
+  - `EnsureCanGrantAsync` / `EnsureCanGrantRolesAsync`: nobody gives access they do not hold (roles given to an
+    account, permissions put on a role, Allow exceptions; Super Administrators excepted).
+  - `EnsureNotOwnRoleAsync`: nobody rewrites what a role they hold can do.
   - `EnsureCanAdministerRole`: only a caller holding SUPER_ADMIN may grant, remove or edit SUPER_ADMIN.
   - `EnsureNotLastSuperAdminAsync`: at least one usable SUPER_ADMIN must remain.
+  - Creating a role with permissions needs IAM_PERMISSIONS.ASSIGN; creating an account with roles needs IAM_USERS.ASSIGN.
+  - Role codes are made by the server from the name (`RoleCodes.FreeCodeForAsync`) when none is sent; a deleted role's
+    code is never reused. Deleting a role refuses while someone holds it now, naming them.
 - **Other services** call `services.AddErpAuthentication(configuration)` and `.RequirePermission(PermissionCatalog.X.Y)`.
   The policy only checks for the `perm` claim in the token; there is no call to Identity.
   `ICurrentUser` gives `UserId`, `Roles`, `Permissions`, `IsAuthorizedOfficer`, `HasPermission()` and `AuditName`.
@@ -111,17 +128,18 @@ All ids are Guid-backed strongly typed ids; `.Of(guid)` rejects `Guid.Empty`.
 
 | Routes | Permission |
 | --- | --- |
-| `POST /auth/login`, `/auth/refresh`, `/auth/logout` | anonymous |
-| `GET /auth/me` (permissions resolved live), `POST /auth/change-password`, `GET /auth/sessions`, `POST /auth/sessions/{id}/revoke` | any valid token |
-| `POST /users` | `IAM_USERS.CREATE` |
-| `GET /users`, `GET /users/{id}`, `GET /employee-code-template` | `IAM_USERS.VIEW` |
-| `PUT /users/{id}`, `POST /users/{id}/activate|deactivate|unlock|reset-password`, `PUT /employee-code-template` | `IAM_USERS.EDIT` |
-| `DELETE /users/{id}` (soft) | `IAM_USERS.DELETE` |
-| `POST /users/{id}/roles`, `DELETE /users/{id}/roles/{roleId}`, `POST /users/{id}/authorized-officer` | `IAM_USERS.ASSIGN` |
+| `POST /auth/login`, `/auth/refresh`, `/auth/logout`, `GET /auth/password-policy` | anonymous |
+| `GET /auth/me` (permissions resolved live, with `roleNames`), `POST /auth/change-password`, `GET /auth/sessions` (ended ones: real endings only, last 50), `POST /auth/sessions/{id}/revoke`, `POST /auth/sessions/revoke-others` | any valid token |
+| `GET /directory/users?ids=|search=` (names only), `GET /attention` (`users.locked`, `users.temporary-password`, `users.no-access`, `roles.ending`, `signins.failed` - each only for who may act) | any signed-in person (`RequireSignedIn`) |
+| `POST /users` (roles need `IAM_USERS.ASSIGN` too) | `IAM_USERS.CREATE` |
+| `GET /users` (search part of name/username/email/code; `status` = active, locked, temporary-password, never-signed-in, no-access, role-ending, deactivated, deleted; `roleId` = holds it now; `sort` = name, username, lastSignIn, registered; `direction`; pages ≤ 200), `GET /users/summary`, `GET /users/{id}?includeDeleted=` | `IAM_USERS.VIEW` |
+| `PUT /users/{id}` (name and email), `POST /users/{id}/activate|deactivate|unlock|reset-password`, `PUT /users/{id}/employee-link` | `IAM_USERS.EDIT` |
+| `DELETE /users/{id}` (soft), `POST /users/{id}/restore` | `IAM_USERS.DELETE` |
+| `PUT /users/{id}/roles` (exact set; one `RolesChanged` line), `POST /users/{id}/roles`, `DELETE /users/{id}/roles/{roleId}`, `POST /users/{id}/authorized-officer` | `IAM_USERS.ASSIGN` |
 | `POST/DELETE /users/{id}/permission-overrides…`, `POST/DELETE /roles/{id}/permissions…`, `PUT /roles/{id}/permissions` (the role carries exactly this list afterwards; one `RolePermissionsChanged` line; SUPER_ADMIN may gain but never lose) | `IAM_PERMISSIONS.ASSIGN` |
 | `GET /permission-modules`, `GET /permissions` | `IAM_PERMISSIONS.VIEW` |
 | `POST/GET/PUT/DELETE /roles…` | `IAM_ROLES.*` |
-| `GET /users/{id}/sessions`, `GET /security/login-attempts`, `GET /admin-activity` (newest first; filter by actor, target, `personId` = actor or target, action, `kind` = accounts / access / roles / settings, date), `GET /security-settings` | `IAM_SECURITY.VIEW` |
+| `GET /users/{id}/sessions`, `GET /security/login-attempts` (`reason` = wrong-password, unknown-username, locked, deactivated, deleted), `GET /admin-activity` (newest first; filter by actor, target, `personId` = actor or target, action, `kind` = accounts / access / roles / settings - an unknown kind is a 400 -, date; a date without a zone is UTC), `GET /security-settings` | `IAM_SECURITY.VIEW` |
 | `PUT /security-settings` (applies from now on; tokens already issued keep their lifetime) | `IAM_SECURITY.EDIT` |
 | `POST /users/{id}/revoke-sessions` | `IAM_SECURITY.REVOKE` |
 
@@ -130,7 +148,8 @@ Errors (`Api/IdentityExceptionHandler.cs`):
 - 403: account unavailable
 - 400: validation or domain error
 - 404: not found
-- 409: DB update or concurrency conflict
+- 409: DB update or concurrency conflict (a plain sentence - never the database's own text)
+- 500: a plain sentence (the exception goes to the log only)
 - `Result.Failure`: 400 with `{ message }`
 
 ## Seeding (`Infrastructure/Data/Seed/IdentitySeeder.cs`, `seed.json`, section `Seed`)
@@ -140,7 +159,7 @@ The seeder is idempotent and runs on every start:
 2. Creates `SUPER_ADMIN` if missing and gives it **every** permission, including ones added later.
 3. Creates the first admin if no live SUPER_ADMIN exists. Outside Development the configured password is ignored:
    a random one is logged once and must be changed. Override with `Seed__SuperAdminPassword`.
-4. Creates the default employee-code template.
+4. Writes the security settings the first time.
 5. Creates the security-settings row from config (`Security` + `Jwt` lifetimes), **only the first time**. After
    that, edits made in the app win, and changing appsettings no longer changes the policy.
 
@@ -151,7 +170,8 @@ The seeder is idempotent and runs on every start:
 - EF Core with Npgsql, snake_case, enums stored as strings, and one configuration class per entity. Query filters
   hide soft-deleted users and roles. Audit columns are stamped from `ICurrentUser.AuditName`.
 - Migrations: `InitialCreate`, `AddEmployeeCode`, `AddAuthorizedOfficer`, `RemoveMfa`, `AddSecuritySettings`,
-  `AddAdminActivity`. `DatabaseInitializer` waits for the
+  `AddAdminActivity`, `UserSearchLockoutWindowHrNumbers` (search column, lockout window, HR-number index, drops the
+  employee-code template). `DatabaseInitializer` waits for the
   database (12 × 2 s), migrates when `Database:AutoMigrate` is set (default true in Development), then seeds.
 - New migration (from `src/`):
   `dotnet ef migrations add <Name> -p Services/Identity/Identity.Infrastructure -s Services/Identity/Identity.Api`.
@@ -193,8 +213,8 @@ The seeder is idempotent and runs on every start:
 - **`MapInboundClaims = false`** in `BuildingBlock.Authentication/AuthenticationExtensions.cs` is required. Without
   it .NET renames `role` and `sub` to long URIs, `ICurrentUser.Roles` comes back empty, and no Super Admin could grant
   SUPER_ADMIN. That bug existed until the Property module work.
-- **Deleted users still reserve their values.** A soft-deleted user blocks reuse of their username, email,
-  employee id and employee code, because uniqueness checks ignore query filters.
+- **Deleted users still reserve their username, email and HR link** (uniqueness checks ignore query filters) - restore
+  the account (`POST /users/{id}/restore`) rather than registering the person again.
 - **Not built** (in the requirements doc but not in code): forgot-password, self reset-password,
   `GET /users/{id}/roles`, `GET /users/{id}/permission-overrides`, `GET /roles/{id}/permissions`,
   and `GET /security/sessions`. MFA was never built, and its unused columns were removed.

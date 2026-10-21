@@ -38,9 +38,22 @@ public sealed record KpiInput(string KpiName, string? TargetValue, string? Achie
 
 public sealed record CompetencyInput(string CompetencyName, decimal? Rating, string? Remarks);
 
+/// How the final score is made of the parts of the form, in percent (the PER form rules are to be confirmed by GDA:
+/// until then the goals alone count, as before).
+public sealed record ScoreWeights(int Goals, int Kpis, int Competencies)
+{
+  public static readonly ScoreWeights GoalsOnly = new(100, 0, 0);
+}
+
 /// The standard PER categories a final score falls in.
 public static class PerformanceGrades
 {
+  public static readonly IReadOnlyList<string> All = ["Outstanding", "Very Good", "Good", "Average", "Below Average"];
+
+  public static string Normalize(string? grade) =>
+      All.FirstOrDefault(g => string.Equals(g, grade?.Trim(), StringComparison.OrdinalIgnoreCase))
+      ?? throw new DomainException($"The grading is one of: {string.Join(", ", All)}.");
+
   public static string ForScore(decimal score) => score switch
   {
     >= 90 => "Outstanding",
@@ -69,6 +82,19 @@ public class PerformanceReview : Aggregate<PerformanceReviewId>
   public bool PromotionRecommended { get; private set; }
   public bool TrainingRecommended { get; private set; }
   public string? Remarks { get; private set; }
+  /// The countersigning officer (another employee), when the PER has one.
+  public EmployeeId? CountersigningOfficerId { get; private set; }
+  public string? CountersignRemarks { get; private set; }
+  public DateTime? SubmittedAt { get; private set; }
+  public DateTime? CountersignedAt { get; private set; }
+  public DateTime? AcknowledgedAt { get; private set; }
+  public DateTime? FinalizedAt { get; private set; }
+  public Guid? FinalizedBy { get; private set; }
+  /// Why HR finalized a score different from the one worked out from the form.
+  public string? FinalScoreReason { get; private set; }
+
+  /// The employee sees the review only once the reporting officer has submitted it.
+  public bool IsVisibleToEmployee => Status != ReviewStatus.Draft;
 
   public IReadOnlyList<PerformanceGoal> Goals => _goals.AsReadOnly();
   public IReadOnlyList<PerformanceKpi> Kpis => _kpis.AsReadOnly();
@@ -122,19 +148,34 @@ public class PerformanceReview : Aggregate<PerformanceReviewId>
     _competencies.AddRange(competencies.Select((c, i) => PerformanceCompetency.Create(Id, c, i)));
   }
 
+  /// Names (or clears) the countersigning officer, until the PER is countersigned.
+  public void SetCountersigningOfficer(Employee? officer)
+  {
+    if (Status is not (ReviewStatus.Draft or ReviewStatus.Submitted))
+      throw new DomainException($"The review is {EnumText.Words(Status)}; the countersigning officer can no longer change.");
+    if (officer is not null)
+    {
+      officer.EnsureInService();
+      if (officer.Id == EmployeeId || officer.Id == EvaluatorId)
+        throw new DomainException("The countersigning officer must be someone other than the employee and the reporting officer.");
+    }
+    CountersigningOfficerId = officer?.Id;
+  }
+
+  /// The recommendations are part of what the reporting officer submits: they change only while a draft.
   public void SetRecommendations(bool promotionRecommended, bool trainingRecommended, string? remarks)
   {
-    if (Status == ReviewStatus.Finalized)
-      throw new DomainException("A finalized review cannot be changed.");
+    EnsureDraft();
 
     PromotionRecommended = promotionRecommended;
     TrainingRecommended = trainingRecommended;
     Remarks = Guard.Text(remarks, 4000, "Remarks");
   }
 
-  public void Submit()
+  public void Submit(DateTime? at = null)
   {
     EnsureDraft();
+    SubmittedAt = at;
 
     var total = _goals.Sum(g => g.Weight);
     if (_goals.Count > 0 && total != 100)
@@ -146,35 +187,98 @@ public class PerformanceReview : Aggregate<PerformanceReviewId>
     Status = ReviewStatus.Submitted;
   }
 
-  /// Sent back to the evaluator for changes.
+  /// Sent back to the evaluator for changes (before it is countersigned).
   public void Reopen()
   {
     if (Status != ReviewStatus.Submitted)
-      throw new DomainException("Only a submitted review can be sent back to draft.");
+      throw new DomainException("Only a submitted review that is not countersigned yet can be sent back to draft.");
 
     Status = ReviewStatus.Draft;
+    SubmittedAt = null;
   }
 
-  /// The employee has seen the review.
-  public void Acknowledge()
+  /// The countersigning officer's part: remarks, and - when they disagree - another grading. `actor` = the employee
+  /// countersigning through the portal (must be the named officer); null when HR records it from the paper.
+  public void Countersign(EmployeeId? actor, string? remarks, string? grade, DateTime at)
   {
     if (Status != ReviewStatus.Submitted)
-      throw new DomainException("Only a submitted review can be acknowledged.");
+      throw new DomainException($"The review is {EnumText.Words(Status)}; only a submitted review is countersigned.");
+    if (CountersigningOfficerId is null)
+      throw new DomainException("This review has no countersigning officer.");
+    if (actor is not null && actor != CountersigningOfficerId)
+      throw new DomainException("Only the named countersigning officer can countersign this review.");
 
-    Status = ReviewStatus.Acknowledged;
+    CountersignRemarks = Guard.Text(remarks, 4000, "Countersigning remarks")
+      ?? throw new DomainException("Write the countersigning remarks.");
+    if (!string.IsNullOrWhiteSpace(grade))
+      PerformanceGrade = PerformanceGrades.Normalize(grade);
+    CountersignedAt = at;
+    Status = ReviewStatus.Countersigned;
   }
 
-  /// Closes the review. The final score is the weighted goal score when every goal is scored; otherwise it is given.
-  public void FinalizeReview(decimal? finalScore, string? performanceGrade)
+  /// The employee has seen the review (after the countersigning officer, when there is one).
+  public void Acknowledge(DateTime? at = null)
   {
-    if (Status is not (ReviewStatus.Submitted or ReviewStatus.Acknowledged))
-      throw new DomainException("Only a submitted or acknowledged review can be finalized.");
+    var ready = Status == ReviewStatus.Countersigned || (Status == ReviewStatus.Submitted && CountersigningOfficerId is null);
+    if (!ready)
+      throw new DomainException(Status == ReviewStatus.Submitted
+        ? "The countersigning officer has not countersigned the review yet."
+        : "Only a submitted review can be acknowledged.");
 
-    var score = finalScore ?? WeightedGoalScore()
-      ?? throw new DomainException("Enter the final score: not every goal has a score to work it out from.");
+    Status = ReviewStatus.Acknowledged;
+    AcknowledgedAt = at;
+  }
+
+  /// The score worked out from the form with the weights in force: null when a part that counts is not scored.
+  public decimal? ComputedScore(ScoreWeights weights)
+  {
+    decimal total = 0;
+    if (weights.Goals > 0)
+    {
+      if (WeightedGoalScore() is not { } goals)
+        return null;
+      total += goals * weights.Goals;
+    }
+    if (weights.Kpis > 0)
+    {
+      if (_kpis.Count == 0 || _kpis.Any(k => k.Score is null))
+        return null;
+      total += _kpis.Average(k => k.Score!.Value) * weights.Kpis;
+    }
+    if (weights.Competencies > 0)
+    {
+      if (_competencies.Count == 0 || _competencies.Any(c => c.Rating is null))
+        return null;
+      total += _competencies.Average(c => c.Rating!.Value) * 10m * weights.Competencies;
+    }
+    return decimal.Round(total / 100m, 2);
+  }
+
+  /// Closes the review. The final score is the one worked out from the form; a different score needs the reason. The
+  /// grading is the countersigning officer's when given, else the given one, else the score's category.
+  public void FinalizeReview(decimal? finalScore, string? performanceGrade, ScoreWeights weights, string? reason = null, Guid? finalizedBy = null, DateTime? at = null)
+  {
+    var ready = Status is ReviewStatus.Acknowledged or ReviewStatus.Countersigned
+      || (Status == ReviewStatus.Submitted && CountersigningOfficerId is null);
+    if (!ready)
+      throw new DomainException(Status == ReviewStatus.Submitted
+        ? "The countersigning officer has not countersigned the review yet."
+        : "Only a submitted, countersigned or acknowledged review can be finalized.");
+
+    var computed = ComputedScore(weights);
+    var score = finalScore ?? computed
+      ?? throw new DomainException("Enter the final score: not every part of the form has a score to work it out from.");
+    var why = Guard.Text(reason, 1000, "Reason");
+    if (computed is { } worked && decimal.Round(score, 2) != worked && why is null)
+      throw new DomainException($"The form works out to {worked:0.##}. Say why the final score is different.");
 
     FinalScore = decimal.Round(Guard.Between(score, 0, 100, "Final score"), 2);
-    PerformanceGrade = Guard.Text(performanceGrade, 50, "Grade") ?? PerformanceGrades.ForScore(FinalScore.Value);
+    PerformanceGrade = !string.IsNullOrWhiteSpace(performanceGrade) ? PerformanceGrades.Normalize(performanceGrade)
+      : CountersignedAt is not null && PerformanceGrade is not null ? PerformanceGrade
+      : PerformanceGrades.ForScore(FinalScore.Value);
+    FinalScoreReason = why;
+    FinalizedBy = finalizedBy;
+    FinalizedAt = at;
     Status = ReviewStatus.Finalized;
   }
 

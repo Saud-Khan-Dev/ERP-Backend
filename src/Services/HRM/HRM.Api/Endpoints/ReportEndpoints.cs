@@ -7,7 +7,8 @@ public class ReportEndpoints : ICarterModule
 
     reports.MapGet("/establishment", async (DateOnly? asOf, Guid? orgUnitId, ISender sender) =>
         (await sender.Send(new GetEstablishmentReportQuery(asOf, orgUnitId))).ToOk())
-      .RequirePermission(PermissionCatalog.Hr.View)
+      // seats and posts only (no person): whoever keeps the structure (HR_SETUP) needs the figures as much as HR
+      .RequireAnyPermission(HrmAuthorization.AnyHrmReader)
       .WithName("GetEstablishmentReport")
       .Produces<EstablishmentReport>()
       .WithSummary("Establishment (Sanctioned / Filled / Vacant)")

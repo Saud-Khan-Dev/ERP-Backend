@@ -12,10 +12,12 @@ public class GetMySessionsHandler(IApplicationDbContext context, ICurrentUser cu
 
     var sessions = context.Sessions.AsNoTracking().Where(s => s.UserId == userId);
 
-    if (!query.IncludeRevoked)
-      sessions = sessions.Where(s => s.RevokedAt == null && s.ExpiresAt > now);
+    // a rotation is the same sign-in going on, not an ended device; only the latest 50
+    sessions = query.IncludeRevoked
+      ? sessions.Where(s => s.RevokedReason == null || s.RevokedReason != "Rotated")
+      : sessions.Where(s => s.RevokedAt == null && s.ExpiresAt > now);
 
-    var data = await sessions.OrderByDescending(s => s.IssuedAt).ToListAsync(cancellationToken);
+    var data = await sessions.OrderByDescending(s => s.IssuedAt).Take(50).ToListAsync(cancellationToken);
 
     return Result<GetMySessionsQueryResult>.Success(
       new GetMySessionsQueryResult(data.Select(s => s.ToDto(now)).ToList()));

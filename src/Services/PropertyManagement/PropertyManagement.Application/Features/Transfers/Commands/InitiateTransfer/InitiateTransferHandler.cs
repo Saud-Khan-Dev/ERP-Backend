@@ -21,7 +21,8 @@ public class InitiateTransferHandler(IApplicationDbContext context, MasterLookup
       input.Relationship,
       input.Remarks,
       input.Parties.Select(p => new PropertyTransfer.PartyInput(OwnerId.Of(p.OwnerId), p.Role, p.SharePct)).ToList(),
-      record);
+      record,
+      input.ConfirmFarFuture);
 
     await context.Transfers.AddAsync(transfer, cancellationToken);
     await context.SaveChangesAsync(cancellationToken);

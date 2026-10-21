@@ -1,4 +1,5 @@
 using FluentValidation;
+using Microsoft.Extensions.Options;
 
 /// Approving a transfer registers it: ClosedOwnershipIds are the rows ended on the transfer date,
 /// OpenedOwnershipIds the rows that now hold the shares.
@@ -8,22 +9,23 @@ public sealed record ApproveTransferCommandResult(
   IReadOnlyList<Guid> OpenedOwnershipIds);
 
 /// Approves AND completes an INITIATED transfer in one step (the only waiting state is "pending approval").
-/// ApprovedBy defaults to the signed-in user's name (schema: approved_by is the approving officer's name);
-/// ApprovalDate to today. TenureTypeId is the tenure for transferees who owned nothing before (defaults to OWNED).
+/// The approver is the signed-in officer (never typed); with Transfers:RequireSeparateApprover the person who started
+/// the transfer cannot approve it. ApprovalDate defaults to today. NoDuesCertificateNo: the Taxation clearance the
+/// approval relied on, when given. TenureTypeId is the tenure for transferees who owned nothing before (defaults to OWNED).
 public sealed record ApproveTransferCommand(
   Guid Id,
-  string? ApprovedBy = null,
   DateOnly? ApprovalDate = null,
   string? ApprovalOrderRef = null,
-  Guid? TenureTypeId = null) : ICommand<Result<ApproveTransferCommandResult>>;
+  Guid? TenureTypeId = null,
+  string? NoDuesCertificateNo = null) : ICommand<Result<ApproveTransferCommandResult>>;
 
 public class ApproveTransferCommandValidator : AbstractValidator<ApproveTransferCommand>
 {
   public ApproveTransferCommandValidator()
   {
     RuleFor(x => x.Id).NotEmpty();
-    RuleFor(x => x.ApprovedBy).MaximumLength(150);
     RuleFor(x => x.ApprovalOrderRef).MaximumLength(100);
+    RuleFor(x => x.NoDuesCertificateNo).MaximumLength(PropertyTransfer.NoDuesCertificateMaxLength);
   }
 }
 
@@ -38,4 +40,7 @@ public static class TransferRegistration
 
   /// The name written to completed_by / approved_by / closed_by for the signed-in user.
   public static string ActorName(ICurrentUser currentUser) => currentUser.Username ?? currentUser.AuditName;
+
+  /// The signed-in officer as the approver of an act.
+  public static Approver Approver(ICurrentUser currentUser) => new(currentUser.UserId, currentUser.EmployeeId, ActorName(currentUser));
 }

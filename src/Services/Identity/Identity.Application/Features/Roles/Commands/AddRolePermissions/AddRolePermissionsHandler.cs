@@ -10,10 +10,11 @@ public class AddRolePermissionsHandler(IApplicationDbContext context, IdentityGu
     var roleId = RoleId.Of(command.RoleId);
 
     var role = await context.Roles.AsNoTracking().FirstOrDefaultAsync(r => r.Id == roleId, cancellationToken)
-      ?? throw new RoleNotFoundException($"Role {command.RoleId} was not found.");
+      ?? throw new RoleNotFoundException("This role was not found.");
 
-    // only a Super Admin may change what SUPER_ADMIN can do
+    // only a Super Admin may change what SUPER_ADMIN can do; nobody rewrites a role they hold
     guard.EnsureCanAdministerRole(role);
+    await guard.EnsureNotOwnRoleAsync(role.Id, cancellationToken);
 
     var ids = command.PermissionIds.Distinct().Select(PermissionId.Of).ToList();
     var found = await context.Permissions.CountAsync(p => ids.Contains(p.Id), cancellationToken);
@@ -27,6 +28,7 @@ public class AddRolePermissionsHandler(IApplicationDbContext context, IdentityGu
         .ToListAsync(cancellationToken);
 
     var toAdd = ids.Except(existing).ToList();
+    await guard.EnsureCanGrantAsync(toAdd, $"give {role.RoleName.Value} this access", cancellationToken);
 
     foreach (var permissionId in toAdd)
       await context.RolePermissions.AddAsync(

@@ -44,6 +44,20 @@ public class TaxSetting : Aggregate<TaxSettingId>
       throw new DomainException($"{Key}: the value from {EffectiveFrom:yyyy-MM-dd} cannot end before it starts.");
     EffectiveTo = lastDay;
   }
+
+  /// A value entered from a later date by mistake is taken back before it is in force: the value it would have ended is
+  /// in force again. Returns that value (null when there was none).
+  public static TaxSetting? Void(TaxSetting future, IReadOnlyList<TaxSetting> history, DateOnly today)
+  {
+    if (future.EffectiveFrom <= today)
+      throw new DomainException($"The value from {future.EffectiveFrom:dd MMM yyyy} is already in force; change it from a new date instead.");
+    if (history.Any(h => h.Key == future.Key && h.EffectiveFrom > future.EffectiveFrom))
+      throw new DomainException($"A later value follows it; take that one back first.");
+    var previous = history.Where(h => h.Key == future.Key && h.EffectiveFrom < future.EffectiveFrom).OrderByDescending(h => h.EffectiveFrom).FirstOrDefault();
+    if (previous is not null && previous.EffectiveTo == future.EffectiveFrom.AddDays(-1))
+      previous.EffectiveTo = null;
+    return previous;
+  }
 }
 
 /// Every setting the module reads, with its default and how a value is checked.
@@ -59,6 +73,7 @@ public static class SettingKeys
   public const string CcUpliftPctCom = "CC_UPLIFT_PCT_COM";
   public const string CcUpliftRateBasis = "CC_UPLIFT_RATE_BASIS";
   public const string DueDateDdMm = "DUE_DATE_DDMM";
+  public const string DueDaysAfterIssue = "DUE_DAYS_AFTER_ISSUE";
   public const string ClearanceValidDays = "CLEARANCE_VALID_DAYS";
   public const string PsidModel = "PSID_MODEL";
   public const string PsidPrefix = "PSID_PREFIX";
@@ -108,6 +123,7 @@ public static class SettingKeys
     Pct(CcUpliftPctCom, 150, 1000, "Uplift % of a commercial property without a completion certificate"),
     OneOf(CcUpliftRateBasis, "COMMERCIAL", "Which rate the uplift is charged at", "COMMERCIAL", "RESIDENTIAL"),
     Text(DueDateDdMm, "31-08", 5, "Due date of the annual demand in its year (DD-MM)", @"^(0[1-9]|[12]\d|3[01])-(0[1-9]|1[0-2])$", "write the day and month as DD-MM, e.g. 31-08."),
+    Int(DueDaysAfterIssue, 30, 0, 365, "A demand issued late is due no sooner than this many days after it is issued"),
     Int(ClearanceValidDays, 30, 1, 365, "Days a clearance certificate stays valid"),
     OneOf(PsidModel, "CONSTANT", "One constant 1Link reference per property, re-synced (a reference per issue is not supported yet)", "CONSTANT"),
     Text(PsidPrefix, "6011", 8, "Prefix of the 1Link / 1Bill consumer references GDA issues", @"^\d{2,8}$", "digits only."),
@@ -138,6 +154,7 @@ public sealed record TaxSettings(
   UpliftRateBasis CcUpliftRateBasis,
   int DueDay,
   int DueMonth,
+  int DueDaysAfterIssue,
   int ClearanceValidDays,
   string PsidPrefix,
   PayVia PayViaDefault,
@@ -167,6 +184,7 @@ public sealed record TaxSettings(
       V(SettingKeys.CcUpliftRateBasis) == "RESIDENTIAL" ? UpliftRateBasis.Residential : UpliftRateBasis.Commercial,
       int.Parse(due[0], CultureInfo.InvariantCulture),
       int.Parse(due[1], CultureInfo.InvariantCulture),
+      I(SettingKeys.DueDaysAfterIssue),
       I(SettingKeys.ClearanceValidDays),
       V(SettingKeys.PsidPrefix),
       EnumText.Parse<PayVia>(V(SettingKeys.PayViaDefault)),
@@ -185,12 +203,21 @@ public sealed record TaxSettings(
       throw new DomainException("The notice days must rise: second < final < show cause (each counted from the first notice).");
   }
 
-  /// The due date of a year's demand: the day and month of DUE_DATE_DDMM in the fiscal year (31 Aug 2026 for FY 2026-27).
+  /// The year's due date: the day and month of DUE_DATE_DDMM in the fiscal year (31 Aug 2026 for FY 2026-27).
   public DateOnly DueDate(int fiscalYear)
   {
     var year = DueMonth >= 7 ? fiscalYear : fiscalYear + 1;
     var day = Math.Min(DueDay, DateTime.DaysInMonth(year, DueMonth));
     return new DateOnly(year, DueMonth, day);
+  }
+
+  /// When a demand issued on a day is due: the year's due date, or DUE_DAYS_AFTER_ISSUE days after it is issued when it
+  /// is issued late - never before it is issued.
+  public DateOnly DueDate(int fiscalYear, DateOnly issuedOn)
+  {
+    var yearDue = DueDate(fiscalYear);
+    var late = issuedOn.AddDays(DueDaysAfterIssue);
+    return late > yearDue ? late : yearDue;
   }
 
   /// Days given to reply to a notice of a stage: up to the next stage, or 10 for the last ones.

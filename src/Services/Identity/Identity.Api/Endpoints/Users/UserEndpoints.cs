@@ -21,13 +21,17 @@ public class UserEndpoints : ICarterModule
       .Produces<CreateUserResponse>(StatusCodes.Status201Created)
       .ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Register An Employee Account")
-      .WithDescription("Creates a login account, links it to an employee and assigns roles in one call. Omit temporaryPassword to have one generated — it is returned once and never retrievable again. Omit employeeCode to have the next one issued from the employee code template.");
+      .WithDescription("Creates a login account, optionally linked to the person's HR record (employeeId + HR's employeeCode from HRM's staff directory), and assigns roles in one call (giving roles needs IAM_USERS.ASSIGN too). Omit temporaryPassword to have one generated — it is returned once and never retrievable again. The person always changes it at first sign-in.");
 
     app.MapGet("/users", async (
-      ISender sender, int? pageIndex, int? pageSize, string? search, Guid? roleId, bool? isActive, bool? includeDeleted) =>
+      ISender sender, int? pageIndex, int? pageSize, string? search, Guid? roleId, bool? isActive, bool? includeDeleted,
+      string? status, string? sort, string? direction) =>
     {
       var result = await sender.Send(new GetUsersQuery(
-        new PaginationRequest(pageIndex ?? 0, pageSize ?? 20), search, roleId, isActive, includeDeleted ?? false));
+        new PaginationRequest(pageIndex ?? 0, pageSize ?? 20), search, roleId, isActive, includeDeleted ?? false,
+        string.IsNullOrWhiteSpace(status) ? null : status.Trim(),
+        string.IsNullOrWhiteSpace(sort) ? null : sort.Trim(),
+        string.IsNullOrWhiteSpace(direction) ? null : direction.Trim()));
 
       return Results.Ok(new GetUsersResponse(result.Value!.Users));
     })
@@ -35,11 +39,22 @@ public class UserEndpoints : ICarterModule
       .WithName("GetUsers")
       .Produces<GetUsersResponse>(StatusCodes.Status200OK)
       .WithSummary("Get Users")
-      .WithDescription("Paginated account list with search and role/status filters.");
+      .WithDescription("The Users register: search (part of the name, username, email or employee code), status (active, locked, temporary-password, never-signed-in, no-access, deactivated, deleted), roleId (people who hold the role now), sort (name, username, lastSignIn, registered) and direction (asc, desc). Pages of at most 200.");
 
-    app.MapGet("/users/{id}", async (Guid id, ISender sender) =>
+    app.MapGet("/users/summary", async (ISender sender) =>
     {
-      var result = await sender.Send(new GetUserQuery(id));
+      var result = await sender.Send(new GetUsersSummaryQuery());
+      return Results.Ok(new GetUsersSummaryResponse(result.Value!));
+    })
+      .RequirePermission(PermissionCatalog.Users.View)
+      .WithName("GetUsersSummary")
+      .Produces<GetUsersSummaryResponse>(StatusCodes.Status200OK)
+      .WithSummary("Get Users Summary")
+      .WithDescription("How many accounts are in each state the Users register filters by - every figure is exactly what the same status filter lists.");
+
+    app.MapGet("/users/{id}", async (Guid id, ISender sender, bool? includeDeleted) =>
+    {
+      var result = await sender.Send(new GetUserQuery(id, includeDeleted ?? false));
 
       return Results.Ok(new GetUserResponse(
         result.Value!.User, result.Value.Roles, result.Value.Overrides, result.Value.EffectivePermissions));
@@ -49,7 +64,7 @@ public class UserEndpoints : ICarterModule
       .Produces<GetUserResponse>(StatusCodes.Status200OK)
       .ProducesProblem(StatusCodes.Status404NotFound)
       .WithSummary("Get User")
-      .WithDescription("Profile, role grants, permission overrides, and the permission set they add up to.");
+      .WithDescription("Profile, role grants (in force or run out; removed ones are in the activity trail), permission overrides, and the permission set they add up to. includeDeleted=true opens a deleted account read-only.");
 
     app.MapPut("/users/{id}", async (Guid id, UpdateUserRequest request, ISender sender) =>
     {
@@ -66,7 +81,7 @@ public class UserEndpoints : ICarterModule
       .ProducesProblem(StatusCodes.Status400BadRequest)
       .ProducesProblem(StatusCodes.Status404NotFound)
       .WithSummary("Update User")
-      .WithDescription("Profile fields only, including the employee code (a changed code must follow the template). Roles, activation and passwords each have their own endpoint so every privilege change is explicit.");
+      .WithDescription("Name and email. Roles, activation, passwords and the HR link (which brings the employee code) each have their own endpoint so every change of access or identity is explicit.");
 
     app.MapPost("/users/{id}/activate", async (Guid id, ISender sender) =>
     {
@@ -189,6 +204,52 @@ public class UserEndpoints : ICarterModule
       .WithSummary("Assign Role")
       .WithDescription("Grants a role, optionally until a date. Refuses on your own account, and only an existing Super Admin may grant SUPER_ADMIN.");
 
+    app.MapPut("/users/{id}/roles", async (Guid id, SetUserRolesRequest request, ISender sender) =>
+    {
+      var result = await sender.Send(new SetUserRolesCommand(id, request.Roles ?? []));
+
+      if (!result.IsSuccess)
+        return Results.BadRequest(new { Message = result.Message });
+
+      return Results.Ok(new SetUserRolesResponse(result.Value!.Added, result.Value.Removed));
+    })
+      .RequirePermission(PermissionCatalog.Users.Assign)
+      .WithName("SetUserRoles")
+      .Produces<SetUserRolesResponse>(StatusCodes.Status200OK)
+      .ProducesProblem(StatusCodes.Status400BadRequest)
+      .ProducesProblem(StatusCodes.Status404NotFound)
+      .WithSummary("Change Roles")
+      .WithDescription("Sets the exact roles a person holds (a role newly given may end on a date): kept roles are untouched, new ones given, missing ones taken away - one act, one activity line. The same guard rails as giving one role: not on your own account, only a Super Admin acts on a Super Admin or gives that role, nobody gives access they do not hold, and the last Super Admin keeps the role.");
+
+    app.MapPut("/users/{id}/employee-link", async (Guid id, EmployeeLinkRequest request, ISender sender) =>
+    {
+      var result = await sender.Send(new LinkEmployeeCommand(id, request.EmployeeId, request.EmployeeCode));
+
+      if (!result.IsSuccess)
+        return Results.BadRequest(new { Message = result.Message });
+
+      return Results.Ok(new EmployeeLinkResponse(result.Value!.EmployeeId, result.Value.EmployeeCode));
+    })
+      .RequirePermission(PermissionCatalog.Users.Edit)
+      .WithName("LinkUserToEmployee")
+      .Produces<EmployeeLinkResponse>(StatusCodes.Status200OK)
+      .ProducesProblem(StatusCodes.Status400BadRequest)
+      .ProducesProblem(StatusCodes.Status404NotFound)
+      .WithSummary("Link Account To HR Record")
+      .WithDescription("Links the account to the person's HR record (employeeId from HRM's staff directory) and shows HR's employee number (employeeCode) as the account's code; both null unlink it. One HR record has one account. HRM keeps its own side (POST /employees/{id}/user); the token's emp claim follows on the person's next sign-in or refresh.");
+
+    app.MapPost("/users/{id}/restore", async (Guid id, ISender sender) =>
+    {
+      var result = await sender.Send(new RestoreUserCommand(id));
+      return Results.Ok(new RestoreUserResponse(result.Value!.IsSuccess));
+    })
+      .RequirePermission(PermissionCatalog.Users.Delete)
+      .WithName("RestoreUser")
+      .Produces<RestoreUserResponse>(StatusCodes.Status200OK)
+      .ProducesProblem(StatusCodes.Status404NotFound)
+      .WithSummary("Restore Deleted User")
+      .WithDescription("Brings a deleted account back, switched off - review its roles, then activate it.");
+
     app.MapDelete("/users/{id}/roles/{roleId}", async (Guid id, Guid roleId, ISender sender) =>
     {
       var result = await sender.Send(new RemoveRoleFromUserCommand(id, roleId));
@@ -238,6 +299,7 @@ public sealed record CreateUserRequest(CreateUserInput User);
 public sealed record CreateUserResponse(Guid Id, string? GeneratedPassword, string? EmployeeCode);
 
 public sealed record GetUsersResponse(PaginatedResult<UserListItemDto> Users);
+public sealed record GetUsersSummaryResponse(UsersSummaryDto Summary);
 
 public sealed record GetUserResponse(
   UserDto User,
@@ -261,6 +323,11 @@ public sealed record UserSessionsResponse(IReadOnlyList<SessionDto> Sessions);
 public sealed record DeleteUserResponse(bool IsSuccess);
 
 public sealed record AssignRoleRequest(Guid RoleId, DateTime? ExpiresAt = null);
+public sealed record SetUserRolesRequest(IReadOnlyList<RoleGrantInput>? Roles);
+public sealed record SetUserRolesResponse(int Added, int Removed);
+public sealed record EmployeeLinkRequest(Guid? EmployeeId, string? EmployeeCode);
+public sealed record EmployeeLinkResponse(Guid? EmployeeId, string? EmployeeCode);
+public sealed record RestoreUserResponse(bool IsSuccess);
 public sealed record AssignRoleResponse(Guid UserRoleId);
 public sealed record RemoveRoleResponse(bool IsSuccess);
 

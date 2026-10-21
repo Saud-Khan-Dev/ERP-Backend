@@ -19,6 +19,8 @@ public sealed class TaxationSeeder(ApplicationDbContext context, ILogger<Taxatio
 
     await EnsureHeadsAsync(firstRun, cancellationToken);
     await context.SaveChangesAsync(cancellationToken);
+    await RetireMiscHeadAsync(cancellationToken);
+    await context.SaveChangesAsync(cancellationToken);
 
     if (firstRun)
       await SeedFirstRunAsync(cancellationToken);
@@ -43,11 +45,15 @@ public sealed class TaxationSeeder(ApplicationDbContext context, ILogger<Taxatio
     Add(TaxHead.Builtin(TaxHeadId.New(), HeadCodes.PropertyTax, "Property tax", CalcMethod.Ltf, increase: true, overrideAllowed: true, sortOrder: 1,
       formula: "(A * LTF_LAND) + (B * LTF_COVERED)"));
     Add(TaxHead.Builtin(TaxHeadId.New(), HeadCodes.Rent, "Annual rent", CalcMethod.Agreement, increase: false, overrideAllowed: false, sortOrder: 9));
-    Add(TaxHead.Other(TaxHeadId.New(), HeadCodes.LeaseMoney, "Lease money / ground rent", false, 20));
-    Add(TaxHead.Other(TaxHeadId.New(), HeadCodes.Security, "Security", true, 21));
-    Add(TaxHead.Other(TaxHeadId.New(), HeadCodes.Surcharge, "Surcharge / penalty", false, 22));
-    Add(TaxHead.Other(TaxHeadId.New(), HeadCodes.Wht236A, "With holding FBR (236-A)", false, 23));
-    Add(TaxHead.Other(TaxHeadId.New(), HeadCodes.Misc, "Miscellaneous charge", false, 29));
+    Add(TaxHead.Other(TaxHeadId.New(), HeadCodes.LeaseMoney, "Lease money / ground rent", false, 20, chargedOnNotice: true));
+    Add(TaxHead.Other(TaxHeadId.New(), HeadCodes.Security, "Security", true, 21, chargedOnNotice: true));
+    Add(TaxHead.Other(TaxHeadId.New(), HeadCodes.Surcharge, "Surcharge / penalty", false, 22, chargedOnNotice: true));
+    Add(TaxHead.Other(TaxHeadId.New(), HeadCodes.Wht236A, "With holding FBR (236-A)", false, 23, chargedOnNotice: true));
+
+    // the charges the module itself carries on notices are marked so on databases from before the flag
+    var system = HeadCodes.System.ToList();
+    foreach (var head in await context.TaxHeads.Where(h => system.Contains(h.Code) && h.HeadKind == HeadKind.Other && !h.ChargedOnNotice).ToListAsync(cancellationToken))
+      head.MarkChargedOnNotice();
 
     if (!firstRun)
       return;
@@ -77,9 +83,9 @@ public sealed class TaxationSeeder(ApplicationDbContext context, ILogger<Taxatio
   {
     var heads = await context.TaxHeads.ToDictionaryAsync(h => h.Code, cancellationToken);
 
-    context.TaxCircles.Add(TaxCircle.Create(TaxCircleId.New(), "C-I", new CircleDetails("Circle I", null, null,
+    context.TaxCircles.Add(TaxCircle.Create(TaxCircleId.New(), "C-I", new CircleDetails("Circle I", null,
       "Taxation Office (Circle-I) 2nd Floor ZTBL Building Mansehra Road Abbottabad", "+92-992-9311081", "+92-992-9310240", 1)));
-    context.TaxCircles.Add(TaxCircle.Create(TaxCircleId.New(), "C-II", new CircleDetails("Circle II", null, null,
+    context.TaxCircles.Add(TaxCircle.Create(TaxCircleId.New(), "C-II", new CircleDetails("Circle II", null,
       "Taxation Office (Circle-II) 2nd Floor ZTBL Building Mansehra Road Abbottabad", "+92-992-9311081", "+92-992-9310240", 2)));
 
     foreach (var (code, body) in new (string, string)[]
@@ -160,9 +166,12 @@ public sealed class TaxationSeeder(ApplicationDbContext context, ILogger<Taxatio
         Watermark: true,
         "The Section's notice of 16/09/2026"), null, null, Start));
 
+    var heads = await context.TaxHeads.ToListAsync(cancellationToken);
+    var names = heads.ToDictionary(h => h.Code, h => h.Name);
+    var required = heads.Where(h => h.IsActive && h.OnNotice).Select(h => h.Code).ToList();
     if (!await context.TableLayouts.AnyAsync(cancellationToken))
     {
-      var known = (await context.TaxHeads.Select(h => h.Code).ToListAsync(cancellationToken)).ToHashSet();
+      var known = names.Keys.ToHashSet();
       TableRowInput Row(string label, params string[] codes) => new(label, codes.Where(known.Contains).ToList());
       var rows = new[]
       {
@@ -174,8 +183,60 @@ public sealed class TaxationSeeder(ApplicationDbContext context, ILogger<Taxatio
         Row("Surcharge on late payment", HeadCodes.Surcharge),
         Row("With Holding FBR(236-A)", HeadCodes.Wht236A)
       }.Where(r => r.HeadCodes.Count > 0).ToList();
+      // every other head a notice can carry gets a row of its own, before security, surcharge and withholding
+      var placed = rows.SelectMany(r => r.HeadCodes).ToHashSet();
+      var tail = rows.FindIndex(r => r.HeadCodes.Any(c => c is HeadCodes.Security or HeadCodes.Surcharge or HeadCodes.Wht236A));
+      rows.InsertRange(tail < 0 ? rows.Count : tail, heads.Where(h => h.IsActive && h.OnNotice && !placed.Contains(h.Code)).OrderBy(h => h.SortOrder)
+        .Select(h => new TableRowInput(h.Name, [h.Code])));
       context.TableLayouts.Add(NoticeTableLayout.Create(NoticeTableLayoutId.New(),
-        new TableLayoutInput(rows, [], "Other charges / earlier dues", false, "The Section's notice of 16/09/2026"), known, Start));
+        new TableLayoutInput(rows, [], false, "The Section's notice of 16/09/2026"), names, required, Start));
+    }
+    else
+    {
+      // a layout from before every head had its own row: the heads without one are added, as a new version from today
+      var layouts = await context.TableLayouts.Include(l => l.Rows).ThenInclude(r => r.Sources).Include(l => l.Columns).AsSplitQuery().ToListAsync(cancellationToken);
+      var today = DateOnly.FromDateTime(DateTime.UtcNow.AddHours(5));
+      var current = layouts.Where(l => l.Covers(today)).OrderByDescending(l => l.EffectiveFrom).FirstOrDefault() ?? layouts.OrderByDescending(l => l.EffectiveFrom).First();
+      var missing = heads.Where(h => h.IsActive && h.OnNotice && !current.PlacedCodes.Contains(h.Code)).OrderBy(h => h.SortOrder).ToList();
+      if (missing.Count > 0)
+      {
+        var rows = current.OrderedRows.Select(r => new TableRowInput(r.Label, r.Sources.Select(x => x.SourceCode).ToList())).ToList();
+        var tail = rows.FindIndex(r => r.HeadCodes.Any(c => c is HeadCodes.Security or HeadCodes.Surcharge or HeadCodes.Wht236A));
+        rows.InsertRange(tail < 0 ? rows.Count : tail, missing.Select(h => new TableRowInput(h.Name, [h.Code])));
+        var next = NoticeTableLayout.Create(NoticeTableLayoutId.New(),
+          new TableLayoutInput(rows, current.OrderedColumns.Select(c => new TableColumnInput(c.ColumnKey, c.Heading, c.PrintedByDefault)).ToList(), current.HideZeroRows,
+            "Every head on its own row"), names, required, today > current.EffectiveFrom ? today : current.EffectiveFrom.AddDays(1));
+        current.EndBefore(next.EffectiveFrom);
+        context.TableLayouts.Add(next);
+        logger.LogInformation("Gave {Count} head(s) their own row on the notice table.", missing.Count);
+      }
+    }
+  }
+
+  /// The old catch-all "Miscellaneous charge" head is not offered any more: removed when nothing used it, else kept
+  /// inactive (its earlier dues print under its own name).
+  private async Task RetireMiscHeadAsync(CancellationToken cancellationToken)
+  {
+    const string misc = "MISC";
+    var head = await context.TaxHeads.FirstOrDefaultAsync(h => h.Code == misc, cancellationToken);
+    if (head is null)
+      return;
+    var id = head.Id;
+    var used = await context.ArrearsRows.AnyAsync(a => a.HeadId == id, cancellationToken)
+      || await context.PaymentAllocations.AnyAsync(a => a.HeadId == id, cancellationToken)
+      || await context.Fees.AnyAsync(f => f.HeadId == id, cancellationToken)
+      || await context.RateBands.AnyAsync(b => b.HeadId == id, cancellationToken);
+    if (!used)
+    {
+      context.TaxHeads.Remove(head);
+      logger.LogInformation("Removed the unused catch-all head MISC.");
+      return;
+    }
+    head.MarkChargedOnNotice();
+    if (head.IsActive)
+    {
+      head.SetActive(false);
+      logger.LogInformation("Deactivated the catch-all head MISC; its earlier dues print under its own name.");
     }
   }
 

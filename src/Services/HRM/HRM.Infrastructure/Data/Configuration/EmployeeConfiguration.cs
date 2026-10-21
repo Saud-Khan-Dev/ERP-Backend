@@ -17,6 +17,7 @@ public class EmployeeConfiguration : EntityConfiguration<Employee, EmployeeId>
       t.HasCheckConstraint("ck_emp_cnic", "cnic ~ '^[0-9]{5}-?[0-9]{7}-?[0-9]$'");
       t.HasCheckConstraint("ck_emp_dob", "date_of_birth IS NULL OR date_of_birth < current_date");
       t.HasCheckConstraint("ck_emp_blood", "blood_group IS NULL OR blood_group IN ('A+','A-','B+','B-','AB+','AB-','O+','O-')");
+      t.HasCheckConstraint("ck_emp_term", "term_to IS NULL OR term_from IS NULL OR term_to >= term_from");
     });
 
     builder.Property(x => x.EmployeeNumber).IsRequired();
@@ -34,6 +35,7 @@ public class EmployeeConfiguration : EntityConfiguration<Employee, EmployeeId>
     builder.HasIndex(x => x.Cnic).IsUnique().HasDatabaseName("employee_cnic_key");
     builder.HasIndex(x => x.EmploymentStatus).HasDatabaseName("idx_employee_status");
     builder.HasIndex(x => x.EmploymentType).HasDatabaseName("idx_employee_type");
+    builder.HasIndex(x => x.TermTo).HasDatabaseName("idx_employee_term_to");
 
     builder.HasMany(x => x.Contacts).WithOne().HasForeignKey(c => c.EmployeeId).OnDelete(DeleteBehavior.ClientCascade);
     builder.Navigation(x => x.Contacts).HasField("_contacts").UsePropertyAccessMode(PropertyAccessMode.Field);
@@ -43,6 +45,24 @@ public class EmployeeConfiguration : EntityConfiguration<Employee, EmployeeId>
     builder.Navigation(x => x.EmergencyContacts).HasField("_emergencyContacts").UsePropertyAccessMode(PropertyAccessMode.Field);
     builder.HasMany(x => x.FamilyMembers).WithOne().HasForeignKey(m => m.EmployeeId).OnDelete(DeleteBehavior.ClientCascade);
     builder.Navigation(x => x.FamilyMembers).HasField("_familyMembers").UsePropertyAccessMode(PropertyAccessMode.Field);
+  }
+}
+
+public class EmployeeChangeLogEntryConfiguration : EntityConfiguration<EmployeeChangeLogEntry, EmployeeChangeLogEntryId>
+{
+  protected override AuditColumns Audit => AuditColumns.None;
+
+  public override void Configure(EntityTypeBuilder<EmployeeChangeLogEntry> builder)
+  {
+    base.Configure(builder);
+    builder.ToTable("employee_change_log");
+
+    builder.Property(x => x.Field).IsRequired();
+    builder.Property(x => x.Reason).Text();
+    builder.Property(x => x.ChangedAt).HasDefaultValueSql("now()");
+
+    builder.HasOne<Employee>().WithMany().HasForeignKey(x => x.EmployeeId).OnDelete(DeleteBehavior.NoAction);
+    builder.HasIndex(x => new { x.EmployeeId, x.ChangedAt }).HasDatabaseName("idx_ecl_employee_at");
   }
 }
 
@@ -139,6 +159,7 @@ public class EmployeePayRecordConfiguration : EntityConfiguration<EmployeePayRec
     });
 
     builder.Property(x => x.BasicPay).Money();
+    builder.Property(x => x.IncrementDeferredDays).HasDefaultValue(0);
 
     builder.HasOne<Employee>().WithMany().HasForeignKey(x => x.EmployeeId).OnDelete(DeleteBehavior.NoAction);
     builder.HasOne<PayScaleStage>().WithMany().HasForeignKey(x => x.PayScaleStageId).OnDelete(DeleteBehavior.NoAction);

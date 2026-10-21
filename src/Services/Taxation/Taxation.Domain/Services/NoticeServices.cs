@@ -20,11 +20,12 @@ public static class Numbers
 
   public static string DemandNo(int fiscalYear, long sequence) => $"DMD-{FiscalYear.Label(fiscalYear)}-{sequence:00000}";
 
-  /// The Section's file code until Property issues one: GDA-NATHIAGALI-COM-001.
-  public static string FileNo(string townCode, TaxCategory category, int sequence) =>
-      $"GDA-{townCode.Trim().ToUpperInvariant()}-{(category == TaxCategory.Com ? "COM" : "RSD")}-{sequence:000}";
+  /// The Section's file code until Property issues one: GDA-NATHIAGALI-COM-001 (a town code's underscores and spaces
+  /// print as hyphens: GDA-CHANGLA-GALI-COM-001).
+  public static string FileNo(string townCode, TaxCategory category, int sequence) => $"{FilePrefix(townCode, category)}{sequence:000}";
 
-  public static string FilePrefix(string townCode, TaxCategory category) => $"GDA-{townCode.Trim().ToUpperInvariant()}-{(category == TaxCategory.Com ? "COM" : "RSD")}-";
+  public static string FilePrefix(string townCode, TaxCategory category) =>
+      $"GDA-{string.Join('-', townCode.Trim().ToUpperInvariant().Split(['_', ' ', '-'], StringSplitOptions.RemoveEmptyEntries))}-{(category == TaxCategory.Com ? "COM" : "RSD")}-";
 
   /// The constant 1Link / 1Bill consumer reference: the prefix and a running number, 12 digits in all.
   public static string Psid(string prefix, long sequence)
@@ -120,13 +121,14 @@ public sealed class WorkCalendar(bool countWorkingDays, IReadOnlySet<DateOnly> h
 }
 
 /// The table of particulars of a demand, laid out by the admin's layout: arrears (earlier years' dues billed on it),
-/// current (this year's heads and surcharges), received (what payments settled) and payable, per row. A head in no row
-/// goes to the "other" row, so the payable total always equals what is owed.
+/// current (this year's heads and surcharges), received (what payments settled) and payable, per row. Every head a notice
+/// carries has its row; a head without one (deactivated after its dues were billed) prints on a row of its own name, so
+/// the payable total always equals what is owed.
 public static class NoticeTable
 {
-  public static NoticeParticulars Build(Demand demand, IReadOnlyList<DemandItem> items, IReadOnlyDictionary<TaxHeadId, string> headCodes, NoticeTableLayout layout)
+  public static NoticeParticulars Build(Demand demand, IReadOnlyList<DemandItem> items, IReadOnlyDictionary<TaxHeadId, TaxHead> heads, NoticeTableLayout layout)
   {
-    string Code(TaxHeadId id) => headCodes.TryGetValue(id, out var code) ? code : HeadCodes.Misc;
+    string Code(TaxHeadId id) => heads.TryGetValue(id, out var head) ? head.Code : id.Value.ToString("N");
     var basisByHead = demand.Lines.Where(l => l.Amount > 0 && l.Explanation is not null).GroupBy(l => Code(l.HeadId)).ToDictionary(g => g.Key, g => string.Join("; ", g.Select(l => l.Explanation)));
 
     ParticularRow Row(string label, IReadOnlyList<string> codes)
@@ -140,13 +142,13 @@ public static class NoticeTable
     }
 
     var rows = layout.OrderedRows.Select(r => Row(r.Label, r.Sources.Select(s => s.SourceCode).ToList())).ToList();
-    var placed = layout.OrderedRows.SelectMany(r => r.Sources.Select(s => s.SourceCode)).ToHashSet();
-    var otherCodes = items.Select(i => Code(i.HeadId)).Where(c => !placed.Contains(c)).Distinct().ToList();
-    if (otherCodes.Count > 0)
+    var placed = layout.PlacedCodes;
+    foreach (var item in items.Where(i => !placed.Contains(Code(i.HeadId))).GroupBy(i => i.HeadId))
     {
-      var other = Row(layout.OtherLabel, otherCodes);
-      if (other.Arrears != 0 || other.Current != 0 || other.Received != 0)
-        rows.Add(other);
+      var label = heads.TryGetValue(item.Key, out var head) ? head.Name : "Charge";
+      var row = Row(label, [Code(item.Key)]);
+      if (row.Arrears != 0 || row.Current != 0 || row.Received != 0)
+        rows.Add(row);
     }
     if (layout.HideZeroRows)
       rows = rows.Where(r => r.Arrears != 0 || r.Current != 0 || r.Received != 0 || r.Payable != 0).ToList();
@@ -164,4 +166,29 @@ public static class NoticeTable
       });
 
   public static string Amount(decimal value) => "Rs. " + Rupees.Round(value).ToString("#,0", CultureInfo.InvariantCulture) + "/=";
+}
+
+/// The notice ladder of a year: first (with the demand), second, final and show cause, each counted from the first notice.
+public static class NoticeLadder
+{
+  public static readonly NoticeStage[] Stages = [NoticeStage.First, NoticeStage.Second, NoticeStage.Final, NoticeStage.ShowCause];
+
+  /// Whether an unpaid demand has its next notice due on a day: reached = the highest stage it has had (null: none yet, so
+  /// the first is due); only the stage above it counts, on the day its days from the first notice have run. Counted
+  /// without holidays (weekends only when working days are counted), so a holiday can make it a day early.
+  public static bool IsDue(NoticeStage? reached, DateOnly firstNotice, DateOnly today, TaxSettings settings)
+  {
+    var index = reached is { } r ? Array.IndexOf(Stages, r) : -1;
+    if (index < 0)
+      return true;
+    var steps = new[] { (NoticeStage.Second, settings.NoticeSecondDays), (NoticeStage.Final, settings.NoticeFinalDays), (NoticeStage.ShowCause, settings.NoticeShowCauseDays) };
+    var calendar = new WorkCalendar(settings.CountWorkingDays, new HashSet<DateOnly>());
+    foreach (var (stage, days) in steps)
+    {
+      if (Array.IndexOf(Stages, stage) <= index)
+        continue;
+      return calendar.AddDays(firstNotice, days) <= today;
+    }
+    return false;
+  }
 }

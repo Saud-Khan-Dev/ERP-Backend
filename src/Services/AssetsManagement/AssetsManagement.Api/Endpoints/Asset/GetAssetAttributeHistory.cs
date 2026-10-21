@@ -9,6 +9,8 @@ public class GetAssetAttributeHistory : ICarterModule
       var result = await sender.Send(new GetAssetAttributeHistoryQuery(id, new PaginationRequest(pageIndex ?? 0, pageSize ?? 20), attributeCode));
       return Results.Ok(new GetAssetAttributeHistoryResponse(result.Value!.History));
     })
+      .RequirePermission(PermissionCatalog.Assets.View)
+
       .WithName("GetAssetAttributeHistory")
       .Produces<GetAssetAttributeHistoryResponse>(StatusCodes.Status200OK)
       .ProducesProblem(StatusCodes.Status404NotFound)

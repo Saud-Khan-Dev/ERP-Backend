@@ -9,7 +9,8 @@ public sealed record CreateOrgUnitCommand(string Code, OrgUnitDetailsInput Detai
 public sealed record RestructureOrgUnitCommand(Guid Id, OrgUnitDetailsInput Details, DateOnly EffectiveFrom) : ICommand<Result<CreatedResult>>;
 
 /// Fixes a mistake in the latest version without starting a new period.
-public sealed record CorrectOrgUnitCommand(Guid Id, OrgUnitDetailsInput Details) : ICommand<Result<UpdatedResult>>;
+/// Corrects the version in force on AsOf (today by default); a version planned for later is not touched.
+public sealed record CorrectOrgUnitCommand(Guid Id, OrgUnitDetailsInput Details, DateOnly? AsOf = null) : ICommand<Result<UpdatedResult>>;
 
 /// The unit stops (or starts again) from a date. Its history stays.
 public sealed record SetOrgUnitActivationCommand(Guid Id, bool IsActive, DateOnly EffectiveFrom) : ICommand<Result<CreatedResult>>;

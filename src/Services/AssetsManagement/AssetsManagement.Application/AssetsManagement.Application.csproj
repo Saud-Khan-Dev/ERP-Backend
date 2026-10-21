@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -8,6 +8,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../../../BuildingBlocks/BuildingBlock/BuildingBlock.csproj" />
+    <ProjectReference Include="../../../BuildingBlocks/BuildingBlock.Authentication/BuildingBlock.Authentication.csproj" />
     <ProjectReference Include="../AssetsManagement.Domain/AssetsManagement.Domain.csproj" />
   </ItemGroup>
 

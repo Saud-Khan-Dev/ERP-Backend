@@ -11,8 +11,8 @@ public class LifecycleEventTypeInputValidator : AbstractValidator<LifecycleEvent
   public LifecycleEventTypeInputValidator()
   {
     RuleFor(x => x.Stage).MaximumLength(50);
-    RuleFor(x => x.Code).NotEmpty().MaximumLength(50);
-    RuleFor(x => x.Name).NotEmpty().MaximumLength(100);
+    RuleFor(x => x.Code).NotEmpty().WithMessage("Give the event a code.").MaximumLength(50);
+    RuleFor(x => x.Name).NotEmpty().WithMessage("Give the event a name.").MaximumLength(100);
   }
 }
 

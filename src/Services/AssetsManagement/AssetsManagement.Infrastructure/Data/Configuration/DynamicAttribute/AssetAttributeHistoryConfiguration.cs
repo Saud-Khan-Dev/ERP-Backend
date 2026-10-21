@@ -25,6 +25,7 @@ public class AssetAttributeHistoryConfiguration : EntityConfiguration<AssetAttri
     builder.Property(x => x.NewValue).HasJsonb().IsRequired(false);
     builder.Property(x => x.ChangedAt).IsRequired();
     builder.Property(x => x.ChangedBy).IsRequired(false);
+    builder.Property(x => x.ChangedByName).HasMaxLength(100).IsRequired(false);
     builder.Property(x => x.ChangeReason).IsRequired(false);
 
     builder.HasIndex(x => new { x.AssetId, x.ChangedAt });

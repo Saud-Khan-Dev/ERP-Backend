@@ -29,6 +29,30 @@ public class PayrollPeriod : Aggregate<PayrollPeriodId>
     return new PayrollPeriod { Id = id, Year = year, Month = month, StartDate = start, EndDate = end, Status = PayrollPeriodStatus.Open };
   }
 
+  /// New dates for a month that has no run yet (an open month only).
+  public void ChangeDates(DateOnly startDate, DateOnly endDate, int runs)
+  {
+    EnsureUnused(runs, "change its dates");
+    Guard.DateOrder(startDate, endDate, "Start date", "End date");
+    if (endDate.DayNumber - startDate.DayNumber + 1 > 31)
+      throw new DomainException("A payroll period cannot be longer than 31 days.");
+
+    StartDate = startDate;
+    EndDate = endDate;
+  }
+
+  /// A month with a run (any status, reversed included) stays: its runs and payslips point at it.
+  public void EnsureUnused(int runs, string doing)
+  {
+    if (Status != PayrollPeriodStatus.Open)
+      throw new DomainException($"{Label} is {EnumText.Words(Status)}; only an open month without runs can {doing}.");
+    if (runs > 0)
+      throw new DomainException($"{Label} has {runs} payroll run(s); a month with runs cannot {doing}.");
+  }
+
+  /// True when the two months share a day.
+  public bool Overlaps(DateOnly startDate, DateOnly endDate) => StartDate <= endDate && startDate <= EndDate;
+
   /// No new run in this month. `unfinishedRuns` = runs still before finalization (they must be finished or discarded).
   public void Close(int unfinishedRuns)
   {
@@ -82,6 +106,13 @@ public class PayrollRun : Aggregate<PayrollRunId>
   public DateTime? ApprovalDate { get; private set; }
   public DateTime? FinalizationDate { get; private set; }
   public DateTime? PaymentDate { get; private set; }
+  /// When the figures were last worked out (an approval refuses figures older than a change to the pay inputs).
+  public DateTime? CalculatedAt { get; private set; }
+  public Guid? FinalizedBy { get; private set; }
+  public Guid? PaidBy { get; private set; }
+  public Guid? ReversedBy { get; private set; }
+  public DateTime? ReversedAt { get; private set; }
+  public string? ReversalReason { get; private set; }
 
   public bool IsLive => Status != PayrollRunStatus.Reversed;
 
@@ -123,11 +154,12 @@ public class PayrollRun : Aggregate<PayrollRunId>
   }
 
   /// The figures were (re)worked out. Allowed while the run is a draft or calculated.
-  public void MarkCalculated(Guid? preparedBy)
+  public void MarkCalculated(Guid? preparedBy, DateTime? at = null)
   {
     EnsureEditable();
     Status = PayrollRunStatus.Calculated;
     PreparedBy = preparedBy ?? PreparedBy;
+    CalculatedAt = at ?? CalculatedAt;
   }
 
   /// Discards the calculation (the caller deletes the transactions).
@@ -145,12 +177,17 @@ public class PayrollRun : Aggregate<PayrollRunId>
     ReviewedBy = null;
   }
 
-  /// `requireSeparateApprover`: the person who prepared the run may not approve it.
-  public void Approve(Guid? approvedBy, DateTime approvedAt, bool requireSeparateApprover)
+  /// `requireSeparateApprover`: the person who prepared, reviewed or entered an adjustment on the run may not approve
+  /// it (maker-checker). `adjusters` = the people who entered its adjustments.
+  public void Approve(Guid? approvedBy, DateTime approvedAt, bool requireSeparateApprover, IReadOnlyCollection<Guid>? adjusters = null)
   {
     var approver = Guard.Actor(approvedBy, "approve a payroll run");
     if (requireSeparateApprover && approver == PreparedBy)
       throw new DomainException("The person who prepared this payroll cannot also approve it.");
+    if (requireSeparateApprover && approver == ReviewedBy)
+      throw new DomainException("The person who reviewed this payroll cannot also approve it.");
+    if (requireSeparateApprover && adjusters is not null && adjusters.Contains(approver))
+      throw new DomainException("You entered an adjustment on this payroll, so another officer must approve it.");
 
     Move(PayrollRunStatus.Reviewed, PayrollRunStatus.Approved);
     ApprovedBy = approver;
@@ -165,25 +202,30 @@ public class PayrollRun : Aggregate<PayrollRunId>
   }
 
   /// Posts the run: from now on its figures are locked. Loan recoveries and GP Fund rows are posted with it.
-  public void FinalizeRun(DateTime finalizedAt)
+  public void FinalizeRun(DateTime finalizedAt, Guid? finalizedBy = null)
   {
     Move(PayrollRunStatus.Approved, PayrollRunStatus.Finalized);
     FinalizationDate = finalizedAt;
+    FinalizedBy = finalizedBy;
   }
 
-  public void MarkPaid(DateTime paidAt)
+  public void MarkPaid(DateTime paidAt, Guid? paidBy = null)
   {
     Move(PayrollRunStatus.Finalized, PayrollRunStatus.Paid);
     PaymentDate = paidAt;
+    PaidBy = paidBy;
   }
 
-  /// Undoes a finalized or paid run (the caller undoes its loan recoveries and GP Fund rows).
-  public void Reverse()
+  /// Undoes a finalized or paid run (the caller undoes its loan recoveries and GP Fund rows), with who, when and why.
+  public void Reverse(Guid? reversedBy = null, DateTime? at = null, string? reason = null)
   {
     if (Status is not (PayrollRunStatus.Finalized or PayrollRunStatus.Paid))
       throw new DomainException($"Only a finalized or paid run can be reversed; this one is {EnumText.Words(Status)}. A run before finalization is changed or deleted instead.");
 
     Status = PayrollRunStatus.Reversed;
+    ReversedBy = reversedBy;
+    ReversedAt = at;
+    ReversalReason = Guard.Text(reason, 1000, "Reason");
   }
 
   public void EnsureEditable()

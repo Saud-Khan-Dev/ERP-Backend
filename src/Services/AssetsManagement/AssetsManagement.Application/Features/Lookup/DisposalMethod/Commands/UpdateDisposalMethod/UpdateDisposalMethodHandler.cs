@@ -15,7 +15,8 @@ public class UpdateDisposalMethodHandler(IApplicationDbContext context)
     if (await context.DisposalMethods.AnyAsync(m => m.Id != id && m.Code == code, cancellationToken))
       return Result<UpdateDisposalMethodCommandResult>.Failure($"A disposal method with code {code.Value} already exists.");
 
-    method.Update(code, Name.Of(input.Name, 100), input.RequiresValue, input.IsActive);
+    var inUse = await context.AssetDisposals.AnyAsync(d => d.DisposalMethodId == id, cancellationToken);
+    method.Update(code, Name.Of(input.Name, 100), input.RequiresValue, input.AllowsValue, input.IsActive, inUse);
     await context.SaveChangesAsync(cancellationToken);
 
     return Result<UpdateDisposalMethodCommandResult>.Success(new UpdateDisposalMethodCommandResult(true));

@@ -218,6 +218,17 @@ public class EmployeeRequest : Aggregate<EmployeeRequestId>
     Status = EmployeeRequestStatus.Cancelled;
   }
 
+  /// HR withdraws a request entered by mistake (or the system closes it when the employee leaves service): kept as
+  /// cancelled, with who, when and why.
+  public void Withdraw(Guid? withdrawnBy, DateTime at, string? remarks)
+  {
+    EnsurePending();
+    Remarks = Guard.Text(remarks, 4000, "Remarks") ?? throw new DomainException("Say why the request is withdrawn.");
+    ReviewedBy = withdrawnBy;
+    ReviewedAt = at;
+    Status = EmployeeRequestStatus.Cancelled;
+  }
+
   private void Decide(EmployeeRequestStatus status, Guid? reviewedBy, DateTime at, string? remarks)
   {
     EnsurePending();

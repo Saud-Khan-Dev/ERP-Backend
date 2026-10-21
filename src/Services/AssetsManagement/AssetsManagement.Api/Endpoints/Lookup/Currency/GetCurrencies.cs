@@ -9,6 +9,8 @@ public class GetCurrencies : ICarterModule
       var result = await sender.Send(new GetCurrenciesQuery(includeInactive ?? false));
       return Results.Ok(new GetCurrenciesResponse(result.Value!.Currencies));
     })
+      .RequireAnyPermission(AssetsAuthorization.AnyAssetsReader)
+
       .WithName("GetCurrencies")
       .Produces<GetCurrenciesResponse>(StatusCodes.Status200OK)
       .WithSummary("Get Currencies")

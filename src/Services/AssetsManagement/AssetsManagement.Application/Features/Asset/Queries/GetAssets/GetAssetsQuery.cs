@@ -24,15 +24,27 @@ public enum DisposalFilter
   Only
 }
 
+/// Out = on a loan that has not come back; Overdue = and its return date has passed.
+public enum LoanFilter
+{
+  Out,
+  Overdue
+}
+
 public enum AssetSort
 {
   Code,
   Name,
   Registered,
   Acquired,
-  Cost
+  Cost,
+  Status,
+  Location,
+  Warranty
 }
 
+/// The register's filters. Money filters and sorts (cost, purchase date, with or without a purchase) and the money
+/// columns need ASSET_FINANCE.VIEW - IncludeMoney says whether the caller holds it (the endpoint sets it).
 public sealed record GetAssetsQuery(
   PaginationRequest Pagination,
   Guid? AssetClassId = null,
@@ -56,7 +68,30 @@ public sealed record GetAssetsQuery(
   decimal? CostMin = null,
   decimal? CostMax = null,
   AssetSort SortBy = AssetSort.Code,
-  bool SortDescending = false) : IQuery<Result<GetAssetsQueryResult>>;
+  bool SortDescending = false,
+  bool IncludeMoney = true,
+  bool NoLocation = false,
+  LoanFilter? Loan = null,
+  DateOnly? WarrantyFrom = null,
+  DateOnly? WarrantyTo = null,
+  DateOnly? DisposedFrom = null,
+  DateOnly? DisposedTo = null,
+  bool? HasPurchase = null,
+  bool DepreciationBehind = false,
+  DateTime? StatusSinceTo = null,
+  bool IncludeSubUnits = true,
+  bool MissingRequiredLocation = false,
+  DateOnly? HeldOn = null,
+  bool OutOfService = false,
+  int? InStatusOverDays = null,
+  int? WarrantyWithinDays = null,
+  bool? HasCustodian = null) : IQuery<Result<GetAssetsQueryResult>>
+{
+  /// The filters that read money (refused without ASSET_FINANCE.VIEW).
+  public bool UsesMoney =>
+      AcquiredFrom.HasValue || AcquiredTo.HasValue || CostMin.HasValue || CostMax.HasValue || HasPurchase.HasValue || DepreciationBehind
+      || SortBy is AssetSort.Acquired or AssetSort.Cost;
+}
 
 public class GetAssetsQueryValidator : AbstractValidator<GetAssetsQuery>
 {
@@ -70,7 +105,15 @@ public class GetAssetsQueryValidator : AbstractValidator<GetAssetsQuery>
       .WithMessage("'Purchased until' cannot be before 'Purchased from'.");
     RuleFor(x => x.CostMax).GreaterThanOrEqualTo(x => x.CostMin).When(x => x.CostMin.HasValue && x.CostMax.HasValue)
       .WithMessage("The highest cost cannot be below the lowest cost.");
+    RuleFor(x => x.WarrantyTo).GreaterThanOrEqualTo(x => x.WarrantyFrom).When(x => x.WarrantyFrom.HasValue && x.WarrantyTo.HasValue)
+      .WithMessage("'Warranty ends by' cannot be before 'Warranty ends from'.");
+    RuleFor(x => x.DisposedTo).GreaterThanOrEqualTo(x => x.DisposedFrom).When(x => x.DisposedFrom.HasValue && x.DisposedTo.HasValue)
+      .WithMessage("'Disposed until' cannot be before 'Disposed from'.");
     RuleFor(x => x.Ownership).IsInEnum().When(x => x.Ownership.HasValue);
+    RuleFor(x => x.Search).MaximumLength(100);
+    RuleFor(x => x.InStatusOverDays).InclusiveBetween(0, 3650).When(x => x.InStatusOverDays.HasValue);
+    RuleFor(x => x.WarrantyWithinDays).InclusiveBetween(0, 3650).When(x => x.WarrantyWithinDays.HasValue);
+    RuleFor(x => x).Must(x => !(x.NoLocation && x.LocationId.HasValue)).WithMessage("Choose a location or 'no location', not both.");
     RuleForEach(x => x.AttributeFilters).ChildRules(f =>
     {
       f.RuleFor(v => v.Code).NotEmpty();

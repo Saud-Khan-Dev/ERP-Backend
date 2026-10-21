@@ -7,12 +7,12 @@ public class AddDepreciationEntryHandler(IApplicationDbContext context)
   {
     var scheduleId = AssetDepreciationScheduleId.Of(command.ScheduleId);
     var schedule = await context.AssetDepreciationSchedules.Include(s => s.Entries).FirstOrDefaultAsync(s => s.Id == scheduleId, cancellationToken)
-      ?? throw new DepreciationScheduleNotFoundException($"Depreciation schedule {command.ScheduleId} was not found.");
+      ?? throw new DepreciationScheduleNotFoundException("That depreciation schedule was not found.");
 
-    var acquisition = await context.AssetAcquisitions.AsNoTracking().FirstOrDefaultAsync(a => a.AssetId == schedule.AssetId, cancellationToken)
-      ?? throw new AssetAcquisitionNotFoundException("The asset has no acquisition record.");
+    await AssetRecordGuard.EnsureScheduleAssetOpenAsync(context, schedule.AssetId, cancellationToken);
 
-    var entry = schedule.AddManualEntry(command.PeriodStart, command.PeriodEnd, command.DepreciationAmount, acquisition.AcquisitionCost);
+    // stored with the day after the period, like every generated month
+    var entry = schedule.AddManualEntry(command.PeriodStart, command.PeriodEnd.AddDays(1), command.DepreciationAmount);
 
     await context.SaveChangesAsync(cancellationToken);
 

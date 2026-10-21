@@ -29,8 +29,25 @@ public sealed record BankAdviceLine(string EmployeeNumber, string EmployeeName, 
 public sealed record BankAdviceBank(string BankName, int Count, decimal Amount, IReadOnlyList<BankAdviceLine> Lines);
 public sealed record BankAdviceResult(Guid RunId, string Period, PayrollRunType RunType, int Count, decimal Amount, IReadOnlyList<BankAdviceBank> Banks);
 
-/// The letter to the bank: the run's pending and processed payments, bank by bank.
+/// The letter to the bank: the run's pending and processed bank transfers, bank by bank (cheques and cash are not in it).
 public sealed record GetBankAdviceQuery(Guid RunId) : IQuery<Result<BankAdviceResult>>;
+
+/// Where the run's net pay goes: net payable = to the banks + by cheque + in cash + held + not paid yet (no payment made,
+/// usually no salary account) - each with its count. Processed / returned / failed show what the bank has done.
+public sealed record PaymentReconciliationResult(
+  Guid RunId,
+  decimal NetPayable,
+  int Slips,
+  decimal ToBanks, int ToBanksCount,
+  decimal ByCheque, int ByChequeCount,
+  decimal InCash, int InCashCount,
+  decimal Held, int HeldCount,
+  decimal NotPaid, int NotPaidCount,
+  decimal Processed, int ProcessedCount,
+  int FailedOrReturned,
+  int WithoutAccount);
+
+public sealed record GetPaymentReconciliationQuery(Guid RunId) : IQuery<Result<PaymentReconciliationResult>>;
 
 public class GeneratePaymentsCommandValidator : AbstractValidator<GeneratePaymentsCommand>
 {
@@ -47,7 +64,8 @@ public class PayrollPaymentHandlers(IApplicationDbContext context, HrLookup look
   IQueryHandler<GetPaymentsQuery, Result<GetPaymentsQueryResult>>,
   ICommandHandler<ProcessPaymentsCommand, Result<ProcessPaymentsResult>>,
   ICommandHandler<ChangePaymentStatusCommand, Result<UpdatedResult>>,
-  IQueryHandler<GetBankAdviceQuery, Result<BankAdviceResult>>
+  IQueryHandler<GetBankAdviceQuery, Result<BankAdviceResult>>,
+  IQueryHandler<GetPaymentReconciliationQuery, Result<PaymentReconciliationResult>>
 {
   public async Task<Result<GeneratePaymentsResult>> Handle(GeneratePaymentsCommand command, CancellationToken cancellationToken)
   {
@@ -70,9 +88,10 @@ public class PayrollPaymentHandlers(IApplicationDbContext context, HrLookup look
     foreach (var slip in slips.OrderBy(s => people.GetValueOrDefault(s.EmployeeId.Value)?.EmployeeNumber))
     {
       var number = people.GetValueOrDefault(slip.EmployeeId.Value)?.EmployeeNumber ?? slip.EmployeeId.Value.ToString();
-      if (!accounts.TryGetValue(slip.EmployeeId, out var account))
+      accounts.TryGetValue(slip.EmployeeId, out var account);
+      if (account is null && command.PaymentMethod == PaymentMethod.BankTransfer)
       {
-        problems.Add($"{number}: no active salary bank account.");
+        problems.Add($"{number}: no active salary bank account - add one, or pay by cheque or cash.");
         continue;
       }
 
@@ -138,12 +157,40 @@ public class PayrollPaymentHandlers(IApplicationDbContext context, HrLookup look
   {
     var run = await context.LoadPayrollRunAsync(query.RunId, cancellationToken);
     var period = await context.PayrollPeriods.AsNoTracking().FirstAsync(p => p.Id == run.PayrollPeriodId, cancellationToken);
-    var payments = await PaymentsOfAsync(run.Id, [PaymentStatus.Pending, PaymentStatus.Processed], cancellationToken);
+    var payments = (await PaymentsOfAsync(run.Id, [PaymentStatus.Pending, PaymentStatus.Processed], cancellationToken))
+      .Where(p => p.PaymentMethod == PaymentMethod.BankTransfer).ToList();
 
     var banks = payments.GroupBy(p => p.BankName ?? "(no bank)").OrderBy(g => g.Key).Select(g => new BankAdviceBank(g.Key, g.Count(), g.Sum(p => p.Amount),
       g.OrderBy(p => p.EmployeeNumber).Select(p => new BankAdviceLine(p.EmployeeNumber, p.EmployeeName, p.AccountNumber, p.Iban, p.BranchName, p.Amount, p.PaymentStatus)).ToList()))
       .ToList();
     return Result<BankAdviceResult>.Success(new(run.Id.Value, period.Label, run.RunType, payments.Count, payments.Sum(p => p.Amount), banks));
+  }
+
+  public async Task<Result<PaymentReconciliationResult>> Handle(GetPaymentReconciliationQuery query, CancellationToken cancellationToken)
+  {
+    var run = await context.LoadPayrollRunAsync(query.RunId, cancellationToken);
+    var slips = await context.PayrollTransactions.AsNoTracking().Where(t => t.PayrollRunId == run.Id)
+      .Select(t => new { t.Id, t.EmployeeId, t.NetPayable, Held = t.Status == PayrollTransactionStatus.Held }).ToListAsync(cancellationToken);
+    var slipIds = slips.Select(s => s.Id).ToList();
+    var payments = await context.Payments.AsNoTracking().Where(p => slipIds.Contains(p.PayrollTransactionId)).ToListAsync(cancellationToken);
+    var live = payments.Where(p => p.IsLive).GroupBy(p => p.PayrollTransactionId).ToDictionary(g => g.Key, g => g.First());
+    var employees = slips.Select(s => s.EmployeeId).ToList();
+    var withAccount = (await context.BankAccounts.AsNoTracking().Where(a => employees.Contains(a.EmployeeId) && a.IsPrimary && a.Status == RecordStatus.Active)
+      .Select(a => a.EmployeeId).ToListAsync(cancellationToken)).ToHashSet();
+
+    decimal Sum(Func<PayrollPayment, bool> which) => slips.Where(s => live.TryGetValue(s.Id, out var p) && which(p)).Sum(s => s.NetPayable);
+    int Count(Func<PayrollPayment, bool> which) => slips.Count(s => live.TryGetValue(s.Id, out var p) && which(p));
+    var held = slips.Where(s => s.Held).ToList();
+    var unpaid = slips.Where(s => !s.Held && s.NetPayable > 0 && !live.ContainsKey(s.Id)).ToList();
+
+    return Result<PaymentReconciliationResult>.Success(new(run.Id.Value, slips.Sum(s => s.NetPayable), slips.Count,
+      Sum(p => p.PaymentMethod == PaymentMethod.BankTransfer), Count(p => p.PaymentMethod == PaymentMethod.BankTransfer),
+      Sum(p => p.PaymentMethod == PaymentMethod.Cheque), Count(p => p.PaymentMethod == PaymentMethod.Cheque),
+      Sum(p => p.PaymentMethod == PaymentMethod.Cash), Count(p => p.PaymentMethod == PaymentMethod.Cash),
+      held.Sum(s => s.NetPayable), held.Count, unpaid.Sum(s => s.NetPayable), unpaid.Count,
+      Sum(p => p.PaymentStatus == PaymentStatus.Processed), Count(p => p.PaymentStatus == PaymentStatus.Processed),
+      payments.Count(p => p.PaymentStatus is PaymentStatus.Failed or PaymentStatus.Returned),
+      unpaid.Count(s => !withAccount.Contains(s.EmployeeId))));
   }
 
   private async Task<List<PaymentDto>> PaymentsOfAsync(PayrollRunId runId, IReadOnlyCollection<PaymentStatus>? statuses, CancellationToken cancellationToken)

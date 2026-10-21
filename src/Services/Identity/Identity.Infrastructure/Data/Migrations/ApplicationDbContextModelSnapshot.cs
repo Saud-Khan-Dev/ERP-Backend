@@ -115,67 +115,6 @@ namespace Identity.Infrastructure.Data.Migrations
                     b.ToTable("admin_activities", "auth");
                 });
 
-            modelBuilder.Entity("EmployeeCodeTemplate", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<DateTime?>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
-                    b.Property<string>("CreatedBy")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
-                        .HasColumnName("created_by");
-
-                    b.Property<DateTime?>("LastModified")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("last_modified");
-
-                    b.Property<string>("LastModifiedBy")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
-                        .HasColumnName("last_modified_by");
-
-                    b.Property<int>("MinimumDigits")
-                        .HasColumnType("integer")
-                        .HasColumnName("minimum_digits");
-
-                    b.Property<long>("NextNumber")
-                        .HasColumnType("bigint")
-                        .HasColumnName("next_number");
-
-                    b.Property<string>("Prefix")
-                        .IsRequired()
-                        .HasMaxLength(10)
-                        .HasColumnType("character varying(10)")
-                        .HasColumnName("prefix");
-
-                    b.Property<string>("Separator")
-                        .IsRequired()
-                        .HasMaxLength(1)
-                        .HasColumnType("character varying(1)")
-                        .HasColumnName("separator");
-
-                    b.Property<uint>("xmin")
-                        .IsConcurrencyToken()
-                        .ValueGeneratedOnAddOrUpdate()
-                        .HasColumnType("xid")
-                        .HasColumnName("xmin");
-
-                    b.HasKey("Id")
-                        .HasName("pk_employee_code_templates");
-
-                    b.ToTable("employee_code_templates", "auth", t =>
-                        {
-                            t.HasCheckConstraint("ck_employee_code_templates_minimum_digits", "minimum_digits BETWEEN 1 AND 10");
-
-                            t.HasCheckConstraint("ck_employee_code_templates_next_number", "next_number >= 1");
-                        });
-                });
-
             modelBuilder.Entity("LoginAttempt", b =>
                 {
                     b.Property<Guid>("Id")
@@ -691,6 +630,10 @@ namespace Identity.Infrastructure.Data.Migrations
                         .HasDefaultValue(false)
                         .HasColumnName("is_authorized_officer");
 
+                    b.Property<DateTime?>("LastFailedLoginAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_failed_login_at");
+
                     b.Property<DateTime?>("LastLoginAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("last_login_at");
@@ -728,6 +671,12 @@ namespace Identity.Infrastructure.Data.Migrations
                         .HasColumnType("text")
                         .HasColumnName("password_hash");
 
+                    b.Property<string>("SearchText")
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("text")
+                        .HasColumnName("search_text")
+                        .HasComputedColumnSql("lower(username || ' ' || email || ' ' || coalesce(employee_code, '') || ' ' || display_name)", true);
+
                     b.Property<string>("Username")
                         .IsRequired()
                         .HasMaxLength(100)
@@ -755,7 +704,7 @@ namespace Identity.Infrastructure.Data.Migrations
                     b.HasIndex("EmployeeCode")
                         .IsUnique()
                         .HasDatabaseName("ix_users_employee_code")
-                        .HasFilter("employee_code IS NOT NULL");
+                        .HasFilter("employee_code IS NOT NULL AND employee_id IS NOT NULL");
 
                     b.HasIndex("EmployeeId")
                         .IsUnique()

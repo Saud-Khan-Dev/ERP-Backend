@@ -15,12 +15,23 @@ public class ChangePasswordHandler(
       ?? throw new InvalidCredentialsException("No authenticated user");
 
     var user = await context.Users.FirstOrDefaultAsync(u => u.Id == UserId.Of(userId), cancellationToken)
-      ?? throw new UserNotFoundException($"User {userId} was not found.");
+      ?? throw new UserNotFoundException("This account was not found - it may have been deleted.");
 
+    var security = await securitySettings.GetAsync(cancellationToken);
     if (passwordHasher.Verify(user.PasswordHash.Value, command.CurrentPassword) == PasswordVerificationOutcome.Failed)
-      return Result<ChangePasswordCommandResult>.Failure("Your current password is incorrect.");
+    {
+      // guessing the current password here counts like guessing it at sign-in
+      var locked = user.RegisterFailedLogin(security.MaxFailedLoginAttempts, security.LockoutDuration, now);
+      if (locked)
+        foreach (var live in await context.Sessions.Where(s => s.UserId == user.Id && s.RevokedAt == null).ToListAsync(cancellationToken))
+          live.Revoke(now, "Account locked");
+      await context.SaveChangesAsync(cancellationToken);
+      return Result<ChangePasswordCommandResult>.Failure(locked
+        ? $"Your current password is incorrect. Too many wrong passwords: the account is locked for {security.LockoutMinutes} minutes."
+        : "Your current password is incorrect.");
+    }
 
-    var policy = (await securitySettings.GetAsync(cancellationToken)).PasswordPolicy;
+    var policy = security.PasswordPolicy;
     PasswordPolicy.Validate(command.NewPassword, policy);
 
     user.SetPassword(PasswordHash.Of(passwordHasher.Hash(command.NewPassword)), mustChangePassword: false, now);

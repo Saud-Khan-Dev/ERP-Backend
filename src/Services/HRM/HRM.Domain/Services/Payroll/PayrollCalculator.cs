@@ -5,7 +5,8 @@ public sealed record AssignmentSlice(PostId PostId, DateOnly From, DateOnly? To)
 }
 
 /// What a post was during part of the period.
-public sealed record PostVersionSlice(PostId PostId, PayScaleGradeId GradeId, int Bps, DesignationId DesignationId, OrganizationUnitId OrgUnitId, DateOnly From, DateOnly? To)
+public sealed record PostVersionSlice(PostId PostId, PayScaleGradeId GradeId, int Bps, DesignationId DesignationId, OrganizationUnitId OrgUnitId, DateOnly From, DateOnly? To,
+  IReadOnlyCollection<OrganizationUnitId>? UnitPath = null)
 {
   public DateRange Range => new(From, To);
 }
@@ -86,7 +87,7 @@ public static class PayrollCalculator
       {
         foreach (var piece in Pieces(segment.Result.From, segment.Result.To, component, catalog.Rules, input.Overrides))
         {
-          var scope = new RuleScope(segment.Post.Bps, segment.Post.DesignationId, segment.Post.OrgUnitId, input.EmploymentType, piece.From);
+          var scope = new RuleScope(segment.Post.Bps, segment.Post.DesignationId, segment.Post.OrgUnitId, input.EmploymentType, piece.From, segment.Post.UnitPath);
           var payable = PayableDays(piece.From, piece.To, input.UnpaidLeave);
           var amount = Amount(component, scope, segment, payable, periodDays, 0, input.Overrides, catalog.Rules);
           if (amount is null)
@@ -112,7 +113,7 @@ public static class PayrollCalculator
     if (segments.Count > 0 && daysPayable > 0)
     {
       var last = segments[^1];
-      var scope = new RuleScope(last.Post.Bps, last.Post.DesignationId, last.Post.OrgUnitId, input.EmploymentType, last.Result.To);
+      var scope = new RuleScope(last.Post.Bps, last.Post.DesignationId, last.Post.OrgUnitId, input.EmploymentType, last.Result.To, last.Post.UnitPath);
       var grossForDeductions = grossEarnings + input.TaxableAdjustments;
 
       foreach (var component in catalog.Components.Where(c => c.IsActive && c.ComponentType == ComponentType.Deduction && !c.IsSystem && !catalog.LoanComponents.Contains(c.Id)))

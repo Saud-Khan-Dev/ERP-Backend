@@ -3,7 +3,9 @@ public sealed record AssignTownRequest(Guid TownId, string? ShortCode, DateOnly 
 public sealed record ShortCodeRequest(string? ShortCode);
 public sealed record CircleStaffRequest(Guid? CircleId, Guid PostId, TaxRole TaxRole, DateOnly EffectiveFrom);
 public sealed record EndRequest(DateOnly LastDay);
-public sealed record CreateCircleRequest(string Code, string Name, Guid? OrgUnitId, Guid? OfficerPostId, string? OfficeAddress, string? OfficeFax, string? OfficePhone, int? SortOrder);
+public sealed record CreateCircleRequest(string Code, string Name, Guid? OrgUnitId, string? OfficeAddress, string? OfficeFax, string? OfficePhone, int? SortOrder);
+public sealed record UpdatePenaltyRuleRequest(PenaltyRuleInput Rule, DateOnly? EffectiveFrom);
+public sealed record HeadPreviewRequest(RegularHeadInput Head, Guid TaxFileId, int FiscalYear, HeadRateInput? Rates, Guid? HeadId);
 public sealed record CreateRegularHeadRequest(string? Code, RegularHeadInput Head);
 public sealed record CreateOtherHeadRequest(string Code, OtherHeadInput Head);
 public sealed record CategoryMapRequest(Guid PropertyTypeId, TaxCategory TaxCategory);
@@ -32,11 +34,17 @@ public class SetupEndpoints : ICarterModule
       .WithSummary("Get Circles").WithDescription("With their towns (current and past assignments) and the HRM posts working for them; sectionStaff: the posts that work for the whole Section (DD_TAX).");
 
     circles.MapPost("/", async (CreateCircleRequest r, ISender sender) =>
-        (await sender.Send(new CreateCircleCommand(r.Code, new CircleInput(r.Name, r.OrgUnitId, r.OfficerPostId, r.OfficeAddress, r.OfficeFax, r.OfficePhone, r.SortOrder ?? 0))))
+        (await sender.Send(new CreateCircleCommand(r.Code, new CircleInput(r.Name, r.OrgUnitId, r.OfficeAddress, r.OfficeFax, r.OfficePhone, r.SortOrder ?? 0))))
           .ToCreated(c => $"/tax-circles/{c.Id}"))
       .RequirePermission(PermissionCatalog.TaxSetup.Create)
       .WithName("CreateCircle").Produces<CreatedResult>(StatusCodes.Status201Created).ProducesProblem(StatusCodes.Status400BadRequest)
-      .WithSummary("Create Circle").WithDescription("officerPostId: the HRM post of the Taxation Officer who signs the circle's notices. The office lines are printed under the letterhead.");
+      .WithSummary("Create Circle")
+      .WithDescription("The office lines are printed under the letterhead. The holder of the circle's Taxation Officer post (its TO staff row) signs its notices.");
+
+    circles.MapDelete("/{id:guid}", async (Guid id, ISender sender) => (await sender.Send(new DeleteCircleCommand(id))).ToOk())
+      .RequirePermission(PermissionCatalog.TaxSetup.Delete)
+      .WithName("DeleteCircle").Produces<UpdatedResult>().ProducesProblem(StatusCodes.Status400BadRequest).ProducesProblem(StatusCodes.Status404NotFound)
+      .WithSummary("Delete Circle").WithDescription("A circle made by mistake: no tax file, run or notice refers to it and no town is in it now or later.");
 
     circles.MapPut("/{id:guid}", async (Guid id, CircleInput circle, ISender sender) => (await sender.Send(new UpdateCircleCommand(id, circle))).ToOk())
       .RequirePermission(PermissionCatalog.TaxSetup.Edit)
@@ -64,6 +72,19 @@ public class SetupEndpoints : ICarterModule
       .RequirePermission(PermissionCatalog.TaxSetup.Edit)
       .WithName("SetTownShortCode").Produces<UpdatedResult>().ProducesProblem(StatusCodes.Status404NotFound)
       .WithSummary("Set Town Short Code");
+
+    circles.MapPost("/{id:guid}/towns/{assignmentId:guid}/end", async (Guid id, Guid assignmentId, EndRequest r, ISender sender) =>
+        (await sender.Send(new EndTownCommand(id, assignmentId, r.LastDay))).ToOk())
+      .RequirePermission(PermissionCatalog.TaxSetup.Edit)
+      .WithName("EndTown").Produces<UpdatedResult>().ProducesProblem(StatusCodes.Status400BadRequest).ProducesProblem(StatusCodes.Status404NotFound)
+      .WithSummary("Take Town out of Circle")
+      .WithDescription("The town is in no circle after lastDay. Refused while the town has open tax files in the circle: assign it to another circle instead (its files move with it).");
+
+    circles.MapDelete("/{id:guid}/towns/{assignmentId:guid}", async (Guid id, Guid assignmentId, ISender sender) =>
+        (await sender.Send(new VoidTownCommand(id, assignmentId))).ToOk())
+      .RequirePermission(PermissionCatalog.TaxSetup.Edit)
+      .WithName("VoidTownAssignment").Produces<UpdatedResult>().ProducesProblem(StatusCodes.Status400BadRequest).ProducesProblem(StatusCodes.Status404NotFound)
+      .WithSummary("Take Back Town Assignment").WithDescription("An assignment from a later date made by mistake, before it is in force; the town's assignment it would have ended runs on.");
 
     app.MapPost("/tax-circle-staff", async (CircleStaffRequest r, ISender sender) =>
         (await sender.Send(new AddCircleStaffCommand(r.CircleId, r.PostId, r.TaxRole, r.EffectiveFrom))).ToCreated(c => $"/tax-circle-staff/{c.Id}"))
@@ -117,6 +138,17 @@ public class SetupEndpoints : ICarterModule
         .WithName(active ? "ActivateHead" : "DeactivateHead").Produces<UpdatedResult>().ProducesProblem(StatusCodes.Status400BadRequest)
         .WithSummary(active ? "Activate Head" : "Deactivate Head");
     }
+
+    heads.MapDelete("/{id:guid}", async (Guid id, ISender sender) => (await sender.Send(new DeleteHeadCommand(id))).ToOk())
+      .RequirePermission(PermissionCatalog.TaxSetup.Delete)
+      .WithName("DeleteHead").Produces<UpdatedResult>().ProducesProblem(StatusCodes.Status400BadRequest).ProducesProblem(StatusCodes.Status404NotFound)
+      .WithSummary("Delete Head").WithDescription("A head made by mistake: nothing was ever charged, set or paid under it (its draft rates and its notice-table row go with it).");
+
+    heads.MapPost("/preview", async (HeadPreviewRequest r, ISender sender) => (await sender.Send(new PreviewHeadQuery(r.Head, r.TaxFileId, r.FiscalYear, r.Rates, r.HeadId))).ToOk())
+      .RequireAnyPermission(TaxAuthorization.AnyTaxReader)
+      .WithName("PreviewHead").Produces<HeadPreviewDto>().ProducesProblem(StatusCodes.Status400BadRequest).ProducesProblem(StatusCodes.Status404NotFound)
+      .WithSummary("Test Head on a File")
+      .WithDescription("What a head (as being defined, not saved) would charge one file for a year, with the rates given (or the head's rates in the set in force). Nothing is saved.");
 
     // ---- category mapping ----
 
@@ -213,6 +245,17 @@ public class SetupEndpoints : ICarterModule
       .WithSummary("Change Settings")
       .WithDescription("values: {KEY: value}. Each key's value in force ends the day before effectiveFrom; on the same date it is corrected. rateSetId: the Board decision.");
 
+    app.MapGet("/tax-settings/{key}/history", async (string key, ISender sender) => (await sender.Send(new GetSettingHistoryQuery(key))).ToOk())
+      .RequireAnyPermission(TaxAuthorization.AnyTaxReader)
+      .WithTags("Settings").WithName("GetSettingHistory").Produces<GetSettingHistoryQueryResult>().ProducesProblem(StatusCodes.Status400BadRequest)
+      .WithSummary("Get Setting History").WithDescription("Every value the setting has had and will have, newest first.");
+
+    app.MapDelete("/tax-settings/{key}/{effectiveFrom}", async (string key, DateOnly effectiveFrom, ISender sender) =>
+        (await sender.Send(new VoidSettingCommand(key, effectiveFrom))).ToOk())
+      .RequirePermission(PermissionCatalog.TaxSetup.Edit)
+      .WithTags("Settings").WithName("VoidSetting").Produces<UpdatedResult>().ProducesProblem(StatusCodes.Status400BadRequest).ProducesProblem(StatusCodes.Status404NotFound)
+      .WithSummary("Take Back Setting Value").WithDescription("A value from a later date entered by mistake, before it is in force; the value it would have ended runs on.");
+
     // ---- special policies ----
 
     var policies = app.MapGroup("/special-policies").WithTags("Special Policies");
@@ -241,18 +284,31 @@ public class SetupEndpoints : ICarterModule
         .WithSummary(active ? "Activate Special Policy" : "Deactivate Special Policy");
     }
 
+    policies.MapDelete("/{id:guid}", async (Guid id, ISender sender) => (await sender.Send(new DeleteSpecialPolicyCommand(id))).ToOk())
+      .RequirePermission(PermissionCatalog.TaxSetup.Delete)
+      .WithName("DeleteSpecialPolicy").Produces<UpdatedResult>().ProducesProblem(StatusCodes.Status400BadRequest).ProducesProblem(StatusCodes.Status404NotFound)
+      .WithSummary("Delete Special Policy").WithDescription("A policy made by mistake: no property has it and no demand was charged with it.");
+
     // ---- penalty rules, SMS texts, notice templates ----
 
-    app.MapGet("/penalty-rules", async (ISender sender) => (await sender.Send(new GetPenaltyRulesQuery())).ToOk())
+    app.MapGet("/penalty-rules", async (bool? history, ISender sender) => (await sender.Send(new GetPenaltyRulesQuery(history ?? false))).ToOk())
       .RequireAnyPermission(TaxAuthorization.AnyTaxReader)
       .WithTags("Penalties").WithName("GetPenaltyRules").Produces<GetPenaltyRulesQueryResult>()
-      .WithSummary("Get Penalty Rules");
+      .WithSummary("Get Penalty Rules").WithDescription("The version of each rule in force today; history=true: every version, newest first.");
 
-    app.MapPut("/penalty-rules/{id:guid}", async (Guid id, PenaltyRuleInput rule, ISender sender) => (await sender.Send(new UpdatePenaltyRuleCommand(id, rule))).ToOk())
+    app.MapPut("/penalty-rules/{id:guid}", async (Guid id, UpdatePenaltyRuleRequest r, ISender sender) =>
+        (await sender.Send(new UpdatePenaltyRuleCommand(id, r.Rule, r.EffectiveFrom))).ToOk())
       .RequirePermission(PermissionCatalog.TaxSetup.Edit)
-      .WithTags("Penalties").WithName("UpdatePenaltyRule").Produces<UpdatedResult>().ProducesProblem(StatusCodes.Status400BadRequest)
-      .WithSummary("Update Penalty Rule")
-      .WithDescription("rateType percent | fixed; the in-year rule also has the period (periodValue, periodUnit months | days, periodAnchor fy_start | demand_issue | due_date).");
+      .WithTags("Penalties").WithName("UpdatePenaltyRule").Produces<CreatedResult>().ProducesProblem(StatusCodes.Status400BadRequest)
+      .WithSummary("Change Penalty Rule")
+      .WithDescription("A new version from effectiveFrom (today by default); the version in force ends the day before, and surcharges already applied keep theirs. "
+        + "Dated the version's own first day it corrects that version. rateType percent | fixed; the in-year rule also has the period (periodValue, periodUnit "
+        + "months | days, periodAnchor fy_start | demand_issue | due_date). Returns the id of the version now holding the change.");
+
+    app.MapDelete("/penalty-rules/{id:guid}", async (Guid id, ISender sender) => (await sender.Send(new VoidPenaltyRuleCommand(id))).ToOk())
+      .RequirePermission(PermissionCatalog.TaxSetup.Edit)
+      .WithTags("Penalties").WithName("VoidPenaltyRule").Produces<UpdatedResult>().ProducesProblem(StatusCodes.Status400BadRequest)
+      .WithSummary("Take Back Penalty Rule Version").WithDescription("A version from a later date entered by mistake, before it is in force; the one it would have ended runs on.");
 
     app.MapGet("/message-templates", async (ISender sender) => (await sender.Send(new GetMessageTemplatesQuery())).ToOk())
       .RequireAnyPermission(TaxAuthorization.AnyTaxReader)
@@ -321,7 +377,8 @@ public class SetupEndpoints : ICarterModule
       .RequirePermission(PermissionCatalog.TaxSetup.Edit)
       .WithTags("Notices Setup").WithName("ReviseTableLayout").Produces<CreatedResult>().ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Revise Notice Table")
-      .WithDescription("rows [{label, headCodes}]: a head is in at most one row; a head in no row prints on the otherLabel row, so the grand total always equals "
-        + "the amount due. columns [{key, heading, printedByDefault}] ({fy} = the year, | = a new line); at least one amount column.");
+      .WithDescription("rows [{label, headCodes}]: every head a notice can carry (each active regular head and each charge carried on notices) is in exactly "
+        + "one row; a head left without one (deactivated since) prints on a row of its own name, so the grand total always equals the amount due. "
+        + "columns [{key, heading, printedByDefault}] ({fy} = the year, | = a new line); at least one amount column.");
   }
 }

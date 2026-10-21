@@ -52,7 +52,7 @@ public class AssignShiftToManyCommandValidator : AbstractValidator<AssignShiftTo
   }
 }
 
-public class ShiftHandlers(IApplicationDbContext context) :
+public class ShiftHandlers(IApplicationDbContext context, IClock clock) :
   IQueryHandler<GetWorkShiftsQuery, Result<GetWorkShiftsQueryResult>>,
   ICommandHandler<CreateWorkShiftCommand, Result<CreatedResult>>,
   ICommandHandler<UpdateWorkShiftCommand, Result<UpdatedResult>>,
@@ -65,7 +65,11 @@ public class ShiftHandlers(IApplicationDbContext context) :
   public async Task<Result<GetWorkShiftsQueryResult>> Handle(GetWorkShiftsQuery query, CancellationToken cancellationToken)
   {
     var rows = await context.WorkShifts.AsNoTracking().Where(s => query.IncludeInactive || s.IsActive).OrderBy(s => s.StartTime).ThenBy(s => s.Name).ToListAsync(cancellationToken);
-    return Result<GetWorkShiftsQueryResult>.Success(new(rows.Select(s => s.ToDto()).ToList()));
+    var today = clock.Today;
+    var people = (await context.EmployeeShifts.AsNoTracking().Where(e => e.EffectiveFrom <= today && (e.EffectiveTo == null || e.EffectiveTo >= today))
+        .GroupBy(e => e.WorkShiftId).Select(g => new { g.Key, Count = g.Count() }).ToListAsync(cancellationToken))
+      .ToDictionary(x => x.Key, x => x.Count);
+    return Result<GetWorkShiftsQueryResult>.Success(new(rows.Select(s => s.ToDto() with { PeopleCount = people.GetValueOrDefault(s.Id) }).ToList()));
   }
 
   public async Task<Result<CreatedResult>> Handle(CreateWorkShiftCommand command, CancellationToken cancellationToken)
@@ -286,7 +290,9 @@ public sealed record GetAttendanceSummaryQuery(int Year, int Month, Guid? Employ
 /// Records (or corrects) one employee's day. Hours, lateness and the status are worked out from the shift.
 public sealed record RecordAttendanceCommand(Guid EmployeeId, AttendanceInput Attendance) : ICommand<Result<CreatedResult>>;
 
-public sealed record AttendanceImportRow(string EmployeeNumber, DateOnly AttendanceDate, TimeOnly? CheckIn, TimeOnly? CheckOut, AttendanceStatus? Status, string? Remarks);
+/// One row of an import, as text: each cell is read on its own, so a bad cell is reported for its row and the good rows
+/// are still saved. Dates yyyy-mm-dd (or dd/mm/yyyy), times HH:mm, status as the screen names it (present, late ...).
+public sealed record AttendanceImportRow(string? EmployeeNumber, string? AttendanceDate, string? CheckIn, string? CheckOut, string? Status, string? Remarks);
 
 public sealed record ImportAttendanceResult(int Saved, IReadOnlyList<string> Problems);
 
@@ -382,41 +388,66 @@ public class AttendanceHandlers(IApplicationDbContext context, WorkCalendar cale
   {
     var employee = await context.LoadEmployeeAsync(command.EmployeeId, cancellationToken);
     employee.EnsureProfileActive();
-    var record = await UpsertAsync(employee.Id, command.Attendance, cancellationToken);
+    var input = command.Attendance;
+    var day = new Day(await calendar.ForAsync(employee.Id, input.AttendanceDate, input.AttendanceDate, cancellationToken),
+      await OnLeaveAsync([employee.Id], input.AttendanceDate, input.AttendanceDate, cancellationToken));
+    var existing = await context.AttendanceRecords.FirstOrDefaultAsync(r => r.EmployeeId == employee.Id && r.AttendanceDate == input.AttendanceDate, cancellationToken);
+    var record = Upsert(employee.Id, input, day, existing);
     await context.SaveChangesAsync(cancellationToken);
     return CommandResults.Created(record.Id);
   }
 
   public async Task<Result<ImportAttendanceResult>> Handle(ImportAttendanceCommand command, CancellationToken cancellationToken)
   {
-    var numbers = command.Rows.Select(r => Employee.NormalizeNumber(r.EmployeeNumber)).Distinct().ToList();
-    var employees = await context.Employees.AsNoTracking().Where(e => numbers.Contains(e.EmployeeNumber)).ToDictionaryAsync(e => e.EmployeeNumber, cancellationToken);
-
+    // every cell is read on its own: a bad one is reported for its row, the good rows are saved
     var problems = new List<string>();
-    var saved = 0;
+    var parsed = new List<(int Row, string Number, AttendanceInput Input)>();
     for (var i = 0; i < command.Rows.Count; i++)
     {
       var row = command.Rows[i];
-      var number = Employee.NormalizeNumber(row.EmployeeNumber);
-      if (!employees.TryGetValue(number, out var employee))
-      {
-        problems.Add($"Row {i + 1}: no employee {number}.");
-        continue;
-      }
-
-      try
-      {
-        await UpsertAsync(employee.Id, new AttendanceInput(row.AttendanceDate, row.CheckIn, row.CheckOut, row.Status, row.Remarks), cancellationToken);
-        saved++;
-      }
-      catch (DomainException error)
-      {
-        problems.Add($"Row {i + 1} ({number}, {row.AttendanceDate:yyyy-MM-dd}): {DomainMessages.Text(error)}");
-      }
+      if (ImportParsing.Parse(row, out var number, out var input) is { } problem)
+        problems.Add($"Row {i + 1}: {problem}");
+      else
+        parsed.Add((i + 1, number!, input!));
     }
 
+    // a fixed number of queries for the whole batch: the people, their calendars, leave and existing records
+    var numbers = parsed.Select(p => p.Number).Distinct().ToList();
+    var employees = await context.Employees.AsNoTracking().Where(e => numbers.Contains(e.EmployeeNumber)).ToDictionaryAsync(e => e.EmployeeNumber, cancellationToken);
+    var known = parsed.Where(p => employees.ContainsKey(p.Number)).ToList();
+    var ids = known.Select(p => employees[p.Number].Id).Distinct().ToList();
+    var saved = 0;
+    if (known.Count > 0)
+    {
+      var from = known.Min(p => p.Input.AttendanceDate);
+      var to = known.Max(p => p.Input.AttendanceDate);
+      var calendars = await calendar.ForManyAsync(ids, from, to, cancellationToken);
+      var leave = await OnLeaveAsync(ids, from, to, cancellationToken);
+      var existing = (await context.AttendanceRecords.Where(r => ids.Contains(r.EmployeeId) && r.AttendanceDate >= from && r.AttendanceDate <= to)
+          .ToListAsync(cancellationToken))
+        .ToDictionary(r => (r.EmployeeId, r.AttendanceDate));
+
+      foreach (var (row, number, input) in known)
+      {
+        var employee = employees[number];
+        try
+        {
+          employee.EnsureProfileActive();
+          var record = Upsert(employee.Id, input, new Day(calendars[employee.Id], leave), existing.GetValueOrDefault((employee.Id, input.AttendanceDate)));
+          existing[(employee.Id, input.AttendanceDate)] = record;
+          saved++;
+        }
+        catch (DomainException error)
+        {
+          problems.Add($"Row {row} ({number}, {input.AttendanceDate:yyyy-MM-dd}): {DomainMessages.Text(error)}");
+        }
+      }
+    }
+    foreach (var (row, number, _) in parsed.Where(p => !employees.ContainsKey(p.Number)))
+      problems.Add($"Row {row}: there is no employee {number}.");
+
     await context.SaveChangesAsync(cancellationToken);
-    return Result<ImportAttendanceResult>.Success(new(saved, problems));
+    return Result<ImportAttendanceResult>.Success(new(saved, problems.OrderBy(p => p, StringComparer.Ordinal).ToList()));
   }
 
   public async Task<Result<CloseAttendanceDayResult>> Handle(CloseAttendanceDayCommand command, CancellationToken cancellationToken)
@@ -433,30 +464,31 @@ public class AttendanceHandlers(IApplicationDbContext context, WorkCalendar cale
       .Where(id => context.Employees.Any(e => e.Id == id && e.ProfileStatus == RecordStatus.Active))
       .ToListAsync(cancellationToken);
 
-    var onLeave = (await context.LeaveApplications.AsNoTracking()
-        .Where(a => employeeIds.Contains(a.EmployeeId) && a.Status == LeaveStatus.Approved && a.StartDate <= date && a.EndDate >= date)
-        .Select(a => a.EmployeeId).ToListAsync(cancellationToken))
-      .ToHashSet();
+    var onLeave = await OnLeaveAsync(employeeIds, date, date, cancellationToken);
     var calendars = await calendar.ForManyAsync(employeeIds, date, date, cancellationToken);
 
     int absent = 0, leave = 0, holiday = 0, weekend = 0;
     foreach (var id in employeeIds)
     {
+      // the calendar first: a holiday or day off inside a leave is not a day of leave
       var employeeCalendar = calendars[id];
-      var status = onLeave.Contains(id) ? AttendanceStatus.OnLeave
-        : employeeCalendar.IsHoliday(date) ? AttendanceStatus.Holiday
+      var away = onLeave.GetValueOrDefault((id, date));
+      var status = employeeCalendar.IsHoliday(date) ? AttendanceStatus.Holiday
         : !employeeCalendar.IsWorkingDay(date) ? AttendanceStatus.Weekend
+        : away is { HalfDay: true } ? AttendanceStatus.HalfDay
+        : away is not null ? AttendanceStatus.OnLeave
         : AttendanceStatus.Absent;
 
       switch (status)
       {
-        case AttendanceStatus.OnLeave: leave++; break;
+        case AttendanceStatus.OnLeave or AttendanceStatus.HalfDay: leave++; break;
         case AttendanceStatus.Holiday: holiday++; break;
         case AttendanceStatus.Weekend: weekend++; break;
         default: absent++; break;
       }
 
-      context.AttendanceRecords.Add(AttendanceRecord.Record(AttendanceRecordId.New(), id, date, employeeCalendar.ShiftOn(date), null, null, status, "Recorded when the day was closed."));
+      context.AttendanceRecords.Add(AttendanceRecord.Record(AttendanceRecordId.New(), id, date, employeeCalendar.ShiftOn(date), null, null, status,
+        status == AttendanceStatus.HalfDay ? "Half a day of leave; recorded when the day was closed." : "Recorded when the day was closed."));
     }
 
     if (!command.DryRun)
@@ -475,14 +507,46 @@ public class AttendanceHandlers(IApplicationDbContext context, WorkCalendar cale
     return CommandResults.Updated();
   }
 
-  /// One record per employee per day: an existing one is corrected in place.
-  private async Task<AttendanceRecord> UpsertAsync(EmployeeId employeeId, AttendanceInput input, CancellationToken cancellationToken)
+  /// An employee's calendar and approved leave, to check a status typed by hand against.
+  private sealed record Day(EmployeeCalendar Calendar, IReadOnlyDictionary<(EmployeeId, DateOnly), LeaveDay> Leave);
+
+  public sealed record LeaveDay(string TypeName, bool HalfDay);
+
+  /// Approved leave of the employees per date (a one-date application of half a day is a half day).
+  private async Task<Dictionary<(EmployeeId, DateOnly), LeaveDay>> OnLeaveAsync(IReadOnlyCollection<EmployeeId> ids, DateOnly first, DateOnly last, CancellationToken cancellationToken)
+  {
+    var rows = await (
+        from a in context.LeaveApplications.AsNoTracking()
+        where ids.Contains(a.EmployeeId) && a.Status == LeaveStatus.Approved && a.StartDate <= last && a.EndDate >= first
+        join t in context.LeaveTypes on a.LeaveTypeId equals t.Id
+        select new { a.EmployeeId, a.StartDate, a.EndDate, a.Days, t.Name })
+      .ToListAsync(cancellationToken);
+    var result = new Dictionary<(EmployeeId, DateOnly), LeaveDay>();
+    foreach (var a in rows)
+    {
+      for (var d = a.StartDate < first ? first : a.StartDate; d <= (a.EndDate > last ? last : a.EndDate); d = d.AddDays(1))
+        result[(a.EmployeeId, d)] = new LeaveDay(a.Name, a.StartDate == a.EndDate && a.Days < 1);
+    }
+    return result;
+  }
+
+  /// One record per employee per day: an existing one is corrected in place. A status typed by hand must be true:
+  /// on leave only with approved leave that day, holiday only on a holiday, weekend only on a day off.
+  private AttendanceRecord Upsert(EmployeeId employeeId, AttendanceInput input, Day day, AttendanceRecord? existing)
   {
     AttendanceRecord.EnsureRecordable(input.AttendanceDate, clock.Today);
-    var shift = (await calendar.ForAsync(employeeId, input.AttendanceDate, input.AttendanceDate, cancellationToken)).ShiftOn(input.AttendanceDate);
-    var existing = context.AttendanceRecords.Local.FirstOrDefault(r => r.EmployeeId == employeeId && r.AttendanceDate == input.AttendanceDate)
-      ?? await context.AttendanceRecords.FirstOrDefaultAsync(r => r.EmployeeId == employeeId && r.AttendanceDate == input.AttendanceDate, cancellationToken);
+    var date = input.AttendanceDate;
+    switch (input.Status)
+    {
+      case AttendanceStatus.OnLeave when !day.Leave.ContainsKey((employeeId, date)):
+        throw new DomainException($"There is no approved leave on {date:dd MMM yyyy}; apply for the leave first, then the day is marked on leave.");
+      case AttendanceStatus.Holiday when !day.Calendar.IsHoliday(date):
+        throw new DomainException($"{date:dd MMM yyyy} is not a holiday where the employee works.");
+      case AttendanceStatus.Weekend when day.Calendar.IsWorkingDay(date) && !day.Calendar.IsHoliday(date):
+        throw new DomainException($"{date:dd MMM yyyy} is a working day of the employee's shift.");
+    }
 
+    var shift = day.Calendar.ShiftOn(date);
     if (existing is not null)
     {
       existing.Update(shift, input.CheckIn, input.CheckOut, input.Status, input.Remarks);
@@ -511,5 +575,55 @@ public class AttendanceHandlers(IApplicationDbContext context, WorkCalendar cale
           && v.EffectiveFrom <= r.AttendanceDate && (v.EffectiveTo == null || v.EffectiveTo >= r.AttendanceDate))));
     }
     return records;
+  }
+}
+
+/// Reads an attendance import row cell by cell into what Record takes; returns the problem, or null.
+public static class ImportParsing
+{
+  private static readonly string[] DateFormats = ["yyyy-MM-dd", "dd/MM/yyyy", "d/M/yyyy", "dd-MM-yyyy"];
+  private static readonly string[] TimeFormats = ["HH:mm", "H:mm", "HH:mm:ss", "h:mm tt", "hh:mm tt"];
+
+  public static string? Parse(AttendanceImportRow row, out string? number, out AttendanceInput? input)
+  {
+    number = null;
+    input = null;
+    if (string.IsNullOrWhiteSpace(row.EmployeeNumber))
+      return "the employee number is missing.";
+    try
+    {
+      number = Employee.NormalizeNumber(row.EmployeeNumber);
+    }
+    catch (DomainException e)
+    {
+      return DomainMessages.Text(e);
+    }
+
+    if (!DateOnly.TryParseExact(row.AttendanceDate?.Trim(), DateFormats, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var date))
+      return $"'{row.AttendanceDate}' is not a date (use 2026-10-21).";
+    TimeOnly? checkIn = null, checkOut = null;
+    if (!string.IsNullOrWhiteSpace(row.CheckIn))
+    {
+      if (!TimeOnly.TryParseExact(row.CheckIn.Trim(), TimeFormats, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var t))
+        return $"'{row.CheckIn}' is not a time of arrival (use 08:30).";
+      checkIn = t;
+    }
+    if (!string.IsNullOrWhiteSpace(row.CheckOut))
+    {
+      if (!TimeOnly.TryParseExact(row.CheckOut.Trim(), TimeFormats, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var t))
+        return $"'{row.CheckOut}' is not a time of leaving (use 16:00).";
+      checkOut = t;
+    }
+    AttendanceStatus? status = null;
+    if (!string.IsNullOrWhiteSpace(row.Status))
+    {
+      var text = row.Status.Trim().Replace(" ", "").Replace("_", "").Replace("-", "");
+      if (!Enum.TryParse<AttendanceStatus>(text, ignoreCase: true, out var parsed) || int.TryParse(text, out _))
+        return $"'{row.Status}' is not an attendance status (present, absent, late, half day, on leave, official duty, holiday, weekend).";
+      status = parsed;
+    }
+
+    input = new AttendanceInput(date, checkIn, checkOut, status, row.Remarks);
+    return null;
   }
 }

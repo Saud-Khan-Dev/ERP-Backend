@@ -1,24 +1,30 @@
 using FluentValidation;
 
-public sealed record LitigationActionResult(Guid Id, MasterRef? Status, DateOnly? NextHearingDate);
+/// Effects: what the act changed on a linked record ("Encroachment ENC-00012 is resolved by this decision.").
+public sealed record LitigationActionResult(Guid Id, MasterRef? Status, DateOnly? NextHearingDate, IReadOnlyList<string>? Effects = null);
 
 public sealed record UpdateLitigationCommand(Guid Id, LitigationDetailsInput Details) : ICommand<Result<LitigationActionResult>>;
 
 public sealed record AddLitigationPartyCommand(Guid Id, LitigationPartyInput Party) : ICommand<Result<LitigationActionResult>>;
 
-/// Logs a hearing; its next date becomes the case's next hearing date.
+/// Logs a hearing that took place (not in the future); its next date becomes the case's next hearing date.
+/// AttendedBy / AttendedByEmployeeId: the GDA officer who attended, picked from the staff list.
 public sealed record RecordHearingCommand(
   Guid Id,
   DateOnly HearingDate,
   string? Proceedings = null,
   string? OrderPassed = null,
   DateOnly? NextHearingDate = null,
-  string? AttendedBy = null) : ICommand<Result<LitigationActionResult>>;
+  string? AttendedBy = null,
+  Guid? AttendedByEmployeeId = null) : ICommand<Result<LitigationActionResult>>;
 
 /// Withdrawn, Settled, Closed ...
 public sealed record ChangeLitigationStatusCommand(Guid Id, Guid LitigationStatusId) : ICommand<Result<LitigationActionResult>>;
 
-public sealed record DecideLitigationCommand(Guid Id, DateOnly DecisionDate, string DecisionOutcome) : ICommand<Result<LitigationActionResult>>;
+/// An approver records the court's decision (not in the future): its wording and how it came out for GDA. With
+/// ResolveRelatedEncroachment an unresolved encroachment the case was about is resolved (Litigated) on the decision date.
+public sealed record DecideLitigationCommand(Guid Id, DateOnly DecisionDate, string DecisionOutcome, CaseResult? DecisionResult = null, bool ResolveRelatedEncroachment = false)
+  : ICommand<Result<LitigationActionResult>>;
 
 public class UpdateLitigationCommandValidator : AbstractValidator<UpdateLitigationCommand>
 {
@@ -44,5 +50,9 @@ public class RecordHearingCommandValidator : AbstractValidator<RecordHearingComm
 
 public class DecideLitigationCommandValidator : AbstractValidator<DecideLitigationCommand>
 {
-  public DecideLitigationCommandValidator() => RuleFor(x => x.DecisionOutcome).NotEmpty().MaximumLength(4000);
+  public DecideLitigationCommandValidator()
+  {
+    RuleFor(x => x.DecisionOutcome).NotEmpty().MaximumLength(4000);
+    RuleFor(x => x.DecisionResult).NotNull().WithMessage("Say how the case came out for GDA: in favour, against, or partly in favour.").IsInEnum();
+  }
 }

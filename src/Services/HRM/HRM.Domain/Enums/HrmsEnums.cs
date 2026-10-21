@@ -2,11 +2,14 @@
 // snake_case (DeputedOut -> deputed_out); members are declared in the schema's label order, which is the order
 // Postgres sorts them in. Adding, renaming or removing a member needs a migration (ALTER TYPE ... ADD VALUE).
 
-public enum Gender { Male, Female, Other }
+/// Transgender = NADRA's third gender ("X" on the CNIC). Other stays in the database type but is never offered.
+public enum Gender { Male, Female, Other, Transgender }
 
 public enum MaritalStatus { Single, Married, Divorced, Widowed }
 
-public enum EmploymentStatus { Active, OnLeave, Suspended, DeputedOut, Retired, Resigned, Terminated, Deceased }
+/// The last four are the real end-of-service states a separation leaves (dismissed, removed from service, contract ended,
+/// repatriated to the parent department) instead of collapsing them into Terminated.
+public enum EmploymentStatus { Active, OnLeave, Suspended, DeputedOut, Retired, Resigned, Terminated, Deceased, Dismissed, Removed, ContractEnded, Repatriated }
 
 /// Regular = permanent (see EmploymentMethod); DeputationIn = permanent employee of another department serving here;
 /// Contract = contingent; ProjectBased; Adhoc; DailyWage.
@@ -59,9 +62,11 @@ public enum ContactType { Mobile, Phone, Email, Whatsapp, Other }
 
 public enum AddressType { Permanent, Current, Mailing, Other }
 
-public enum QualificationLevel { Matric, Intermediate, Bachelors, Masters, Mphil, Phd, Other }
+/// Diploma = DAE and other diplomas after matric. Other stays in the database type but is never offered.
+public enum QualificationLevel { Primary, Middle, Matric, Intermediate, Diploma, Bachelors, Masters, Mphil, Phd, Other }
 
-public enum SeparationType { Retirement, Resignation, Termination, Dismissal, Death, EndOfContract, DeputationEnd, Other }
+/// Other stays in the database type for old rows but a new separation must name its real kind.
+public enum SeparationType { Retirement, Resignation, Termination, Dismissal, Death, EndOfContract, DeputationEnd, Other, CompulsoryRetirement, PrematureRetirement, RemovalFromService }
 
 public enum HrActionType
 {
@@ -80,12 +85,20 @@ public enum HrActionType
   Resignation,
   Termination,
   Death,
-  Other
+  /// A service event type added in Configuration (the action names it in EventTypeId).
+  Other,
+  Dismissal,
+  RemovalFromService,
+  CompulsoryRetirement,
+  PrematureRetirement,
+  EndOfContract,
+  DeputationEnd
 }
 
 public enum HrActionStatus { Draft, Pending, Approved, Rejected, Cancelled, Applied }
 
-public enum ReviewStatus { Draft, Submitted, Acknowledged, Finalized }
+/// Countersigned: the countersigning officer has added remarks (and may have changed the grading) after the reporting officer.
+public enum ReviewStatus { Draft, Submitted, Acknowledged, Finalized, Countersigned }
 
 public enum AttendanceStatus { Present, Absent, Late, HalfDay, OnLeave, OfficialDuty, Holiday, Weekend }
 

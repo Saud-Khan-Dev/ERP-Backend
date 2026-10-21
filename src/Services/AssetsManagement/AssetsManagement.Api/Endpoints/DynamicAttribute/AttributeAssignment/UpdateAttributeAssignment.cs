@@ -35,6 +35,8 @@ public class UpdateAttributeAssignment : ICarterModule
 
       return Results.Ok(result.Value.Adapt<UpdateAttributeAssignmentResponse>());
     })
+      .RequirePermission(PermissionCatalog.AssetAttributes.Edit)
+
       .WithName("UpdateAttributeAssignment")
       .Produces<UpdateAttributeAssignmentResponse>(StatusCodes.Status200OK)
       .ProducesProblem(StatusCodes.Status400BadRequest)

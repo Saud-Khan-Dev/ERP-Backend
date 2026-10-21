@@ -15,7 +15,7 @@ public class RevokeMySessionHandler(IApplicationDbContext context, ICurrentUser 
     // scoped to the caller's own sessions: you cannot revoke someone else's by guessing an id
     var session = await context.Sessions
         .FirstOrDefaultAsync(s => s.Id == sessionId && s.UserId == userId, cancellationToken)
-      ?? throw new SessionNotFoundException($"Session {command.SessionId} was not found.");
+      ?? throw new SessionNotFoundException("This device is not signed in any more.");
 
     session.Revoke(now, "Revoked by user");
     await context.SaveChangesAsync(cancellationToken);

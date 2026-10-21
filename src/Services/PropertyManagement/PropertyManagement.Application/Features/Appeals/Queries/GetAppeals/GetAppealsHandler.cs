@@ -22,7 +22,7 @@ public class GetAppealsHandler(IApplicationDbContext context, PropertyReadServic
 
   public async Task<Result<GetAppealsQueryResult>> Handle(GetOverdueAppealsQuery query, CancellationToken cancellationToken)
   {
-    var today = DateOnly.FromDateTime(DateTime.UtcNow);
+    var today = PakistanDate.Today;
     var rows = await context.Appeals.AsNoTracking()
         .Where(a => (a.AppealStatus == AppealStatus.Filed || a.AppealStatus == AppealStatus.UnderHearing) && a.DecisionDueDate < today)
         .OrderBy(a => a.DecisionDueDate).ToListAsync(cancellationToken);
@@ -34,7 +34,7 @@ public class GetAppealsHandler(IApplicationDbContext context, PropertyReadServic
   {
     var owners = await read.OwnerRefsAsync(rows.Select(a => a.AppellantOwnerId), cancellationToken);
     var properties = await read.PropertyRefsAsync(rows.Select(a => a.PropertyId), cancellationToken);
-    var today = DateOnly.FromDateTime(DateTime.UtcNow);
+    var today = PakistanDate.Today;
     return rows.Select(a => a.ToDto(owners, properties.GetValueOrDefault(a.PropertyId), today)).ToList();
   }
 }

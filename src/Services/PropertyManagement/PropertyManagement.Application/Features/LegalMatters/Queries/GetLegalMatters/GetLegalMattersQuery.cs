@@ -28,7 +28,8 @@ public sealed record GetLegalMattersQuery(
   IReadOnlyList<string>? Statuses = null,
   Guid? PartyId = null,
   int? NextWithinDays = null,
-  bool? HearingOverdue = null) : IQuery<Result<GetLegalMattersQueryResult>>;
+  bool? HearingOverdue = null,
+  bool? FineUnpaid = null) : IQuery<Result<GetLegalMattersQueryResult>>;
 
 public class GetLegalMattersQueryValidator : AbstractValidator<GetLegalMattersQuery>
 {

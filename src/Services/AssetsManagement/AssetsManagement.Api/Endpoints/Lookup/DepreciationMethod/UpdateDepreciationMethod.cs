@@ -14,6 +14,8 @@ public class UpdateDepreciationMethod : ICarterModule
 
       return Results.Ok(result.Value.Adapt<UpdateDepreciationMethodResponse>());
     })
+      .RequirePermission(PermissionCatalog.AssetTaxonomy.Edit)
+
       .WithName("UpdateDepreciationMethod")
       .Produces<UpdateDepreciationMethodResponse>(StatusCodes.Status200OK)
       .ProducesProblem(StatusCodes.Status400BadRequest)

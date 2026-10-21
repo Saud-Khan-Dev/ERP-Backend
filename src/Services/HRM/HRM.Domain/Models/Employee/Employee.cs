@@ -1,3 +1,29 @@
+/// Which service statuses count as "in service" and which as "left service" - one definition for every query and rule.
+public static class EmploymentStatuses
+{
+  public static readonly EmploymentStatus[] InService =
+    [EmploymentStatus.Active, EmploymentStatus.OnLeave, EmploymentStatus.Suspended, EmploymentStatus.DeputedOut];
+
+  public static readonly EmploymentStatus[] LeftService =
+  [
+    EmploymentStatus.Retired, EmploymentStatus.Resigned, EmploymentStatus.Terminated, EmploymentStatus.Deceased,
+    EmploymentStatus.Dismissed, EmploymentStatus.Removed, EmploymentStatus.ContractEnded, EmploymentStatus.Repatriated
+  ];
+
+  /// Statuses a court or appellate order can reverse through a reinstatement.
+  public static readonly EmploymentStatus[] Reinstatable =
+    [EmploymentStatus.Suspended, EmploymentStatus.Terminated, EmploymentStatus.Dismissed, EmploymentStatus.Removed];
+
+  public static bool IsInService(EmploymentStatus status) => InService.Contains(status);
+}
+
+/// Employment types engaged for a period (a contract, a deputation from another department, ad hoc, daily wage or a
+/// project): they carry dated terms, and "ending within 60 days" is a queue.
+public static class EmploymentTerms
+{
+  public static bool HasTerm(EmploymentType type) => type is not EmploymentType.Regular;
+}
+
 public sealed record PersonalDetails(
   string FirstName,
   string? MiddleName,
@@ -49,6 +75,12 @@ public class Employee : Aggregate<EmployeeId>
   public EmploymentStatus EmploymentStatus { get; private set; }
   public string? PhotoReference { get; private set; }
 
+  /// The engagement period of a contract, deputation-in, ad hoc, daily-wage or project employee (null for regular staff).
+  public DateOnly? TermFrom { get; private set; }
+  public DateOnly? TermTo { get; private set; }
+  /// The parent department of a deputationist (deputation in).
+  public string? LendingDepartment { get; private set; }
+
   public IReadOnlyList<EmployeeContact> Contacts => _contacts.AsReadOnly();
   public IReadOnlyList<EmployeeAddress> Addresses => _addresses.AsReadOnly();
   public IReadOnlyList<EmployeeEmergencyContact> EmergencyContacts => _emergencyContacts.AsReadOnly();
@@ -58,8 +90,7 @@ public class Employee : Aggregate<EmployeeId>
   public string DisplayName => FullName ?? string.Join(' ', new[] { FirstName, MiddleName, LastName }.Where(p => !string.IsNullOrWhiteSpace(p)));
 
   /// No longer in service: nothing about the service record changes any more except through a court-ordered reinstatement.
-  public bool HasLeftService => EmploymentStatus is EmploymentStatus.Retired or EmploymentStatus.Resigned
-    or EmploymentStatus.Terminated or EmploymentStatus.Deceased;
+  public bool HasLeftService => EmploymentStatuses.LeftService.Contains(EmploymentStatus);
 
   public static Employee Create(
       EmployeeId id,
@@ -91,11 +122,90 @@ public class Employee : Aggregate<EmployeeId>
     ApplyPersonal(personal, today);
   }
 
-  /// Employment type and method (regularization goes through an HR action; this is also used for corrections).
-  public void ChangeEmployment(EmploymentType employmentType, EmploymentMethod? employmentMethod, Guid? projectId)
+  /// Corrects the employment type / method / project entered by mistake. Turning a contract (or any other) employee into a
+  /// regular one is a regularization: it goes through the Regularization HR action, which is approved and recorded.
+  public void CorrectEmployment(EmploymentType employmentType, EmploymentMethod? employmentMethod, Guid? projectId)
   {
     EnsureProfileActive();
+    if (employmentType == EmploymentType.Regular && EmploymentType != EmploymentType.Regular)
+      throw new DomainException($"{DisplayName} is {EnumText.WithArticle(EmploymentType)} employee. Making them regular is a regularization: draft a Regularization HR action instead.");
+
     ApplyEmployment(employmentType, employmentMethod, projectId);
+    if (!EmploymentTerms.HasTerm(employmentType))
+      ClearTerm();
+  }
+
+  /// The Regularization HR action: a contract / ad hoc / project employee becomes regular (the term ends).
+  public void Regularize(EmploymentMethod employmentMethod)
+  {
+    EnsureInService();
+    if (EmploymentType == EmploymentType.Regular)
+      throw new DomainException($"{DisplayName} is already a regular employee.");
+
+    ApplyEmployment(EmploymentType.Regular, employmentMethod, ProjectId);
+    ClearTerm();
+  }
+
+  /// The Deputation (in) HR action: the person serves here on deputation from their parent department.
+  public void TakeOnDeputation(string lendingDepartment, DateOnly from, DateOnly? until)
+  {
+    EnsureInService();
+    ApplyEmployment(EmploymentType.DeputationIn, null, null);
+    SetTerm(from, until, lendingDepartment);
+  }
+
+  /// The engagement period of a non-regular employee (a contract extension is a new end date).
+  public void SetTerm(DateOnly? from, DateOnly? to, string? lendingDepartment)
+  {
+    EnsureProfileActive();
+    if (!EmploymentTerms.HasTerm(EmploymentType))
+      throw new DomainException($"{DisplayName} is a regular employee; only contract, deputation, ad hoc, daily-wage and project staff have a term.");
+
+    Guard.DateOrder(from, to, "Term start", "Term end");
+    var department = Guard.Text(lendingDepartment, 200, "Parent department");
+    if (EmploymentType == EmploymentType.DeputationIn && department is null)
+      throw new DomainException("Name the parent department the deputationist comes from.");
+    if (EmploymentType != EmploymentType.DeputationIn && department is not null)
+      throw new DomainException("Only a deputationist (deputation in) has a parent department.");
+
+    TermFrom = from;
+    TermTo = to;
+    LendingDepartment = department;
+  }
+
+  private void ClearTerm()
+  {
+    TermFrom = null;
+    TermTo = null;
+    LendingDepartment = null;
+  }
+
+  /// Whole years of age on a date (null without a date of birth).
+  public int? AgeOn(DateOnly date)
+  {
+    if (DateOfBirth is not { } dob)
+      return null;
+
+    var age = date.Year - dob.Year;
+    return dob.AddYears(age) > date ? age - 1 : age;
+  }
+
+  /// An appointment needs a date of birth and an age between 18 and the retirement age on the appointment date.
+  public void EnsureAppointable(DateOnly on, int retirementAge)
+  {
+    if (AppointmentAgeProblem(on, retirementAge) is { } problem)
+      throw new DomainException(problem);
+  }
+
+  public string? AppointmentAgeProblem(DateOnly on, int retirementAge)
+  {
+    if (AgeOn(on) is not { } age)
+      return $"Enter {DisplayName}'s date of birth before the appointment: the retirement date is worked out from it.";
+    if (age < 18)
+      return $"{DisplayName} is {age} on {on:dd MMM yyyy}; a government servant must be at least 18 when appointed.";
+    if (age >= retirementAge)
+      return $"{DisplayName} is {age} on {on:dd MMM yyyy}, at or past the retirement age of {retirementAge}.";
+    return null;
   }
 
   /// The employee number is the person's identity in every report; it changes only to correct a typing mistake.
@@ -145,8 +255,10 @@ public class Employee : Aggregate<EmployeeId>
       throw new DomainException($"{DisplayName} ({EmployeeNumber}) has left service ({EnumText.Words(EmploymentStatus)}).");
   }
 
-  /// The date the employee reaches superannuation age (60 in KP government service).
-  public DateOnly? SuperannuationDate(int retirementAge) => DateOfBirth?.AddYears(retirementAge);
+  /// The date the employee reaches superannuation age (60 in KP government service). `dayBefore`: the service ends on
+  /// the day before the birthday (a setting until GDA confirms its practice).
+  public DateOnly? SuperannuationDate(int retirementAge, bool dayBefore = false) =>
+      DateOfBirth?.AddYears(retirementAge).AddDays(dayBefore ? -1 : 0);
 
   // ---- contacts: one primary per contact type ----
 
@@ -307,6 +419,9 @@ public class Employee : Aggregate<EmployeeId>
     if (employmentType != EmploymentType.Regular && employmentMethod is not null)
       throw new DomainException("Only a regular employee has an employment method.");
 
+    if (employmentType != EmploymentType.ProjectBased && projectId is { } project && project != Guid.Empty)
+      throw new DomainException("Only a project-based employee is paid from a project.");
+
     EmploymentType = employmentType;
     EmploymentMethod = employmentMethod;
     ProjectId = projectId == Guid.Empty ? null : projectId;
@@ -430,6 +545,21 @@ public class EmployeeEmergencyContact : Entity<EmergencyContactId>
 
 public sealed record FamilyMemberDetails(string? Relation, string? Name, DateOnly? DateOfBirth, string? Cnic, string? Occupation);
 
+/// The relations a family member (dependant, nominee) can have: a fixed list so dependants and nominees can be reported.
+public static class FamilyRelations
+{
+  public static readonly IReadOnlyList<string> All = ["Spouse", "Son", "Daughter", "Father", "Mother", "Brother", "Sister"];
+
+  public static string? Normalize(string? relation)
+  {
+    if (string.IsNullOrWhiteSpace(relation))
+      return null;
+
+    return All.FirstOrDefault(r => string.Equals(r, relation.Trim(), StringComparison.OrdinalIgnoreCase))
+      ?? throw new DomainException($"A family member is the employee's {string.Join(", ", All.Select(r => r.ToLowerInvariant()))}.");
+  }
+}
+
 public class EmployeeFamilyMember : Entity<FamilyMemberId>
 {
   public EmployeeId EmployeeId { get; private set; } = default!;
@@ -450,7 +580,7 @@ public class EmployeeFamilyMember : Entity<FamilyMemberId>
   {
     ArgumentNullException.ThrowIfNull(details);
 
-    Relation = Guard.Text(details.Relation, 60, "Relation");
+    Relation = FamilyRelations.Normalize(details.Relation);
     Name = Guard.Text(details.Name, 150, "Name");
     Occupation = Guard.Text(details.Occupation, 100, "Occupation");
     Cnic = global::Cnic.NormalizeOptional(details.Cnic, "Family member's CNIC");

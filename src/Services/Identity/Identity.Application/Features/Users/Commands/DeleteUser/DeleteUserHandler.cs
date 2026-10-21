@@ -9,11 +9,12 @@ public class DeleteUserHandler(IApplicationDbContext context, IdentityGuard guar
     var now = DateTime.UtcNow;
     var id = UserId.Of(command.Id);
 
-    guard.EnsureNotSelf(id, "delete your own account");
+    guard.EnsureNotSelf(id, "delete");
+    await guard.EnsureCanActOnAsync(id, "delete", cancellationToken);
     await guard.EnsureNotLastSuperAdminAsync(id, "deleting it", cancellationToken);
 
     var user = await context.Users.FirstOrDefaultAsync(u => u.Id == id, cancellationToken)
-      ?? throw new UserNotFoundException($"User {command.Id} was not found.");
+      ?? throw new UserNotFoundException("This account was not found - it may already be deleted.");
 
     user.SoftDelete(currentUser.AuditName, now);
 

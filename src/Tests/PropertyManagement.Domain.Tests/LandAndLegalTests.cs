@@ -164,13 +164,14 @@ public class RegularizationRuleTests
   [Fact]
   public void Withdrawn_case_cannot_be_withdrawn_again_or_changed()
   {
-    var regularization = PropertyAreaRegularization.Open(AreaRegularizationId.New(), Property(), Unit("SQFT", 1, true), 500,
-      RegularizationStatus.Applied, D("2026-01-01"), null, null, null, null, null);
+    var regularization = PropertyAreaRegularization.Open(AreaRegularizationId.New(), Property(), Unit("SQFT", 1, true), 500, D("2026-01-01"),
+      new PropertyAreaRegularization.Decision(RegularizationStatus.Applied, null, null, null, null, null, null, null), D("2026-10-13"));
 
     regularization.Deactivate();
 
     Assert.Contains("This regularization case is already withdrawn.", Assert.Throws<DomainException>(regularization.Deactivate).Message);
-    Assert.Throws<DomainException>(() => regularization.UpdateCase(RegularizationStatus.Pending, null, null, null, null, null, null));
+    Assert.Throws<DomainException>(() => regularization.UpdateCase(
+      new PropertyAreaRegularization.Decision(RegularizationStatus.Pending, null, null, null, null, null, null, null), D("2026-10-13")));
   }
 }
 
@@ -189,7 +190,7 @@ public class BuildingPlanWithdrawalTests
     plan.ChangeStatus(Submitted, Withdrawn);
 
     Assert.Throws<DomainException>(() => plan.Update(Withdrawn, Details()));
-    Assert.Throws<DomainException>(() => plan.Approve(Withdrawn, Approved, D("2026-06-01"), "officer", null, null));
+    Assert.Throws<DomainException>(() => plan.Approve(Withdrawn, Approved, new BuildingPlan.Approval(D("2026-06-01"), "officer", null, null, null)));
     Assert.Throws<DomainException>(() => plan.ChangeStatus(Withdrawn, Master<BuildingPlanStatus>("UNDER_REVIEW")));
     Assert.True(BuildingPlan.IsClosed(Withdrawn));
   }

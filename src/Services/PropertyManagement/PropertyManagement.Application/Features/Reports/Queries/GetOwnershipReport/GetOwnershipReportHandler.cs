@@ -16,7 +16,7 @@ public class GetOwnershipReportHandler(IApplicationDbContext context, MasterLook
 
   public async Task<Result<GetOwnershipReportQueryResult>> Handle(GetOwnershipReportQuery query, CancellationToken cancellationToken)
   {
-    var asOf = query.AsOf ?? DateOnly.FromDateTime(DateTime.UtcNow);
+    var asOf = query.AsOf ?? PakistanDate.Today;
 
     var ownerships = context.Ownerships.AsNoTracking()
         .Where(o => o.EffectiveFrom <= asOf && (o.EffectiveTo == null || o.EffectiveTo > asOf));

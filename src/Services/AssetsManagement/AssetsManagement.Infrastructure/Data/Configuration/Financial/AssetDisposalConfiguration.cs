@@ -27,6 +27,7 @@ public class AssetDisposalConfiguration : EntityConfiguration<AssetDisposal, Ass
     builder.Property(x => x.BuyerInfo).IsRequired(false);
     builder.Property(x => x.Reason).IsRequired(false);
     builder.Property(x => x.ApprovedBy).IsRequired(false);
+    builder.Property(x => x.ApprovedByName).HasMaxLength(100).IsRequired(false);
     builder.Property(x => x.ApprovedAt).IsRequired(false);
 
     builder.HasIndex(x => x.AssetId).IsUnique();

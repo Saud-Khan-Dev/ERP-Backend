@@ -16,7 +16,8 @@ public class RecordCompletedTransferHandler(IApplicationDbContext context, Maste
       TransferId.New(), await codes.NextAsync(CodeSequenceKeys.Transfer, cancellationToken), transferType,
       input.TransferDate, input.TransferReferenceNo, input.ConsiderationAmount, input.Relationship, input.Remarks,
       input.Parties.Select(p => new PropertyTransfer.PartyInput(OwnerId.Of(p.OwnerId), p.Role, p.SharePct)).ToList(),
-      command.ApprovedBy ?? actor, command.ApprovalDate, command.ApprovalOrderRef, actor, record, tenure);
+      TransferRegistration.Approver(currentUser), command.ApprovalDate, command.ApprovalOrderRef, command.NoDuesCertificateNo,
+      actor, record, tenure);
 
     await context.Transfers.AddAsync(transfer, cancellationToken);
     await context.Ownerships.AddRangeAsync(change.Opened, cancellationToken);

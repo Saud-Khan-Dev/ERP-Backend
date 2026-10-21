@@ -77,6 +77,10 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("agreement_type_id");
 
+                    b.Property<Guid?>("AllotmentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("allotment_id");
+
                     b.Property<DateOnly?>("CancellationDate")
                         .HasColumnType("date")
                         .HasColumnName("cancellation_date");
@@ -98,10 +102,35 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("fine_imposed_by");
 
+                    b.Property<DateOnly?>("FineImposedOn")
+                        .HasColumnType("date")
+                        .HasColumnName("fine_imposed_on");
+
+                    b.Property<DateOnly?>("FinePaidOn")
+                        .HasColumnType("date")
+                        .HasColumnName("fine_paid_on");
+
+                    b.Property<string>("FineReceiptNo")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("fine_receipt_no");
+
                     b.Property<string>("FineStatus")
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)")
                         .HasColumnName("fine_status");
+
+                    b.Property<Guid?>("FineStatusChangedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("fine_status_changed_by");
+
+                    b.Property<DateOnly?>("FineStatusChangedOn")
+                        .HasColumnType("date")
+                        .HasColumnName("fine_status_changed_on");
+
+                    b.Property<string>("FineStatusReason")
+                        .HasColumnType("text")
+                        .HasColumnName("fine_status_reason");
 
                     b.Property<Guid?>("LeaseId")
                         .HasColumnType("uuid")
@@ -188,6 +217,9 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
                     b.HasIndex("AgreementTypeId")
                         .HasDatabaseName("ix_agreement_violation_agreement_type_id");
 
+                    b.HasIndex("AllotmentId")
+                        .HasDatabaseName("ix_agreement_violation_allotment_id");
+
                     b.HasIndex("LeaseId")
                         .HasDatabaseName("ix_agreement_violation_lease_id");
 
@@ -205,7 +237,7 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
 
                     b.ToTable("agreement_violation", "property", t =>
                         {
-                            t.HasCheckConstraint("ck_agreement_violation_one_agreement", "num_nonnulls(lease_id, rental_id, transfer_id) = 1");
+                            t.HasCheckConstraint("ck_agreement_violation_one_agreement", "num_nonnulls(lease_id, rental_id, transfer_id, allotment_id) = 1");
                         });
                 });
 
@@ -302,6 +334,20 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid")
                         .HasColumnName("id");
+
+                    b.PrimitiveCollection<List<Guid>>("AppliesToClassificationIds")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid[]")
+                        .HasColumnName("applies_to_classification_ids")
+                        .HasDefaultValueSql("'{}'::uuid[]");
+
+                    b.PrimitiveCollection<List<Guid>>("AppliesToPropertyTypeIds")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid[]")
+                        .HasColumnName("applies_to_property_type_ids")
+                        .HasDefaultValueSql("'{}'::uuid[]");
 
                     b.Property<Guid>("AttributeGroupId")
                         .HasColumnType("uuid")
@@ -623,6 +669,10 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
                         .HasColumnType("character varying(150)")
                         .HasColumnName("approved_by");
 
+                    b.Property<Guid?>("ApprovedByEmployeeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("approved_by_employee_id");
+
                     b.Property<string>("ArchitectName")
                         .HasMaxLength(150)
                         .HasColumnType("character varying(150)")
@@ -641,6 +691,11 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
                         .HasColumnType("numeric(18,4)")
                         .HasColumnName("covered_area");
 
+                    b.Property<decimal?>("CoveredAreaBase")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("numeric(18,4)")
+                        .HasColumnName("covered_area_base");
+
                     b.Property<DateTime?>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
@@ -656,6 +711,11 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
                     b.Property<Guid?>("MeasurementUnitId")
                         .HasColumnType("uuid")
                         .HasColumnName("measurement_unit_id");
+
+                    b.Property<string>("NoDuesCertificateNo")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("no_dues_certificate_no");
 
                     b.Property<string>("PlanNo")
                         .IsRequired()
@@ -1249,6 +1309,10 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
                         .HasColumnType("character varying(150)")
                         .HasColumnName("attended_by");
 
+                    b.Property<Guid?>("AttendedByEmployeeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("attended_by_employee_id");
+
                     b.Property<DateTime?>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
@@ -1716,6 +1780,14 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("created_by");
 
+                    b.Property<DateOnly?>("DeactivatedOn")
+                        .HasColumnType("date")
+                        .HasColumnName("deactivated_on");
+
+                    b.Property<string>("DeactivationReason")
+                        .HasColumnType("text")
+                        .HasColumnName("deactivation_reason");
+
                     b.Property<string>("Description")
                         .HasColumnType("text")
                         .HasColumnName("description");
@@ -1752,6 +1824,12 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
                     b.Property<string>("Remarks")
                         .HasColumnType("text")
                         .HasColumnName("remarks");
+
+                    b.Property<uint>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
 
                     b.Property<Guid>("TownId")
                         .HasColumnType("uuid")
@@ -1887,6 +1965,12 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
                         .HasColumnType("character varying(100)")
                         .HasColumnName("restoration_order_ref");
 
+                    b.Property<uint>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
                     b.Property<DateOnly?>("SurrenderDate")
                         .HasColumnType("date")
                         .HasColumnName("surrender_date");
@@ -1997,6 +2081,10 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
                         .HasColumnType("character varying(150)")
                         .HasColumnName("delegated_officer");
 
+                    b.Property<Guid?>("DelegatedOfficerEmployeeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("delegated_officer_employee_id");
+
                     b.Property<DateOnly?>("OrderReceivedDate")
                         .HasColumnType("date")
                         .HasColumnName("order_received_date");
@@ -2066,6 +2154,10 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
                         .HasMaxLength(150)
                         .HasColumnType("character varying(150)")
                         .HasColumnName("approved_by");
+
+                    b.Property<Guid?>("ApprovedByEmployeeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("approved_by_employee_id");
 
                     b.Property<DateTime?>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
@@ -2369,6 +2461,82 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
                         .HasDatabaseName("ix_property_boundary_property_id");
 
                     b.ToTable("property_boundary", "property");
+                });
+
+            modelBuilder.Entity("PropertyChange", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("action");
+
+                    b.Property<DateTime>("ChangedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("changed_at");
+
+                    b.Property<Guid?>("ChangedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("changed_by");
+
+                    b.Property<string>("ChangedByName")
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("changed_by_name");
+
+                    b.Property<string>("Entity")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)")
+                        .HasColumnName("entity");
+
+                    b.Property<string>("EntityCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("entity_code");
+
+                    b.Property<Guid>("EntityId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("entity_id");
+
+                    b.Property<string>("Field")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("field");
+
+                    b.Property<string>("NewValue")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("new_value");
+
+                    b.Property<string>("OldValue")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("old_value");
+
+                    b.Property<Guid?>("OwnerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("owner_id");
+
+                    b.Property<Guid?>("PropertyId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("property_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_property_change");
+
+                    b.HasIndex("OwnerId", "ChangedAt")
+                        .HasDatabaseName("ix_property_change_owner_id_changed_at");
+
+                    b.HasIndex("PropertyId", "ChangedAt")
+                        .HasDatabaseName("ix_property_change_property_id_changed_at");
+
+                    b.ToTable("property_change", "property");
                 });
 
             modelBuilder.Entity("PropertyClassification", b =>
@@ -2943,6 +3111,11 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
                         .HasColumnType("text")
                         .HasColumnName("decision_outcome");
 
+                    b.Property<string>("DecisionResult")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("decision_result");
+
                     b.Property<Guid?>("FiledByOfficerId")
                         .HasColumnType("uuid")
                         .HasColumnName("filed_by_officer_id");
@@ -2955,6 +3128,10 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
                         .HasMaxLength(150)
                         .HasColumnType("character varying(150)")
                         .HasColumnName("gda_counsel");
+
+                    b.Property<Guid?>("GdaCounselEmployeeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("gda_counsel_employee_id");
 
                     b.Property<string>("GdaRole")
                         .HasMaxLength(20)
@@ -3169,6 +3346,11 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("created_by");
 
+                    b.Property<string>("MoneyDirection")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("money_direction");
+
                     b.Property<Guid>("OutsourcedPartyOwnerId")
                         .HasColumnType("uuid")
                         .HasColumnName("outsourced_party_owner_id");
@@ -3199,6 +3381,10 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
                     b.Property<string>("Remarks")
                         .HasColumnType("text")
                         .HasColumnName("remarks");
+
+                    b.Property<Guid?>("RenewedFromContractId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("renewed_from_contract_id");
 
                     b.Property<DateOnly?>("TerminationDate")
                         .HasColumnType("date")
@@ -3231,6 +3417,9 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
 
                     b.HasIndex("OutsourcingTypeId")
                         .HasDatabaseName("ix_property_outsourcing_outsourcing_type_id");
+
+                    b.HasIndex("RenewedFromContractId")
+                        .HasDatabaseName("ix_property_outsourcing_renewed_from_contract_id");
 
                     b.HasIndex("PropertyId", "ContractStatusId")
                         .HasDatabaseName("ix_property_outsourcing_property_id_contract_status_id");
@@ -3370,6 +3559,11 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
                     b.Property<DateOnly?>("EffectiveTo")
                         .HasColumnType("date")
                         .HasColumnName("effective_to");
+
+                    b.Property<string>("EndReferenceNo")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("end_reference_no");
 
                     b.Property<Guid>("OwnerId")
                         .HasColumnType("uuid")
@@ -3690,6 +3884,14 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
                         .HasColumnType("character varying(150)")
                         .HasColumnName("approved_by");
 
+                    b.Property<Guid?>("ApprovedByEmployeeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("approved_by_employee_id");
+
+                    b.Property<Guid?>("ApprovedByUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("approved_by_user_id");
+
                     b.Property<string>("ClosedBy")
                         .HasMaxLength(150)
                         .HasColumnType("character varying(150)")
@@ -3725,6 +3927,11 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("created_by");
 
+                    b.Property<string>("NoDuesCertificateNo")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("no_dues_certificate_no");
+
                     b.Property<Guid>("PropertyId")
                         .HasColumnType("uuid")
                         .HasColumnName("property_id");
@@ -3737,6 +3944,12 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
                     b.Property<string>("Remarks")
                         .HasColumnType("text")
                         .HasColumnName("remarks");
+
+                    b.Property<uint>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
 
                     b.Property<decimal>("ShareTransferredPct")
                         .HasPrecision(7, 4)
@@ -4119,6 +4332,12 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_agreement_violation_agreement_type_agreement_type_id");
+
+                    b.HasOne("PropertyAllotment", null)
+                        .WithMany()
+                        .HasForeignKey("AllotmentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_agreement_violation_property_allotment_allotment_id");
 
                     b.HasOne("PropertyLease", null)
                         .WithMany()
@@ -4666,6 +4885,12 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_property_outsourcing_property_property_id");
+
+                    b.HasOne("PropertyOutsourcing", null)
+                        .WithMany()
+                        .HasForeignKey("RenewedFromContractId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_property_outsourcing_property_outsourcing_renewed_from_cont");
                 });
 
             modelBuilder.Entity("PropertyOwner", b =>

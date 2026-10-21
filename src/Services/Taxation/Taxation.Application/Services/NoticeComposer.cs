@@ -36,11 +36,13 @@ public sealed class NoticeComposer(
       CancellationToken cancellationToken)
   {
     var o = options ?? new NoticeOptions();
+    // a notice goes to whoever the file's dues are addressed to now (after a transfer, the new owner)
+    if ((file.Addressee(issueDate) ?? file.Addressee(clock.Today)) is { } addressee)
+      demand.Address(addressee);
     var settings = await setup.SettingsAsync(issueDate, cancellationToken);
     var template = await setup.TemplateAsync(stage, cancellationToken);
     var letterhead = await setup.LetterheadAsync(issueDate, cancellationToken);
     var layout = await setup.LayoutAsync(issueDate, cancellationToken);
-    var circle = await setup.CircleAsync(file.CircleId, cancellationToken);
 
     var defaults = await DefaultsAsync(file, Text(o.PayerName) ?? demand.PayerName, demand.PayerCnic, Text(o.PayerMobile) ?? demand.PayerMobile, demand.PayerAddress,
       demand.FiscalYear, stage, issueDate, cancellationToken);
@@ -57,7 +59,7 @@ public sealed class NoticeComposer(
       Surcharge = o.Surcharge
     };
 
-    var notice = Notice.Prepare(NoticeId.New(), await codes.NoticeNoAsync(issueDate, cancellationToken), await codes.EndstNoAsync(circle.Code, demand.FiscalYear, cancellationToken),
+    var notice = Notice.Prepare(NoticeId.New(), await codes.NoticeNoAsync(issueDate, cancellationToken),
       demand, file, stage, origin, issueDate, replyBy, template, letterhead, layout, o.PayVia ?? settings.PayViaDefault, variables,
       await ParticularsAsync(demand, layout, cancellationToken), o.PenaltyRunId, o.SendSms);
 
@@ -103,13 +105,23 @@ public sealed class NoticeComposer(
   {
     var paid = await ledger.PaidByItemAsync([demand], cancellationToken);
     var surcharge = await setup.HeadAsync(HeadCodes.Surcharge, cancellationToken);
-    return NoticeTable.Build(demand, demand.Items(paid, surcharge.Id), await setup.HeadCodesAsync(cancellationToken), layout);
+    var heads = (await setup.HeadsAsync(cancellationToken)).ToDictionary(h => h.Id);
+    return NoticeTable.Build(demand, demand.Items(paid, surcharge.Id), heads, layout);
   }
 
   /// Issues a pending notice: the amount behind the reference today, the table as printed, the QR for that amount, the
   /// holder of the circle's signing post on the notice date, and the stage's SMS.
   public async Task ConfirmAsync(Notice notice, Demand demand, TaxFile file, Guid actor, CancellationToken cancellationToken)
   {
+    // a notice of the cycle confirmed after its day is dated the day it goes out, its days to pay counted from then
+    var today = clock.Today;
+    if (notice.Origin == NoticeOrigin.Cycle && notice.IssueDate < today && !notice.DateEdited)
+    {
+      var todaySettings = await setup.SettingsAsync(today, cancellationToken);
+      var days = notice.Variables.Days;
+      notice.RedateTo(today, (await calendars.CalendarAsync(todaySettings, today, today.AddDays(days * 2 + 60), cancellationToken)).AddDays(today, days));
+    }
+
     var layout = notice.TableLayoutId is { } layoutId
       ? await context.TableLayouts.Include(l => l.Rows).ThenInclude(r => r.Sources).Include(l => l.Columns).AsSplitQuery().FirstAsync(l => l.Id == layoutId, cancellationToken)
       : await setup.LayoutAsync(notice.IssueDate, cancellationToken);
@@ -117,8 +129,11 @@ public sealed class NoticeComposer(
     var particulars = await ParticularsAsync(demand, layout, cancellationToken);
     var qr = notice.PayVia == PayVia.Onelink ? null : PaymentQr.Payload(settings, file.Psid!, demand.Balance, notice.NoticeNo);
     var signer = await SignerAsync(file, notice.IssueDate, cancellationToken);
+    // the endorsement number is taken now, so a cancelled draft leaves no gap in the circle's series
+    var circle = await setup.CircleAsync(file.CircleId, cancellationToken);
+    var endst = await codes.EndstNoAsync(circle.Code, demand.FiscalYear, cancellationToken);
 
-    notice.Confirm(demand, particulars, qr, signer, actor, clock.UtcNow);
+    notice.Confirm(demand, particulars, qr, signer, endst, actor, clock.UtcNow);
 
     if (notice.SmsSent)
     {
@@ -131,32 +146,48 @@ public sealed class NoticeComposer(
     }
   }
 
+  private readonly Dictionary<(Guid, DateOnly), SigningOfficer> _signers = new();
+
+  /// The officer who signs: whoever holds the circle's Taxation Officer post (its staff row in force on the date) on that
+  /// day, read from HRM's staff directory once per post and day in a request. HRM not answering leaves the name to be
+  /// signed by hand; the notice is not held up.
   private async Task<SigningOfficer?> SignerAsync(TaxFile file, DateOnly date, CancellationToken cancellationToken)
   {
-    var circle = await setup.CircleAsync(file.CircleId, cancellationToken);
-    if (circle.OfficerPostId is not { } postId)
+    var postId = await setup.SigningPostAsync(file.CircleId, date, cancellationToken);
+    if (postId is not { } post)
       return null;
-    if (!hrm.IsConfigured)
-      return new SigningOfficer(postId, null, null);
-    try
+    if (_signers.TryGetValue((post, date), out var known))
+      return known;
+    var signer = new SigningOfficer(post, null, null);
+    if (hrm.IsConfigured)
     {
-      return await hrm.PostHolderAsync(postId, date, cancellationToken) ?? new SigningOfficer(postId, null, null);
+      try
+      {
+        var holder = await hrm.PostHolderAsync(post, date, cancellationToken);
+        signer = new SigningOfficer(post, holder?.EmployeeId, holder?.Name);
+      }
+      catch (ExternalServiceException ex)
+      {
+        logger.LogWarning("Signing officer of circle {Circle} not resolved: {Message}", file.CircleId.Value, ex.Message);
+        return signer;
+      }
     }
-    catch (ExternalServiceException ex)
-    {
-      // the signature is put on by hand; a notice is not held up because HRM did not answer
-      logger.LogWarning("Signing officer of circle {Circle} not resolved: {Message}", circle.Code, ex.Message);
-      return new SigningOfficer(postId, null, null);
-    }
+    return _signers[(post, date)] = signer;
   }
 
   private static string? Text(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }
 
+/// What a sync with Property found besides the facts: the category the property type maps to now when it is not the
+/// file's (the Section decides - changing a category needs approval), and whether Property deactivated the property.
+public sealed record SyncOutcome(bool BasisChanged, TaxCategory? MappedCategory, bool PropertyActive);
+
 /// Opens tax files from Property and refreshes them.
-public sealed class TaxFileImporter(IApplicationDbContext context, IPropertyDirectory property, TaxSetup setup, CodeIssuer codes, IClock clock)
+public sealed class TaxFileImporter(IApplicationDbContext context, IPropertyDirectory property, TaxSetup setup, CodeIssuer codes, Ledger ledger, IClock clock)
 {
-  public async Task<TaxFile> OpenAsync(Guid propertyId, TaxCategory? category, TaxFileDetails details, CancellationToken cancellationToken)
+  /// canApprove: the caller may approve (TAX.APPROVE). Opening a file in a category its property type does not map to,
+  /// as exempt, or with its own completion-certificate uplift changes what it is charged like an override, so it needs it.
+  public async Task<TaxFile> OpenAsync(Guid propertyId, TaxCategory? category, TaxFileDetails details, bool canApprove, CancellationToken cancellationToken)
   {
     var existing = await context.TaxFiles.Where(f => f.PropertyId == propertyId).Select(f => f.FileNo).FirstOrDefaultAsync(cancellationToken);
     if (existing is not null)
@@ -168,8 +199,19 @@ public sealed class TaxFileImporter(IApplicationDbContext context, IPropertyDire
     if (town is null)
       throw new DomainException($"The town of {snapshot.PropertyCode} ({snapshot.TownName ?? "none"}) is not in any circle. Assign it in Configuration → Circles.");
 
-    var taxCategory = category ?? await CategoryAsync(snapshot, cancellationToken)
+    var mapped = await CategoryAsync(snapshot, cancellationToken);
+    var taxCategory = category ?? mapped
       ?? throw new DomainException($"Property type '{snapshot.PropertyTypeCode ?? "none"}' is not mapped to a tax category. Map it in Configuration → Categories, or give the category.");
+    if (!canApprove)
+    {
+      if (taxCategory == TaxCategory.Exempt)
+        throw new DomainException("Opening a file as exempt needs approval rights (TAX.APPROVE).");
+      if (taxCategory != mapped)
+        throw new DomainException($"Property type '{snapshot.PropertyTypeCode ?? "none"}' {(mapped is null ? "is not mapped to a category" : $"maps to {EnumText.Words(mapped.Value)}")}; "
+          + "opening the file in another category needs approval rights (TAX.APPROVE).");
+      if (details.UpliftPct is not null || details.UpliftRateBasis is not null)
+        throw new DomainException("A file's own completion-certificate uplift changes its tax like an override and needs approval rights (TAX.APPROVE). Leave it to the settings.");
+    }
 
     var settings = await setup.SettingsAsync(today, cancellationToken);
     var psid = Numbers.Psid(settings.PsidPrefix, await codes.NextAsync(NumberSequence.Psid, cancellationToken));
@@ -180,7 +222,8 @@ public sealed class TaxFileImporter(IApplicationDbContext context, IPropertyDire
   }
 
   /// Refreshes a file from Property; a property moved to another town, or a town moved to another circle, moves the file.
-  public async Task<bool> SyncAsync(TaxFile file, CancellationToken cancellationToken)
+  /// The year's open demands (and drafts) are addressed to the file's addressee afterwards, so notices follow a transfer.
+  public async Task<SyncOutcome> SyncAsync(TaxFile file, CancellationToken cancellationToken)
   {
     var snapshot = await property.SnapshotAsync(file.PropertyId, cancellationToken);
     var townId = snapshot.TownId ?? file.TownId;
@@ -190,7 +233,20 @@ public sealed class TaxFileImporter(IApplicationDbContext context, IPropertyDire
     // a new town, or the town's move to another circle taking effect
     if (town is not null && (townId != file.TownId || town.CircleId != file.CircleId))
       file.MoveToCircle(town.CircleId, townId);
-    return file.Sync(snapshot, clock.Today, clock.UtcNow);
+    var changed = file.Sync(snapshot, clock.Today, clock.UtcNow);
+    await ReaddressAsync(file, cancellationToken);
+    var mapped = await CategoryAsync(snapshot, cancellationToken);
+    return new SyncOutcome(changed, mapped is { } m && m != file.TaxCategory ? m : null, snapshot.IsActive);
+  }
+
+  /// The demands still to be paid (and the drafts) take the file's addressee as it is now.
+  public async Task ReaddressAsync(TaxFile file, CancellationToken cancellationToken)
+  {
+    if (file.Addressee(clock.Today) is not { } payer)
+      return;
+    foreach (var demand in await ledger.DemandsAsync(file.Id, cancellationToken))
+      if (demand.IsOpen || demand.Status == DemandStatus.Draft)
+        demand.Address(payer);
   }
 
   private async Task<TaxCategory?> CategoryAsync(PropertySnapshot snapshot, CancellationToken cancellationToken)

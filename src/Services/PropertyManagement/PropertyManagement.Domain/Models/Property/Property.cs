@@ -20,6 +20,9 @@ public class Property : Aggregate<PropertyId>
   public string? Description { get; private set; }
   public string? Remarks { get; private set; }
   public bool IsActive { get; private set; }
+  /// Why and when the property was taken off the register (cleared when it is reactivated).
+  public DateOnly? DeactivatedOn { get; private set; }
+  public string? DeactivationReason { get; private set; }
 
   public static Property Create(
       PropertyId id,
@@ -43,6 +46,8 @@ public class Property : Aggregate<PropertyId>
     return property;
   }
 
+  /// Corrects the property's details. The classification cannot change while an allotment is in force: GDA allotted
+  /// the plot as its own land, and a private classification would leave the allotment standing on land GDA does not hold.
   public void UpdateDetails(
       Name propertyName,
       Town town,
@@ -51,9 +56,16 @@ public class Property : Aggregate<PropertyId>
       string? addressLine,
       string? khasraSurveyNo,
       string? description,
-      string? remarks)
+      string? remarks,
+      PropertyAllotment.InForce? allotmentInForce = null)
   {
     EnsureActive();
+    ArgumentNullException.ThrowIfNull(classification);
+
+    if (allotmentInForce is { } allotted && classification.Id != PropertyClassificationId)
+      throw new DomainException(
+        $"{PropertyCode.Value} is allotted to {allotted.AllotteeName} ({allotted.Allotment.AllotmentNo.Value}); its classification cannot change while the allotment is in force.");
+
     Apply(propertyName, town, propertyType, classification, addressLine, khasraSurveyNo, description, remarks);
   }
 
@@ -95,16 +107,24 @@ public class Property : Aggregate<PropertyId>
     return PropertyStatusHistory.Open(PropertyStatusHistoryId.New(), Id, newStatus.Id, effectiveFrom, reason, referenceNo);
   }
 
-  /// Nothing is hard-deleted (schema guide): a retired property is deactivated.
-  public void Deactivate()
+  /// Nothing is hard-deleted (schema guide): a retired property is deactivated, with the reason (entered twice, merged
+  /// into another, acquired ...) and the day. What still runs on it is checked by the handler first.
+  public void Deactivate(string? reason = null, DateOnly? today = null)
   {
     if (!IsActive)
       throw new DomainException($"Property {PropertyCode.Value} is already inactive.");
 
     IsActive = false;
+    DeactivatedOn = today;
+    DeactivationReason = Guard.Text(reason, 4000, "Reason");
   }
 
-  public void Activate() => IsActive = true;
+  public void Activate()
+  {
+    IsActive = true;
+    DeactivatedOn = null;
+    DeactivationReason = null;
+  }
 
   /// Child records (measurements, ownership, leases, cases, documents ...) may only be added to or changed
   /// on an active property.

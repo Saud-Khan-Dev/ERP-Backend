@@ -48,6 +48,10 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ConnectionStrings__Database: "Host=postgres;Port=5432;Database=ERP_DB;Username=postgres;Password=YourStrongPassword123!"
+      # must match the Identity service; override in any environment that is not a developer machine
+      Jwt__SigningKey: "dev-only-signing-key-change-me-at-least-32-bytes-long"
+      # custodians and departments are checked against HRM's staff directory (with the caller's token)
+      Services__HrmBaseUrl: "http://hrm-api:8080"
       # documents and photos of assets (invoices, warranty cards, pictures)
       FileStorage__RootPath: "/data/asset-files"
 
@@ -56,6 +60,7 @@ services:
 
     depends_on:
       - postgres
+      - hrm-api
 
     ports:
     - "5139:8080"

@@ -33,6 +33,7 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
   public DbSet<EmployeeFamilyMember> EmployeeFamilyMembers => Set<EmployeeFamilyMember>();
   public DbSet<EmployeeBankAccount> BankAccounts => Set<EmployeeBankAccount>();
   public DbSet<EmployeePayRecord> PayRecords => Set<EmployeePayRecord>();
+  public DbSet<EmployeeChangeLogEntry> ChangeLog => Set<EmployeeChangeLogEntry>();
 
   // ---- 5-6. documents, education, recruitment ----
   public DbSet<DocumentType> DocumentTypes => Set<DocumentType>();
@@ -74,6 +75,8 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
   // ---- 13. loans, GP Fund ----
   public DbSet<LoanType> LoanTypes => Set<LoanType>();
   public DbSet<EmployeeLoan> Loans => Set<EmployeeLoan>();
+  public DbSet<LoanRepayment> LoanRepayments => Set<LoanRepayment>();
+  public DbSet<EmployeeTaxOpening> TaxOpenings => Set<EmployeeTaxOpening>();
   public DbSet<LoanInstallment> LoanInstallments => Set<LoanInstallment>();
   public DbSet<GpFundAccount> GpFundAccounts => Set<GpFundAccount>();
   public DbSet<GpFundInterestRate> GpFundInterestRates => Set<GpFundInterestRate>();

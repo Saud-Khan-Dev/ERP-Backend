@@ -3,7 +3,7 @@ using Microsoft.EntityFrameworkCore;
 
 // ---- circles ----
 
-public sealed record CircleInput(string Name, Guid? OrgUnitId, Guid? OfficerPostId, string? OfficeAddress, string? OfficeFax, string? OfficePhone, int SortOrder);
+public sealed record CircleInput(string Name, Guid? OrgUnitId, string? OfficeAddress, string? OfficeFax, string? OfficePhone, int SortOrder);
 
 /// SectionStaff: the posts that work for the whole Section rather than one circle (the Deputy Director (Taxation)).
 public sealed record GetCirclesQueryResult(IReadOnlyList<CircleDto> Circles, IReadOnlyList<CircleStaffDto> SectionStaff);
@@ -12,10 +12,19 @@ public sealed record CreateCircleCommand(string Code, CircleInput Circle) : ICom
 public sealed record UpdateCircleCommand(Guid Id, CircleInput Circle) : ICommand<Result<UpdatedResult>>;
 public sealed record SetCircleActivationCommand(Guid Id, bool IsActive) : ICommand<Result<UpdatedResult>>;
 
+/// Deletes a circle made by mistake: only while no tax file, run or notice refers to it and no town is in it now or later.
+public sealed record DeleteCircleCommand(Guid Id) : ICommand<Result<UpdatedResult>>;
+
 /// Brings a Property town into a circle from a date (its tax files move with it from that date).
 public sealed record AssignTownCommand(Guid CircleId, Guid TownId, string? ShortCode, DateOnly EffectiveFrom) : ICommand<Result<AssignTownResult>>;
 public sealed record AssignTownResult(Guid AssignmentId, string TownCode, int TaxFilesMoved);
 public sealed record SetTownShortCodeCommand(Guid CircleId, Guid AssignmentId, string? ShortCode) : ICommand<Result<UpdatedResult>>;
+
+/// The town leaves the circle after a last day (refused while it has open tax files - assign it to another circle instead).
+public sealed record EndTownCommand(Guid CircleId, Guid AssignmentId, DateOnly LastDay) : ICommand<Result<UpdatedResult>>;
+
+/// Takes back an assignment made from a later date by mistake (before it is in force).
+public sealed record VoidTownCommand(Guid CircleId, Guid AssignmentId) : ICommand<Result<UpdatedResult>>;
 
 public sealed record AddCircleStaffCommand(Guid? CircleId, Guid PostId, TaxRole TaxRole, DateOnly EffectiveFrom) : ICommand<Result<CreatedResult>>;
 public sealed record EndCircleStaffCommand(Guid Id, DateOnly LastDay) : ICommand<Result<UpdatedResult>>;
@@ -59,8 +68,11 @@ public class CircleHandlers(IApplicationDbContext context, IPropertyDirectory pr
   ICommandHandler<CreateCircleCommand, Result<CreatedResult>>,
   ICommandHandler<UpdateCircleCommand, Result<UpdatedResult>>,
   ICommandHandler<SetCircleActivationCommand, Result<UpdatedResult>>,
+  ICommandHandler<DeleteCircleCommand, Result<UpdatedResult>>,
   ICommandHandler<AssignTownCommand, Result<AssignTownResult>>,
   ICommandHandler<SetTownShortCodeCommand, Result<UpdatedResult>>,
+  ICommandHandler<EndTownCommand, Result<UpdatedResult>>,
+  ICommandHandler<VoidTownCommand, Result<UpdatedResult>>,
   ICommandHandler<AddCircleStaffCommand, Result<CreatedResult>>,
   ICommandHandler<EndCircleStaffCommand, Result<UpdatedResult>>
 {
@@ -69,16 +81,17 @@ public class CircleHandlers(IApplicationDbContext context, IPropertyDirectory pr
     var circles = await context.TaxCircles.AsNoTracking().Include(c => c.Towns).Where(c => query.IncludeInactive || c.IsActive)
       .OrderBy(c => c.SortOrder).ThenBy(c => c.Code).ToListAsync(cancellationToken);
     var staff = await context.CircleStaff.AsNoTracking().OrderBy(s => s.TaxRole).ThenByDescending(s => s.EffectiveFrom).ToListAsync(cancellationToken);
+    var used = await UsedCirclesAsync(cancellationToken);
     var today = clock.Today;
     return Result<GetCirclesQueryResult>.Success(new(
-      circles.Select(c => c.ToDto(staff.Where(s => s.CircleId == c.Id), today)).ToList(),
+      circles.Select(c => c.ToDto(staff.Where(s => s.CircleId == c.Id), today, used.Contains(c.Id))).ToList(),
       staff.Where(s => s.CircleId == null).Select(s => s.ToDto()).ToList()));
   }
 
   public async Task<Result<CreatedResult>> Handle(CreateCircleCommand command, CancellationToken cancellationToken)
   {
     var c = command.Circle;
-    var circle = TaxCircle.Create(TaxCircleId.New(), command.Code, new CircleDetails(c.Name, c.OrgUnitId, c.OfficerPostId, c.OfficeAddress, c.OfficeFax, c.OfficePhone, c.SortOrder));
+    var circle = TaxCircle.Create(TaxCircleId.New(), command.Code, new CircleDetails(c.Name, c.OrgUnitId, c.OfficeAddress, c.OfficeFax, c.OfficePhone, c.SortOrder));
     if (await context.TaxCircles.AnyAsync(x => x.Code == circle.Code, cancellationToken))
       return Result<CreatedResult>.Failure($"A circle with the code {circle.Code} already exists.");
     context.TaxCircles.Add(circle);
@@ -90,7 +103,7 @@ public class CircleHandlers(IApplicationDbContext context, IPropertyDirectory pr
   {
     var circle = await context.LoadCircleAsync(command.Id, cancellationToken);
     var c = command.Circle;
-    circle.Update(new CircleDetails(c.Name, c.OrgUnitId, c.OfficerPostId, c.OfficeAddress, c.OfficeFax, c.OfficePhone, c.SortOrder));
+    circle.Update(new CircleDetails(c.Name, c.OrgUnitId, c.OfficeAddress, c.OfficeFax, c.OfficePhone, c.SortOrder));
     await context.SaveChangesAsync(cancellationToken);
     return CommandResults.Updated();
   }
@@ -102,6 +115,56 @@ public class CircleHandlers(IApplicationDbContext context, IPropertyDirectory pr
     circle.SetActive(command.IsActive, hasFiles);
     await context.SaveChangesAsync(cancellationToken);
     return CommandResults.Updated();
+  }
+
+  public async Task<Result<UpdatedResult>> Handle(DeleteCircleCommand command, CancellationToken cancellationToken)
+  {
+    var circle = await context.LoadCircleAsync(command.Id, cancellationToken);
+    if ((await UsedCirclesAsync(cancellationToken)).Contains(circle.Id))
+      return Result<UpdatedResult>.Failure($"Circle {circle.Code} has tax files, runs or notices; deactivate it instead.");
+    var today = clock.Today;
+    if (circle.Towns.FirstOrDefault(t => t.EffectiveTo is null || t.EffectiveTo >= today) is { } town)
+      return Result<UpdatedResult>.Failure($"{town.TownCode} is in circle {circle.Code}{(town.EffectiveFrom > today ? $" from {town.EffectiveFrom:dd MMM yyyy}" : "")}. Take the town out first.");
+    var staff = await context.CircleStaff.Where(s => s.CircleId == circle.Id).ToListAsync(cancellationToken);
+    context.CircleStaff.RemoveRange(staff);
+    context.TaxCircles.Remove(circle);
+    await context.SaveChangesAsync(cancellationToken);
+    return CommandResults.Updated();
+  }
+
+  public async Task<Result<UpdatedResult>> Handle(EndTownCommand command, CancellationToken cancellationToken)
+  {
+    var circle = await context.LoadCircleAsync(command.CircleId, cancellationToken);
+    var assignment = circle.Towns.FirstOrDefault(t => t.Id.Value == command.AssignmentId)
+      ?? throw new TaxCircleNotFoundException($"Town assignment {command.AssignmentId} was not found in circle {circle.Code}.");
+    var open = await context.TaxFiles.CountAsync(f => f.TownId == assignment.TownId && f.CircleId == circle.Id && f.TaxStatus != TaxStatus.Closed, cancellationToken);
+    if (open > 0)
+      return Result<UpdatedResult>.Failure($"{assignment.TownCode} has {open} open tax file{(open == 1 ? "" : "s")} in circle {circle.Code}. Assign the town to another circle instead; its files move with it.");
+    var history = await context.CircleTowns.Where(t => t.TownId == assignment.TownId).ToListAsync(cancellationToken);
+    circle.EndTown(assignment.Id, command.LastDay, history);
+    await context.SaveChangesAsync(cancellationToken);
+    return CommandResults.Updated();
+  }
+
+  public async Task<Result<UpdatedResult>> Handle(VoidTownCommand command, CancellationToken cancellationToken)
+  {
+    var circle = await context.LoadCircleAsync(command.CircleId, cancellationToken);
+    var assignment = circle.Towns.FirstOrDefault(t => t.Id.Value == command.AssignmentId)
+      ?? throw new TaxCircleNotFoundException($"Town assignment {command.AssignmentId} was not found in circle {circle.Code}.");
+    var history = await context.CircleTowns.Where(t => t.TownId == assignment.TownId).ToListAsync(cancellationToken);
+    circle.VoidTown(assignment.Id, clock.Today, history);
+    context.CircleTowns.Remove(assignment);
+    await context.SaveChangesAsync(cancellationToken);
+    return CommandResults.Updated();
+  }
+
+  /// Circles a tax file, a demand or surcharge run, or a notice's endorsement series refers to.
+  private async Task<HashSet<TaxCircleId>> UsedCirclesAsync(CancellationToken cancellationToken)
+  {
+    var files = await context.TaxFiles.Select(f => f.CircleId).Distinct().ToListAsync(cancellationToken);
+    var runs = await context.DemandRuns.Where(r => r.CircleId != null).Select(r => r.CircleId!).Distinct().ToListAsync(cancellationToken);
+    var surcharges = await context.PenaltyRuns.Where(r => r.CircleId != null).Select(r => r.CircleId!).Distinct().ToListAsync(cancellationToken);
+    return files.Concat(runs).Concat(surcharges).ToHashSet();
   }
 
   public async Task<Result<AssignTownResult>> Handle(AssignTownCommand command, CancellationToken cancellationToken)
@@ -169,10 +232,18 @@ public sealed record GetHeadsQuery(HeadKind? Kind, bool IncludeInactive) : IQuer
 /// A regular head the admin defines; its code comes from the name unless given (SIGNBOARD_FEE).
 public sealed record CreateRegularHeadCommand(string? Code, RegularHeadInput Head) : ICommand<Result<CreatedResult>>;
 public sealed record UpdateRegularHeadCommand(Guid Id, RegularHeadInput Head) : ICommand<Result<UpdatedResult>>;
-public sealed record OtherHeadInput(string Name, bool IsRefundable, int SortOrder, string? AccountsHeadCode);
+/// ChargedOnNotice: a charge a notice can carry (an earlier due by year, like lease money) rather than a fee charged on its own.
+public sealed record OtherHeadInput(string Name, bool IsRefundable, int SortOrder, string? AccountsHeadCode, bool ChargedOnNotice = false);
 public sealed record CreateOtherHeadCommand(string Code, OtherHeadInput Head) : ICommand<Result<CreatedResult>>;
 public sealed record UpdateOtherHeadCommand(Guid Id, OtherHeadInput Head) : ICommand<Result<UpdatedResult>>;
 public sealed record SetHeadActivationCommand(Guid Id, bool IsActive) : ICommand<Result<UpdatedResult>>;
+
+/// Deletes a head made by mistake: only while nothing was ever charged, set or paid under it.
+public sealed record DeleteHeadCommand(Guid Id) : ICommand<Result<UpdatedResult>>;
+
+/// "Test": what a head being defined (not saved yet) would charge one file for a year. HeadId: the head being edited (its
+/// rates in the set in force are used unless Rates is given); Rates: the rates to try, for the file's category, all towns.
+public sealed record PreviewHeadQuery(RegularHeadInput Head, Guid TaxFileId, int FiscalYear, HeadRateInput? Rates, Guid? HeadId = null) : IQuery<Result<HeadPreviewDto>>;
 
 public class RegularHeadInputValidator : AbstractValidator<RegularHeadInput>
 {
@@ -216,8 +287,33 @@ public class HeadHandlers(IApplicationDbContext context, TaxSetup setup, IClock 
   ICommandHandler<UpdateRegularHeadCommand, Result<UpdatedResult>>,
   ICommandHandler<CreateOtherHeadCommand, Result<CreatedResult>>,
   ICommandHandler<UpdateOtherHeadCommand, Result<UpdatedResult>>,
-  ICommandHandler<SetHeadActivationCommand, Result<UpdatedResult>>
+  ICommandHandler<SetHeadActivationCommand, Result<UpdatedResult>>,
+  ICommandHandler<DeleteHeadCommand, Result<UpdatedResult>>,
+  IQueryHandler<PreviewHeadQuery, Result<HeadPreviewDto>>
 {
+  public async Task<Result<HeadPreviewDto>> Handle(PreviewHeadQuery query, CancellationToken cancellationToken)
+  {
+    var file = await context.LoadTaxFileAsync(query.TaxFileId, cancellationToken);
+    var basis = file.CurrentBasis ?? throw new DomainException($"{file.FileNo} has no Property data yet. Sync it from Property.");
+    var fy = FiscalYear.Valid(query.FiscalYear);
+    var start = FiscalYear.Start(fy);
+    var inForce = await setup.RateSetOnAsync(start, cancellationToken);
+    var settings = await setup.SettingsAsync(start, cancellationToken);
+
+    // the head as entered and a scratch copy of the rate set in force (neither is saved)
+    var existing = query.HeadId is { } id ? await context.TaxHeads.AsNoTracking().FirstOrDefaultAsync(h => h.Id == TaxHeadId.Of(id), cancellationToken) : null;
+    var head = TaxHead.Regular(existing?.Id ?? TaxHeadId.New(), existing?.Code ?? "PREVIEW", query.Head with { IsActive = true });
+    var scratch = RateSet.Create(RateSetId.New(), inForce.Name, inForce.BoardReference, inForce.BoardDecisionDate, inForce.EffectiveFrom, inForce.BaseFiscalYear);
+    scratch.CopyRatesFrom(inForce);
+    if (query.Rates is { } rates)
+      scratch.SetHeadRates(head, file.TaxCategory is TaxCategory.Com or TaxCategory.Res ? file.TaxCategory : null, null, rates);
+
+    var assessment = TaxCalculator.Assess(new AssessmentInput(file, basis, fy, [head], scratch, settings, await setup.PoliciesAsync(cancellationToken)));
+    var line = assessment.Lines.FirstOrDefault(l => l.HeadId == head.Id);
+    return Result<HeadPreviewDto>.Success(new HeadPreviewDto(file.Id.Value, file.FileNo, fy, FiscalYear.Label(fy), inForce.Name, assessment.Suspended,
+      assessment.SuspendedReason, line?.Amount ?? 0m, line?.Explanation, line?.BasisQty, line?.BasisUnit, assessment.Notes));
+  }
+
   public async Task<Result<GetHeadsQueryResult>> Handle(GetHeadsQuery query, CancellationToken cancellationToken)
   {
     var heads = await context.TaxHeads.AsNoTracking()
@@ -238,21 +334,9 @@ public class HeadHandlers(IApplicationDbContext context, TaxSetup setup, IClock 
     var head = TaxHead.Regular(TaxHeadId.New(), code, command.Head);
     context.TaxHeads.Add(head);
 
-    // the new head gets its own row on the notice table (a new layout version from today), before security,
-    // surcharge and withholding, as the Section's notice lists the heads first
-    var layout = await setup.LayoutAsync(clock.Today, cancellationToken);
-    if (!layout.OrderedRows.SelectMany(r => r.Sources).Any(s => s.SourceCode == head.Code))
-    {
-      var rows = layout.OrderedRows.Select(r => new TableRowInput(r.Label, r.Sources.Select(s => s.SourceCode).ToList())).ToList();
-      var tail = rows.FindIndex(r => r.HeadCodes.Any(c => c is HeadCodes.Security or HeadCodes.Surcharge or HeadCodes.Wht236A));
-      rows.Insert(tail < 0 ? rows.Count : tail, new TableRowInput(head.Name, [head.Code]));
-      var known = codes.Append(head.Code).ToHashSet();
-      var next = NoticeTableLayout.Create(NoticeTableLayoutId.New(),
-        new TableLayoutInput(rows, layout.OrderedColumns.Select(c => new TableColumnInput(c.ColumnKey, c.Heading, c.PrintedByDefault)).ToList(), layout.OtherLabel,
-          layout.HideZeroRows, $"New head {head.Code}"), known, clock.Today);
-      layout.EndBefore(clock.Today);
-      context.TableLayouts.Add(next);
-    }
+    // the new head gets its own row on the notice table
+    var heads = (await setup.HeadsAsync(cancellationToken)).Append(head).ToList();
+    await setup.EnsureLayoutRowAsync(head, heads, clock.Today, cancellationToken);
 
     await context.SaveChangesAsync(cancellationToken);
     return CommandResults.Created(head.Id);
@@ -278,10 +362,16 @@ public class HeadHandlers(IApplicationDbContext context, TaxSetup setup, IClock 
 
   public async Task<Result<CreatedResult>> Handle(CreateOtherHeadCommand command, CancellationToken cancellationToken)
   {
-    var head = TaxHead.Other(TaxHeadId.New(), command.Code, command.Head.Name, command.Head.IsRefundable, command.Head.SortOrder, command.Head.AccountsHeadCode);
-    if (await context.TaxHeads.AnyAsync(h => h.Code == head.Code, cancellationToken))
+    var h = command.Head;
+    var head = TaxHead.Other(TaxHeadId.New(), command.Code, h.Name, h.IsRefundable, h.SortOrder, h.AccountsHeadCode, h.ChargedOnNotice);
+    if (await context.TaxHeads.AnyAsync(x => x.Code == head.Code, cancellationToken))
       return Result<CreatedResult>.Failure($"A head with the code {head.Code} already exists.");
+    if (await context.TaxHeads.AnyAsync(x => x.Name.ToLower() == head.Name.ToLower(), cancellationToken))
+      return Result<CreatedResult>.Failure($"A head called \"{head.Name}\" already exists.");
     context.TaxHeads.Add(head);
+    // a charge a notice can carry gets its own row on the notice table
+    var heads = (await setup.HeadsAsync(cancellationToken)).Append(head).ToList();
+    await setup.EnsureLayoutRowAsync(head, heads, clock.Today, cancellationToken);
     await context.SaveChangesAsync(cancellationToken);
     return CommandResults.Created(head.Id);
   }
@@ -289,7 +379,13 @@ public class HeadHandlers(IApplicationDbContext context, TaxSetup setup, IClock 
   public async Task<Result<UpdatedResult>> Handle(UpdateOtherHeadCommand command, CancellationToken cancellationToken)
   {
     var head = await context.LoadHeadAsync(command.Id, cancellationToken);
-    head.UpdateOther(command.Head.Name, command.Head.IsRefundable, command.Head.SortOrder, command.Head.AccountsHeadCode);
+    var h = command.Head;
+    if (await context.TaxHeads.AnyAsync(x => x.Id != head.Id && x.Name.ToLower() == h.Name.Trim().ToLower(), cancellationToken))
+      return Result<UpdatedResult>.Failure($"Another head is called \"{h.Name.Trim()}\".");
+    if (head.ChargedOnNotice && !h.ChargedOnNotice && await ChargedOnNoticesAsync(head.Id, cancellationToken))
+      return Result<UpdatedResult>.Failure($"{head.Name} is already on demands as an earlier due; it stays a charge notices carry.");
+    head.UpdateOther(h.Name, h.IsRefundable, h.SortOrder, h.AccountsHeadCode, h.ChargedOnNotice);
+    await setup.EnsureLayoutRowAsync(head, await setup.HeadsAsync(cancellationToken), clock.Today, cancellationToken);
     await context.SaveChangesAsync(cancellationToken);
     return CommandResults.Updated();
   }
@@ -298,9 +394,41 @@ public class HeadHandlers(IApplicationDbContext context, TaxSetup setup, IClock 
   {
     var head = await context.LoadHeadAsync(command.Id, cancellationToken);
     head.SetActive(command.IsActive);
+    // a head brought back gets its row on the notice table again
+    await setup.EnsureLayoutRowAsync(head, await setup.HeadsAsync(cancellationToken), clock.Today, cancellationToken);
     await context.SaveChangesAsync(cancellationToken);
     return CommandResults.Updated();
   }
+
+  public async Task<Result<UpdatedResult>> Handle(DeleteHeadCommand command, CancellationToken cancellationToken)
+  {
+    var head = await context.LoadHeadAsync(command.Id, cancellationToken);
+    if (head.IsSystem || head.IsBuiltin)
+      return Result<UpdatedResult>.Failure($"{head.Name} is used by the module itself and cannot be deleted.");
+    var id = head.Id;
+    var used = await context.DemandLines.AnyAsync(l => l.HeadId == id, cancellationToken)
+      || await context.ArrearsRows.AnyAsync(a => a.HeadId == id, cancellationToken)
+      || await context.PaymentAllocations.AnyAsync(a => a.HeadId == id, cancellationToken)
+      || await context.Fees.AnyAsync(f => f.HeadId == id, cancellationToken)
+      || await context.SpecialPolicies.AnyAsync(p => p.HeadId == id, cancellationToken)
+      || await context.Overrides.AnyAsync(o => o.HeadId == id, cancellationToken)
+      || await context.HeadValues.AnyAsync(v => v.HeadId == id, cancellationToken)
+      || await context.RateSets.AnyAsync(s => s.Status != RateSetStatus.Draft && s.RateBands.Any(b => b.HeadId == id), cancellationToken);
+    if (used)
+      return Result<UpdatedResult>.Failure($"{head.Name} is already used (charged, paid, set on a property or in an approved rate set); deactivate it instead.");
+
+    var drafts = await context.RateSets.Where(s => s.Status == RateSetStatus.Draft && s.RateBands.Any(b => b.HeadId == id)).Include(s => s.RateBands).ToListAsync(cancellationToken);
+    foreach (var draft in drafts)
+      foreach (var group in draft.RateBands.Where(b => b.HeadId == id).Select(b => (b.TaxCategory, b.TownId)).Distinct().ToList())
+        draft.RemoveHeadRates(id, group.TaxCategory, group.TownId);
+    await setup.RemoveLayoutRowAsync(head, await setup.HeadsAsync(cancellationToken), clock.Today, cancellationToken);
+    context.TaxHeads.Remove(head);
+    await context.SaveChangesAsync(cancellationToken);
+    return CommandResults.Updated();
+  }
+
+  private async Task<bool> ChargedOnNoticesAsync(TaxHeadId id, CancellationToken cancellationToken) =>
+      await context.ArrearsRows.AnyAsync(a => a.HeadId == id, cancellationToken);
 
   /// SIGNBOARD_FEE from "Signboard fee"; a number is added when taken.
   private static string UniqueCode(string name, IReadOnlyCollection<string> used)

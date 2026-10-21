@@ -1,3 +1,5 @@
+using Microsoft.EntityFrameworkCore;
+
 public class BuildingPlanActionsHandler(IApplicationDbContext context, MasterLookup masters, ICurrentUser currentUser)
   : ICommandHandler<UpdateBuildingPlanCommand, Result<BuildingPlanActionResult>>,
     ICommandHandler<ChangeBuildingPlanStatusCommand, Result<BuildingPlanActionResult>>,
@@ -25,9 +27,24 @@ public class BuildingPlanActionsHandler(IApplicationDbContext context, MasterLoo
   {
     var plan = await context.LoadBuildingPlanAsync(command.Id, cancellationToken);
     await context.EnsurePropertyActiveAsync(plan.PropertyId, cancellationToken);
-    plan.Approve(await Current(plan, cancellationToken), await Status(SystemMasterCodes.Approved, cancellationToken),
-      command.ApprovalDate, command.ApprovedBy ?? currentUser.Username ?? currentUser.AuditName, command.ApprovalReferenceNo, command.ValidityEndDate);
-    return await SaveAsync(plan, cancellationToken);
+
+    // the plot's current survey: a slope above the BCR limit approves with a warning, never refused
+    var slope = await context.Boundaries.AsNoTracking()
+        .Where(b => b.PropertyId == plan.PropertyId && b.IsCurrent)
+        .OrderByDescending(b => b.SurveyDate)
+        .Select(b => b.SlopeDegrees)
+        .FirstOrDefaultAsync(cancellationToken);
+
+    // the approving officer picked from the staff list, else the signed-in officer
+    var picked = !string.IsNullOrWhiteSpace(command.ApprovedBy);
+    var warnings = plan.Approve(await Current(plan, cancellationToken), await Status(SystemMasterCodes.Approved, cancellationToken),
+      new BuildingPlan.Approval(
+        command.ApprovalDate,
+        picked ? command.ApprovedBy! : currentUser.Username ?? currentUser.AuditName,
+        picked ? command.ApprovedByEmployeeId : currentUser.EmployeeId,
+        command.ApprovalReferenceNo, command.ValidityEndDate, command.NoDuesCertificateNo),
+      PropertyWriteGuard.Today(), slope);
+    return await SaveAsync(plan, cancellationToken, warnings);
   }
 
   public async Task<Result<BuildingPlanActionResult>> Handle(RejectBuildingPlanCommand command, CancellationToken cancellationToken)
@@ -63,10 +80,10 @@ public class BuildingPlanActionsHandler(IApplicationDbContext context, MasterLoo
   private Task<BuildingPlanStatus> Status(string code, CancellationToken cancellationToken) =>
       masters.GetByCodeAsync<BuildingPlanStatus>(code, cancellationToken);
 
-  private async Task<Result<BuildingPlanActionResult>> SaveAsync(BuildingPlan plan, CancellationToken cancellationToken)
+  private async Task<Result<BuildingPlanActionResult>> SaveAsync(BuildingPlan plan, CancellationToken cancellationToken, IReadOnlyList<string>? warnings = null)
   {
     await context.SaveChangesAsync(cancellationToken);
     var refs = await masters.Refs().Add<BuildingPlanStatus>(plan.BuildingPlanStatusId).LoadAsync(cancellationToken);
-    return Result<BuildingPlanActionResult>.Success(new BuildingPlanActionResult(plan.Id.Value, refs[plan.BuildingPlanStatusId]));
+    return Result<BuildingPlanActionResult>.Success(new BuildingPlanActionResult(plan.Id.Value, refs[plan.BuildingPlanStatusId], warnings ?? Array.Empty<string>()));
   }
 }

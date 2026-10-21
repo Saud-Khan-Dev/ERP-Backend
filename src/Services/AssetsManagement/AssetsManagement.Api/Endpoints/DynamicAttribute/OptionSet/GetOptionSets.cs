@@ -9,6 +9,8 @@ public class GetOptionSets : ICarterModule
       var result = await sender.Send(new GetOptionSetsQuery(includeInactive ?? false));
       return Results.Ok(new GetOptionSetsResponse(result.Value!.OptionSets));
     })
+      .RequireAnyPermission(AssetsAuthorization.AnyAssetsReader)
+
       .WithName("GetOptionSets")
       .Produces<GetOptionSetsResponse>(StatusCodes.Status200OK)
       .WithSummary("Get Option Sets")

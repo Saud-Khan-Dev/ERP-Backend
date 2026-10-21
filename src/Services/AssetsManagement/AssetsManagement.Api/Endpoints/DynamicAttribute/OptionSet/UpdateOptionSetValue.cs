@@ -14,6 +14,8 @@ public class UpdateOptionSetValue : ICarterModule
 
       return Results.Ok(result.Value.Adapt<UpdateOptionSetValueResponse>());
     })
+      .RequirePermission(PermissionCatalog.AssetAttributes.Edit)
+
       .WithName("UpdateOptionSetValue")
       .Produces<UpdateOptionSetValueResponse>(StatusCodes.Status200OK)
       .ProducesProblem(StatusCodes.Status400BadRequest)

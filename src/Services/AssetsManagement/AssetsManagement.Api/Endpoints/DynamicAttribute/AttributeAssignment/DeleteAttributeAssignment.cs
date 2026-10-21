@@ -13,6 +13,8 @@ public class DeleteAttributeAssignment : ICarterModule
 
       return Results.Ok(result.Value.Adapt<DeleteAttributeAssignmentResponse>());
     })
+      .RequirePermission(PermissionCatalog.AssetAttributes.Delete)
+
       .WithName("DeleteAttributeAssignment")
       .Produces<DeleteAttributeAssignmentResponse>(StatusCodes.Status200OK)
       .ProducesProblem(StatusCodes.Status404NotFound)

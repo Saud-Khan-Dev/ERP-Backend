@@ -21,7 +21,10 @@ public class PropertyAppeal : Aggregate<AppealId>
   public DateOnly AppealDate { get; private set; }
   /// Chief Secretary, or an officer not below BPS-20 it delegates to (s.32(2)).
   public string AppellateAuthority { get; private set; } = default!;
+  /// The officer the appellate authority delegated to (s.32(2)): the name, and their HR record when they are GDA staff
+  /// picked from the staff list (a provincial officer has a name only).
   public string? DelegatedOfficer { get; private set; }
+  public Guid? DelegatedOfficerEmployeeId { get; private set; }
   public DateOnly DecisionDueDate { get; private set; }
   public DateOnly? DecisionDate { get; private set; }
   public AppealOutcome? DecisionOutcome { get; private set; }
@@ -39,7 +42,8 @@ public class PropertyAppeal : Aggregate<AppealId>
       DateOnly AppealDate,
       string? AppellateAuthority,
       string? DelegatedOfficer,
-      string? Remarks);
+      string? Remarks,
+      Guid? DelegatedOfficerEmployeeId = null);
 
   /// otherAppeals: the property's other appeals. One order is appealed once: a second appeal against the same
   /// order is refused while the first is open, and after it was decided (the decision is final). A withdrawn
@@ -94,8 +98,8 @@ public class PropertyAppeal : Aggregate<AppealId>
     AppealStatus = AppealStatus.UnderHearing;
   }
 
-  /// The decision is final (s.32).
-  public void Decide(DateOnly decisionDate, AppealOutcome outcome, string? details)
+  /// The decision is final (s.32); it is a recorded event, so not in the future.
+  public void Decide(DateOnly decisionDate, AppealOutcome outcome, string? details, DateOnly? today = null)
   {
     EnsureOpen();
 
@@ -104,6 +108,9 @@ public class PropertyAppeal : Aggregate<AppealId>
 
     if (decisionDate < AppealDate)
       throw new DomainException("An appeal cannot be decided before it was filed.");
+
+    if (today is { } day && decisionDate > day)
+      throw new DomainException($"The decision date cannot be in the future ({decisionDate:yyyy-MM-dd}); today is {day:yyyy-MM-dd}.");
 
     DecisionDate = decisionDate;
     DecisionOutcome = outcome;
@@ -181,6 +188,7 @@ public class PropertyAppeal : Aggregate<AppealId>
     AppealDate = filing.AppealDate;
     AppellateAuthority = Guard.Text(filing.AppellateAuthority, 150, "Appellate authority") ?? DefaultAppellateAuthority;
     DelegatedOfficer = Guard.Text(filing.DelegatedOfficer, 150, "Delegated officer");
+    DelegatedOfficerEmployeeId = DelegatedOfficer is null ? null : filing.DelegatedOfficerEmployeeId;
     Remarks = Guard.Text(filing.Remarks, 4000, "Remarks");
 
     // rule 6

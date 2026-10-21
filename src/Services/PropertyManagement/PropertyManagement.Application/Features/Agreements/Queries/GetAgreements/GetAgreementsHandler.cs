@@ -17,14 +17,16 @@ using Microsoft.EntityFrameworkCore;
 /// Amount, per kind (AnnualAmount is the yearly equivalent the amount filters and sort use):
 ///   lease, outsourcing — the amount; annual = monthly x 12, annual x 1, one-time as it is
 ///   rental      — the rent; annual = monthly x 12, quarterly x 4, annual x 1
-///   auction     — the winning bid once awarded, the reserve price before; annual = as it is (a one-off sale)
+///   auction     — the winning bid once awarded, the reserve price before; annual = as it is (a one-off sale). An auction
+///                 is a sale being run (PLANNED / ANNOUNCED / CONDUCTED), never an agreement in force.
 ///   allotment   — none
 public class GetAgreementsHandler(IApplicationDbContext context, MasterLookup masters, PropertyReadService read)
   : IQueryHandler<GetAgreementsQuery, Result<GetAgreementsQueryResult>>
 {
   private sealed record Row(
     AgreementKind Kind, Guid Id, string Code, PropertyId PropertyId, OwnerId? PartyId, MasterId TypeId, MasterId StatusId,
-    DateOnly? Start, DateOnly? End, decimal? Amount, string? Frequency, decimal? AnnualAmount, decimal? Deposit, bool InForce);
+    DateOnly? Start, DateOnly? End, decimal? Amount, string? Frequency, decimal? AnnualAmount, decimal? Deposit, bool InForce,
+    decimal? CurrentAnnualAmount = null, MoneyDirection? Direction = null);
 
   // start / end of each kind: translated to SQL for the date filters, compiled for the row itself
   private static readonly Expression<Func<PropertyAllotment, DateOnly?>> AllotmentStarts = x => x.EffectiveDate ?? x.AllotmentDate;
@@ -52,6 +54,7 @@ public class GetAgreementsHandler(IApplicationDbContext context, MasterLookup ma
   public async Task<Result<GetAgreementsQueryResult>> Handle(GetAgreementsQuery query, CancellationToken cancellationToken)
   {
     var kinds = query.Kinds is { Count: > 0 } ? query.Kinds.ToHashSet() : Enum.GetValues<AgreementKind>().ToHashSet();
+    var today = PakistanDate.Today;
     var scope = RegisterScope.Create(context, query.PropertyId, query.TownId, query.Search);
     var filter = new Filter(
       query.PartyId is { } partyId ? OwnerId.Of(partyId) : null,
@@ -59,15 +62,17 @@ public class GetAgreementsHandler(IApplicationDbContext context, MasterLookup ma
       query.Statuses is { Count: > 0 } ? query.Statuses.Select(s => s.Trim().ToUpperInvariant()).ToList() : null);
 
     var rows = new List<Row>();
-    if (kinds.Contains(AgreementKind.Allotment)) rows.AddRange(await AllotmentsAsync(query, scope, filter, cancellationToken));
-    if (kinds.Contains(AgreementKind.Lease)) rows.AddRange(await LeasesAsync(query, scope, filter, cancellationToken));
-    if (kinds.Contains(AgreementKind.Rental)) rows.AddRange(await RentalsAsync(query, scope, filter, cancellationToken));
-    if (kinds.Contains(AgreementKind.Outsourcing)) rows.AddRange(await OutsourcingsAsync(query, scope, filter, cancellationToken));
+    if (kinds.Contains(AgreementKind.Allotment)) rows.AddRange(await AllotmentsAsync(query, scope, filter, today, cancellationToken));
+    if (kinds.Contains(AgreementKind.Lease)) rows.AddRange(await LeasesAsync(query, scope, filter, today, cancellationToken));
+    if (kinds.Contains(AgreementKind.Rental)) rows.AddRange(await RentalsAsync(query, scope, filter, today, cancellationToken));
+    if (kinds.Contains(AgreementKind.Outsourcing)) rows.AddRange(await OutsourcingsAsync(query, scope, filter, today, cancellationToken));
     if (kinds.Contains(AgreementKind.Auction)) rows.AddRange(await AuctionsAsync(query, scope, filter, cancellationToken));
 
-    // what only exists per row: the annual amount and the end date against today
-    var today = DateOnly.FromDateTime(DateTime.UtcNow);
+    // what only exists per row: the annual amount, the money direction and the end date against today
     IEnumerable<Row> filtered = rows;
+    if (query.Direction is { } direction) filtered = filtered.Where(r => r.Direction == direction);
+    // allottees not (yet) confirmed as owners: only allotments have that question
+    if (query.Unconfirmed == true) filtered = filtered.Where(r => r.Kind == AgreementKind.Allotment);
     if (query.AmountMin is { } amountMin) filtered = filtered.Where(r => r.AnnualAmount >= amountMin);
     if (query.AmountMax is { } amountMax) filtered = filtered.Where(r => r.AnnualAmount <= amountMax);
     if (query.EndsWithinDays is { } days)
@@ -120,7 +125,7 @@ public class GetAgreementsHandler(IApplicationDbContext context, MasterLookup ma
       return new AgreementListItemDto(
         r.Kind, r.Id, r.Code, property.Id, property.PropertyCode, property.PropertyName, property.Town,
         owner?.Id, owner?.OwnerCode, owner?.OwnerName, refs[r.TypeId], refs[r.StatusId],
-        r.Start, r.End, r.Amount, r.Frequency, r.AnnualAmount, r.Deposit, r.InForce);
+        r.Start, r.End, r.Amount, r.Frequency, r.AnnualAmount, r.Deposit, r.InForce, r.CurrentAnnualAmount ?? r.AnnualAmount, r.Direction);
     }).ToList();
 
     return Result<GetAgreementsQueryResult>.Success(new GetAgreementsQueryResult(new PaginatedResult<AgreementListItemDto>(
@@ -130,7 +135,9 @@ public class GetAgreementsHandler(IApplicationDbContext context, MasterLookup ma
   /// The filters every kind applies in SQL: the party, the type, and the status codes (resolved per status table).
   private sealed record Filter(OwnerId? Party, MasterId? TypeId, List<string>? StatusCodes);
 
-  private async Task<IEnumerable<Row>> AllotmentsAsync(GetAgreementsQuery query, RegisterScope scope, Filter filter, CancellationToken cancellationToken)
+  /// In force: a current status (ACTIVE / RESTORED) and already in effect (effective date, else allotment date, on or
+  /// before today).
+  private async Task<IEnumerable<Row>> AllotmentsAsync(GetAgreementsQuery query, RegisterScope scope, Filter filter, DateOnly today, CancellationToken cancellationToken)
   {
     var inForce = await InForce.StatusIdsAsync<AllotmentStatus>(context, InForce.AllotmentStatuses, cancellationToken);
     var cancelled = await InForce.StatusIdsAsync<AllotmentStatus>(context, [SystemMasterCodes.Cancelled], cancellationToken);
@@ -146,7 +153,14 @@ public class GetAgreementsHandler(IApplicationDbContext context, MasterLookup ma
       var statuses = await InForce.StatusIdsAsync<AllotmentStatus>(context, codes, cancellationToken);
       rows = rows.Where(x => statuses.Contains(x.AllotmentStatusId));
     }
-    if (query.InForce is { } wanted) rows = rows.Where(x => inForce.Contains(x.AllotmentStatusId) == wanted);
+    if (query.InForce is { } wanted)
+      rows = rows.Where(x => (inForce.Contains(x.AllotmentStatusId) && (x.EffectiveDate ?? x.AllotmentDate) <= today) == wanted);
+    if (query.Unconfirmed is { } unconfirmed)
+    {
+      // confirmed: an ownership row acquired through the allotment since it was last put in force
+      var confirmations = context.Ownerships.AsNoTracking().Where(o => o.AcquiredViaAllotmentId != null);
+      rows = rows.Where(x => !confirmations.Any(o => o.AcquiredViaAllotmentId == x.Id && (x.RestorationDate == null || o.EffectiveFrom >= x.RestorationDate)) == unconfirmed);
+    }
     if (scope.HasSearch)
     {
       var (upper, properties, owners) = (scope.Upper!, scope.SearchProperties, scope.SearchOwners);
@@ -157,10 +171,10 @@ public class GetAgreementsHandler(IApplicationDbContext context, MasterLookup ma
 
     return (await rows.ToListAsync(cancellationToken)).Select(x => new Row(
       AgreementKind.Allotment, x.Id.Value, x.AllotmentNo.Value, x.PropertyId, x.AllotteeOwnerId, x.AllotmentTypeId, x.AllotmentStatusId,
-      AllotmentStartOf(x), endOf(x), null, null, null, null, inForce.Contains(x.AllotmentStatusId)));
+      AllotmentStartOf(x), endOf(x), null, null, null, null, inForce.Contains(x.AllotmentStatusId) && x.TakesEffectOn <= today));
   }
 
-  private async Task<IEnumerable<Row>> LeasesAsync(GetAgreementsQuery query, RegisterScope scope, Filter filter, CancellationToken cancellationToken)
+  private async Task<IEnumerable<Row>> LeasesAsync(GetAgreementsQuery query, RegisterScope scope, Filter filter, DateOnly today, CancellationToken cancellationToken)
   {
     var inForce = await InForce.StatusIdsAsync<LeaseStatus>(context, InForce.LeaseStatuses, cancellationToken);
     var rows = context.Leases.AsNoTracking();
@@ -173,7 +187,7 @@ public class GetAgreementsHandler(IApplicationDbContext context, MasterLookup ma
       var statuses = await InForce.StatusIdsAsync<LeaseStatus>(context, codes, cancellationToken);
       rows = rows.Where(x => statuses.Contains(x.LeaseStatusId));
     }
-    if (query.InForce is { } wanted) rows = rows.Where(x => inForce.Contains(x.LeaseStatusId) == wanted);
+    if (query.InForce is { } wanted) rows = rows.Where(x => (inForce.Contains(x.LeaseStatusId) && x.LeaseStartDate <= today) == wanted);
     if (scope.HasSearch)
     {
       var (upper, properties, owners) = (scope.Upper!, scope.SearchProperties, scope.SearchOwners);
@@ -185,10 +199,10 @@ public class GetAgreementsHandler(IApplicationDbContext context, MasterLookup ma
     return (await rows.ToListAsync(cancellationToken)).Select(x => new Row(
       AgreementKind.Lease, x.Id.Value, x.LeaseNo.Value, x.PropertyId, x.LesseeOwnerId, x.LeaseTypeId, x.LeaseStatusId,
       LeaseStartOf(x), LeaseEndOf(x), x.LeaseAmount, x.AmountFrequency?.ToString(), Annual(x.LeaseAmount, x.AmountFrequency), x.SecurityDeposit,
-      inForce.Contains(x.LeaseStatusId)));
+      inForce.Contains(x.LeaseStatusId) && x.LeaseStartDate <= today, Direction: MoneyDirection.Receivable));
   }
 
-  private async Task<IEnumerable<Row>> RentalsAsync(GetAgreementsQuery query, RegisterScope scope, Filter filter, CancellationToken cancellationToken)
+  private async Task<IEnumerable<Row>> RentalsAsync(GetAgreementsQuery query, RegisterScope scope, Filter filter, DateOnly today, CancellationToken cancellationToken)
   {
     var inForce = await InForce.StatusIdsAsync<RentalStatus>(context, InForce.RentalStatuses, cancellationToken);
     var rows = context.Rentals.AsNoTracking();
@@ -201,7 +215,7 @@ public class GetAgreementsHandler(IApplicationDbContext context, MasterLookup ma
       var statuses = await InForce.StatusIdsAsync<RentalStatus>(context, codes, cancellationToken);
       rows = rows.Where(x => statuses.Contains(x.RentalStatusId));
     }
-    if (query.InForce is { } wanted) rows = rows.Where(x => inForce.Contains(x.RentalStatusId) == wanted);
+    if (query.InForce is { } wanted) rows = rows.Where(x => (inForce.Contains(x.RentalStatusId) && x.RentalStartDate <= today) == wanted);
     if (scope.HasSearch)
     {
       var (upper, properties, owners) = (scope.Upper!, scope.SearchProperties, scope.SearchOwners);
@@ -213,10 +227,10 @@ public class GetAgreementsHandler(IApplicationDbContext context, MasterLookup ma
     return (await rows.ToListAsync(cancellationToken)).Select(x => new Row(
       AgreementKind.Rental, x.Id.Value, x.RentalNo.Value, x.PropertyId, x.TenantOwnerId, x.RentalTypeId, x.RentalStatusId,
       RentalStartOf(x), RentalEndOf(x), x.RentAmount, x.RentFrequency.ToString(), Annual(x.RentAmount, x.RentFrequency), x.SecurityDeposit,
-      inForce.Contains(x.RentalStatusId)));
+      inForce.Contains(x.RentalStatusId) && x.RentalStartDate <= today, Annual(x.CurrentRent(today), x.RentFrequency), MoneyDirection.Receivable));
   }
 
-  private async Task<IEnumerable<Row>> OutsourcingsAsync(GetAgreementsQuery query, RegisterScope scope, Filter filter, CancellationToken cancellationToken)
+  private async Task<IEnumerable<Row>> OutsourcingsAsync(GetAgreementsQuery query, RegisterScope scope, Filter filter, DateOnly today, CancellationToken cancellationToken)
   {
     var inForce = await InForce.StatusIdsAsync<ContractStatus>(context, InForce.ContractStatuses, cancellationToken);
     var rows = context.Outsourcings.AsNoTracking();
@@ -229,7 +243,7 @@ public class GetAgreementsHandler(IApplicationDbContext context, MasterLookup ma
       var statuses = await InForce.StatusIdsAsync<ContractStatus>(context, codes, cancellationToken);
       rows = rows.Where(x => statuses.Contains(x.ContractStatusId));
     }
-    if (query.InForce is { } wanted) rows = rows.Where(x => inForce.Contains(x.ContractStatusId) == wanted);
+    if (query.InForce is { } wanted) rows = rows.Where(x => (inForce.Contains(x.ContractStatusId) && x.ContractStartDate <= today) == wanted);
     if (scope.HasSearch)
     {
       var (upper, properties, owners) = (scope.Upper!, scope.SearchProperties, scope.SearchOwners);
@@ -242,12 +256,11 @@ public class GetAgreementsHandler(IApplicationDbContext context, MasterLookup ma
     return (await rows.ToListAsync(cancellationToken)).Select(x => new Row(
       AgreementKind.Outsourcing, x.Id.Value, x.ContractNo.Value, x.PropertyId, x.OutsourcedPartyOwnerId, x.OutsourcingTypeId, x.ContractStatusId,
       ContractStartOf(x), ContractEndOf(x), x.ContractAmount, x.AmountFrequency?.ToString(), Annual(x.ContractAmount, x.AmountFrequency),
-      x.PerformanceGuarantee, inForce.Contains(x.ContractStatusId)));
+      x.PerformanceGuarantee, inForce.Contains(x.ContractStatusId) && x.ContractStartDate <= today, Direction: x.MoneyDirection));
   }
 
   private async Task<IEnumerable<Row>> AuctionsAsync(GetAgreementsQuery query, RegisterScope scope, Filter filter, CancellationToken cancellationToken)
   {
-    var inForce = await InForce.StatusIdsAsync<AuctionStatus>(context, InForce.AuctionStatuses, cancellationToken);
     var rows = context.Auctions.AsNoTracking();
 
     if (scope.Properties is { } allowed) rows = rows.Where(x => allowed.Contains(x.PropertyId));
@@ -258,7 +271,8 @@ public class GetAgreementsHandler(IApplicationDbContext context, MasterLookup ma
       var statuses = await InForce.StatusIdsAsync<AuctionStatus>(context, codes, cancellationToken);
       rows = rows.Where(x => statuses.Contains(x.AuctionStatusId));
     }
-    if (query.InForce is { } wanted) rows = rows.Where(x => inForce.Contains(x.AuctionStatusId) == wanted);
+    // an auction is a sale being run, never an agreement in force: inForce=true lists none, inForce=false all of them
+    if (query.InForce == true) rows = rows.Where(x => false);
     if (scope.HasSearch)
     {
       var (upper, properties, owners) = (scope.Upper!, scope.SearchProperties, scope.SearchOwners);
@@ -274,7 +288,7 @@ public class GetAgreementsHandler(IApplicationDbContext context, MasterLookup ma
       var amount = x.WinningBidAmount ?? x.BaseReservePrice;
       return new Row(
         AgreementKind.Auction, x.Id.Value, x.AuctionNo.Value, x.PropertyId, x.SuccessfulBidderOwnerId, x.AuctionTypeId, x.AuctionStatusId,
-        AuctionStartOf(x), AuctionEndOf(x), amount, null, amount, null, inForce.Contains(x.AuctionStatusId));
+        AuctionStartOf(x), AuctionEndOf(x), amount, null, amount, null, InForce: false, Direction: MoneyDirection.Receivable);
     });
   }
 

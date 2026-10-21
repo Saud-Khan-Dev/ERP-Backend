@@ -71,7 +71,11 @@ public static class EntityLoaders
 
   /// The property's ownership record as the ownership rules read it: every ownership row (history included,
   /// tracked so rows can be closed), the owners on those rows plus `ownerIds` (the parties of the act), the
-  /// waiting transfers with their parties, the charges in force, and today.
+  /// waiting transfers with their parties, the charges that hold shares (ACTIVE and ENFORCED, tracked so an approved
+  /// foreclosure transfer can settle one), the allotment in force, and today.
+  ///
+  /// It also marks the property row as changed (Touch): every act that reads the record changes ownership or what
+  /// stops it, so two such acts on one property at the same moment cannot both save - the second gets 409.
   public static async Task<OwnershipRecord> LoadOwnershipRecordAsync(
       this IApplicationDbContext context, Property property, IEnumerable<OwnerId> ownerIds, CancellationToken cancellationToken)
   {
@@ -85,11 +89,14 @@ public static class EntityLoaders
           && (t.TransferStatus == TransferStatus.Initiated || t.TransferStatus == TransferStatus.Approved))
         .ToListAsync(cancellationToken);
 
-    var encumbrances = await context.Encumbrances.AsNoTracking()
-        .Where(e => e.PropertyId == property.Id && e.Status == EncumbranceStatus.Active)
+    var charges = await context.Encumbrances
+        .Where(e => e.PropertyId == property.Id && (e.Status == EncumbranceStatus.Active || e.Status == EncumbranceStatus.Enforced))
         .ToListAsync(cancellationToken);
 
-    return new OwnershipRecord(property, ownerships, owners, pending, encumbrances, Today);
+    var allotment = await context.AllotmentInForceAsync(property.Id, except: null, cancellationToken);
+
+    context.Touch(property);
+    return new OwnershipRecord(property, ownerships, owners, pending, charges, Today, allotment);
   }
 
   /// The parties of an act must be registered owner records (404 otherwise); returns their ids.
@@ -132,6 +139,6 @@ public static class EntityLoaders
         .Select(s => s.Id)
         .ToList();
 
-  /// Today's date (UTC): the "today" every date rule compares against.
-  public static DateOnly Today => DateOnly.FromDateTime(DateTime.UtcNow);
+  /// Today in Pakistan (PakistanDate): the "today" every date rule compares against.
+  public static DateOnly Today => PakistanDate.Today;
 }

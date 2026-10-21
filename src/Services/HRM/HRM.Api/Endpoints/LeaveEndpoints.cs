@@ -2,6 +2,7 @@ public sealed record SetLeaveEntitlementRequest(Guid LeaveTypeId, int Year, deci
 public sealed record GrantLeaveEntitlementsRequest(int Year, Guid LeaveTypeId, decimal? EntitledDays, IReadOnlyList<Guid>? EmployeeIds);
 public sealed record PostLeaveLedgerEntryRequest(Guid LeaveTypeId, int Year, LeaveTransactionType TransactionType, decimal Days, DateOnly? TransactionDate, string? Remarks);
 public sealed record LeaveYearEndRequest(int Year, bool DryRun);
+public sealed record LeaveDecisionRequest(string? Reason);
 
 /// Leave types, yearly entitlements, the leave ledger (balances are entitlement + ledger), applications
 /// (pending -> approved | rejected | cancelled) and the year-end carry-forward.
@@ -37,6 +38,26 @@ public class LeaveEndpoints : ICarterModule
       .ProducesProblem(StatusCodes.Status404NotFound)
       .WithSummary("Update Leave Type")
       .WithDescription("Whether a type already used is paid or deducted from pay cannot change.");
+
+    foreach (var (active, route) in new[] { (true, "activate"), (false, "deactivate") })
+    {
+      types.MapPost($"/{{id:guid}}/{route}", async (Guid id, ISender sender) => (await sender.Send(new SetLeaveTypeActiveCommand(id, active))).ToOk())
+        .RequirePermission(PermissionCatalog.Attendance.Edit)
+        .WithName(active ? "ActivateLeaveType" : "DeactivateLeaveType")
+        .Produces<UpdatedResult>()
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .WithSummary(active ? "Activate Leave Type" : "Deactivate Leave Type")
+        .WithDescription("An inactive type is no longer offered for new applications or grants; old records keep it.");
+    }
+
+    types.MapDelete("/{id:guid}", async (Guid id, ISender sender) => (await sender.Send(new DeleteLeaveTypeCommand(id))).ToOk())
+      .RequirePermission(PermissionCatalog.Attendance.Delete)
+      .WithName("DeleteLeaveType")
+      .Produces<UpdatedResult>()
+      .ProducesProblem(StatusCodes.Status404NotFound)
+      .ProducesProblem(StatusCodes.Status409Conflict)
+      .WithSummary("Delete Leave Type")
+      .WithDescription("Only a type never used (no application, entitlement or ledger row); a used one answers 409 - deactivate it instead.");
 
     // ---- entitlements, balances, ledger ----
 
@@ -148,7 +169,8 @@ public class LeaveEndpoints : ICarterModule
       .Produces<CreatedResult>(StatusCodes.Status201Created)
       .ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Apply for Leave")
-      .WithDescription("Days default to the working days in the range; a half day is days = 0.5 on one date. Leave drawn from a balance must fit what is available.");
+      .WithDescription("Days = the working days in the range (the default), or half a day less when one of the dates is a half day; any other number is refused. "
+        + "Leave drawn from a balance must fit what is available.");
 
     applications.MapPut("/{id:guid}", async (Guid id, LeaveApplicationInput leave, ISender sender) =>
         (await sender.Send(new ChangeLeaveApplicationCommand(id, leave))).ToOk())
@@ -163,13 +185,16 @@ public class LeaveEndpoints : ICarterModule
     foreach (var (decision, route, permission, summary, description) in new[]
     {
       (LeaveDecision.Approve, "approve", PermissionCatalog.Attendance.Approve, "Approve Leave",
-        "Draws the days from the balance (checked again) and turns days already closed as absent into leave."),
-      (LeaveDecision.Reject, "reject", PermissionCatalog.Attendance.Approve, "Reject Leave", "Only a pending application."),
+        "Draws the days from the balance (checked again) and turns days already closed as absent into leave. Nobody approves their own leave."),
+      (LeaveDecision.Reject, "reject", PermissionCatalog.Attendance.Approve, "Reject Leave",
+        "Only a pending application; reason is required (the employee sees it) and kept with who decided and when."),
       (LeaveDecision.Cancel, "cancel", PermissionCatalog.Attendance.Edit, "Cancel Leave",
-        "A pending or approved application. Approved days go back to the balance and days closed as leave become absences again.")
+        "A pending application (EDIT), or an approved one (needs ATTENDANCE.APPROVE too, and a reason): approved days go back to the balance and days closed as "
+        + "leave become absences again.")
     })
     {
-      applications.MapPost($"/{{id:guid}}/{route}", async (Guid id, ISender sender) => (await sender.Send(new DecideLeaveCommand(id, decision))).ToOk())
+      applications.MapPost($"/{{id:guid}}/{route}", async (Guid id, LeaveDecisionRequest? request, ISender sender) =>
+          (await sender.Send(new DecideLeaveCommand(id, decision, null, request?.Reason))).ToOk())
         .RequirePermission(permission)
         .WithName($"{decision}Leave")
         .Produces<UpdatedResult>()

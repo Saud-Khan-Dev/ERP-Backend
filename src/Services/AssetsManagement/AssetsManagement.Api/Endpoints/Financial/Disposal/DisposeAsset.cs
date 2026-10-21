@@ -2,14 +2,10 @@ public sealed record DisposeAssetRequest(
   Guid DisposalMethodId,
   DateOnly DisposalDate,
   Guid ToStatusId,
-  Guid EventTypeId,
   decimal? DisposalValue = null,
   string? CurrencyCode = null,
   string? BuyerInfo = null,
-  string? Reason = null,
-  Guid? ApprovedBy = null,
-  DateTime? ApprovedAt = null,
-  Guid? PerformedBy = null);
+  string? Reason = null);
 
 public sealed record DisposeAssetResponse(Guid DisposalId);
 
@@ -20,9 +16,8 @@ public class DisposeAsset : ICarterModule
     app.MapPost("/assets/{id}/disposal", async (Guid id, DisposeAssetRequest request, ISender sender) =>
     {
       var command = new DisposeAssetCommand(
-        id, request.DisposalMethodId, request.DisposalDate, request.ToStatusId, request.EventTypeId,
-        request.DisposalValue, request.CurrencyCode, request.BuyerInfo, request.Reason,
-        request.ApprovedBy, request.ApprovedAt, request.PerformedBy);
+        id, request.DisposalMethodId, request.DisposalDate, request.ToStatusId,
+        request.DisposalValue, request.CurrencyCode, request.BuyerInfo, request.Reason);
 
       var result = await sender.Send(command);
 
@@ -32,11 +27,13 @@ public class DisposeAsset : ICarterModule
       var response = result.Value.Adapt<DisposeAssetResponse>();
       return Results.Created($"/assets/{id}/disposal", response);
     })
+      .RequirePermission(PermissionCatalog.AssetFinance.Approve)
+
       .WithName("DisposeAsset")
       .Produces<DisposeAssetResponse>(StatusCodes.Status201Created)
       .ProducesProblem(StatusCodes.Status400BadRequest)
       .ProducesProblem(StatusCodes.Status404NotFound)
       .WithSummary("Dispose Asset")
-      .WithDescription("Records the disposal (gain / loss against net book value), closes depreciation, moves the asset to a terminal status and logs the lifecycle event.");
+      .WithDescription("Records the disposal: depreciates up to the disposal date, closes the schedules, works out gain / loss = (proceeds or 0) - book value on the day, moves the asset to a terminal status and writes the Disposed timeline line. The person approving is the signed-in user. Refused while the asset is on loan, for a date before the purchase or after today, and for proceeds a method does not allow.");
   }
 }

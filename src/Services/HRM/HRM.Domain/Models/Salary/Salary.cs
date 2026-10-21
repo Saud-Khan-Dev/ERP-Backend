@@ -68,7 +68,10 @@ public static class CalculationBases
 }
 
 /// Who a rule applies to and when; null scope fields match everyone.
-public sealed record RuleScope(int Bps, DesignationId DesignationId, OrganizationUnitId OrgUnitId, EmploymentType EmploymentType, DateOnly Date);
+/// Who a rule is applied to. UnitPath = the unit and every unit above it, so a rule for a wing reaches its divisions and
+/// sections ("with its sub-units").
+public sealed record RuleScope(int Bps, DesignationId DesignationId, OrganizationUnitId OrgUnitId, EmploymentType EmploymentType, DateOnly Date,
+  IReadOnlyCollection<OrganizationUnitId>? UnitPath = null);
 
 public sealed record SalaryRuleDefinition(
   string RuleVersion,
@@ -197,7 +200,7 @@ public class SalaryComponentRule : Aggregate<SalaryComponentRuleId>
       && (MinBps is null || scope.Bps >= MinBps)
       && (MaxBps is null || scope.Bps <= MaxBps)
       && (ApplicableDesignationId is null || ApplicableDesignationId == scope.DesignationId)
-      && (ApplicableOrgUnitId is null || ApplicableOrgUnitId == scope.OrgUnitId)
+      && (ApplicableOrgUnitId is null || ApplicableOrgUnitId == scope.OrgUnitId || (scope.UnitPath?.Contains(ApplicableOrgUnitId) ?? false))
       && (ApplicableEmploymentType is null || ApplicableEmploymentType == scope.EmploymentType);
 
   /// The monthly amount, clamped to the rule's minimum and maximum.

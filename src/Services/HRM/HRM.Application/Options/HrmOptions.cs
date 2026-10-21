@@ -36,6 +36,24 @@ public sealed class HrmOptions
   /// The annual increment date (1 December in KP government service).
   public int AnnualIncrementMonth { get; set; } = 12;
   public int AnnualIncrementDay { get; set; } = 1;
+
+  /// Months a new pay must have run before its first annual increment. 0 = the first increment date after the start
+  /// (today's rule). GDA to confirm whether its rule is "six months on the scale" (the Federal practice).
+  public int IncrementQualifyingMonths { get; set; }
+
+  /// Service ends on the day before the 60th birthday instead of on it. Off (today's rule) until GDA confirms its
+  /// practice.
+  public bool RetireOnDayBeforeBirthday { get; set; }
+
+  /// The person who drafted or submitted an HR action may not approve it (maker-checker). Null = follow
+  /// Payroll:RequireSeparateApprover (on everywhere except a developer machine).
+  public bool? RequireSeparateApprover { get; set; }
+
+  /// How the PER final score is made, in percent of goals / KPIs / competencies (the three must total 100). Goals only
+  /// (today's rule) until GDA confirms its PER form.
+  public int PerGoalWeight { get; set; } = 100;
+  public int PerKpiWeight { get; set; }
+  public int PerCompetencyWeight { get; set; }
 }
 
 /// Payroll controls, bound from the "Payroll" section.

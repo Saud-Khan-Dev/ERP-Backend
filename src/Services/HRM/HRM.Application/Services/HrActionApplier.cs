@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 
-/// What applying an action may need beyond the action itself (the hr_action_request table has no column for these).
+/// What applying an action may need beyond the draft. Everything is captured in the draft now; a value given here
+/// replaces the draft's (kept so older callers still work).
 public sealed record HrActionApplyInput(
   string? ExternalReferenceOrg,
   Guid? RecruitmentMethodId,
@@ -9,144 +10,210 @@ public sealed record HrActionApplyInput(
   int? StageNumber,
   decimal? BasicPay,
   int? NoticePeriodDays,
-  string? Remarks);
+  string? Remarks)
+{
+  public static readonly HrActionApplyInput None = new(null, null, null, null, null, null, null, null);
+}
+
+/// The result of applying an action: the service-history row, the separation checklist when the action ended service,
+/// and the posted payroll a back-dated action reaches (to recover or pay as arrears).
+public sealed record HrActionApplied(EmployeeServiceHistory History, SeparationChecklistDto? Checklist, IReadOnlyList<PayrollImpactDto> PayrollImpact);
 
 /// Carries out an approved HR action: one service-history row, plus what the action changes - a post (appointment,
-/// transfer, promotion, demotion, deputation in), the pay (promotion / demotion fixation, appointment), the service
-/// status (suspension, LWOP, deputation out, reinstatement, joining) or the end of service (retirement, resignation,
-/// termination, death). The action is marked applied with the history row. Nothing is saved here.
-public class HrActionApplier(IApplicationDbContext context, ServiceRecordReader reader, ServiceRecordWriter writer)
+/// transfer, promotion, demotion, deputation in, joining or reinstatement on a post), the pay (fixation, reopening),
+/// leave without pay (an approved leave of the unpaid type, which stops the pay for its days), the service status
+/// (suspension, deputation out, reinstatement, joining) or the end of service. The rules are checked again first
+/// (HrActionRules). The action is marked applied with the history row. Nothing is saved here.
+public class HrActionApplier(
+  IApplicationDbContext context,
+  ServiceRecordReader reader,
+  ServiceRecordWriter writer,
+  HrActionChecks checks,
+  LeaveService leave,
+  PayrollImpactFinder payroll,
+  ICurrentUser currentUser,
+  IClock clock)
 {
-  public async Task<EmployeeServiceHistory> ApplyAsync(HrActionRequest action, HrActionApplyInput input, CancellationToken cancellationToken)
+  public async Task<HrActionApplied> ApplyAsync(HrActionRequest action, HrActionApplyInput input, CancellationToken cancellationToken)
   {
     var employee = await context.LoadEmployeeAsync(action.EmployeeId.Value, cancellationToken);
     var date = action.EffectiveDate;
     var current = await reader.RegularPostOnAsync(employee.Id, date, cancellationToken);
-    action.EnsureStillCurrent(current?.AsOld() ?? ServiceChange.None);
+    action.EnsureStillCurrent(current?.AsOld() ?? ServiceChange.None, clock.Today);
 
-    RecruitmentMethodId? recruitmentMethod = null;
-    if (input.RecruitmentMethodId is { } methodId)
+    // the draft's extras, unless the apply call gives them
+    var details = action.Details with
     {
-      recruitmentMethod = RecruitmentMethodId.Of(methodId);
+      ExternalReferenceOrg = input.ExternalReferenceOrg ?? action.ExternalReferenceOrg,
+      EmploymentMethod = input.EmploymentMethod ?? action.EmploymentMethod,
+      RecruitmentMethodId = input.RecruitmentMethodId is { } rm ? RecruitmentMethodId.Of(rm) : action.RecruitmentMethodId,
+      EventTypeId = input.EventTypeId is { } et ? ServiceEventTypeId.Of(et) : action.EventTypeId,
+      StageNumber = input.StageNumber ?? action.StageNumber,
+      BasicPay = input.BasicPay ?? action.BasicPay,
+      NoticePeriodDays = input.NoticePeriodDays ?? action.NoticePeriodDays
+    };
+    await checks.EnsureAllowedAsync(employee, details, cancellationToken);
+
+    if (details.RecruitmentMethodId is { } recruitmentMethod)
+    {
       var method = await context.RecruitmentMethods.FirstOrDefaultAsync(m => m.Id == recruitmentMethod, cancellationToken)
-        ?? throw new RecruitmentMethodNotFoundException($"Recruitment method {methodId} was not found.");
+        ?? throw new RecruitmentMethodNotFoundException($"Recruitment method {recruitmentMethod.Value} was not found.");
       method.EnsureActive();
     }
 
     EmployeeServiceHistory history;
+    SeparationChecklistDto? checklist = null;
+    IReadOnlyList<PayrollImpactDto> impact = [];
+    var approvedBy = action.ApprovedBy;
+
     switch (action.ActionType)
     {
       case HrActionType.Appointment:
       case HrActionType.DeputationIn:
+        if (action.ActionType == HrActionType.DeputationIn)
+          employee.TakeOnDeputation(details.ExternalReferenceOrg!, date, details.EndDate);
         history = await writer.AppointAsync(employee, new AppointmentSpec(
-          action.NewPostId!, date, ServiceEventNames.For(action.ActionType)!, action.OrderNumber, recruitmentMethod,
-          input.StageNumber, input.BasicPay, action.SupportingDocumentId, input.ExternalReferenceOrg, action.Reason, input.Remarks, action.ApprovedBy), cancellationToken);
+          action.NewPostId!, date, ServiceEventNames.For(action.ActionType)!, action.OrderNumber, details.RecruitmentMethodId,
+          details.StageNumber, details.BasicPay, action.SupportingDocumentId, details.ExternalReferenceOrg, action.Reason, input.Remarks, approvedBy), cancellationToken);
+        impact = await payroll.RunsAsync(employee.Id, date, null, PayrollImpactFinder.Arrears, cancellationToken);
         break;
 
       case HrActionType.Transfer:
       case HrActionType.Promotion:
       case HrActionType.Demotion:
         history = await writer.MoveAsync(employee, current!, new MoveSpec(
-          action.NewPostId!, date, action.ActionType, action.OrderNumber, action.SupportingDocumentId, action.Reason, input.Remarks, action.ApprovedBy), cancellationToken);
-        break;
-
-      case HrActionType.Retirement:
-      case HrActionType.Resignation:
-      case HrActionType.Termination:
-      case HrActionType.Death:
-        var type = action.ActionType switch
-        {
-          HrActionType.Retirement => SeparationType.Retirement,
-          HrActionType.Resignation => SeparationType.Resignation,
-          HrActionType.Death => SeparationType.Death,
-          _ => SeparationType.Termination
-        };
-        history = (await writer.SeparateAsync(employee, new SeparationSpec(type, date, action.OrderNumber, action.Reason, input.NoticePeriodDays,
-          null, null, action.SupportingDocumentId, action.ApprovedBy), cancellationToken)).History;
+          action.NewPostId!, date, action.ActionType, action.OrderNumber, action.SupportingDocumentId, action.Reason, input.Remarks, approvedBy), cancellationToken);
+        if (action.ActionType != HrActionType.Transfer)
+          impact = await payroll.RunsAsync(employee.Id, date, null, action.ActionType == HrActionType.Promotion ? PayrollImpactFinder.Arrears : PayrollImpactFinder.Recovery, cancellationToken);
         break;
 
       default:
-        history = await StatusEventAsync(action, employee, current, input, recruitmentMethod, cancellationToken);
+        if (HrActionRequest.SeparationFor(action.ActionType) is { } separationType)
+        {
+          var separated = await writer.SeparateAsync(employee, new SeparationSpec(separationType, date, action.OrderNumber, action.Reason,
+            details.NoticePeriodDays, null, null, action.SupportingDocumentId, approvedBy, action.Id), cancellationToken);
+          history = separated.History;
+          checklist = separated.Checklist;
+          impact = separated.Checklist.PayrollImpact;
+        }
+        else
+        {
+          (history, impact) = await StatusEventAsync(action, details, employee, current, input, cancellationToken);
+        }
         break;
     }
 
-    action.MarkApplied(history.Id);
-    return history;
+    action.MarkApplied(history.Id, currentUser.UserId, clock.UtcNow);
+    return new HrActionApplied(history, checklist, impact);
   }
 
-  /// Actions that change no post: deputation out, regularization, LWOP, suspension, reinstatement, joining, other.
-  private async Task<EmployeeServiceHistory> StatusEventAsync(
+  /// Actions that change no post (or put back on one): deputation out, regularization, LWOP, suspension, reinstatement,
+  /// joining, a custom event.
+  private async Task<(EmployeeServiceHistory, IReadOnlyList<PayrollImpactDto>)> StatusEventAsync(
       HrActionRequest action,
+      HrActionDetails details,
       Employee employee,
       CurrentPost? current,
       HrActionApplyInput input,
-      RecruitmentMethodId? recruitmentMethod,
       CancellationToken cancellationToken)
   {
     var date = action.EffectiveDate;
     var eventType = action.ActionType == HrActionType.Other
-      ? await context.LoadEventTypeAsync(input.EventTypeId ?? throw new DomainException("Choose the service event type to record this action under."), cancellationToken)
+      ? await context.LoadEventTypeAsync(details.EventTypeId?.Value ?? throw new DomainException("Choose the service event to record."), cancellationToken)
       : await context.LoadEventTypeAsync(ServiceEventNames.For(action.ActionType)!, cancellationToken);
+    var change = ServiceRecordWriter.Unchanged(current);
+    IReadOnlyList<PayrollImpactDto> impact = [];
+    PostId? placeOn = null;
 
     switch (action.ActionType)
     {
       case HrActionType.DeputationOut:
-        employee.EnsureInService();
-        if (string.IsNullOrWhiteSpace(input.ExternalReferenceOrg))
-          throw new DomainException("Name the department the employee is deputed to.");
-        // the seat is released for the deputation; the employee keeps a lien and comes back through a joining / appointment
+        // the seat is released for the deputation; the post is the lien the employee comes back to (the history row
+        // keeps it as the old post)
         if (current is not null)
           current.Assignment.End(date.AddDays(-1) < current.Assignment.EffectiveFrom ? current.Assignment.EffectiveFrom : date.AddDays(-1));
         employee.ChangeEmploymentStatus(EmploymentStatus.DeputedOut);
+        change = current?.AsOld() ?? ServiceChange.None;
+        impact = await payroll.RunsAsync(employee.Id, date, null, PayrollImpactFinder.Recovery, cancellationToken);
         break;
 
       case HrActionType.Regularization:
-        employee.EnsureInService();
-        if (employee.EmploymentType == EmploymentType.Regular)
-          throw new DomainException($"{employee.DisplayName} is already a regular employee.");
-        employee.ChangeEmployment(EmploymentType.Regular, input.EmploymentMethod
-          ?? throw new DomainException("A regularized employee needs an employment method (scheduled seat or GDA personal)."), employee.ProjectId);
+        employee.Regularize(details.EmploymentMethod!.Value);
         break;
 
       case HrActionType.Lwop:
-        employee.EnsureInService();
-        employee.ChangeEmploymentStatus(EmploymentStatus.OnLeave);
+        var leaveId = await RecordUnpaidLeaveAsync(action, employee, details, cancellationToken);
+        action.LinkLeave(leaveId);
+        impact = await payroll.RunsAsync(employee.Id, date, details.EndDate, PayrollImpactFinder.Recovery, cancellationToken);
         break;
 
       case HrActionType.Suspension:
-        employee.EnsureInService();
-        if (employee.EmploymentStatus == EmploymentStatus.Suspended)
-          throw new DomainException($"{employee.DisplayName} is already suspended.");
         employee.ChangeEmploymentStatus(EmploymentStatus.Suspended);
         break;
 
       case HrActionType.Reinstatement:
-        if (employee.EmploymentStatus is not (EmploymentStatus.Suspended or EmploymentStatus.Terminated))
-          throw new DomainException($"Only a suspended or terminated employee is reinstated; {employee.DisplayName} is {EnumText.Words(employee.EmploymentStatus)}.");
-        if (employee.EmploymentStatus == EmploymentStatus.Terminated)
+        if (employee.EmploymentStatus != EmploymentStatus.Suspended)
         {
-          // a court-ordered reinstatement after dismissal: the separation no longer stands (its history row stays)
+          // an order setting aside a termination, dismissal or removal: the separation no longer stands (its history
+          // row stays) and the person returns to a post, on the pay they left on
           var separation = await context.Separations.FirstOrDefaultAsync(s => s.EmployeeId == employee.Id, cancellationToken);
-          if (separation?.SettlementPayrollTransactionId is not null)
-            throw new DomainException("The final settlement has been paid; record a fresh appointment instead of a reinstatement.");
           if (separation is not null)
             context.Separations.Remove(separation);
+          placeOn = action.NewPostId;
+          impact = await payroll.RunsAsync(employee.Id, date, null, PayrollImpactFinder.Arrears, cancellationToken);
         }
         employee.ChangeEmploymentStatus(EmploymentStatus.Active);
         break;
 
       case HrActionType.Joining:
-        employee.EnsureProfileActive();
-        if (employee.HasLeftService)
-          throw new DomainException($"{employee.DisplayName} has left service; record an appointment or reinstatement instead.");
         employee.ChangeEmploymentStatus(EmploymentStatus.Active);
+        if (current is null)
+          placeOn = action.NewPostId;
         break;
     }
 
-    var change = action.ActionType == HrActionType.DeputationOut
-      ? current?.AsOld() ?? ServiceChange.None
-      : ServiceRecordWriter.Unchanged(current);
-    return writer.RecordEvent(employee, eventType, date, change, recruitmentMethod, input.ExternalReferenceOrg, action.OrderNumber,
+    if (placeOn is not null)
+    {
+      var post = await context.LoadPostAsync(placeOn.Value, cancellationToken);
+      var version = post.VersionOn(date)!;
+      change = new ServiceChange(null, post.Id, null, version.GradeId, null, version.OrgUnitId);
+    }
+
+    var history = writer.RecordEvent(employee, eventType, date, change, details.RecruitmentMethodId, details.ExternalReferenceOrg, action.OrderNumber,
       action.SupportingDocumentId, action.Reason, input.Remarks, action.ApprovedBy);
+
+    if (placeOn is not null)
+      await writer.PlaceAsync(employee, placeOn, date, history.Id, action.OrderNumber, action.SupportingDocumentId,
+        action.ActionType == HrActionType.Reinstatement ? PayChangeReasons.Reinstatement : PayChangeReasons.Joining, cancellationToken);
+
+    return (history, impact);
+  }
+
+  /// Leave without pay is a dated leave of the unpaid type (payroll leaves its days unpaid): a pending application of
+  /// exactly that leave is taken over, otherwise one is recorded, approved by the action's approver.
+  private async Task<LeaveApplicationId> RecordUnpaidLeaveAsync(HrActionRequest action, Employee employee, HrActionDetails details, CancellationToken cancellationToken)
+  {
+    var type = await checks.UnpaidLeaveTypeAsync(cancellationToken)
+      ?? throw new DomainException("There is no leave type that is deducted from pay. Add one under Configuration › Leave first.");
+    var from = action.EffectiveDate;
+    var to = details.EndDate ?? throw new DomainException("Give the last day of the leave without pay.");
+
+    var pending = await context.LeaveApplications.FirstOrDefaultAsync(a => a.EmployeeId == employee.Id && a.Status == LeaveStatus.Pending
+      && a.LeaveTypeId == type.Id && a.StartDate == from && a.EndDate == to, cancellationToken);
+    if (pending is not null)
+    {
+      pending.ApproveForHrAction(action.Id, action.ApprovedBy ?? currentUser.UserId, clock.UtcNow);
+      return pending.Id;
+    }
+
+    var counted = (await leave.CountAsync(employee.Id, from, to, cancellationToken)).Sum(d => d.Days);
+    // a leave without pay over off days only still stops the pay for those days; it is charged as one day at least
+    var days = Math.Max(counted, 1);
+    var others = await context.LeaveApplications.AsNoTracking()
+      .Where(a => a.EmployeeId == employee.Id && (a.Status == LeaveStatus.Pending || a.Status == LeaveStatus.Approved)).ToListAsync(cancellationToken);
+    var application = LeaveApplication.RecordForHrAction(LeaveApplicationId.New(), employee, type, from, to, Math.Min(days, to.DayNumber - from.DayNumber + 1),
+      action.Reason ?? $"Leave without pay (HR action {action.OrderNumber})".Trim(), action.Id, action.ApprovedBy ?? currentUser.UserId, clock.UtcNow, others);
+    context.LeaveApplications.Add(application);
+    return application.Id;
   }
 }

@@ -1,6 +1,7 @@
 using FluentValidation;
 
-public sealed record UpdatePropertyCommandResult(bool IsSuccess);
+/// Warnings: what the change means elsewhere (a new town changes the tax file's number and circle in Taxation).
+public sealed record UpdatePropertyCommandResult(bool IsSuccess, IReadOnlyList<string> Warnings);
 
 public sealed record UpdatePropertyCommand(Guid Id, PropertyInput Property) : ICommand<Result<UpdatePropertyCommandResult>>;
 

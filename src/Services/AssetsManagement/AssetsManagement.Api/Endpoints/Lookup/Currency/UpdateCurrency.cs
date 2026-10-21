@@ -14,6 +14,8 @@ public class UpdateCurrency : ICarterModule
 
       return Results.Ok(result.Value.Adapt<UpdateCurrencyResponse>());
     })
+      .RequirePermission(PermissionCatalog.AssetTaxonomy.Edit)
+
       .WithName("UpdateCurrency")
       .Produces<UpdateCurrencyResponse>(StatusCodes.Status200OK)
       .ProducesProblem(StatusCodes.Status400BadRequest)

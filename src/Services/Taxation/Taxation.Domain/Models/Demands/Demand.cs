@@ -31,6 +31,9 @@ public class Demand : Aggregate<DemandId>
   public decimal? CarriedAmount { get; private set; }
   public DemandId? CarriedToDemandId { get; private set; }
 
+  /// Concurrency token (Postgres xmin): two payments or surcharges saving the same demand at once - the second is refused.
+  public uint Version { get; private set; }
+
   public IReadOnlyList<DemandLine> Lines => _lines.AsReadOnly();
   public IReadOnlyList<Arrears> ArrearsRows => _arrearsRows.AsReadOnly();
   public IReadOnlyList<Penalty> Penalties => _penalties.AsReadOnly();
@@ -43,6 +46,12 @@ public class Demand : Aggregate<DemandId>
   public bool IsIssued => Status is not (DemandStatus.Draft or DemandStatus.Cancelled);
 
   public decimal PenaltySum(PenaltyKind? kind = null) => _penalties.Where(p => kind is null || p.Kind == kind).Sum(p => p.Amount);
+
+  /// Everything charged on the demand: this year's lines, the arrears billed on it and its surcharges.
+  public decimal Charges => CurrentAmount + ArrearsBf + PenaltyAmount;
+
+  /// What the earlier years' rows billed on it still owe (a defaulter carries arrears; paid-up arrears do not count).
+  public decimal ArrearsOwed => _arrearsRows.Sum(a => a.Outstanding);
 
   /// A computed demand awaiting approval. The arrears it will carry are only shown (arrearsPreview); they are moved onto
   /// it when it is issued.
@@ -99,17 +108,15 @@ public class Demand : Aggregate<DemandId>
   {
     if (Status != DemandStatus.Draft)
       throw new DomainException($"{DemandNo} is already issued.");
+    if (dueDate < issuedOn)
+      throw new DomainException($"{DemandNo} cannot be due ({dueDate:dd MMM yyyy}) before it is issued ({issuedOn:dd MMM yyyy}).");
     foreach (var row in billedArrears)
       AttachArrears(row);
     Status = DemandStatus.Issued;
     IssuedOn = issuedOn;
     DueDate = dueDate;
     Recalculate();
-    if (Balance <= 0)
-    {
-      Status = DemandStatus.Paid;
-      PaidOn = issuedOn;
-    }
+    StatusFromBalance(issuedOn);
   }
 
   public void Cancel()
@@ -119,11 +126,18 @@ public class Demand : Aggregate<DemandId>
     Status = DemandStatus.Cancelled;
   }
 
+  /// Bills a row on this demand. A row of the old register paid in part before the first demand (a payment settles
+  /// unbilled opening arrears directly) brings what was paid on it, so the demand's paid amount and balance agree with
+  /// the row's items.
   internal void AttachArrears(Arrears row)
   {
+    var firstBilled = row.AddedToDemandId is null;
     row.BillOn(Id);
-    if (!_arrearsRows.Contains(row))
-      _arrearsRows.Add(row);
+    if (_arrearsRows.Contains(row))
+      return;
+    _arrearsRows.Add(row);
+    if (firstBilled)
+      PaidAmount += row.Settled;
   }
 
   // ---- what is owed, item by item ----
@@ -167,24 +181,20 @@ public class Demand : Aggregate<DemandId>
 
     PaidAmount += settled.Sum(s => s.Amount);
     Recalculate();
-    if (Balance <= 0)
-    {
-      Status = DemandStatus.Paid;
-      PaidOn = paidOn;
-    }
-    else if (Status != DemandStatus.Defaulted)
-    {
-      Status = DemandStatus.PartPaid;
-    }
+    StatusFromBalance(paidOn);
     return settled;
   }
 
   /// Moves whatever is unpaid onto the next year's demand as arrears rows by year and head (this year's heads at this
   /// year, earlier rows at their own year, surcharges under SURCHARGE), and marks this demand CARRIED.
-  public IReadOnlyList<Arrears> CarryInto(Demand next, IReadOnlyDictionary<Guid, decimal> paidByItem, TaxHeadId surchargeHeadId, Guid? actor, DateTime now)
+  public IReadOnlyList<Arrears> CarryInto(Demand next, IReadOnlyDictionary<Guid, decimal> paidByItem, TaxHeadId surchargeHeadId, Guid? actor, DateTime now, DateOnly today)
   {
     if (next.TaxFileId != TaxFileId || next.FiscalYear <= FiscalYear)
       throw new DomainException("A balance is carried only into a later year's demand of the same file.");
+    var yearEnd = global::FiscalYear.End(FiscalYear);
+    var yearLabel = global::FiscalYear.Label(FiscalYear);
+    if (today <= yearEnd && Status is not (DemandStatus.Draft or DemandStatus.Cancelled or DemandStatus.Carried or DemandStatus.Paid))
+      throw new DomainException($"FY {yearLabel} is not over until {yearEnd:dd MMM yyyy}; its balance is carried only after that.");
     if (Status is DemandStatus.Draft or DemandStatus.Cancelled or DemandStatus.Carried or DemandStatus.Paid || Balance <= 0)
       return [];
 
@@ -252,32 +262,78 @@ public class Demand : Aggregate<DemandId>
       throw new DomainException($"{DemandNo} is {EnumText.Words(Status)}; charges are added to the demand that holds the balance.");
     if (fiscalYear > FiscalYear)
       throw new DomainException($"A row for FY {(global::FiscalYear.Label(fiscalYear.Value))} is after the demand's year.");
-    if (head.Code == HeadCodes.Misc && string.IsNullOrWhiteSpace(description))
-      throw new DomainException("Describe each miscellaneous charge (what it is for).");
+    if (!head.OnNotice)
+      throw new DomainException($"{head.Name} is a fee; it is charged on its own, not added to a notice.");
     var row = Arrears.Manual(ArrearsId.New(), TaxFileId, head.Id, fiscalYear, amount, description, reason, actor, now);
     AttachArrears(row);
     AfterChange(DateOnly.FromDateTime(now));
     return row;
   }
 
-  /// After amounts changed on an issued demand: a paid demand that now owes again is reopened, one now fully covered is paid.
+  /// After amounts changed on an issued demand: the status follows the balance - a demand now fully covered is paid
+  /// (a defaulted one too), one that owes again is reopened as defaulted (when its year-end surcharge was added), part paid
+  /// or issued.
   public void AfterChange(DateOnly today)
   {
     Recalculate();
-    if (Status == DemandStatus.Paid && Balance > 0)
-    {
-      Status = PaidAmount > 0 ? DemandStatus.PartPaid : DemandStatus.Issued;
-      PaidOn = null;
-    }
-    else if (Balance <= 0 && (Status is DemandStatus.Issued or DemandStatus.PartPaid))
-    {
-      Status = DemandStatus.Paid;
-      PaidOn = today;
-    }
+    StatusFromBalance(today);
   }
 
-  /// What was paid beyond the charges after a correction (to be refunded or credited).
-  public decimal Excess => Math.Max(0, PaidAmount - (CurrentAmount + ArrearsBf + PenaltyAmount));
+  /// What was paid beyond the charges after a correction. It moves onto the next year's demand when that is issued.
+  public decimal Excess => Status is DemandStatus.Carried or DemandStatus.Draft or DemandStatus.Cancelled ? 0 : Math.Max(0, PaidAmount - Charges);
+
+  /// Payments taken off the demand: a reversal, or an excess moving on to the next year. It owes again what they paid.
+  public void ReleasePaid(decimal amount, DateOnly today)
+  {
+    if (amount <= 0)
+      return;
+    if (Status == DemandStatus.Carried)
+      throw new DomainException($"{DemandNo} was carried into a later year; what it owes is on that year's demand.");
+    PaidAmount = Math.Max(0, PaidAmount - amount);
+    Recalculate();
+    StatusFromBalance(today);
+  }
+
+  /// A payment on a year whose balance was carried is reversed: the year paid less, so more of it was carried - the
+  /// amount is billed again on the demand that holds the balance now (as an arrears row of this year).
+  public void ReleasePaidIntoCarried(decimal amount)
+  {
+    if (Status != DemandStatus.Carried)
+      throw new DomainException($"{DemandNo} was not carried.");
+    PaidAmount = Math.Max(0, PaidAmount - amount);
+    CarriedAmount = (CarriedAmount ?? 0) + amount;
+  }
+
+  /// Bills an amount owed again (a reversed payment of an earlier year) on this demand, as an arrears row.
+  public Arrears BillAgain(TaxHeadId headId, int? fiscalYear, decimal amount, DemandId sourceDemandId, Guid? actor, DateTime now)
+  {
+    if (!IsIssued || Status == DemandStatus.Carried)
+      throw new DomainException($"{DemandNo} does not hold the file's balance.");
+    var row = Arrears.Carried(ArrearsId.New(), TaxFileId, headId, fiscalYear, amount, sourceDemandId, actor, now);
+    AttachArrears(row);
+    AfterChange(DateOnly.FromDateTime(now));
+    return row;
+  }
+
+  /// The status that follows from the balance (issued demands only).
+  private void StatusFromBalance(DateOnly day)
+  {
+    if (Status is DemandStatus.Draft or DemandStatus.Cancelled or DemandStatus.Carried)
+      return;
+    if (Balance <= 0)
+    {
+      if (Status != DemandStatus.Paid)
+      {
+        Status = DemandStatus.Paid;
+        PaidOn = day;
+      }
+      return;
+    }
+    PaidOn = null;
+    if (Status == DemandStatus.Defaulted)
+      return;
+    Status = PenaltySum(PenaltyKind.YearEnd) > 0 ? DemandStatus.Defaulted : PaidAmount > 0 ? DemandStatus.PartPaid : DemandStatus.Issued;
+  }
 
   public void MarkStage(NoticeStage stage)
   {
@@ -436,10 +492,14 @@ public class Arrears : Entity<ArrearsId>
     EnteredAt = now
   };
 
-  /// Opening arrears from the old register, by head (and year when known). Billed on the file's first demand.
+  /// What payments settled on the row (the whole of it once its balance moved on to a later demand).
+  public decimal Settled => OriginalAmount + PenaltyAmount - Outstanding;
+
+  /// Opening arrears from the old register, by head (and year when known). Paid against the reference before the first
+  /// demand, or billed on it.
   public static Arrears Imported(ArrearsId id, TaxFileId fileId, TaxHead head, int? fiscalYear, decimal amount, string? description, Guid? importRowId, Guid actor, DateTime now) =>
-      head.Code == HeadCodes.Misc && string.IsNullOrWhiteSpace(description)
-        ? throw new DomainException("Describe each miscellaneous charge (what it is for).")
+      !head.OnNotice
+        ? throw new DomainException($"{head.Name} is a fee, not a due of the old register.")
         : new()
   {
     Id = id,
@@ -478,7 +538,35 @@ public class Arrears : Entity<ArrearsId>
     AddedToDemandId = demandId;
   }
 
-  internal void Settle(decimal amount) => Outstanding = Math.Max(0, Outstanding - amount);
+  /// Paid against the reference (directly when unbilled, or through its demand).
+  public void Settle(decimal amount) => Outstanding = Math.Max(0, Outstanding - amount);
+
+  /// A payment on it was reversed: it owes that again.
+  public void Unsettle(decimal amount) => Outstanding = Math.Min(OriginalAmount + PenaltyAmount, Outstanding + amount);
+
+  public bool IsUnbilledOpening => Source == ArrearsSource.Import && AddedToDemandId is null;
+
+  /// Corrects a due of the old register while it is not billed yet: never below what was already paid on it.
+  public void CorrectOpening(TaxHead head, int? fiscalYear, decimal amount, string? description, string reason, Guid actor, DateTime now)
+  {
+    if (!IsUnbilledOpening)
+      throw new DomainException("Only an earlier due of the old register that is not billed yet can be corrected; a billed one is corrected with a notice.");
+    if (!head.OnNotice)
+      throw new DomainException($"{head.Name} is a fee, not a due of the old register.");
+    var value = Rupees.Round(Guard.Positive(amount, "Amount"));
+    var settled = Settled;
+    if (value < settled)
+      throw new DomainException($"{Rupees.Text(settled)} was already paid on it; the amount cannot be less.");
+    HeadId = head.Id;
+    FiscalYear = fiscalYear is { } fy ? global::FiscalYear.Valid(fy) : null;
+    OriginalAmount = value;
+    PenaltyAmount = 0;
+    Outstanding = value - settled;
+    Description = Guard.Text(description, 300, "Description");
+    Reason = Guard.RequiredText(reason, 300, "Reason");
+    EnteredBy = actor;
+    EnteredAt = now;
+  }
 }
 
 /// taxation.penalty: a surcharge on a demand (in-year run or the automatic year-end percentage).

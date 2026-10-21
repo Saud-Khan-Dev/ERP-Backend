@@ -2,13 +2,16 @@ using FluentValidation;
 
 /// The filing officer of a criminal complaint is not part of the input: it is the signed-in authorized
 /// officer (Act s.30), recorded when the complaint is filed and never changed by edits.
+/// GdaCounsel / GdaCounselEmployeeId: GDA's counsel - picked from the staff list (the HR record and the name as it stood
+/// then), or a name only for an advocate who is not GDA staff.
 public sealed record LitigationDetailsInput(
   string CaseTitle,
   Guid LitigationTypeId,
   DateOnly? FilingDate = null,
   GdaRole? GdaRole = null,
   string? GdaCounsel = null,
-  string? Remarks = null);
+  string? Remarks = null,
+  Guid? GdaCounselEmployeeId = null);
 
 public sealed record LitigationPartyInput(string? PartyName, LitigationPartyRole PartyRole, Guid? PartyOwnerId = null, string? CounselName = null, string? Remarks = null);
 
@@ -73,7 +76,7 @@ public static class LitigationInputs
 {
   public static async Task<PropertyLitigation.Details> ToDetailsAsync(this LitigationDetailsInput input, MasterLookup masters, CancellationToken cancellationToken) => new(
     input.CaseTitle, await masters.GetAsync<LitigationType>(input.LitigationTypeId, cancellationToken), input.FilingDate, input.GdaRole,
-    input.GdaCounsel, input.Remarks);
+    input.GdaCounsel, input.Remarks, input.GdaCounselEmployeeId);
 
   /// Act s.30: only an officer authorized by the DG files a complaint in court. The designation travels in the
   /// officer's own token, so the complaint is recorded against the signed-in authorized officer.

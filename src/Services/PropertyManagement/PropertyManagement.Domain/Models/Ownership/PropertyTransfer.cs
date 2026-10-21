@@ -22,10 +22,16 @@ public class PropertyTransfer : Aggregate<TransferId>
   public decimal? ConsiderationAmount { get; private set; }
   /// Father → Son ... required when the transfer type asks for it (Gift, Inheritance).
   public string? Relationship { get; private set; }
+  /// The approving officer's name as it stood when they approved (read from the sign-in, never typed).
   public string? ApprovedBy { get; private set; }
+  /// The approver's Identity user id and HRM employee id (when their account is linked to one).
+  public Guid? ApprovedByUserId { get; private set; }
+  public Guid? ApprovedByEmployeeId { get; private set; }
   public DateOnly? ApprovalDate { get; private set; }
   /// The approving order / sanction no.
   public string? ApprovalOrderRef { get; private set; }
+  /// The Taxation no-dues certificate (clearance) the approval relied on, when one was given.
+  public string? NoDuesCertificateNo { get; private set; }
   /// The day the ownership register was changed (server date) and the signed-in user who did it.
   public DateOnly? CompletedOn { get; private set; }
   public string? CompletedBy { get; private set; }
@@ -38,14 +44,19 @@ public class PropertyTransfer : Aggregate<TransferId>
 
   public IReadOnlyList<PropertyTransferParty> Parties => _parties.AsReadOnly();
 
+  /// A transfer dated further ahead than this is probably a typing slip (2033 for 2023): it needs a confirmation.
+  public const int FarFutureDays = 90;
+  public const int NoDuesCertificateMaxLength = 50;
+
   /// Waiting for a decision: still holds the givers' shares.
   public bool IsPending => TransferStatus is TransferStatus.Initiated or TransferStatus.Approved;
 
   public sealed record PartyInput(OwnerId OwnerId, TransferPartyRole Role, decimal SharePct);
 
   /// Starts a transfer. Nothing changes hands until it is approved. The transfer may be dated in the future
-  /// (it can then be approved from that date); every other rule is checked now so a waiting transfer is one
-  /// that can be approved as it stands.
+  /// (it can then be approved from that date) - more than FarFutureDays ahead only when confirmed, since such a date
+  /// blocks the givers' shares until then; every other rule is checked now so a waiting transfer is one that can be
+  /// approved as it stands.
   public static PropertyTransfer Initiate(
       TransferId id,
       BusinessCode transferNo,
@@ -56,7 +67,8 @@ public class PropertyTransfer : Aggregate<TransferId>
       string? relationship,
       string? remarks,
       IReadOnlyCollection<PartyInput> parties,
-      OwnershipRecord record)
+      OwnershipRecord record,
+      bool confirmFarFuture = false)
   {
     ArgumentNullException.ThrowIfNull(transferNo);
     ArgumentNullException.ThrowIfNull(transferType);
@@ -64,6 +76,10 @@ public class PropertyTransfer : Aggregate<TransferId>
     ArgumentNullException.ThrowIfNull(record);
     record.Property.EnsureActive();
     transferType.EnsureActive();
+
+    if (transferDate > record.Today.AddDays(FarFutureDays) && !confirmFarFuture)
+      throw new DomainException(
+        $"The transfer is dated {transferDate:yyyy-MM-dd}, more than {FarFutureDays} days ahead; until then the givers' shares stay promised. Check the date, or confirm that it is right.");
 
     relationship = Guard.Text(relationship, 100, "Relationship");
     if (transferType.RequiresRelationship && relationship is null)
@@ -104,9 +120,10 @@ public class PropertyTransfer : Aggregate<TransferId>
       string? relationship,
       string? remarks,
       IReadOnlyCollection<PartyInput> parties,
-      string approvedBy,
+      Approver approver,
       DateOnly? approvalDate,
       string? approvalOrderRef,
+      string? noDuesCertificateNo,
       string completedBy,
       OwnershipRecord record,
       TenureType newTenureType)
@@ -118,20 +135,26 @@ public class PropertyTransfer : Aggregate<TransferId>
         $"A transfer that already happened cannot be dated in the future ({transferDate:yyyy-MM-dd}); today is {record.Today:yyyy-MM-dd}. Initiate it instead.");
 
     var transfer = Initiate(id, transferNo, transferType, transferDate, transferReferenceNo, considerationAmount, relationship, remarks, parties, record);
-    var change = transfer.Approve(approvedBy, approvalDate ?? transferDate, approvalOrderRef, completedBy, record, newTenureType);
+    // one approver enters it in one step, so there is no second person to check it
+    var change = transfer.Approve(approver, approvalDate ?? transferDate, approvalOrderRef, noDuesCertificateNo, completedBy, record, newTenureType,
+      requireSeparateApprover: false);
     return (transfer, change);
   }
 
   /// Approves AND completes the transfer in one step: the rules are checked again against the record as it
-  /// stands now, then the givers' rows are closed and the resulting rows opened.
+  /// stands now, then the givers' rows are closed and the resulting rows opened. The approver is the signed-in
+  /// officer; with requireSeparateApprover (maker-checker) the person who started the transfer cannot approve it.
   public OwnershipChange Approve(
-      string approvedBy,
+      Approver approver,
       DateOnly approvalDate,
       string? approvalOrderRef,
+      string? noDuesCertificateNo,
       string completedBy,
       OwnershipRecord record,
-      TenureType newTenureType)
+      TenureType newTenureType,
+      bool requireSeparateApprover = true)
   {
+    ArgumentNullException.ThrowIfNull(approver);
     ArgumentNullException.ThrowIfNull(record);
 
     switch (TransferStatus)
@@ -144,6 +167,10 @@ public class PropertyTransfer : Aggregate<TransferId>
         throw new DomainException($"{TransferNo.Value} is {Describe(TransferStatus)} and can no longer be approved.");
     }
 
+    if (requireSeparateApprover && approver.UserId is { } approverId && CreatedBy == approverId)
+      throw new DomainException(
+        $"You started {TransferNo.Value}, so another officer with the approval right must approve it: one person cannot both start and approve a transfer.");
+
     EnsureDue(record.Today);
 
     if (approvalDate > record.Today)
@@ -152,14 +179,18 @@ public class PropertyTransfer : Aggregate<TransferId>
     if (approvalDate < TransferDate)
       throw new DomainException($"A transfer cannot be approved before its transfer date ({TransferDate:yyyy-MM-dd}).");
 
-    var approver = Guard.RequiredText(approvedBy, 150, "Approved by");
+    var approverName = Guard.RequiredText(approver.Name, Approver.NameMaxLength, "Approved by");
     var orderRef = Guard.Text(approvalOrderRef, 100, "Approval order ref");
+    var certificate = Guard.Text(noDuesCertificateNo, NoDuesCertificateMaxLength, "No-dues certificate no.");
 
     var change = Apply(record, newTenureType, completedBy);
 
-    ApprovedBy = approver;
+    ApprovedBy = approverName;
+    ApprovedByUserId = approver.UserId;
+    ApprovedByEmployeeId = approver.EmployeeId;
     ApprovalDate = approvalDate;
     ApprovalOrderRef = orderRef;
+    NoDuesCertificateNo = certificate;
     return change;
   }
 
@@ -283,10 +314,31 @@ public class PropertyTransfer : Aggregate<TransferId>
           : $"Created by transfer {TransferNo.Value}."));
     }
 
+    SettleEnforcedCharges(record, closed, opened, received.Keys.ToList());
+
     TransferStatus = TransferStatus.Completed;
     CompletedOn = record.Today;
     CompletedBy = completer;
     return new OwnershipChange(closed, opened);
+  }
+
+  /// An enforced charge is settled once its share has gone to the charge holder: a charge on one share when that
+  /// row was closed by this transfer to the holder, a charge on the whole property when the holder now holds
+  /// every share that is still held.
+  private void SettleEnforcedCharges(OwnershipRecord record, List<PropertyOwnership> closed, List<PropertyOwnership> opened, IReadOnlyCollection<OwnerId> receivers)
+  {
+    var closedIds = closed.Select(r => r.Id).ToHashSet();
+    var heldAfter = record.Current.Where(r => !closedIds.Contains(r.Id)).Concat(opened).ToList();
+
+    foreach (var charge in record.Charges.Where(c => c.Status == EncumbranceStatus.Enforced && c.AllowsTransferTo(receivers)))
+    {
+      var settled = charge.OwnershipId is { } chargedRow
+        ? closedIds.Contains(chargedRow)
+        : heldAfter.All(r => r.OwnerId == charge.HolderOwnerId);
+
+      if (settled)
+        charge.Satisfy(TransferNo.Value, TransferDate);
+    }
   }
 
   private Dictionary<OwnerId, decimal> Given() => Side(TransferPartyRole.Transferor);
@@ -339,9 +391,12 @@ public class PropertyTransfer : Aggregate<TransferId>
         throw new DomainException($"{owner.OwnerName.Value} ({owner.OwnerCode.Value}) is inactive; reactivate the owner record before using it in a transfer.");
     }
 
-    // a charge on the whole property stops every transfer
-    if (record.PropertyCharge is { } propertyCharge)
-      throw new DomainException($"{code} is under {propertyCharge.Describe()} on the whole property; release it before any transfer.");
+    // a charge on the whole property stops every transfer (an enforced one: every transfer except to its holder)
+    var receivers = received.Keys.ToList();
+    if (record.PropertyCharge is { } propertyCharge && !propertyCharge.AllowsTransferTo(receivers))
+      throw new DomainException(propertyCharge.Status == EncumbranceStatus.Enforced
+        ? $"{code} is under {propertyCharge.Describe()} on the whole property, which was enforced; shares can only be transferred to {propertyCharge.HolderName}."
+        : $"{code} is under {propertyCharge.Describe()} on the whole property; release it before any transfer.");
 
     foreach (var (ownerId, share) in given)
     {
@@ -367,8 +422,10 @@ public class PropertyTransfer : Aggregate<TransferId>
         throw new DomainException(
           $"{name} holds {held:0.####}%, of which {committed:0.####}% is already being transferred in {string.Join(", ", others.Select(t => t.TransferNo.Value))}; cancel or approve that first.");
 
-      if (current.Select(record.ChargeOn).FirstOrDefault(c => c is not null) is { } charge)
-        throw new DomainException($"{name}'s share is under {charge.Describe()}; release it before the share is transferred.");
+      if (current.Select(record.ChargeOn).FirstOrDefault(c => c is not null && !c.AllowsTransferTo(receivers)) is { } charge)
+        throw new DomainException(charge.Status == EncumbranceStatus.Enforced
+          ? $"{name}'s share is under {charge.Describe()}, which was enforced; it can only be transferred to {charge.HolderName}."
+          : $"{name}'s share is under {charge.Describe()}; release it before the share is transferred.");
     }
 
     // the new rows start on the transfer date: it must come after every party's earlier entries

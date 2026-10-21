@@ -1,4 +1,6 @@
-public sealed record WorkShiftDto(Guid Id, string Name, TimeOnly StartTime, TimeOnly EndTime, int GraceMinutes, IReadOnlyList<int> WorkingWeekdays, decimal ScheduledHours, bool IsActive);
+/// PeopleCount: employees on the shift today.
+public sealed record WorkShiftDto(Guid Id, string Name, TimeOnly StartTime, TimeOnly EndTime, int GraceMinutes, IReadOnlyList<int> WorkingWeekdays, decimal ScheduledHours, bool IsActive,
+  int PeopleCount = 0);
 
 public sealed record EmployeeShiftDto(Guid Id, Guid EmployeeId, Guid WorkShiftId, string? WorkShift, DateOnly EffectiveFrom, DateOnly? EffectiveTo);
 
@@ -45,7 +47,8 @@ public sealed record LeaveTypeDto(
   string? AccrualRule,
   bool CarryForwardAllowed,
   bool AffectsPayroll,
-  bool IsBalanceTracked);
+  bool IsBalanceTracked,
+  bool IsActive = true);
 
 public sealed record LeaveEntitlementDto(Guid Id, Guid EmployeeId, Guid LeaveTypeId, string? LeaveType, int Year, decimal EntitledDays);
 
@@ -76,7 +79,12 @@ public sealed record LeaveApplicationDto(
   DateOnly? ApprovalDate,
   string? Reason,
   DateTime? CreatedAt,
-  Guid? UpdatedBy);
+  Guid? UpdatedBy,
+  Guid? DecidedBy = null,
+  DateTime? DecidedAt = null,
+  string? DecisionReason = null,
+  Guid? HrActionId = null,
+  decimal? CountedDays = null);
 
 public sealed record LeaveLedgerEntryDto(
   Guid Id,
@@ -97,7 +105,7 @@ public static class AttendanceMappings
     x.Id.Value, x.Name, x.StartTime, x.EndTime, x.GraceMinutes, x.WorkingWeekdays.Select(d => (int)d).ToList(), decimal.Round(x.ScheduledHours, 2), x.IsActive);
 
   public static LeaveTypeDto ToDto(this LeaveType x) => new(
-    x.Id.Value, x.Name, x.IsPaid, x.MaxDaysPerYear, x.AccrualRule, x.CarryForwardAllowed, x.AffectsPayroll, x.IsBalanceTracked);
+    x.Id.Value, x.Name, x.IsPaid, x.MaxDaysPerYear, x.AccrualRule, x.CarryForwardAllowed, x.AffectsPayroll, x.IsBalanceTracked, x.IsActive);
 
   public static LeaveLedgerEntryDto ToDto(this LeaveLedgerEntry x, string? typeName) => new(
     x.Id.Value, x.LeaveTypeId.Value, typeName, x.Year, x.TransactionType, x.Days, x.TransactionDate, x.LeaveApplicationId?.Value, x.Remarks, x.CreatedBy, x.CreatedAt);

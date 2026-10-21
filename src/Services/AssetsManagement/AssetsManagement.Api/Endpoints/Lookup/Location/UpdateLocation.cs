@@ -14,6 +14,8 @@ public class UpdateLocation : ICarterModule
 
       return Results.Ok(result.Value.Adapt<UpdateLocationResponse>());
     })
+      .RequirePermission(PermissionCatalog.AssetTaxonomy.Edit)
+
       .WithName("UpdateLocation")
       .Produces<UpdateLocationResponse>(StatusCodes.Status200OK)
       .ProducesProblem(StatusCodes.Status400BadRequest)

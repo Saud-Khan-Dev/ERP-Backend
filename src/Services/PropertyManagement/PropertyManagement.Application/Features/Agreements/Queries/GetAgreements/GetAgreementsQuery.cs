@@ -8,7 +8,7 @@ public sealed record GetAgreementsQueryResult(PaginatedResult<AgreementListItemD
 /// TypeId: one allotment / lease / rental / outsourcing / auction type. AmountMin / AmountMax: on the annual
 /// equivalent (AnnualAmount; rows without an amount are left out once either is given).
 /// EndsWithinDays: in force and ending between today and today + N days. Overdue: true = in force although the end
-/// date has passed, false = not such a row.
+/// date has passed, false = not such a row. Direction: Receivable / Payable (see AgreementListItemDto).
 /// Start / end dates are the row's StartDate / EndDate (see GetAgreementsHandler). Search matches part of the
 /// record's code, the party's code or name, the party's CNIC or NTN, or the property's code or name.
 /// Default order: the soonest end first, rows without an end date last.
@@ -31,7 +31,9 @@ public sealed record GetAgreementsQuery(
   decimal? AmountMin = null,
   decimal? AmountMax = null,
   int? EndsWithinDays = null,
-  bool? Overdue = null) : IQuery<Result<GetAgreementsQueryResult>>;
+  bool? Overdue = null,
+  MoneyDirection? Direction = null,
+  bool? Unconfirmed = null) : IQuery<Result<GetAgreementsQueryResult>>;
 
 public class GetAgreementsQueryValidator : AbstractValidator<GetAgreementsQuery>
 {

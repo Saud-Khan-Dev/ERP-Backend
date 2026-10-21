@@ -9,6 +9,8 @@ public class GetAttributeDefinition : ICarterModule
       var result = await sender.Send(new GetAttributeDefinitionQuery(id));
       return Results.Ok(new GetAttributeDefinitionResponse(result.Value!.Definition, result.Value.Assignments));
     })
+      .RequireAnyPermission(AssetsAuthorization.AnyAssetsReader)
+
       .WithName("GetAttributeDefinition")
       .Produces<GetAttributeDefinitionResponse>(StatusCodes.Status200OK)
       .ProducesProblem(StatusCodes.Status404NotFound)

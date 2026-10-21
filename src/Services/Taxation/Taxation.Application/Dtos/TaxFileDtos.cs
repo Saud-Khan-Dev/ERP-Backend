@@ -20,7 +20,13 @@ public sealed record OverrideDto(
   Guid Id, Guid HeadId, string HeadCode, string HeadName, OverrideMode Mode, Guid? PolicyId, string? PolicyName, decimal? Amount, bool FollowsIncrease, string Reason,
   string? Reference, DateOnly EffectiveFrom, DateOnly? EffectiveTo, Guid? ApprovedBy, DateTime? ApprovedAt, bool IsCurrent);
 
-public sealed record HoldDto(Guid Id, string Reason, string? Reference, Guid? SourceLitigationId, DateOnly StartedOn, DateOnly? EndedOn, bool SuspendsDemand, bool ExcludesCompletionClock);
+/// A row of the Overrides register: every override on every file.
+public sealed record OverrideListItemDto(
+  Guid Id, Guid TaxFileId, string FileNo, Guid HeadId, string HeadCode, string HeadName, OverrideMode Mode, Guid? PolicyId, string? PolicyName, decimal? Amount,
+  bool FollowsIncrease, string Reason, string? Reference, DateOnly EffectiveFrom, DateOnly? EffectiveTo, Guid? ApprovedBy, DateTime? ApprovedAt, bool InForce);
+
+public sealed record HoldDto(Guid Id, string Reason, string? Reference, Guid? SourceLitigationId, DateOnly StartedOn, DateOnly? EndedOn, bool SuspendsDemand, bool ExcludesCompletionClock,
+  Guid? CreatedBy, DateTime? CreatedAt);
 
 public sealed record StepRevisionDto(Guid Id, DateOnly EffectiveFrom, decimal StepPct, int StepIntervalYears, string? BoardReference);
 
@@ -30,7 +36,7 @@ public sealed record AgreementDto(
   IReadOnlyList<StepRevisionDto> Revisions);
 
 public sealed record ReferenceSyncDto(
-  Guid Id, Guid TaxFileId, string Psid, int SyncNo, PsidSyncReason Reason, Guid? DemandId, Guid? PenaltyId, decimal AmountBefore, decimal AmountAfter,
+  Guid Id, Guid TaxFileId, string? FileNo, string Psid, int SyncNo, PsidSyncReason Reason, Guid? DemandId, Guid? PenaltyId, decimal AmountBefore, decimal AmountAfter,
   DateOnly? DueDate, DateTime SyncedAt, string? OnelinkAck, string? Note, PsidSyncStatus Status);
 
 public sealed record TaxFileDto(
@@ -38,7 +44,7 @@ public sealed record TaxFileDto(
   HoldingKind HoldingKind, int? Rooms, string? Psid, DateOnly? RegisteredOn, DateOnly? WaterFacilityFrom, UpliftRateBasis? UpliftRateBasis, decimal? UpliftPct,
   string? OldReferenceNo, string? PlotNo, TaxStatus TaxStatus, string? ExemptionReason, DateOnly OpenedOn, DateOnly? ClosedOn, string? Remarks, decimal Dues,
   BasisDto? CurrentBasis, IReadOnlyList<PayerDto> Payers, IReadOnlyList<HeadValueDto> HeadValues, IReadOnlyList<OverrideDto> Overrides,
-  IReadOnlyList<HoldDto> Holds, IReadOnlyList<AgreementDto> Agreements, ReferenceSyncDto? LastSync, DateTime? CreatedAt, Guid? CreatedBy);
+  IReadOnlyList<HoldDto> Holds, IReadOnlyList<AgreementDto> Agreements, ReferenceSyncDto? LastSync, DateTime? CreatedAt, Guid? CreatedBy, decimal FeesDue, decimal Credit);
 
 public static class TaxFileMappings
 {
@@ -56,14 +62,15 @@ public static class TaxFileMappings
     a.IsDirect99Year, a.NextRenewalDate, a.Status,
     a.Revisions.OrderBy(r => r.EffectiveFrom).Select(r => new StepRevisionDto(r.Id.Value, r.EffectiveFrom, r.StepPct, r.StepIntervalYears, r.BoardReference)).ToList());
 
-  public static HoldDto ToDto(this LitigationHold h) => new(h.Id.Value, h.Reason, h.Reference, h.SourceLitigationId, h.StartedOn, h.EndedOn, h.SuspendsDemand, h.ExcludesCompletionClock);
+  public static HoldDto ToDto(this LitigationHold h) => new(h.Id.Value, h.Reason, h.Reference, h.SourceLitigationId, h.StartedOn, h.EndedOn, h.SuspendsDemand,
+    h.ExcludesCompletionClock, h.CreatedBy, h.CreatedAt);
 
-  public static ReferenceSyncDto ToDto(this PsidSync s) => new(
-    s.Id.Value, s.TaxFileId.Value, s.Psid, s.SyncNo, s.Reason, s.DemandId?.Value, s.PenaltyId?.Value, s.AmountBefore, s.AmountAfter, s.DueDate, s.SyncedAt,
+  public static ReferenceSyncDto ToDto(this PsidSync s, string? fileNo = null) => new(
+    s.Id.Value, s.TaxFileId.Value, fileNo, s.Psid, s.SyncNo, s.Reason, s.DemandId?.Value, s.PenaltyId?.Value, s.AmountBefore, s.AmountAfter, s.DueDate, s.SyncedAt,
     s.OnelinkAck, s.Note, s.Status);
 
   public static TaxFileDto ToDto(this TaxFile f, string? circleCode, string? townLabel, decimal dues, IReadOnlyDictionary<TaxHeadId, TaxHead> heads,
-      IReadOnlyDictionary<SpecialPolicyId, string> policies, PsidSync? lastSync, DateOnly today)
+      IReadOnlyDictionary<SpecialPolicyId, string> policies, PsidSync? lastSync, DateOnly today, decimal feesDue = 0m, decimal credit = 0m)
   {
     string Code(TaxHeadId id) => heads.GetValueOrDefault(id)?.Code ?? "";
     string Name(TaxHeadId id) => heads.GetValueOrDefault(id)?.Name ?? "";
@@ -79,7 +86,7 @@ public static class TaxFileMappings
           o.ApprovedBy, o.ApprovedAt, o.Covers(today))).ToList(),
       f.Holds.OrderByDescending(h => h.StartedOn).Select(h => h.ToDto()).ToList(),
       f.Agreements.OrderByDescending(a => a.StartDate).Select(a => a.ToDto()).ToList(),
-      lastSync?.ToDto(), f.CreatedAt, f.CreatedBy);
+      lastSync?.ToDto(f.FileNo), f.CreatedAt, f.CreatedBy, feesDue, credit);
   }
 }
 

@@ -18,6 +18,15 @@ public class UpdateMasterHandler(IApplicationDbContext context)
     if (scopeConflict is not null)
       return Result<UpdateMasterCommandResult>.Failure(scopeConflict);
 
+    // every stored area keeps its square feet computed with the factor of the day: a unit in use keeps its factor
+    if (master is MeasurementUnit unit && input.FactorToBase is { } factor && decimal.Round(factor, 8) != unit.FactorToBase)
+    {
+      var used = (await context.ReferenceCountsAsync(typeof(MeasurementUnit), new[] { unit.Id.Value }, cancellationToken)).GetValueOrDefault(unit.Id.Value);
+      if (used > 0)
+        return Result<UpdateMasterCommandResult>.Failure(
+          $"{unit.Name.Value} is used by {used} area(s) already, stored in square feet with its present factor ({unit.FactorToBase:0.########}). Its factor can no longer change; add a new unit instead.");
+    }
+
     var extras = new MasterInput(master.Code.Value, input.Name, input.Description, input.SortOrder,
       input.FactorToBase, input.IsBase, input.StorageFolder, input.RequiresRelationship, input.AppliesTo).Extras(descriptor);
 

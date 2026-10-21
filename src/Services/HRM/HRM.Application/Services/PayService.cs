@@ -62,6 +62,7 @@ public class PayService(IApplicationDbContext context, IOptions<HrmOptions> opti
       current.CloseOn(lastDay);
   }
 
+  /// The first annual increment date after a new pay starts, leaving the qualifying months the settings ask for.
   public DateOnly NextIncrementAfter(DateOnly date) =>
-      EmployeePayRecord.NextIncrementAfter(date, options.Value.AnnualIncrementMonth, options.Value.AnnualIncrementDay);
+      EmployeePayRecord.NextIncrementAfter(date, options.Value.AnnualIncrementMonth, options.Value.AnnualIncrementDay, options.Value.IncrementQualifyingMonths);
 }

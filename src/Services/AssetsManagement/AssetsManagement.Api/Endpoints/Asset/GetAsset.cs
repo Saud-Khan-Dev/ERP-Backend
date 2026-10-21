@@ -1,4 +1,4 @@
-public sealed record GetAssetResponse(AssetDto Asset, IReadOnlyList<ResolvedAttributeDto> AttributeSchema);
+public sealed record GetAssetResponse(AssetDto Asset, IReadOnlyList<ResolvedAttributeDto> AttributeSchema, IReadOnlyList<RetiredAttributeDto> RetiredAttributes);
 
 public class GetAsset : ICarterModule
 {
@@ -7,12 +7,14 @@ public class GetAsset : ICarterModule
     app.MapGet("/assets/{id}", async (Guid id, ISender sender) =>
     {
       var result = await sender.Send(new GetAssetQuery(id));
-      return Results.Ok(new GetAssetResponse(result.Value!.Asset, result.Value.AttributeSchema));
+      return Results.Ok(new GetAssetResponse(result.Value!.Asset, result.Value.AttributeSchema, result.Value.RetiredAttributes));
     })
+      .RequirePermission(PermissionCatalog.Assets.View)
+
       .WithName("GetAsset")
       .Produces<GetAssetResponse>(StatusCodes.Status200OK)
       .ProducesProblem(StatusCodes.Status404NotFound)
       .WithSummary("Get Asset")
-      .WithDescription("Returns the asset (with its extraAttributes) and the resolved attribute schema for rendering the form.");
+      .WithDescription("Returns the asset (with its extraAttributes) the resolved attribute schema for rendering the form, and retiredAttributes: the values it holds for fields no longer on its form (kept, shown read-only).");
   }
 }

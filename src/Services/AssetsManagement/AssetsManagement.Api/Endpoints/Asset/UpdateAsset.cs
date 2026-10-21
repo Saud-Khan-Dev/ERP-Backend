@@ -1,4 +1,4 @@
-public sealed record UpdateAssetRequest(UpdateAssetInput Asset, Guid? PerformedBy = null);
+public sealed record UpdateAssetRequest(UpdateAssetInput Asset);
 public sealed record UpdateAssetResponse(bool IsSuccess);
 
 public class UpdateAsset : ICarterModule
@@ -7,13 +7,15 @@ public class UpdateAsset : ICarterModule
   {
     app.MapPut("/assets/{id}", async (Guid id, UpdateAssetRequest request, ISender sender) =>
     {
-      var result = await sender.Send(new UpdateAssetCommand(id, request.Asset, request.PerformedBy));
+      var result = await sender.Send(new UpdateAssetCommand(id, request.Asset));
 
       if (!result.IsSuccess)
         return Results.BadRequest(new { Message = result.Message });
 
       return Results.Ok(result.Value.Adapt<UpdateAssetResponse>());
     })
+      .RequirePermission(PermissionCatalog.Assets.Edit)
+
       .WithName("UpdateAsset")
       .Produces<UpdateAssetResponse>(StatusCodes.Status200OK)
       .ProducesProblem(StatusCodes.Status400BadRequest)

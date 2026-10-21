@@ -309,7 +309,8 @@ public class PayrollPayment : Aggregate<PayrollPaymentId>
 {
   public PayrollTransactionId PayrollTransactionId { get; private set; } = default!;
   public EmployeeId EmployeeId { get; private set; } = default!;
-  public BankAccountId BankAccountId { get; private set; } = default!;
+  /// The salary account paid into; none for a cheque or cash payment of someone without an account.
+  public BankAccountId? BankAccountId { get; private set; }
   public string? BankNameSnapshot { get; private set; }
   public string? BranchNameSnapshot { get; private set; }
   public string? AccountNumberSnapshot { get; private set; }
@@ -321,11 +322,13 @@ public class PayrollPayment : Aggregate<PayrollPaymentId>
 
   public bool IsLive => PaymentStatus is PaymentStatus.Pending or PaymentStatus.Processed;
 
-  public static PayrollPayment Create(PayrollPaymentId id, PayrollRun run, PayrollTransaction transaction, EmployeeBankAccount account, PaymentMethod method)
+  /// A bank transfer needs the employee's salary account; a cheque or cash payment may be made without one.
+  public static PayrollPayment Create(PayrollPaymentId id, PayrollRun run, PayrollTransaction transaction, EmployeeBankAccount? account, PaymentMethod method)
   {
     ArgumentNullException.ThrowIfNull(run);
     ArgumentNullException.ThrowIfNull(transaction);
-    ArgumentNullException.ThrowIfNull(account);
+    if (account is null && method == PaymentMethod.BankTransfer)
+      throw new DomainException("A bank transfer needs the employee's salary bank account; pay by cheque or cash instead.");
 
     if (run.Id != transaction.PayrollRunId)
       throw new DomainException("The pay slip does not belong to this run.");
@@ -335,9 +338,9 @@ public class PayrollPayment : Aggregate<PayrollPaymentId>
       throw new DomainException("This salary is held; release it before paying.");
     if (transaction.NetPayable <= 0)
       throw new DomainException("There is nothing to pay on this pay slip.");
-    if (account.EmployeeId != transaction.EmployeeId)
+    if (account is not null && account.EmployeeId != transaction.EmployeeId)
       throw new DomainException("The bank account belongs to a different employee.");
-    if (!account.IsUsable)
+    if (account is not null && !account.IsUsable)
       throw new DomainException("The bank account is inactive.");
 
     return new PayrollPayment
@@ -345,11 +348,11 @@ public class PayrollPayment : Aggregate<PayrollPaymentId>
       Id = id,
       PayrollTransactionId = transaction.Id,
       EmployeeId = transaction.EmployeeId,
-      BankAccountId = account.Id,
-      BankNameSnapshot = account.BankName,
-      BranchNameSnapshot = account.BranchName,
-      AccountNumberSnapshot = account.AccountNumber,
-      IbanSnapshot = account.Iban,
+      BankAccountId = account?.Id,
+      BankNameSnapshot = account?.BankName,
+      BranchNameSnapshot = account?.BranchName,
+      AccountNumberSnapshot = account?.AccountNumber,
+      IbanSnapshot = account?.Iban,
       PaymentMethod = method,
       PaymentStatus = PaymentStatus.Pending
     };

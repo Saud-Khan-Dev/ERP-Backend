@@ -6,15 +6,17 @@ public sealed record CreateUserInput(
   string Username,
   string Email,
   string DisplayName,
+  /// The person's HR record (HRM's staff directory), with HR's employee number as `EmployeeCode`. Leave both null for
+  /// an account that is not linked yet (or not an employee) - Identity issues no codes of its own.
   Guid? EmployeeId = null,
   /// Leave null to have the server generate one and return it once.
   string? TemporaryPassword = null,
   IReadOnlyList<Guid>? RoleIds = null,
+  /// Ignored: a new account always changes its first password (kept so older callers still validate).
   bool MustChangePassword = true,
-  /// e.g. EMP-205. Must follow the employee code template. Leave null to have the next code issued.
   string? EmployeeCode = null,
-  /// Set false (with no EmployeeCode) for an account that is not an employee, such as a service account.
-  bool AutoGenerateEmployeeCode = true);
+  /// Ignored (Identity no longer issues employee codes).
+  bool AutoGenerateEmployeeCode = false);
 
 /// GeneratedPassword is populated only when the server generated it — it is shown to the
 /// administrator once and never stored in plaintext or retrievable again.
@@ -31,6 +33,9 @@ public class CreateUserInputValidator : AbstractValidator<CreateUserInput>
     RuleFor(x => x.DisplayName).NotEmpty().MaximumLength(150);
     RuleForEach(x => x.RoleIds).NotEmpty().WithMessage("Role ids cannot be empty.");
     RuleFor(x => x.EmployeeCode).MaximumLength(EmployeeCode.MaxLength);
+    RuleFor(x => x.EmployeeCode).NotEmpty().When(x => x.EmployeeId is not null)
+      .WithMessage("The HR employee number is missing - choose the person again.");
+    RuleFor(x => x.EmployeeId).Must(id => id != Guid.Empty).WithMessage("Choose the person's HR record.");
   }
 }
 

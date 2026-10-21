@@ -17,6 +17,7 @@ public static class DependencyInjection
     services.AddValidatorsFromAssembly(Assembly.GetExecutingAssembly());
 
     services.Configure<DocumentOptions>(configuration.GetSection(DocumentOptions.SectionName));
+    services.Configure<TransferOptions>(configuration.GetSection(TransferOptions.SectionName));
 
     services.AddScoped<MasterLookup>();
     services.AddScoped<CodeGenerator>();

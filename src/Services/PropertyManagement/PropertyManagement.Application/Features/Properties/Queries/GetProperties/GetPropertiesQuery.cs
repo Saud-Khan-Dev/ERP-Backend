@@ -2,7 +2,8 @@ using FluentValidation;
 
 public sealed record GetPropertiesQueryResult(PaginatedResult<PropertyListItemDto> Properties);
 
-/// type: property type name; owners: how many hold a current share.
+/// type: property type name; owners: how many hold a current share; holder: the name the "Held by" column shows (the
+/// first holder by name, else the allottee in force), properties nobody holds last.
 public enum PropertySort
 {
   Code,
@@ -12,14 +13,19 @@ public enum PropertySort
   Town,
   Status,
   Type,
-  Owners
+  Owners,
+  Holder
 }
 
 /// RegisteredFrom / RegisteredTo: instants on the audit created_at (both inclusive).
 /// AreaMin / AreaMax: current total area in square feet (the current measurement's base value).
 /// OwnerId: properties where that owner holds a current share (ACTIVE or DISPUTED).
-/// Search: part of the code, name, khasra number or address, part of a current holder's name, or a current
-/// holder's full CNIC (any written form).
+/// Search: part of the code, name, khasra number or address, or a party holding it now - a current holder, the allottee,
+/// lessee, tenant or contractor in force - by part of the name or a CNIC (the first 5 or more digits, any written form).
+/// TransferPending: a transfer waiting for approval or registration. Allotted: an allotment in force today.
+/// AgreementInForce: an allotment, lease, rental or contract in force today. HasHolder: anyone holds a current share.
+/// Charged: a charge (active or enforced) on it. Disputed: a disputed share. Measured: a current measurement.
+/// HasBoundary: a current boundary survey.
 /// HasOpenEncroachment / HasOpenCase: true = at least one unresolved encroachment / pending court case,
 /// false = none (see PropertyQueryFilter for what counts as open).
 /// SteepSlope: true = the current boundary survey's slope is above the 45 degree BCR limit, false = it is not (or none).
@@ -40,7 +46,15 @@ public sealed record GetPropertiesQuery(
   bool? HasOpenCase = null,
   PropertySort SortBy = PropertySort.Code,
   bool SortDescending = false,
-  bool? SteepSlope = null) : IQuery<Result<GetPropertiesQueryResult>>;
+  bool? SteepSlope = null,
+  bool? TransferPending = null,
+  bool? Allotted = null,
+  bool? AgreementInForce = null,
+  bool? HasHolder = null,
+  bool? Charged = null,
+  bool? Disputed = null,
+  bool? Measured = null,
+  bool? HasBoundary = null) : IQuery<Result<GetPropertiesQueryResult>>;
 
 public class GetPropertiesQueryValidator : AbstractValidator<GetPropertiesQuery>
 {

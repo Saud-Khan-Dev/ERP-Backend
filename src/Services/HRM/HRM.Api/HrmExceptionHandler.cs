@@ -9,7 +9,7 @@ public class HrmExceptionHandler(ILogger<HrmExceptionHandler> logger) : IExcepti
 {
   public async ValueTask<bool> TryHandleAsync(HttpContext context, Exception exception, CancellationToken cancellationToken)
   {
-    logger.LogError("Error Message : {exceptionMessage}, Time of occurance {time}", exception.Message, DateTime.UtcNow);
+    logger.LogError(exception, "Request {Path} failed ({TraceId}): {Message}", context.Request.Path, context.TraceIdentifier, exception.Message);
 
     var postgres = FindPostgresException(exception);
 
@@ -45,6 +45,12 @@ public class HrmExceptionHandler(ILogger<HrmExceptionHandler> logger) : IExcepti
         StatusCode: StatusCodes.Status403Forbidden
       ),
 
+      InUseException => (
+        Title: "In use",
+        Detail: exception.Message,
+        StatusCode: StatusCodes.Status409Conflict
+      ),
+
       DbUpdateConcurrencyException => (
         Title: nameof(DbUpdateConcurrencyException),
         Detail: "The record was modified by someone else. Reload it and try again.",
@@ -61,9 +67,10 @@ public class HrmExceptionHandler(ILogger<HrmExceptionHandler> logger) : IExcepti
         StatusCode: StatusCodes.Status409Conflict
       ),
 
+      // the exception text is for the log, never for the person at the desk
       _ => (
-        Title: exception.GetType().Name,
-        Detail: exception.Message,
+        Title: "Server error",
+        Detail: $"Something went wrong on the server. Try again; if it keeps happening, tell the administrator (reference {context.TraceIdentifier}).",
         StatusCode: StatusCodes.Status500InternalServerError
       )
     };
@@ -134,6 +141,11 @@ public class HrmExceptionHandler(ILogger<HrmExceptionHandler> logger) : IExcepti
   private static readonly Dictionary<string, string> ConstraintMessages = new(StringComparer.Ordinal)
   {
     ["employee_employee_number_key"] = "This employee number is already in use.",
+    ["ck_emp_term"] = "The term cannot end before it starts.",
+    ["ck_har_end"] = "The last day cannot be before the first.",
+    ["ck_har_pay"] = "The stage, basic pay and notice period cannot be negative.",
+    ["ck_la_rejection"] = "A rejected leave needs the reason.",
+    ["fk_la_hr_action"] = "The HR action this leave belongs to does not exist.",
     ["employee_cnic_key"] = "An employee with this CNIC is already registered.",
     ["employee_user_id_key"] = "This user account is already linked to another employee.",
     ["organization_unit_code_key"] = "An org unit with this code already exists.",

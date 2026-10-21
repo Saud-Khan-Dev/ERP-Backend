@@ -23,6 +23,8 @@ public class DepreciationMethodConfiguration : EntityConfiguration<DepreciationM
       .IsRequired();
 
     builder.Property(x => x.Description).IsRequired(false);
+    builder.Property(x => x.Kind).HasEnumString().IsRequired();
+    builder.Property(x => x.IsSystem).IsRequired().HasDefaultValue(false);
     builder.Property(x => x.IsActive).IsRequired().HasDefaultValue(true);
 
     builder.HasIndex(x => x.Code).IsUnique();

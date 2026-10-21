@@ -12,7 +12,7 @@ public class ResolveAttributeSchemaQueryValidator : AbstractValidator<ResolveAtt
   public ResolveAttributeSchemaQueryValidator()
   {
     RuleFor(x => x)
-      .Must(x => x.AssetId.HasValue || x.AssetClassId.HasValue || x.CategoryId.HasValue)
-      .WithMessage("Provide assetId, or assetClassId / categoryId to resolve the attribute schema.");
+      .Must(x => x.AssetId.HasValue || x.AssetClassId.HasValue || x.AssetTypeId.HasValue || x.CategoryId.HasValue)
+      .WithMessage("Say which asset, class, type or category the form is for.");
   }
 }

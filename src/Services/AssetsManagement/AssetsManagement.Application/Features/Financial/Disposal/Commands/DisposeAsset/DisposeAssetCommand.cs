@@ -1,33 +1,30 @@
 using FluentValidation;
 
-public sealed record DisposeAssetCommandResult(Guid DisposalId);
+public sealed record DisposeAssetCommandResult(Guid DisposalId, decimal? NetBookValueAtDisposal, decimal? GainLoss, int MonthsPosted);
 
-/// Records the disposal, snapshots the net book value, closes the active depreciation schedule,
-/// moves the asset to the given terminal status and writes the lifecycle event.
+/// Records how an asset left GDA (ASSET_FINANCE.APPROVE - recording it is the approval). In one transaction: the
+/// months up to the disposal date are written and posted, the book value on that date is kept, the schedule stops,
+/// the asset moves to the final status, and "Disposed" goes on its timeline. Refused while it is out on loan.
 public sealed record DisposeAssetCommand(
   Guid AssetId,
   Guid DisposalMethodId,
   DateOnly DisposalDate,
   Guid ToStatusId,
-  Guid EventTypeId,
   decimal? DisposalValue = null,
   string? CurrencyCode = null,
   string? BuyerInfo = null,
-  string? Reason = null,
-  Guid? ApprovedBy = null,
-  DateTime? ApprovedAt = null,
-  Guid? PerformedBy = null) : ICommand<Result<DisposeAssetCommandResult>>;
+  string? Reason = null) : ICommand<Result<DisposeAssetCommandResult>>;
 
 public class DisposeAssetCommandValidator : AbstractValidator<DisposeAssetCommand>
 {
   public DisposeAssetCommandValidator()
   {
     RuleFor(x => x.AssetId).NotEmpty();
-    RuleFor(x => x.DisposalMethodId).NotEmpty();
-    RuleFor(x => x.ToStatusId).NotEmpty();
-    RuleFor(x => x.EventTypeId).NotEmpty();
-    RuleFor(x => x.DisposalValue).GreaterThanOrEqualTo(0).When(x => x.DisposalValue.HasValue);
+    RuleFor(x => x.DisposalMethodId).NotEmpty().WithMessage("Choose how the asset left.");
+    RuleFor(x => x.ToStatusId).NotEmpty().WithMessage("Choose the final status.");
+    RuleFor(x => x.DisposalValue).GreaterThanOrEqualTo(0).When(x => x.DisposalValue.HasValue).WithMessage("The proceeds cannot be negative.");
     RuleFor(x => x.CurrencyCode).Length(3).When(x => x.CurrencyCode is not null);
-    RuleFor(x => x.CurrencyCode).NotEmpty().When(x => x.DisposalValue.HasValue).WithMessage("A currency is required when a disposal value is given.");
+    RuleFor(x => x.BuyerInfo).MaximumLength(500);
+    RuleFor(x => x.Reason).MaximumLength(1000);
   }
 }

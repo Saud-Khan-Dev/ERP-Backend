@@ -43,6 +43,10 @@ public sealed class JwtTokenService(IOptions<JwtOptions> options) : ITokenServic
     if (user.IsAuthorizedOfficer)
       claims.Add(new Claim(ErpClaimTypes.AuthorizedOfficer, "true"));
 
+    // a temporary password: the caller passes no permissions or roles, and this marks the token for every service
+    if (user.MustChangePassword)
+      claims.Add(new Claim(ErpClaimTypes.PasswordChange, "change"));
+
     claims.AddRange(roleCodes.Select(r => new Claim(ErpClaimTypes.Role, r)));
     claims.AddRange(permissionCodes.Select(p => new Claim(ErpClaimTypes.Permission, p)));
 

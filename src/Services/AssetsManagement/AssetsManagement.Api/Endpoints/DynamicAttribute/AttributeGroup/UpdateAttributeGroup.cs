@@ -14,6 +14,8 @@ public class UpdateAttributeGroup : ICarterModule
 
       return Results.Ok(result.Value.Adapt<UpdateAttributeGroupResponse>());
     })
+      .RequirePermission(PermissionCatalog.AssetAttributes.Edit)
+
       .WithName("UpdateAttributeGroup")
       .Produces<UpdateAttributeGroupResponse>(StatusCodes.Status200OK)
       .ProducesProblem(StatusCodes.Status400BadRequest)

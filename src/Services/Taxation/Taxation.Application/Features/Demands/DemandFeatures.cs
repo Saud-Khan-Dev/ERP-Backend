@@ -12,7 +12,7 @@ public sealed record ApproveDemandRunCommand(Guid Id) : ICommand<Result<ApproveR
 public sealed record CancelDemandRunCommand(Guid Id) : ICommand<Result<UpdatedResult>>;
 
 public sealed record GetDemandRunsQueryResult(IReadOnlyList<DemandRunDto> Runs);
-public sealed record GetDemandRunsQuery(int? FiscalYear) : IQuery<Result<GetDemandRunsQueryResult>>;
+public sealed record GetDemandRunsQuery(int? FiscalYear, DemandRunStatus? Status = null) : IQuery<Result<GetDemandRunsQueryResult>>;
 public sealed record GetDemandRunQueryResult(DemandRunDto Run, IReadOnlyList<DemandSummaryDto> Demands);
 public sealed record GetDemandRunQuery(Guid Id) : IQuery<Result<GetDemandRunQueryResult>>;
 
@@ -23,7 +23,7 @@ public sealed record GetDemandRunProblemsQuery(Guid Id) : IQuery<Result<GetDeman
 
 public sealed record GetDemandsQueryResult(PaginatedResult<DemandSummaryDto> Demands);
 public sealed record GetDemandsQuery(PaginationRequest Pagination, int? FiscalYear, Guid? CircleId, DemandStatus? Status, DemandStage? Stage, Guid? RunId, Guid? TaxFileId,
-  string? Search, bool? WithBalance) : IQuery<Result<GetDemandsQueryResult>>;
+  string? Search, bool? WithBalance, bool? Overdue = null, bool? NoticeDue = null, bool? YearEndDue = null) : IQuery<Result<GetDemandsQueryResult>>;
 public sealed record GetDemandQueryResult(DemandDto Demand);
 public sealed record GetDemandQuery(Guid Id) : IQuery<Result<GetDemandQueryResult>>;
 
@@ -134,40 +134,96 @@ public class DemandRunHandlers(
   {
     var run = await context.LoadRunAsync(command.Id, cancellationToken);
     var actor = Guard.Actor(currentUser.UserId, "approve a demand run");
-    run.Approve(actor, clock.UtcNow);
+    var today = clock.Today;
+    run.Approve(actor, clock.UtcNow, today);
 
     var yearEnds = await penalties.ApplyYearEndAsync(cancellationToken);
-    var today = clock.Today;
     var settings = await setup.SettingsAsync(today, cancellationToken);
     var surcharge = await setup.HeadAsync(HeadCodes.Surcharge, cancellationToken);
     var drafts = await context.DemandsWithItems().Where(d => d.RunId == run.Id && d.Status == DemandStatus.Draft).ToListAsync(cancellationToken);
     var fileIds = drafts.Select(d => d.TaxFileId).ToList();
     var files = (await context.TaxFilesWithDetails().Where(f => fileIds.Contains(f.Id)).ToListAsync(cancellationToken)).ToDictionary(f => f.Id);
+    var stale = await StaleAsync(run, drafts, files, cancellationToken);
 
     var noticesIssued = 0;
     var sms = 0;
+    var credits = 0m;
+    var held = new List<RunProblemDto>();
     foreach (var demand in drafts)
     {
       var file = files[demand.TaxFileId];
       if (file.Addressee(today) is { } payer)
         demand.Address(payer);
 
-      var billed = await ledger.CarryIntoAsync(demand, surcharge.Id, actor, clock.UtcNow, cancellationToken);
-      demand.Issue(today, settings.DueDate(demand.FiscalYear), billed);
+      var billed = await ledger.CarryIntoAsync(demand, surcharge.Id, actor, clock.UtcNow, today, cancellationToken);
+      demand.Issue(today, settings.DueDate(demand.FiscalYear, today), billed);
+      credits += await ledger.MoveCreditsAsync(file.Id, surcharge.Id, today, cancellationToken);
 
       if (demand.Balance > 0)
       {
-        var notice = await notices.PrepareAsync(demand, file, NoticeStage.First, NoticeOrigin.Cycle, today, null, cancellationToken);
-        await notices.ConfirmAsync(notice, demand, file, actor, cancellationToken);
-        noticesIssued++;
-        if (notice.SmsMessageId is not null)
-          sms++;
+        if (file.HoldOn(today) is { } hold)
+        {
+          // a hold put on after the run was worked out: the demand stands, its notice waits for the hold to end
+          held.Add(new RunProblemDto(file.Id.Value, file.FileNo, $"On litigation hold since {hold.StartedOn:dd MMM yyyy}: no first notice while it is open."));
+        }
+        else
+        {
+          var notice = await notices.PrepareAsync(demand, file, NoticeStage.First, NoticeOrigin.Cycle, today, null, cancellationToken);
+          await notices.ConfirmAsync(notice, demand, file, actor, cancellationToken);
+          noticesIssued++;
+          if (notice.SmsMessageId is not null)
+            sms++;
+        }
       }
       await messenger.SyncAsync(file, PsidSyncReason.AnnualDemand, demand.Id, null, demand.DueDate, $"FY {FiscalYear.Label(demand.FiscalYear)} demand {demand.DemandNo}", cancellationToken);
     }
 
     await context.SaveChangesAsync(cancellationToken);
-    return Result<ApproveRunResult>.Success(new(run.Id.Value, drafts.Count, noticesIssued, sms, yearEnds));
+    return Result<ApproveRunResult>.Success(new(run.Id.Value, drafts.Count, noticesIssued, sms, yearEnds, held, stale, credits));
+  }
+
+  /// Drafts whose file changed after the run was worked out: the computation now gives another amount, the file is now on
+  /// hold or not assessable, or its Property data was synced since.
+  private async Task<List<RunProblemDto>> StaleAsync(DemandRun run, IReadOnlyList<Demand> drafts, IReadOnlyDictionary<TaxFileId, TaxFile> files,
+      CancellationToken cancellationToken)
+  {
+    var stale = new List<RunProblemDto>();
+    if (drafts.Count == 0)
+      return stale;
+    AssessmentContext ctx;
+    try
+    {
+      ctx = await assessor.ContextAsync(run.FiscalYear, cancellationToken);
+    }
+    catch (DomainException ex)
+    {
+      return [new RunProblemDto(Guid.Empty, "", DomainMessages.Text(ex))];
+    }
+    if (ctx.RateSet.Id != run.RateSetId)
+      stale.Add(new RunProblemDto(Guid.Empty, "", $"The rate set in force on 1 July is now '{ctx.RateSet.Name}', not the one the run was worked out with."));
+    foreach (var demand in drafts)
+    {
+      if (!files.TryGetValue(demand.TaxFileId, out var file))
+      {
+        stale.Add(new RunProblemDto(demand.TaxFileId.Value, demand.DemandNo, "The file is no longer active; its draft would still be issued."));
+        continue;
+      }
+      try
+      {
+        var fresh = Assessor.Assess(ctx, file);
+        if (fresh.Suspended)
+          stale.Add(new RunProblemDto(file.Id.Value, file.FileNo, $"Not assessed now ({fresh.SuspendedReason})"));
+        else if (fresh.Total != demand.CurrentAmount)
+          stale.Add(new RunProblemDto(file.Id.Value, file.FileNo, $"Worked out again now: {Rupees.Text(fresh.Total)} instead of {Rupees.Text(demand.CurrentAmount)}"));
+        else if (file.CurrentBasis is { } basis && basis.Id != demand.BasisId)
+          stale.Add(new RunProblemDto(file.Id.Value, file.FileNo, $"Property data synced on {basis.SyncedAt.AddHours(5):dd MMM yyyy} after the run (same amount)"));
+      }
+      catch (DomainException ex)
+      {
+        stale.Add(new RunProblemDto(file.Id.Value, file.FileNo, DomainMessages.Text(ex)));
+      }
+    }
+    return stale;
   }
 
   public async Task<Result<UpdatedResult>> Handle(CancelDemandRunCommand command, CancellationToken cancellationToken)
@@ -183,7 +239,7 @@ public class DemandRunHandlers(
 
   public async Task<Result<GetDemandRunsQueryResult>> Handle(GetDemandRunsQuery query, CancellationToken cancellationToken)
   {
-    var runs = await context.DemandRuns.AsNoTracking().Where(r => query.FiscalYear == null || r.FiscalYear == query.FiscalYear)
+    var runs = await context.DemandRuns.AsNoTracking().Where(r => (query.FiscalYear == null || r.FiscalYear == query.FiscalYear) && (query.Status == null || r.Status == query.Status))
       .OrderByDescending(r => r.ComputedAt).ToListAsync(cancellationToken);
     return Result<GetDemandRunsQueryResult>.Success(new(await DtosAsync(runs, cancellationToken)));
   }
@@ -207,8 +263,15 @@ public class DemandRunHandlers(
     var withDemand = (await context.Demands.Where(d => d.FiscalYear == fy && fileIds.Contains(d.TaxFileId) && d.Status != DemandStatus.Cancelled)
       .Select(d => d.TaxFileId).ToListAsync(cancellationToken)).ToHashSet();
     var missing = files.Where(f => !withDemand.Contains(f.Id)).OrderBy(f => f.FileNo).ToList();
+    // drafts of a computed run that would be issued with an amount out of date
+    var staleRows = new List<RunProblemDto>();
+    if (run.Status == DemandRunStatus.Computed)
+    {
+      var drafts = await context.DemandsWithItems().AsNoTracking().Where(d => d.RunId == run.Id && d.Status == DemandStatus.Draft).ToListAsync(cancellationToken);
+      staleRows = await StaleAsync(run, drafts, files.ToDictionary(f => f.Id), cancellationToken);
+    }
     if (missing.Count == 0)
-      return Result<GetDemandRunProblemsQueryResult>.Success(new([]));
+      return Result<GetDemandRunProblemsQueryResult>.Success(new(staleRows));
 
     var ctx = await assessor.ContextAsync(fy, cancellationToken);
     var yearStart = FiscalYear.Start(fy);
@@ -229,7 +292,7 @@ public class DemandRunHandlers(
         problems.Add(new RunProblemDto(file.Id.Value, file.FileNo, DomainMessages.Text(ex)));
       }
     }
-    return Result<GetDemandRunProblemsQueryResult>.Success(new(problems));
+    return Result<GetDemandRunProblemsQueryResult>.Success(new(problems.Concat(staleRows).ToList()));
   }
 
   private async Task<List<DemandRunDto>> DtosAsync(IReadOnlyList<DemandRun> runs, CancellationToken cancellationToken)
@@ -245,7 +308,7 @@ public class DemandRunHandlers(
   }
 }
 
-public class DemandQueryHandlers(IApplicationDbContext context, TaxSetup setup, Ledger ledger) :
+public class DemandQueryHandlers(IApplicationDbContext context, TaxSetup setup, Ledger ledger, DueNotices dueNotices, IClock clock) :
   IQueryHandler<GetDemandsQuery, Result<GetDemandsQueryResult>>,
   IQueryHandler<GetDemandQuery, Result<GetDemandQueryResult>>
 {
@@ -276,10 +339,29 @@ public class DemandQueryHandlers(IApplicationDbContext context, TaxSetup setup, 
     }
     if (query.WithBalance == true)
       rows = rows.Where(d => d.Balance > 0 && d.Status != DemandStatus.Draft);
+    if (query.Overdue == true)
+    {
+      // issued, still owing, and its due date has passed
+      var today = clock.Today;
+      rows = rows.Where(d => (d.Status == DemandStatus.Issued || d.Status == DemandStatus.PartPaid || d.Status == DemandStatus.Defaulted)
+        && d.Balance > 0 && d.DueDate != null && d.DueDate < today);
+    }
+    if (query.YearEndDue == true)
+    {
+      // a year that is over, still owing, its year-end surcharge not applied yet
+      var current = FiscalYear.Of(clock.Today);
+      rows = rows.Where(d => (d.Status == DemandStatus.Issued || d.Status == DemandStatus.PartPaid) && d.Balance > 0 && d.FiscalYear < current);
+    }
+    if (query.NoticeDue == true)
+    {
+      var due = await dueNotices.DemandsAsync(clock.Today, cancellationToken);
+      rows = rows.Where(d => due.Contains(d.Id));
+    }
     if (!string.IsNullOrWhiteSpace(query.Search))
     {
       var s = query.Search.Trim().ToUpperInvariant();
-      var files = context.TaxFiles.Where(f => f.FileNo.ToUpper().Contains(s) || (f.Psid != null && f.Psid.Contains(s))).Select(f => f.Id);
+      var digits = new string(s.Where(c => !char.IsWhiteSpace(c)).ToArray());
+      var files = context.TaxFiles.Where(f => f.FileNo.ToUpper().Contains(s) || (f.Psid != null && f.Psid.Contains(digits))).Select(f => f.Id);
       rows = rows.Where(d => d.DemandNo.ToUpper().Contains(s) || d.PayerName.ToUpper().Contains(s) || files.Contains(d.TaxFileId));
     }
 

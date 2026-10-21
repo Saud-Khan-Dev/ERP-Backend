@@ -17,6 +17,9 @@ public class AttributeDefinitionConfiguration : EntityConfiguration<AttributeDef
     builder.Property(x => x.OptionsCsv).HasMaxLength(2000);
     builder.Property(x => x.DefaultValue).HasMaxLength(AttributeDefinition.MaxTextLength);
     builder.Property(x => x.IsActive).IsRequired().HasDefaultValue(true);
+    // where the field is shown: property types / classifications (master ids); empty = every property
+    builder.Property(x => x.AppliesToPropertyTypeIds).HasColumnType("uuid[]").IsRequired().HasDefaultValueSql("'{}'::uuid[]");
+    builder.Property(x => x.AppliesToClassificationIds).HasColumnType("uuid[]").IsRequired().HasDefaultValueSql("'{}'::uuid[]");
     builder.Ignore(x => x.Options);
 
     builder.HasIndex(x => x.Code).IsUnique();

@@ -16,7 +16,7 @@ public class TransferRuleTests
     var record = Record(property, new[] { ownB }, new[] { b, d });
     var transfer = Initiate(record, "2026-10-01", "TRF-00001", Gives(b, 100), Gets(d, 100));
 
-    var change = transfer.Approve("Director Estate", D("2026-10-12"), "ORDER-9", "clerk1", record, Owned);
+    var change = transfer.Approve(Director, D("2026-10-12"), "ORDER-9", null, "clerk1", record, Owned);
 
     Assert.Equal(TransferStatus.Completed, transfer.TransferStatus);
     Assert.Equal("Director Estate", transfer.ApprovedBy);
@@ -164,7 +164,7 @@ public class TransferRuleTests
 
     (PropertyTransfer, PropertyTransfer.OwnershipChange) Record_(string date) => PropertyTransfer.RecordCompleted(
       TransferId.New(), BusinessCode.Of("TRF-00003"), Sale, D(date), "MUT-7", null, null, null,
-      new[] { Gives(b, 100), Gets(d, 100) }, "Director Estate", null, null, "clerk1", record, Owned);
+      new[] { Gives(b, 100), Gets(d, 100) }, Director, null, null, null, "clerk1", record, Owned);
 
     Assert.Contains("cannot be dated in the future", Message(() => Record_("2026-10-14")));
 
@@ -317,7 +317,7 @@ public class TransferRuleTests
 
     Assert.Equal("B's share is under the charge held by Bank of Khyber (ref MRT-1); release it before the share is transferred.",
       Message(() => Initiate(record, "2026-10-01", "TRF-00001", Gives(b, 50), Gets(d, 50))));
-    Assert.Contains("release it before the ownership is ended", Message(() => ownB.EndHolding(D("2026-10-01"), null, record)));
+    Assert.Contains("release it before the ownership is ended", Message(() => ownB.EndHolding(D("2026-10-01"), "ORDER-1", null, record)));
 
     mortgage.Release(property, D("2026-10-02"), "REL-1", Today);
     var released = Record(property, new[] { ownB }, new[] { b, d }, charges: new[] { mortgage });
@@ -400,7 +400,7 @@ public class TransferRuleTests
     Assert.Contains("inactive", Message(() => Approve(transfer, record)));
     Assert.Contains("inactive", Message(() => transfer.Cancel(property, "x", "clerk1", Today)));
     Assert.Contains("inactive", Message(() => ownB.MarkDisputed(property, null)));
-    Assert.Contains("inactive", Message(() => ownB.EndHolding(D("2026-10-01"), null, record)));
+    Assert.Contains("inactive", Message(() => ownB.EndHolding(D("2026-10-01"), "ORDER-1", null, record)));
   }
 
   [Fact]
@@ -412,9 +412,9 @@ public class TransferRuleTests
     var pending = Initiate(Record(property, new[] { ownB }, new[] { b, d }), "2026-10-01", "TRF-00041", Gives(b, 50), Gets(d, 50));
     var record = Record(property, new[] { ownB }, new[] { b, d }, pending: new[] { pending });
 
-    Assert.Contains("cannot end in the future", Message(() => ownB.EndHolding(D("2026-10-14"), null, record)));
+    Assert.Contains("cannot end in the future", Message(() => ownB.EndHolding(D("2026-10-14"), "ORDER-1", null, record)));
     Assert.Equal("B's share is being transferred in TRF-00041; cancel or approve that first.",
-      Message(() => ownB.EndHolding(D("2026-10-10"), null, record)));
+      Message(() => ownB.EndHolding(D("2026-10-10"), "ORDER-1", null, record)));
   }
 
   [Fact]

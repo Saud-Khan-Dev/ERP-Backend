@@ -26,8 +26,8 @@ the domain ports one for one, and from the recordings of 12 Oct 2026 the DBML ci
 
 What the DBML has and this service does not build yet (no rules decided, or no system to talk to): `challan` (one-off
 PSIDs), `refund`, `sealing`, `water_connection`, `non_utilization_case`, `enlistment_licence`, `malba_security`,
-`agreement_schedule_line`, `integration_inbox` / `integration_outbox`, `sync_checkpoint`, `import_batch` / `import_row`
-and `audit_log`. The columns that point at them (`payment.challan_id`, `demand_line.schedule_line_id`,
+`agreement_schedule_line`, `integration_inbox` / `integration_outbox`, `sync_checkpoint` and `import_batch` /
+`import_row`. (`audit_log` is built; `job_run` is the service's own addition.) The columns that point at them (`payment.challan_id`, `demand_line.schedule_line_id`,
 `arrears.import_row_id`) are plain uuids for now. `notice.sms_message_id` has no foreign key on purpose
 (`sms_message.notice_id` points back; both are written in one save).
 
@@ -35,10 +35,11 @@ and `audit_log`. The columns that point at them (`payment.challan_id`, `demand_l
 
 | Module | Codes | Used for |
 | --- | --- | --- |
-| `TAX` | VIEW, CREATE, EDIT, DELETE, APPROVE, POST | tax files, demands, notices, surcharges, payments, fees, clearances. CREATE opens files, computes runs, creates notices and fees; EDIT syncs files and reviews, confirms, serves and escalates notices; APPROVE approves demand and surcharge runs, sets overrides, holds and categories, issues pending notices in bulk, waives fees and issues clearances; POST receives payments and fee receipts |
-| `TAX_SETUP` | VIEW, CREATE, EDIT, DELETE, APPROVE | circles, heads, category map, rate sets (APPROVE approves one), settings, special policies, penalty rules, templates, letterhead, notice table |
+| `TAX` | VIEW, CREATE, EDIT, DELETE, APPROVE, POST | tax files, demands, notices, surcharges, payments, fees, clearances. CREATE opens files (a mapped category, not exempt, no uplift), computes runs, prepares notices and charges fees; EDIT syncs files, keeps the details, reviews, confirms, serves and escalates notices, corrects opening arrears, issues a hand-made notice at once, runs the daily job; APPROVE approves demand and surcharge runs, sets overrides, holds, category and status, opens a file in a category the map does not give / exempt / with an uplift, sets amounts and Normal/Special on a hand-made notice, issues pending notices in bulk, applies the in-year surcharge, exempts or waives fees, reverses payments and issues clearances; POST receives payments and takes fee receipts; DELETE removes a party with no fee and an opening-arrears row not yet billed |
+| `TAX_SETUP` | VIEW, CREATE, EDIT, DELETE, APPROVE | circles, heads, category map, rate sets (APPROVE approves one), settings (EDIT also takes back a future value), special policies, penalty rules (versions; EDIT takes back a future one), templates, letterhead, notice table. DELETE removes a circle, head or policy nothing refers to |
 
-Setup lists are readable with `TAX.VIEW` or `TAX_SETUP.VIEW` (`TaxAuthorization.AnyTaxReader`). **Calls that read
+Setup lists, reports, the overview and the change history are readable with `TAX.VIEW` or `TAX_SETUP.VIEW`
+(`TaxAuthorization.AnyTaxReader`); `GET /attention` needs only a signed-in token and lists what the caller may act on. **Calls that read
 Property (open and sync a file, assign a town, map a property type) pass the caller's token on, so the caller also needs
 `PROPERTY.VIEW`.** Holidays and post holders are read from HRM the same way.
 
@@ -57,21 +58,24 @@ Taxation.Domain/
   Models/Demands    Demand (+ DemandLine, Arrears, Penalty), DemandRun, PenaltyRun, SurchargeRules
   Models/Notices    Notice (+ NoticeVariables, NoticeParticulars, NoticeChanges)
   Models/Payments   PsidSync, Payment (+ PaymentAllocation), Party, Fee, Clearance, SmsMessage
+  Models/Jobs       JobRun (the daily job's runs)       Models/Audit  AuditLog
   Services/         TaxCalculator (the annual computation), TaxFormula (safe formula parser), Numbers, PaymentQr,
-                    WorkCalendar, NoticeTable (the table of particulars)
+                    WorkCalendar, NoticeTable (the table of particulars), NoticeServices (NoticeLadder, FilePrefix)
 Taxation.Application/
   Features/<Area>/  commands, queries, validators and handlers per area (Setup, TaxFiles, Demands, Notices, Penalties,
-                    Payments, Fees with clearances and the report)
-  Services/         TaxSetup (configuration in force), Ledger (dues, per-item payments, carrying), Assessor,
-                    CodeIssuer, CalendarProvider, Messenger (SMS, reference syncs), NoticeComposer, TaxFileImporter
+                    Payments, Fees with clearances, Reports with the overview, Attention)
+  Services/         TaxSetup (configuration in force), Ledger (dues, per-item payments, carrying, credits, reversal),
+                    Assessor, CodeIssuer, CalendarProvider, Messenger (SMS, reference syncs), NoticeComposer,
+                    TaxFileImporter, NoticeEscalation, DueNotices, DailyJob (singleton)
   Abstractions/     IPropertyDirectory, IHrmDirectory, INumberSource, IFileStorage
 Taxation.Infrastructure/
   Data/Configuration/  EF mapping (SetupConfiguration, OperationsConfiguration)
+  Data/Interceptors/AuditLogInterceptor.cs   writes audit_log in the same save
   Data/Seed/TaxationSeeder.cs   Data/PostgresNumberSource.cs (the schema's sequences)
   Clients/ServiceClients.cs     PropertyServiceClient, HrmServiceClient, ForwardAuthorizationHandler
   Storage/LocalFileStorage      letterhead logos under FileStorage:RootPath
-Taxation.Api/  Endpoints/ (SetupEndpoints, TaxFileEndpoints, DemandNoticeEndpoints, MoneyEndpoints), TaxationExceptionHandler,
-               TaxAuthorization, LenientEnumConverter
+Taxation.Api/  Endpoints/ (SetupEndpoints, TaxFileEndpoints, DemandNoticeEndpoints, MoneyEndpoints, ReportEndpoints),
+               DailyJobService (hosted), TaxationExceptionHandler, TaxAuthorization, LenientEnumConverter
 src/Tests/Taxation.Domain.Tests/  xUnit, tests named after the rules
 ```
 
@@ -86,19 +90,34 @@ src/Tests/Taxation.Domain.Tests/  xUnit, tests named after the rules
 - **Heads.** Property tax (LTF formula, editable) and annual rent (from agreements) are built in. The admin defines other
   regular heads: calc BANDS / RATE / FIXED / FORMULA, applies to RES / COM / both, charged ALWAYS / from REGISTRATION / from
   a FACILITY date. Their rates live in the rate set; FORMULA heads keep the formula on the head, and the rate row only
-  names what QTY counts. A new head gets its own row on the notice table (a new layout version). OTHER heads are fees
-  and the charges a notice can add (`LEASE_MONEY`, `SECURITY`, `SURCHARGE`, `WHT_236A`, `MISC`). The codes in
-  `HeadCodes.System` are always seeded and cannot be deactivated.
+  names what QTY counts. Every head printed on a notice has its own row on the notice table (a new layout version when
+  one is added; there is no catch-all row). OTHER heads are either **fees** (charged case by case) or **charged on a
+  notice** (`charged_on_notice`: `LEASE_MONEY`, `SECURITY`, `SURCHARGE`, `WHT_236A`) - a fee cannot be charged with one of
+  those. `MISC` was removed (no "other" catch-all). The codes in `HeadCodes.System` are always seeded and cannot be
+  deactivated. A head nothing refers to can be deleted (`TAX_SETUP.DELETE`); `POST /tax-heads/preview` works a head out
+  for one file before it is saved. A rate set has `base_fiscal_year`: the increase compounds from that year (at most the
+  first year the set is used; existing sets took the year of their start).
+- **Circles.** The signing officer is the holder of the circle's TO staff row (the old `officer_post_id` became a staff
+  row). A town is taken out of a circle from a date (`end`) or, when assigned by mistake and unused, voided. A circle
+  nothing refers to can be deleted.
 - **Tax files.** `POST /tax-files {propertyId}` reads Property: property, area summary, measurements, building plans,
   owners (and their contacts and addresses), leases, rentals, allotments. It stores a basis row, the payers and the
   agreements. Details:
   - A = measured land in sq yd plus regularized area.
   - Covered area: the latest approved non-completion plan (converted with the unit's factor), else the measured built-up area.
   - BPA date = that plan's approval date; completion = the approved `COMPLETION_PLAN`.
-  - Category: from `category_map`, else RESIDENTIAL → RES and COMMERCIAL → COM by code, else it must be given.
+  - Category: from `category_map`, else RESIDENTIAL → RES and COMMERCIAL → COM by code, else it must be given. A category
+    the map does not give, EXEMPT, or an uplift needs `TAX.APPROVE`.
   - Addressee: the tenant, else the lessee, else the largest owner, else the allottee. It can be changed.
   - Issues the file no. (`GDA-<TOWN>-COM-001`) and the constant 1Link reference (`PSID_PREFIX` + a sequence, 12 digits).
   - `POST /tax-files/{id}/sync` writes a new basis only when the facts changed, closes and opens payers, and adds agreements.
+    It answers whether the basis changed, the category the map now gives and whether the property is still active; a
+    pending notice is re-addressed to the current addressee.
+  - Opening arrears (the old register's dues) are added before the first demand, corrected (`TAX.EDIT`) or removed
+    (`TAX.DELETE`) while not billed; a payment before the first demand settles them.
+  - An override or hold that has not started yet can be taken back (void).
+  - Concurrency: `tax_file` and the money rows carry `xmin`; a change to a file's children touches the file, and money
+    commands lock the file and its open demands (`SELECT … FOR UPDATE`) inside a transaction. A lost race is a 409.
 - **Computation** (`TaxCalculator`, pure):
   - A hold open on 1 July suspends the year; an exempt or closed file is not assessed.
   - Completion uplift: once the grace years after the BPA date have passed without a completion certificate (held days
@@ -114,49 +133,92 @@ src/Tests/Taxation.Domain.Tests/  xUnit, tests named after the rules
   - moves the unpaid balances of earlier years onto it as `arrears` rows by year and head (surcharges under SURCHARGE);
     the earlier demand becomes CARRIED with `carried_amount` / `carried_to_demand_id`;
   - bills any unbilled opening arrears of the old register;
-  - issues it, due on `DUE_DATE_DDMM` of the year;
-  - issues the FIRST notice with its SMS and records a reference sync.
+  - issues it, due on `DUE_DATE_DDMM` of the year, but never earlier than `DUE_DAYS_AFTER_ISSUE` (30) days after the day
+    it is issued;
+  - takes any credit on the file (paid beyond the charges after a correction) off it;
+  - issues the FIRST notice with its SMS (not for a file under a hold) and records a reference sync.
+
+  The approval answers the drafts issued under a hold without a notice, the drafts whose file changed since the run was
+  worked out (`stale`: still issued as worked out) and the credit carried.
 
   `GET /demand-runs/{id}/problems` works the run's scope out again (nothing is saved) and lists the files that could not
   be computed, with why - the run itself keeps only the count.
 - **Notices.**
   - Every notice is prepared PENDING with its variables pre-filled: payer, ID (old reference, else file no.), plot no.,
-    town short code, address line, days, paragraph, title and the circle's office lines, frozen on the notice.
-  - Review: printed fields change only with a reason (kept in `edited_fields`); payment method, paragraph / table and
-    columns can change too.
-  - Confirm (`TAX.EDIT`, or in bulk `TAX.APPROVE`) freezes the amount behind the reference, the table of particulars
-    (`notice.particulars`), the EMVCo QR and the signing officer (holder of the circle's officer post in HRM), and queues
-    the SMS.
-  - Escalation (`POST /notices/escalate`) prepares SECOND / FINAL / SHOW_CAUSE once their working-day count from the first
-    notice has passed, for years not yet over.
-  - A notice created by hand (`POST /tax-files/{id}/notices`) is issued on the year's demand, or creates it. It can switch
-    heads Normal / Special and add earlier dues and other charges by year and head (reason required). A year whose
-    balance was carried is refused with the year to use instead.
+    town short code, address line, days, paragraph, title and the circle's office lines, frozen on the notice. It gets
+    its endorsement no. only when confirmed (a cancelled pending notice uses none).
+  - Review: printed fields change only with a reason (kept in `edited_fields`); the notice date, the days to pay (the
+    pay-by date moves with them, in working days, unless one is given), the paragraph, payment method, paragraph / table
+    and columns can change too.
+  - Confirm (`TAX.EDIT`, or in bulk `TAX.APPROVE`; bulk issues ladder notices only and answers the ones it skipped)
+    freezes the amount behind the reference, the table of particulars (`notice.particulars`), the EMVCo QR and the
+    signing officer (holder of the circle's TO post in HRM), and queues the SMS. A ladder notice confirmed late is
+    re-dated to the day of confirmation.
+  - Escalation (`POST /notices/escalate`, `NoticeEscalation`) prepares the stage after the highest one reached
+    (cancelled ones count) once its working-day count from the first notice has passed, for years not yet over; FIRST
+    when a demand has none. The daily job does the same.
+  - A notice created by hand (`POST /tax-files/{id}/notices`) is issued on the year's demand, or creates it (that, the
+    amounts and Normal / Special need `TAX.APPROVE`; issuing at once needs `TAX.EDIT`). It can add earlier dues and the
+    charges a notice carries by year and head (reason required). A year not started yet, a closed file and a year whose
+    balance was carried are refused; a SURCHARGE notice needs an in-year surcharge on the year; the notice date is never
+    before the demand's issue.
 - **Penalties.** The year-end rule (10 %) applies once to every issued demand still owing after 30 June of its year; the
   demand becomes DEFAULTED. It runs from `POST /penalties/year-end` and at the start of every demand run. The in-year
   surcharge is previewed and applied by the Section: defaulters only (carrying arrears) or all unpaid, on the balance or
   the arrears part, once the rule's period has run. It adds a penalty, a SURCHARGE notice (pending) and a reference sync.
 - **Payments** (`POST /payments`, `TAX.POST`):
   - Posted against the reference, settled oldest year first and item by item: arrears rows, then this year's lines,
-    then surcharges. Each piece is a `payment_allocation` row with its head.
-  - 1Link / QR / online payments need the bank's `transactionRef`, and posting the same one twice changes nothing. Cash
-    and bank counter need a receipt no. (MR-00001 is issued when not given). Not more than is due.
+    then surcharges; before the first demand, the unbilled opening arrears. Each piece is a `payment_allocation` row with
+    its head. The payer's name is kept on the payment as on the day.
+  - 1Link / QR / online payments need the bank's `transactionRef`, and posting the same one twice changes nothing
+    (filtered unique index). Cash and bank counter need a receipt no. (MR-00001 is issued when not given; unique). Not
+    more than is due; not dated before the file was opened.
   - SMS and reference sync after each payment.
+  - **Reversal** (`POST /payments/{id}/reverse {reason}`, `TAX.APPROVE`): a bounced cheque or a wrong reference. What it
+    settled is owed again (a carried year's share goes back onto the demand it was carried into), the receipt stays,
+    marked reversed, and a REVERSAL reference sync is recorded. A fee receipt's fee returns to due. Refunds are not built
+    (Accounts).
+  - The register filters by kind (dues / fee receipt), status, who took it, circle, party, fee, channel and dates, and
+    searches receipt, transaction, reference, file no. and payer.
 - **Fees and clearances.** A fee is quoted from the rate set in force: a flat amount, a rate per unit (from a band
   table when there is one), a percentage of a value, or the non-utilization fee of a plan extension (months / 12). A
-  file's town and category rows win over general rows. A paid water connection fee sets the WATER facility date. A
-  clearance is issued only when nothing is behind the reference; valid `CLEARANCE_VALID_DAYS`; `GET /clearances/{id}`
-  reads one (the certificate page). A party's CNIC of 13 digits is kept dashed as Property keeps it (`Guard.CnicNtn`), an
+  file's town and category rows win over general rows; a band's amount is rounded up as the rate set says. A fee is
+  paid by a receipt (`POST /fees/{id}/pay`: a fee-kind payment with its MR- receipt, `TAX.POST`), can be charged and paid
+  in one go (`payNow`) or charged exempt with a reason (`TAX.APPROVE`). A paid water connection fee sets the WATER
+  facility date. A clearance is issued only when nothing is behind the reference and no fee on the file is due; valid
+  `CLEARANCE_VALID_DAYS` counting the day of issue; it keeps the payer's name; used once (`consume`, who and when kept) or
+  revoked. A party can be deactivated (no new fee) or, with no fee ever, deleted. A party's CNIC of 13 digits is kept dashed as Property keeps it (`Guard.CnicNtn`), an
   NTN as typed; the parties search finds a CNIC or mobile however its dashes were typed.
 - **Searches.** The payments register finds a payment by receipt, transaction, reference (typed with or without the
   spaces it is printed with) or the file no.; the notices register by notice / endorsement no., reference, file no. or
   the payer of its demand.
-- **No 1Link connector and no SMS gateway exist yet**: reference syncs stay PENDING and SMS stay QUEUED.
+- **No 1Link connector and no SMS gateway exist yet**: reference syncs stay PENDING and SMS stay QUEUED (the bell
+  counts both).
+- **Daily job** (`DailyJob`, run by `DailyJobService` every 15 minutes once the day's hour has come, once a day): applies
+  the year-end surcharge to years that are over and prepares the notices that fall due (`NoticeEscalation`). Each run is
+  a `job_run` row (RUNNING / DONE / FAILED, counts, summary). `GET /daily-job` lists the recent runs; `POST
+  /daily-job/run` (`TAX.EDIT`) runs it now.
+- **Attention** (`GET /attention`, any signed-in user, only the queues the caller may act on): `runs.computed`,
+  `runs.problems`, `notices.pending`, `notices.unserved`, `notices.due`, `demands.overdue`, `demands.defaulted`,
+  `yearend.pending`, `surcharge.due`, `clearances.expiring`, `fees.due`, `references.failed`, `references.pending`,
+  `sms.queued`, `ratesets.draft`, `setup.blocking`. Each count matches a register filter (`/demands?overdue=true`,
+  `?noticeDue=true`, `?yearEndDue=true`, `/demand-runs?status=COMPUTED`, `/reference-syncs?status=`, `/sms-messages?status=`,
+  `/clearances?expiringWithinDays=7`).
+- **Overview and reports** (`ReportEndpoints`): `GET /tax-overview?fiscalYear=` (files, the year's demands by status,
+  demanded / recovered / owed, by circle, by month taxes and fees in Pakistan time, by head, notices, fees, clearances,
+  largest balances, the in-year surcharge due, the last daily job), `GET /tax-reports/collection`, `/by-head`,
+  `/by-circle-town`, `/arrears` (paged), `/collection-by-period?from&to&groupBy=day|month`; `GET /penalties` lists
+  surcharges and `GET /penalty-runs/{id}` one run with its surcharges and notices.
+- **Change history** (`audit_log`, `AuditLogInterceptor`): every change to the configuration and to the decisions on
+  files and money (overrides, holds, payments, fees, clearances, parties, opening arrears) is written in the same save,
+  with who, when and the changed values before and after. Bulk run output (demands, lines, notices, syncs, SMS) carries
+  its own who and when instead. `GET /audit-log?entity&entityId&taxFileId&userId&from&to`.
 
 ## Seeds (`TaxationSeeder`)
 
-- **Always ensured:** the system heads, a template for each notice stage, the two penalty rules (in-year 2 % after
-  3 months for defaulters; year-end 10 %), a letterhead and a notice table layout (the Section's 2nd notice of 16/09/2026).
+- **Always ensured:** the system heads (the notice charges marked `charged_on_notice`; `MISC` retired when unused), a
+  template for each notice stage, the two penalty rules (in-year 2 % after 3 months for defaulters; year-end 10 %), a
+  letterhead and a notice table layout (the Section's 2nd notice of 16/09/2026) with a row for every head a notice carries.
 - **First run only:**
   - circles C-I and C-II with their office lines;
   - conservancy, water and the fee heads;
@@ -164,7 +226,7 @@ src/Tests/Taxation.Domain.Tests/  xUnit, tests named after the rules
   - the Section's five special-policy proposals, inactive;
   - a DRAFT rate set "Initial tariff (BOA 15.06.2023)" from 1 Jul 2025 with the conservancy, water and fee rates.
 - Not seeded: towns and locality factors (assign towns, enter their factors, approve the set), the transfer fee (per
-  town), category mappings beyond the two defaults, the circles' officer posts.
+  town), category mappings beyond the two defaults, the circles' TO / Tc staff posts.
 
 ## Patterns to follow
 
@@ -184,7 +246,11 @@ src/Tests/Taxation.Domain.Tests/  xUnit, tests named after the rules
 ## Database and migrations
 
 - The service migrates and seeds on startup (`Database:AutoMigrate`, on in Development).
-- One migration so far: `InitialTaxationSchema`.
+- Migrations: `InitialTaxationSchema`; `TaxationFixesOct2026` (xmin tokens, payment kind / payer / reversal columns,
+  fee receipt link, clearance payer / consumed-by / revoked-by, `charged_on_notice`, `base_fiscal_year`, penalty rule
+  versions keyed by code and date, filtered unique transaction ref / receipt no., `job_run`, `audit_log`; data: the
+  circles' officer posts became TO staff rows, `base_fiscal_year` = the FY of each set's start, `MAN-` refs cleared,
+  fee source `MISC` cleared, `charged_on_notice` set on the system notice heads).
 - New migration (from `src/`):
   `dotnet ef migrations add <Name> -p Services/Taxation/Taxation.Infrastructure -s Services/Taxation/Taxation.Api -o Data/Migrations`.
   It needs an SDK with the ASP.NET Core runtime.
@@ -195,7 +261,11 @@ src/Tests/Taxation.Domain.Tests/  xUnit, tests named after the rules
 - `Services:PropertyBaseUrl` (`http://localhost:5141`; compose `http://poperty-management-api:8080`) and
   `Services:HrmBaseUrl` (`http://localhost:5144`; compose `http://hrm-api:8080`), `Services:TimeoutSeconds` (20).
 - `FileStorage:RootPath`: `storage` by default (gitignored). In compose it is the `taxation-files` volume.
-- Settings that change with Board decisions are data (`/tax-settings`, effective-dated), not configuration.
+- Settings that change with Board decisions are data (`/tax-settings`, effective-dated; a value from a later date can be
+  taken back, `DELETE /tax-settings/{key}/{effectiveFrom}`; `GET /tax-settings/{key}/history`), not configuration. A
+  save that changes nothing makes no new version (settings, penalty rules, policies).
+- `Taxation:DailyJob:Enabled` (true) and `Taxation:DailyJob:HourPkt` (6): the daily job and the hour, Pakistan time,
+  from which it runs.
 
 ## Testing
 
@@ -217,5 +287,11 @@ taxation-api.e2e.mjs` and `taxation-ui.e2e.mjs`) drive the whole contract on sta
 - Once a demand is paid up, the notice context proposes FIRST again for the next notice on it.
 - `PenaltyRuleInput.RateSetId` is a plain `Guid?` (the handler converts it); a strongly typed id there made System.Text.Json
   refuse the request ("wrong type or format").
+- Penalty rules are versions per code (`penalty_rule_code_effective_from_key`): `PUT /penalty-rules/{id} {rule,
+  effectiveFrom}` adds one from a date; `GET /penalty-rules?history=true` lists them; a later one is taken back with
+  `DELETE /penalty-rules/{id}`. Surcharges keep the rule version they were applied with.
+- System.Text.Json cannot key a dictionary by an enum read with `LenientEnumConverter` - return lists. EF cannot translate
+  `IReadOnlySet.Contains` or an enum-array `Contains` with a converter - use a `List` or explicit ORs.
+- An interpolated string cannot hold `global::` (the colon starts a format) - use a local.
 - Notice letterhead and table layout are versions; a change on the same day as the version in force replaces it (the
   replaced row ends the day before it starts and is never picked again; issued notices keep theirs).

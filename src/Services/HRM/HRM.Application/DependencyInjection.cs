@@ -23,6 +23,10 @@ public static class DependencyInjection
     services.AddSingleton(TimeProvider.System);
     services.AddSingleton<IClock, PakistanClock>();
 
+    services.AddScoped<HrmSettings>();
+    services.AddScoped<ChangeLog>();
+    services.AddScoped<PayrollImpactFinder>();
+    services.AddScoped<HrActionChecks>();
     services.AddScoped<CodeIssuer>();
     services.AddScoped<HrLookup>();
     services.AddScoped<ServiceRecordReader>();

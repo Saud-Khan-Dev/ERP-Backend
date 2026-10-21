@@ -1,6 +1,5 @@
 using FluentValidation;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Options;
 
 public enum EmployeeSort
 {
@@ -14,7 +13,10 @@ public sealed record GetEmployeesQueryResult(PaginatedResult<EmployeeListItemDto
 
 /// The employee register. Search matches part of the number or name, or the CNIC (with or without dashes). Unit,
 /// designation, grade and post filter on where the employee sits today (the unit includes its sub-units unless
-/// IncludeSubUnits=false). RetiringWithinMonths: superannuation falls within that many months from today.
+/// IncludeSubUnits=false). RetiringWithinMonths: people in service whose superannuation falls within that many months
+/// (those already past it included). InService: true = in service, false = left service. TermEndingWithinDays: the
+/// contract / deputation term of people in service ends within that many days (already ended included).
+/// WithoutDateOfBirth / PastRetirement: in service and no date of birth / past the retirement age.
 public sealed record GetEmployeesQuery(
   PaginationRequest Pagination,
   string? Search = null,
@@ -30,7 +32,12 @@ public sealed record GetEmployeesQuery(
   bool? Unplaced = null,
   int? RetiringWithinMonths = null,
   EmployeeSort SortBy = EmployeeSort.Number,
-  bool SortDescending = false) : IQuery<Result<GetEmployeesQueryResult>>;
+  bool SortDescending = false,
+  bool? InService = null,
+  int? TermEndingWithinDays = null,
+  bool? WithoutDateOfBirth = null,
+  bool? PastRetirement = null,
+  bool? IncrementOverdue = null) : IQuery<Result<GetEmployeesQueryResult>>;
 
 public sealed record GetEmployeeQueryResult(EmployeeDto Employee);
 
@@ -49,6 +56,7 @@ public class GetEmployeesQueryValidator : AbstractValidator<GetEmployeesQuery>
     RuleFor(x => x.Pagination.Pageindex).GreaterThanOrEqualTo(0);
     RuleFor(x => x.Pagination.PageSize).InclusiveBetween(1, 200);
     RuleFor(x => x.RetiringWithinMonths).InclusiveBetween(0, 600).When(x => x.RetiringWithinMonths.HasValue);
+    RuleFor(x => x.TermEndingWithinDays).InclusiveBetween(0, 3660).When(x => x.TermEndingWithinDays.HasValue);
   }
 }
 
@@ -57,7 +65,7 @@ public class EmployeeQueryHandlers(
   HrLookup lookup,
   CodeIssuer codes,
   FileUploads files,
-  IOptions<HrmOptions> options,
+  HrmSettings settings,
   IClock clock) :
   IQueryHandler<GetEmployeesQuery, Result<GetEmployeesQueryResult>>,
   IQueryHandler<GetEmployeeQuery, Result<GetEmployeeQueryResult>>,
@@ -67,7 +75,8 @@ public class EmployeeQueryHandlers(
   public async Task<Result<GetEmployeesQueryResult>> Handle(GetEmployeesQuery query, CancellationToken cancellationToken)
   {
     var today = clock.Today;
-    var retirementAge = options.Value.RetirementAge;
+    var retirementAge = settings.RetirementAge;
+    var inService = EmploymentStatuses.InService;
     var employees = context.Employees.AsNoTracking();
 
     if (!query.IncludeInactive)
@@ -91,11 +100,28 @@ public class EmployeeQueryHandlers(
         || (cnic != null && e.Cnic == cnic));
     }
 
+    if (query.InService is { } serving)
+      employees = serving ? employees.Where(e => inService.Contains(e.EmploymentStatus)) : employees.Where(e => !inService.Contains(e.EmploymentStatus));
     if (query.RetiringWithinMonths is { } months)
     {
+      // in service and due within the months - those already past the age (not separated yet) included
       var latestBirth = today.AddYears(-retirementAge).AddMonths(months);
-      var earliestBirth = today.AddYears(-retirementAge);
-      employees = employees.Where(e => e.DateOfBirth != null && e.DateOfBirth >= earliestBirth && e.DateOfBirth <= latestBirth);
+      employees = employees.Where(e => inService.Contains(e.EmploymentStatus) && e.DateOfBirth != null && e.DateOfBirth <= latestBirth);
+    }
+    if (query.PastRetirement == true)
+    {
+      var latestBirth = today.AddYears(-retirementAge);
+      employees = employees.Where(e => inService.Contains(e.EmploymentStatus) && e.DateOfBirth != null && e.DateOfBirth <= latestBirth);
+    }
+    if (query.WithoutDateOfBirth == true)
+      employees = employees.Where(e => inService.Contains(e.EmploymentStatus) && e.DateOfBirth == null);
+    if (query.IncrementOverdue == true)
+      employees = employees.Where(e => inService.Contains(e.EmploymentStatus) && e.EmploymentStatus != EmploymentStatus.Suspended
+        && context.PayRecords.Any(p => p.EmployeeId == e.Id && p.EffectiveTo == null && p.NextIncrementDate != null && p.NextIncrementDate < today));
+    if (query.TermEndingWithinDays is { } days)
+    {
+      var until = today.AddDays(days);
+      employees = employees.Where(e => inService.Contains(e.EmploymentStatus) && e.TermTo != null && e.TermTo <= until);
     }
 
     // where they sit today
@@ -159,8 +185,8 @@ public class EmployeeQueryHandlers(
 
     var data = page.Select(e => new EmployeeListItemDto(
       e.Id.Value, e.EmployeeNumber, e.DisplayName, e.Cnic, e.Gender, e.DateOfBirth, e.EmploymentType, e.EmploymentMethod, e.EmploymentStatus,
-      e.ProfileStatus, e.UserId, placed.GetValueOrDefault(e.Id.Value)?.ToDto(), e.SuperannuationDate(retirementAge),
-      mobiles.GetValueOrDefault(e.Id.Value), e.CreatedAt)).ToList();
+      e.ProfileStatus, e.UserId, placed.GetValueOrDefault(e.Id.Value)?.ToDto(), settings.SuperannuationDate(e),
+      mobiles.GetValueOrDefault(e.Id.Value), e.CreatedAt, e.TermTo, !e.HasLeftService)).ToList();
 
     return Result<GetEmployeesQueryResult>.Success(new(new PaginatedResult<EmployeeListItemDto>(query.Pagination.Pageindex, query.Pagination.PageSize, total, data)));
   }
@@ -191,13 +217,13 @@ public class EmployeeQueryHandlers(
       employee.Id.Value, employee.EmployeeNumber, employee.FirstName, employee.MiddleName, employee.LastName, employee.DisplayName,
       employee.Cnic, employee.DateOfBirth, employee.Gender, employee.Nationality, employee.MaritalStatus, employee.BloodGroup,
       employee.EmploymentType, employee.EmploymentMethod, employee.ProjectId, employee.EmploymentStatus, employee.ProfileStatus,
-      employee.UserId, employee.PhotoReference is not null, employee.SuperannuationDate(options.Value.RetirementAge), firstEntry ?? firstPost,
+      employee.UserId, employee.PhotoReference is not null, settings.SuperannuationDate(employee), firstEntry ?? firstPost,
       placement?.ToDto(), currentPay,
       employee.Contacts.OrderBy(c => c.ContactType).ThenByDescending(c => c.IsPrimary).Select(c => c.ToDto()).ToList(),
       employee.Addresses.OrderBy(a => a.AddressType).Select(a => a.ToDto()).ToList(),
       employee.EmergencyContacts.Select(c => c.ToDto()).ToList(),
       employee.FamilyMembers.Select(m => m.ToDto()).ToList(),
-      employee.CreatedAt, employee.UpdatedAt);
+      employee.CreatedAt, employee.UpdatedAt, employee.TermFrom, employee.TermTo, employee.LendingDepartment, !employee.HasLeftService);
 
     return Result<GetEmployeeQueryResult>.Success(new(dto));
   }
@@ -229,6 +255,7 @@ public class EmployeeQueryHandlers(
     var stage = await context.PayScaleStages.AsNoTracking().FirstAsync(s => s.Id == record.PayScaleStageId, cancellationToken);
     var scale = await context.PayScaleVersions.AsNoTracking().FirstAsync(v => v.Id == stage.PayScaleVersionId, cancellationToken);
     var bps = await context.PayScaleGrades.AsNoTracking().Where(g => g.Id == scale.GradeId).Select(g => g.BpsNumber).FirstAsync(cancellationToken);
-    return new CurrentPayDto(record.Id.Value, bps, scale.VersionLabel, stage.StageNumber, record.BasicPay, record.EffectiveFrom, record.NextIncrementDate);
+    return new CurrentPayDto(record.Id.Value, bps, scale.VersionLabel, stage.StageNumber, record.BasicPay, record.EffectiveFrom, record.NextIncrementDate,
+      record.IsIncrementOverdue(date), record.IncrementDeferredDays);
   }
 }

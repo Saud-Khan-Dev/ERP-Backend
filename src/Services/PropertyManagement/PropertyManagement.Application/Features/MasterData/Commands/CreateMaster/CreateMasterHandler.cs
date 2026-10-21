@@ -5,6 +5,10 @@ public class CreateMasterHandler(IApplicationDbContext context)
   {
     var descriptor = MasterRegistry.Get(command.Type);
     var input = command.Item;
+    if (descriptor.ReadOnly)
+      return Result<CreateMasterCommandResult>.Failure(
+        $"{descriptor.Label} values are set by the system's own acts, so a new one could never be used. Rename an existing value instead.");
+
     var code = MasterCode.Of(input.Code);
 
     if (await descriptor.CodeExistsAsync(context, code, cancellationToken))

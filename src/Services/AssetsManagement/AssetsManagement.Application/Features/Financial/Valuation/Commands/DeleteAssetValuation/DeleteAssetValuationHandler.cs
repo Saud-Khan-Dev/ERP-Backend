@@ -8,8 +8,11 @@ public class DeleteAssetValuationHandler(IApplicationDbContext context)
     var assetId = AssetId.Of(command.AssetId);
     var valuationId = AssetValuationId.Of(command.ValuationId);
 
+    var asset = await AssetRecordGuard.LoadAsync(context, assetId, track: false, cancellationToken);
+    await AssetRecordGuard.EnsureOpenAsync(context, asset, cancellationToken);
+
     var valuation = await context.AssetValuations.FirstOrDefaultAsync(v => v.Id == valuationId && v.AssetId == assetId, cancellationToken)
-      ?? throw new AssetValuationNotFoundException($"Valuation {command.ValuationId} was not found on asset {command.AssetId}.");
+      ?? throw new AssetValuationNotFoundException("That valuation was not found on this asset.");
 
     context.AssetValuations.Remove(valuation);
     await context.SaveChangesAsync(cancellationToken);

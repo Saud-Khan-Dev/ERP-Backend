@@ -1,16 +1,13 @@
-/// Route requirements that the shared .RequirePermission(code) does not cover.
+/// Permission sets several Taxation routes accept (used with the shared `.RequireAnyPermission(...)`).
 public static class TaxAuthorization
 {
   /// Anyone working in Taxation may read its configuration (heads, policies, templates, circles): the notice and
   /// assessment screens label everything with it.
   public static readonly string[] AnyTaxReader = [PermissionCatalog.Tax.View, PermissionCatalog.TaxSetup.View];
 
-  /// The caller needs at least one of the permissions (401 without a token, 403 without any of them).
-  public static RouteHandlerBuilder RequireAnyPermission(this RouteHandlerBuilder builder, params string[] permissionCodes) =>
-      builder
-        .RequireAuthorization(policy => policy
-          .RequireAuthenticatedUser()
-          .RequireAssertion(context => permissionCodes.Any(code => context.User.HasClaim(ErpClaimTypes.Permission, code))))
-        .Produces(StatusCodes.Status401Unauthorized)
-        .Produces(StatusCodes.Status403Forbidden);
+  /// Reading a clearance certificate: Taxation, and Property's officers who check one before a transfer or a plan.
+  public static readonly string[] ClearanceReader = [PermissionCatalog.Tax.View, PermissionCatalog.Property.Approve];
+
+  /// Using up a clearance: Taxation's approvers, and Property's officers when the transfer or plan is approved with it.
+  public static readonly string[] ClearanceConsumer = [PermissionCatalog.Tax.Approve, PermissionCatalog.Property.Approve];
 }

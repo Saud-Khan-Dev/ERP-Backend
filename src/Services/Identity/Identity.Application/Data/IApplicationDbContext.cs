@@ -7,7 +7,6 @@ public interface IApplicationDbContext
   DbSet<Session> Sessions { get; }
   DbSet<LoginAttempt> LoginAttempts { get; }
   DbSet<AdminActivity> AdminActivities { get; }
-  DbSet<EmployeeCodeTemplate> EmployeeCodeTemplates { get; }
   DbSet<SecuritySettings> SecuritySettings { get; }
 
   // ---- authorization ----

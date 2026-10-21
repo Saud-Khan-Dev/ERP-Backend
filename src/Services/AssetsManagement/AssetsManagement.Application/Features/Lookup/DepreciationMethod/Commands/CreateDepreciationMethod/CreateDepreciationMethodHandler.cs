@@ -11,10 +11,10 @@ public class CreateDepreciationMethodHandler(IApplicationDbContext context)
     if (await context.DepreciationMethods.AnyAsync(m => m.Code == code, cancellationToken))
       return Result<CreateDepreciationMethodCommandResult>.Failure($"A depreciation method with code {code.Value} already exists.");
 
-    var method = DepreciationMethod.Create(DepreciationMethodId.Of(Guid.NewGuid()), code, Name.Of(input.Name, 100), input.Description);
+    var method = DepreciationMethod.Create(DepreciationMethodId.Of(Guid.NewGuid()), code, Name.Of(input.Name, 100), input.Description, input.Kind);
 
     if (!input.IsActive)
-      method.Update(code, Name.Of(input.Name, 100), input.Description, false);
+      method.Update(code, Name.Of(input.Name, 100), input.Description, input.Kind, false, inUse: false);
 
     await context.DepreciationMethods.AddAsync(method, cancellationToken);
     await context.SaveChangesAsync(cancellationToken);

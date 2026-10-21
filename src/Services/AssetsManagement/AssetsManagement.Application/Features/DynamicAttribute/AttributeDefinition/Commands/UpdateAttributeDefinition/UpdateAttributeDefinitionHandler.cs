@@ -1,40 +1,41 @@
 using Microsoft.EntityFrameworkCore;
 
-public class UpdateAttributeDefinitionHandler(IApplicationDbContext context)
+public class UpdateAttributeDefinitionHandler(IApplicationDbContext context, IAssetDataQueries queries)
   : ICommandHandler<UpdateAttributeDefinitionCommand, Result<UpdateAttributeDefinitionCommandResult>>
 {
   public async Task<Result<UpdateAttributeDefinitionCommandResult>> Handle(UpdateAttributeDefinitionCommand command, CancellationToken cancellationToken)
   {
     var id = AttributeDefinitionId.Of(command.Id);
     var definition = await context.AttributeDefinitions.FirstOrDefaultAsync(d => d.Id == id, cancellationToken)
-      ?? throw new AttributeDefinitionNotFoundException($"Attribute definition {command.Id} was not found.");
+      ?? throw new AttributeDefinitionNotFoundException("That field was not found.");
 
     var input = command.Definition;
     var code = AttributeCode.Of(input.Code);
-    var hasValues = await context.AssetAttributeValues.AnyAsync(v => v.AttributeDefinitionId == id, cancellationToken)
+    // values are kept in the assets' own details (deleted assets included), not only in the filter rows
+    var hasValues = (await queries.AssetsHoldingAsync([definition.Code.Value], cancellationToken)).Count > 0
                     || await context.AssetAttributeHistories.AnyAsync(h => h.AttributeDefinitionId == id, cancellationToken);
 
     if (definition.Code != code)
     {
       // the code is the JSONB key inside asset.extra_attributes: immutable once assets hold values
       if (hasValues)
-        return Result<UpdateAttributeDefinitionCommandResult>.Failure($"Attribute code '{definition.Code.Value}' cannot be changed because assets already hold values for it.");
+        return Result<UpdateAttributeDefinitionCommandResult>.Failure($"The code of '{definition.Name.Value}' cannot change: assets already hold values for it.");
 
       if (await context.AttributeDefinitions.AnyAsync(d => d.Id != id && d.Code == code, cancellationToken))
-        return Result<UpdateAttributeDefinitionCommandResult>.Failure($"An attribute with code {code.Value} already exists.");
+        return Result<UpdateAttributeDefinitionCommandResult>.Failure("Another field already uses this code.");
 
       definition.Rename(code);
     }
 
     if (hasValues && definition.DataType != input.DataType)
-      return Result<UpdateAttributeDefinitionCommandResult>.Failure("The data type cannot be changed because assets already hold values for this attribute.");
+      return Result<UpdateAttributeDefinitionCommandResult>.Failure($"What '{definition.Name.Value}' takes (text, number, date …) cannot change: assets already hold values for it.");
 
     OptionSetId? optionSetId = null;
     if (input.OptionSetId.HasValue)
     {
       optionSetId = OptionSetId.Of(input.OptionSetId.Value);
       if (!await context.OptionSets.AnyAsync(o => o.Id == optionSetId, cancellationToken))
-        throw new OptionSetNotFoundException($"Option set {input.OptionSetId} was not found.");
+        throw new OptionSetNotFoundException("The list of choices was not found.");
     }
 
     definition.Update(

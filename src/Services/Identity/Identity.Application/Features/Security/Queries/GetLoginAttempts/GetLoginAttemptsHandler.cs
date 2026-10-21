@@ -22,11 +22,21 @@ public class GetLoginAttemptsHandler(IApplicationDbContext context)
     if (query.Succeeded.HasValue)
       attempts = attempts.Where(a => a.Succeeded == query.Succeeded.Value);
 
-    if (query.From.HasValue)
-      attempts = attempts.Where(a => a.AttemptedAt >= query.From.Value);
+    if (!string.IsNullOrWhiteSpace(query.Reason) && SignInFailureReasons.Texts.TryGetValue(query.Reason, out var texts))
+      attempts = attempts.Where(a => !a.Succeeded && a.FailureReason != null && texts.Contains(a.FailureReason));
 
-    if (query.To.HasValue)
-      attempts = attempts.Where(a => a.AttemptedAt <= query.To.Value);
+    // a date without a zone is read as UTC (the screens send UTC)
+    if (query.From is { } from)
+    {
+      var since = AsUtc(from);
+      attempts = attempts.Where(a => a.AttemptedAt >= since);
+    }
+
+    if (query.To is { } to)
+    {
+      var until = AsUtc(to);
+      attempts = attempts.Where(a => a.AttemptedAt <= until);
+    }
 
     var totalCount = await attempts.LongCountAsync(cancellationToken);
 
@@ -41,4 +51,7 @@ public class GetLoginAttemptsHandler(IApplicationDbContext context)
         query.Pagination.Pageindex, query.Pagination.PageSize, totalCount,
         page.Select(a => a.ToDto()).ToList())));
   }
+
+  private static DateTime AsUtc(DateTime value) =>
+    value.Kind == DateTimeKind.Utc ? value : value.Kind == DateTimeKind.Local ? value.ToUniversalTime() : DateTime.SpecifyKind(value, DateTimeKind.Utc);
 }

@@ -14,7 +14,7 @@ public class ResolveAttributeSchemaHandler(IApplicationDbContext context, IAttri
     {
       assetId = AssetId.Of(query.AssetId.Value);
       var asset = await context.Assets.AsNoTracking().FirstOrDefaultAsync(a => a.Id == assetId, cancellationToken)
-        ?? throw new AssetNotFoundException($"Asset {query.AssetId} was not found.");
+        ?? throw new AssetNotFoundException("This asset was not found. It may have been deleted.");
 
       classId = asset.AssetClassId;
       typeId = asset.AssetTypeId;
@@ -28,10 +28,16 @@ public class ResolveAttributeSchemaHandler(IApplicationDbContext context, IAttri
       if (categoryId is not null)
       {
         var category = await context.AssetCategories.AsNoTracking().FirstOrDefaultAsync(c => c.Id == categoryId, cancellationToken)
-          ?? throw new AssetCategoryNotFoundException($"Asset category {query.CategoryId} was not found.");
+          ?? throw new AssetCategoryNotFoundException("The category was not found.");
 
         classId = category.AssetClassId;
-        typeId ??= category.AssetTypeId;
+        typeId = category.AssetTypeId;
+      }
+      else if (typeId is not null)
+      {
+        var type = await context.AssetTypes.AsNoTracking().FirstOrDefaultAsync(t => t.Id == typeId, cancellationToken)
+          ?? throw new AssetTypeNotFoundException("The asset type was not found.");
+        classId = type.AssetClassId;
       }
       else
       {

@@ -13,6 +13,8 @@ public class DeleteCurrency : ICarterModule
 
       return Results.Ok(result.Value.Adapt<DeleteCurrencyResponse>());
     })
+      .RequirePermission(PermissionCatalog.AssetTaxonomy.Delete)
+
       .WithName("DeleteCurrency")
       .Produces<DeleteCurrencyResponse>(StatusCodes.Status200OK)
       .ProducesProblem(StatusCodes.Status400BadRequest)

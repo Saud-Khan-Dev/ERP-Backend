@@ -9,6 +9,8 @@ public class GetAssetAttachments : ICarterModule
       var result = await sender.Send(new GetAssetAttachmentsQuery(id, attachmentType));
       return Results.Ok(new GetAssetAttachmentsResponse(result.Value!.Attachments));
     })
+      .RequirePermission(PermissionCatalog.Assets.View)
+
       .WithName("GetAssetAttachments")
       .Produces<GetAssetAttachmentsResponse>(StatusCodes.Status200OK)
       .ProducesProblem(StatusCodes.Status404NotFound)

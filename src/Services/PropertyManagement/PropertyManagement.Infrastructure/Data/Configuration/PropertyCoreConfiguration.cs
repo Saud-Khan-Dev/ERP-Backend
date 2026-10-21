@@ -25,6 +25,9 @@ public class PropertyConfiguration : EntityConfiguration<Property, PropertyId>
     builder.Property(x => x.AddressLine).HasMaxLength(300);
     builder.Property(x => x.KhasraSurveyNo).HasMaxLength(100);
     builder.Property(x => x.IsActive).IsRequired().HasDefaultValue(true);
+    builder.Property(x => x.DeactivatedOn);
+    builder.Property(x => x.DeactivationReason);
+    builder.HasXminRowVersion();
 
     builder.HasIndex(x => x.PropertyCode).IsUnique();
     builder.HasIndex(x => x.TownId);
@@ -116,7 +119,9 @@ public class PropertyAreaRegularizationConfiguration : EntityConfiguration<Prope
     builder.Property(x => x.AdditionalAreaBase).HasPrecision(18, 4);
     builder.Property(x => x.RegularizationStatus).HasUpperSnakeEnum().IsRequired();
     builder.Property(x => x.OrderReferenceNo).HasMaxLength(100);
-    builder.Property(x => x.ApprovedBy).HasMaxLength(150);
+    builder.Property(x => x.ApprovedBy).HasMaxLength(PropertyAreaRegularization.ApprovedByMaxLength);
+    // the approving officer's HRM employee id (another service, so no database FK)
+    builder.Property(x => x.ApprovedByEmployeeId);
     builder.Property(x => x.IsActive).IsRequired().HasDefaultValue(true);
 
     builder.HasIndex(x => x.PropertyId);

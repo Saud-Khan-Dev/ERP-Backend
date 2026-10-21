@@ -53,6 +53,14 @@ public sealed record PropertyFilterParameters(
   [FromQuery(Name = "hasOpenEncroachment")] bool? HasOpenEncroachment = null,
   [FromQuery(Name = "hasOpenCase")] bool? HasOpenCase = null,
   [FromQuery(Name = "steepSlope")] bool? SteepSlope = null,
+  [FromQuery(Name = "transferPending")] bool? TransferPending = null,
+  [FromQuery(Name = "allotted")] bool? Allotted = null,
+  [FromQuery(Name = "agreementInForce")] bool? AgreementInForce = null,
+  [FromQuery(Name = "hasHolder")] bool? HasHolder = null,
+  [FromQuery(Name = "charged")] bool? Charged = null,
+  [FromQuery(Name = "disputed")] bool? Disputed = null,
+  [FromQuery(Name = "measured")] bool? Measured = null,
+  [FromQuery(Name = "hasBoundary")] bool? HasBoundary = null,
   [FromQuery(Name = "sortBy")] string? SortBy = null,
   [FromQuery(Name = "sortDir")] string? SortDir = null)
 {
@@ -63,6 +71,7 @@ public sealed record PropertyFilterParameters(
     return new(
       pagination, Search, TownId, PropertyTypeId, PropertyStatusId, PropertyClassificationId, IncludeInactive ?? false,
       RegisteredFrom, RegisteredTo, AreaMin, AreaMax, OwnerId, HasOpenEncroachment, HasOpenCase,
-      sort, PropertyQueryParsing.ParseDescending(SortDir) ?? sort == PropertySort.Registered, SteepSlope);
+      sort, PropertyQueryParsing.ParseDescending(SortDir) ?? sort == PropertySort.Registered, SteepSlope,
+      TransferPending, Allotted, AgreementInForce, HasHolder, Charged, Disputed, Measured, HasBoundary);
   }
 }

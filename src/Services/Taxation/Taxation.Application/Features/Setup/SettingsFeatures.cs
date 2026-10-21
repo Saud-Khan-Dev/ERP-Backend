@@ -9,6 +9,13 @@ public sealed record GetSettingsQuery(DateOnly? AsOf) : IQuery<Result<GetSetting
 /// New values of some settings from a date (each key closes its value in force the day before).
 public sealed record ChangeSettingsCommand(DateOnly EffectiveFrom, IReadOnlyDictionary<string, string> Values, Guid? RateSetId) : ICommand<Result<UpdatedResult>>;
 
+/// Takes back a value entered from a later date by mistake, before it is in force; the value it would have ended runs on.
+public sealed record VoidSettingCommand(string Key, DateOnly EffectiveFrom) : ICommand<Result<UpdatedResult>>;
+
+/// Every value a setting has had and will have, newest first.
+public sealed record GetSettingHistoryQueryResult(string Key, IReadOnlyList<SettingDto> Values);
+public sealed record GetSettingHistoryQuery(string Key) : IQuery<Result<GetSettingHistoryQueryResult>>;
+
 public class ChangeSettingsCommandValidator : AbstractValidator<ChangeSettingsCommand>
 {
   public ChangeSettingsCommandValidator()
@@ -20,8 +27,30 @@ public class ChangeSettingsCommandValidator : AbstractValidator<ChangeSettingsCo
 
 public class SettingsHandlers(IApplicationDbContext context, IClock clock) :
   IQueryHandler<GetSettingsQuery, Result<GetSettingsQueryResult>>,
-  ICommandHandler<ChangeSettingsCommand, Result<UpdatedResult>>
+  ICommandHandler<ChangeSettingsCommand, Result<UpdatedResult>>,
+  ICommandHandler<VoidSettingCommand, Result<UpdatedResult>>,
+  IQueryHandler<GetSettingHistoryQuery, Result<GetSettingHistoryQueryResult>>
 {
+  public async Task<Result<UpdatedResult>> Handle(VoidSettingCommand command, CancellationToken cancellationToken)
+  {
+    var key = SettingKeys.Find(command.Key).Key;
+    var history = await context.Settings.Where(s => s.Key == key).ToListAsync(cancellationToken);
+    var future = history.FirstOrDefault(s => s.EffectiveFrom == command.EffectiveFrom)
+      ?? throw new TemplateNotFoundException($"{key} has no value from {command.EffectiveFrom:dd MMM yyyy}.");
+    TaxSetting.Void(future, history, clock.Today);
+    context.Settings.Remove(future);
+    await context.SaveChangesAsync(cancellationToken);
+    return CommandResults.Updated();
+  }
+
+  public async Task<Result<GetSettingHistoryQueryResult>> Handle(GetSettingHistoryQuery query, CancellationToken cancellationToken)
+  {
+    var definition = SettingKeys.Find(query.Key);
+    var rows = await context.Settings.AsNoTracking().Where(s => s.Key == definition.Key).OrderByDescending(s => s.EffectiveFrom).ToListAsync(cancellationToken);
+    return Result<GetSettingHistoryQueryResult>.Success(new(definition.Key, rows.Select(r =>
+      new SettingDto(definition.Key, r.Value, definition.Default, definition.Description, r.EffectiveFrom, r.EffectiveTo, r.RateSetId?.Value)).ToList()));
+  }
+
   public async Task<Result<GetSettingsQueryResult>> Handle(GetSettingsQuery query, CancellationToken cancellationToken)
   {
     var asOf = query.AsOf ?? clock.Today;
@@ -71,6 +100,9 @@ public sealed record CreateSpecialPolicyCommand(Guid HeadId, SpecialPolicyInput 
 public sealed record UpdateSpecialPolicyCommand(Guid Id, Guid HeadId, SpecialPolicyInput Policy) : ICommand<Result<UpdatedResult>>;
 public sealed record SetSpecialPolicyActivationCommand(Guid Id, bool IsActive) : ICommand<Result<UpdatedResult>>;
 
+/// Deletes a policy made by mistake: only while no property has it and no demand was charged with it.
+public sealed record DeleteSpecialPolicyCommand(Guid Id) : ICommand<Result<UpdatedResult>>;
+
 public class SpecialPolicyInputValidator : AbstractValidator<SpecialPolicyInput>
 {
   public SpecialPolicyInputValidator()
@@ -92,12 +124,23 @@ public class UpdateSpecialPolicyCommandValidator : AbstractValidator<UpdateSpeci
   public UpdateSpecialPolicyCommandValidator() => RuleFor(x => x.Policy).NotNull().SetValidator(new SpecialPolicyInputValidator());
 }
 
-public class SpecialPolicyHandlers(IApplicationDbContext context) :
+public class SpecialPolicyHandlers(IApplicationDbContext context, IClock clock) :
   IQueryHandler<GetSpecialPoliciesQuery, Result<GetSpecialPoliciesQueryResult>>,
   ICommandHandler<CreateSpecialPolicyCommand, Result<CreatedResult>>,
   ICommandHandler<UpdateSpecialPolicyCommand, Result<UpdatedResult>>,
-  ICommandHandler<SetSpecialPolicyActivationCommand, Result<UpdatedResult>>
+  ICommandHandler<SetSpecialPolicyActivationCommand, Result<UpdatedResult>>,
+  ICommandHandler<DeleteSpecialPolicyCommand, Result<UpdatedResult>>
 {
+  public async Task<Result<UpdatedResult>> Handle(DeleteSpecialPolicyCommand command, CancellationToken cancellationToken)
+  {
+    var policy = await context.LoadPolicyAsync(command.Id, cancellationToken);
+    if (await context.Overrides.AnyAsync(o => o.PolicyId == policy.Id, cancellationToken) || await context.DemandLines.AnyAsync(l => l.PolicyId == policy.Id, cancellationToken))
+      return Result<UpdatedResult>.Failure($"\"{policy.Name}\" is assigned to properties or was charged on demands; deactivate it instead.");
+    context.SpecialPolicies.Remove(policy);
+    await context.SaveChangesAsync(cancellationToken);
+    return CommandResults.Updated();
+  }
+
   public async Task<Result<GetSpecialPoliciesQueryResult>> Handle(GetSpecialPoliciesQuery query, CancellationToken cancellationToken)
   {
     var rows = context.SpecialPolicies.AsNoTracking().Where(p => query.IncludeInactive || p.IsActive);
@@ -108,7 +151,13 @@ public class SpecialPolicyHandlers(IApplicationDbContext context) :
     }
     var policies = await rows.OrderBy(p => p.Name).ToListAsync(cancellationToken);
     var heads = await context.TaxHeads.AsNoTracking().ToDictionaryAsync(h => h.Id, cancellationToken);
-    return Result<GetSpecialPoliciesQueryResult>.Success(new(policies.Select(p => p.ToDto(heads.GetValueOrDefault(p.HeadId))).ToList()));
+    // "used by N files": the properties it is assigned to now
+    var today = clock.Today;
+    var ids = policies.Select(p => p.Id).ToList();
+    var used = await context.Overrides.AsNoTracking().Where(o => o.PolicyId != null && ids.Contains(o.PolicyId) && (o.EffectiveTo == null || o.EffectiveTo >= today))
+      .GroupBy(o => o.PolicyId).Select(g => new { g.Key, Files = g.Select(o => o.TaxFileId).Distinct().Count() }).ToListAsync(cancellationToken);
+    return Result<GetSpecialPoliciesQueryResult>.Success(new(policies.Select(p => p.ToDto(heads.GetValueOrDefault(p.HeadId),
+      used.FirstOrDefault(u => u.Key == p.Id)?.Files ?? 0)).ToList()));
   }
 
   public async Task<Result<CreatedResult>> Handle(CreateSpecialPolicyCommand command, CancellationToken cancellationToken)
@@ -147,25 +196,49 @@ public class SpecialPolicyHandlers(IApplicationDbContext context) :
 // ---- penalty rules ----
 
 public sealed record GetPenaltyRulesQueryResult(IReadOnlyList<PenaltyRuleDto> Rules);
-public sealed record GetPenaltyRulesQuery : IQuery<Result<GetPenaltyRulesQueryResult>>;
-public sealed record UpdatePenaltyRuleCommand(Guid Id, PenaltyRuleInput Rule) : ICommand<Result<UpdatedResult>>;
+/// The rules in force today (with History: every version, newest first).
+public sealed record GetPenaltyRulesQuery(bool History = false) : IQuery<Result<GetPenaltyRulesQueryResult>>;
 
-public class PenaltyRuleHandlers(IApplicationDbContext context) :
+/// A change to a rule from a date (today when not given): a new version starts and the one in force ends the day before;
+/// surcharges already applied keep the version they were applied with. Dated the version's own first day, it corrects it.
+public sealed record UpdatePenaltyRuleCommand(Guid Id, PenaltyRuleInput Rule, DateOnly? EffectiveFrom = null) : ICommand<Result<CreatedResult>>;
+
+/// Takes back a version entered from a later date by mistake, before it is in force.
+public sealed record VoidPenaltyRuleCommand(Guid Id) : ICommand<Result<UpdatedResult>>;
+
+public class PenaltyRuleHandlers(IApplicationDbContext context, IClock clock) :
   IQueryHandler<GetPenaltyRulesQuery, Result<GetPenaltyRulesQueryResult>>,
-  ICommandHandler<UpdatePenaltyRuleCommand, Result<UpdatedResult>>
+  ICommandHandler<UpdatePenaltyRuleCommand, Result<CreatedResult>>,
+  ICommandHandler<VoidPenaltyRuleCommand, Result<UpdatedResult>>
 {
   public async Task<Result<GetPenaltyRulesQueryResult>> Handle(GetPenaltyRulesQuery query, CancellationToken cancellationToken)
   {
-    var rules = await context.PenaltyRules.AsNoTracking().OrderBy(r => r.Kind).ThenBy(r => r.Code).ToListAsync(cancellationToken);
-    return Result<GetPenaltyRulesQueryResult>.Success(new(rules.Select(r => r.ToDto()).ToList()));
+    var today = clock.Today;
+    var rules = await context.PenaltyRules.AsNoTracking().OrderBy(r => r.Kind).ThenBy(r => r.Code).ThenByDescending(r => r.EffectiveFrom).ToListAsync(cancellationToken);
+    var shown = query.History ? rules
+      : rules.GroupBy(r => r.Code).Select(g => g.FirstOrDefault(r => r.Covers(today)) ?? g.OrderBy(r => r.EffectiveFrom).First()).ToList();
+    return Result<GetPenaltyRulesQueryResult>.Success(new(shown.Select(r => r.ToDto(today, rules.Any(v => v.Code == r.Code && v.EffectiveFrom > r.EffectiveFrom))).ToList()));
   }
 
-  public async Task<Result<UpdatedResult>> Handle(UpdatePenaltyRuleCommand command, CancellationToken cancellationToken)
+  public async Task<Result<CreatedResult>> Handle(UpdatePenaltyRuleCommand command, CancellationToken cancellationToken)
   {
     var rule = await context.LoadRuleAsync(command.Id, cancellationToken);
     if (command.Rule.RateSetId is { } rs)
       await context.LoadRateSetAsync(rs, cancellationToken);
-    rule.Update(command.Rule);
+    var versions = await context.PenaltyRules.Where(r => r.Code == rule.Code).ToListAsync(cancellationToken);
+    var next = rule.Revise(command.Rule, command.EffectiveFrom ?? clock.Today, versions);
+    if (next is not null)
+      context.PenaltyRules.Add(next);
+    await context.SaveChangesAsync(cancellationToken);
+    return CommandResults.Created(next?.Id ?? rule.Id);
+  }
+
+  public async Task<Result<UpdatedResult>> Handle(VoidPenaltyRuleCommand command, CancellationToken cancellationToken)
+  {
+    var rule = await context.LoadRuleAsync(command.Id, cancellationToken);
+    var versions = await context.PenaltyRules.Where(r => r.Code == rule.Code).ToListAsync(cancellationToken);
+    PenaltyRule.Void(rule, versions, clock.Today);
+    context.PenaltyRules.Remove(rule);
     await context.SaveChangesAsync(cancellationToken);
     return CommandResults.Updated();
   }

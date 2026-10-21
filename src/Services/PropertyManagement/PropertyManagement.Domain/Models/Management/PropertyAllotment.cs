@@ -4,7 +4,9 @@
 /// property_ownership row is created with acquired_via_allotment_id pointing here. An allotment can be
 /// cancelled and restored (Act s.6(4)(c)); an appeal against a cancellation is a property_appeal.
 ///
-/// Status machine (by master code): ACTIVE / RESTORED are "in force" — at most one allotment per property.
+/// Status machine (by master code): ACTIVE / RESTORED keep an allotment current — at most one per property. It is
+/// in force from its effective date (the allotment date when none is given): an allotment that takes effect later
+/// is current (no second one can be made) but not yet in force (the allottee does not hold the plot yet).
 ///   in force → CANCELLED (cancel act, with the order) → RESTORED (restore act)
 ///   in force → SURRENDERED or EXPIRED (status act); nothing ever goes back to ACTIVE.
 /// Cancelling or surrendering a confirmed allotment ends the ownership it produced in the same step; restoring
@@ -41,8 +43,18 @@ public class PropertyAllotment : Aggregate<AllotmentId>
   /// Another allotment already in force on the same property, with its allottee's name for the message.
   public sealed record InForce(PropertyAllotment Allotment, string AllotteeName);
 
+  /// One share held now on the plot: only land GDA (a government body) holds can be allotted.
+  public sealed record HeldShare(string HolderName, decimal SharePct, bool IsGovernment);
+
   public static bool IsInForceStatus(AllotmentStatus status) =>
       status.Is(SystemMasterCodes.Active) || status.Is(SystemMasterCodes.Restored);
+
+  /// The day the allotment takes effect: its effective date, else the allotment date.
+  public DateOnly TakesEffectOn => EffectiveDate ?? AllotmentDate;
+
+  /// In force on that day: a current status (ACTIVE / RESTORED), not withdrawn, and already in effect.
+  public bool IsInForceOn(AllotmentStatus currentStatus, DateOnly day) =>
+      IsActive && currentStatus.Id == AllotmentStatusId && IsInForceStatus(currentStatus) && TakesEffectOn <= day;
 
   public static PropertyAllotment Allot(
       AllotmentId id,
@@ -59,7 +71,8 @@ public class PropertyAllotment : Aggregate<AllotmentId>
       string? conditions,
       string? remarks,
       InForce? inForce,
-      DateOnly today)
+      DateOnly today,
+      IReadOnlyCollection<HeldShare>? currentShares = null)
   {
     ArgumentNullException.ThrowIfNull(property);
     ArgumentNullException.ThrowIfNull(classification);
@@ -76,6 +89,13 @@ public class PropertyAllotment : Aggregate<AllotmentId>
     if (!classification.Is(GdaPropertyClassificationCode))
       throw new DomainException(
         $"Only GDA property can be allotted; {property.PropertyCode.Value} is classified as {classification.Name.Value}.");
+
+    // a plot people hold privately is not GDA's to give, whatever its classification says
+    var privateShares = (currentShares ?? Array.Empty<HeldShare>()).Where(s => !s.IsGovernment).ToList();
+    if (privateShares.Count > 0)
+      throw new DomainException(
+        $"{property.PropertyCode.Value} is held by {string.Join(" and ", privateShares.OrderByDescending(s => s.SharePct).Select(s => $"{s.HolderName} ({s.SharePct:0.####}%)"))}; "
+        + "only land GDA holds can be allotted. If GDA has acquired it, record that transfer first, or correct the classification.");
 
     EnsureNoneInForce(inForce, except: null);
     EnsureNotFuture(allotmentDate, today, "The allotment date");
@@ -262,9 +282,14 @@ public class PropertyAllotment : Aggregate<AllotmentId>
       throw new DomainException(
         $"{AllotmentNo.Value} was already confirmed as ownership from {confirmed.EffectiveFrom:yyyy-MM-dd} ({confirmed.OwnershipSharePct:0.####}%).");
 
-    if (effectiveFrom < AllotmentDate)
+    if (TakesEffectOn > record.Today)
       throw new DomainException(
-        $"Ownership through {AllotmentNo.Value} cannot start before the allotment date ({AllotmentDate:yyyy-MM-dd}).");
+        $"{AllotmentNo.Value} takes effect on {TakesEffectOn:yyyy-MM-dd}; the allottee can be confirmed as owner from that day.");
+
+    if (effectiveFrom < TakesEffectOn)
+      throw new DomainException(TakesEffectOn == AllotmentDate
+        ? $"Ownership through {AllotmentNo.Value} cannot start before the allotment date ({AllotmentDate:yyyy-MM-dd})."
+        : $"Ownership through {AllotmentNo.Value} cannot start before the allotment takes effect ({TakesEffectOn:yyyy-MM-dd}).");
 
     if (RestorationDate is { } restored && effectiveFrom < restored)
       throw new DomainException($"{AllotmentNo.Value} was restored on {restored:yyyy-MM-dd}; confirm ownership from that date or later.");

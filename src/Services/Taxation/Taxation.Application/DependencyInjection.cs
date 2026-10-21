@@ -26,6 +26,9 @@ public static class DependencyInjection
     services.AddScoped<CalendarProvider>();
     services.AddScoped<Messenger>();
     services.AddScoped<NoticeComposer>();
+    services.AddScoped<NoticeEscalation>();
+    services.AddSingleton<DailyJob>();
+    services.AddScoped<DueNotices>();
     services.AddScoped<TaxFileImporter>();
     services.AddScoped<PenaltyService>();
 

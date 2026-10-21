@@ -1,6 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 
-public class RemoveOptionSetValueHandler(IApplicationDbContext context)
+public class RemoveOptionSetValueHandler(IApplicationDbContext context, IAssetDataQueries queries)
   : ICommandHandler<RemoveOptionSetValueCommand, Result<RemoveOptionSetValueCommandResult>>
 {
   public async Task<Result<RemoveOptionSetValueCommandResult>> Handle(RemoveOptionSetValueCommand command, CancellationToken cancellationToken)
@@ -10,9 +10,14 @@ public class RemoveOptionSetValueHandler(IApplicationDbContext context)
       ?? throw new OptionSetNotFoundException($"Option set {command.OptionSetId} was not found.");
 
     var valueId = OptionSetValueId.Of(command.ValueId);
+    var value = optionSet.Values.FirstOrDefault(v => v.Id == valueId)
+      ?? throw new DomainException("That choice is not on this list.");
 
-    if (await context.AssetAttributeValues.AnyAsync(v => v.OptionValueId == valueId, cancellationToken))
-      return Result<RemoveOptionSetValueCommandResult>.Failure("This option value is used by assets and cannot be removed. Deactivate it instead.");
+    // held in any asset's details (not only the filter rows) of any field that uses this list
+    var fieldCodes = await context.AttributeDefinitions.AsNoTracking().Where(d => d.OptionSetId == id).Select(d => d.Code).ToListAsync(cancellationToken);
+    var holders = await queries.AssetsHoldingChoiceAsync(fieldCodes.Select(c => c.Value).ToList(), value.Value.Value, cancellationToken);
+    if (holders > 0)
+      return Result<RemoveOptionSetValueCommandResult>.Failure($"{holders} {(holders == 1 ? "asset holds" : "assets hold")} '{value.Label}', so it cannot be removed. Switch it off instead - those assets keep it.");
 
     optionSet.RemoveValue(valueId);
     await context.SaveChangesAsync(cancellationToken);

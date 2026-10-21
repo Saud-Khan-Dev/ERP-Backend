@@ -9,8 +9,10 @@ public class DeleteLifecycleEventTypeHandler(IApplicationDbContext context)
     var eventType = await context.LifecycleEventTypes.FirstOrDefaultAsync(t => t.Id == id, cancellationToken)
       ?? throw new LifecycleEventTypeNotFoundException($"Lifecycle event type {command.Id} was not found.");
 
+    eventType.EnsureDeletable();
+
     if (await context.AssetLifecycleEvents.AnyAsync(e => e.EventTypeId == id, cancellationToken))
-      return Result<DeleteLifecycleEventTypeCommandResult>.Failure("This event type is referenced by lifecycle events. Deactivate it instead.");
+      return Result<DeleteLifecycleEventTypeCommandResult>.Failure($"'{eventType.Name.Value}' is on asset timelines, so it cannot be deleted. Switch it off instead.");
 
     context.LifecycleEventTypes.Remove(eventType);
     await context.SaveChangesAsync(cancellationToken);

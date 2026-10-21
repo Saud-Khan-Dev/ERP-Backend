@@ -12,24 +12,29 @@ public class AssignRoleToUserHandler(IApplicationDbContext context, IdentityGuar
     var userId = UserId.Of(command.UserId);
     var roleId = RoleId.Of(command.RoleId);
 
-    guard.EnsureNotSelf(userId, "change roles");
+    guard.EnsureNotSelf(userId, "change the roles of");
 
     if (!await context.Users.AnyAsync(u => u.Id == userId, cancellationToken))
-      throw new UserNotFoundException($"User {command.UserId} was not found.");
+      throw new UserNotFoundException("This account was not found.");
+
+    await guard.EnsureCanActOnAsync(userId, "change the roles of", cancellationToken);
 
     var role = await context.Roles.FirstOrDefaultAsync(r => r.Id == roleId, cancellationToken)
-      ?? throw new RoleNotFoundException($"Role {command.RoleId} was not found.");
+      ?? throw new RoleNotFoundException("This role was not found.");
 
     guard.EnsureCanAdministerRole(role);
+    await guard.EnsureCanGrantRolesAsync([role.Id], $"give the role {role.RoleName.Value}", cancellationToken);
 
     if (!role.IsActive)
-      return Result<AssignRoleToUserCommandResult>.Failure($"Role '{role.Code.Value}' is inactive and cannot be assigned.");
+      return Result<AssignRoleToUserCommandResult>.Failure($"The role {role.RoleName.Value} is switched off and cannot be given.");
 
-    var alreadyGranted = await context.UserRoles.AnyAsync(
-      ur => ur.UserId == userId && ur.RoleId == roleId && ur.RevokedAt == null, cancellationToken);
+    // a grant that ran out is ended first, so the role can be given again (one live grant per role)
+    var grants = await context.UserRoles.Where(ur => ur.UserId == userId && ur.RoleId == roleId && ur.RevokedAt == null).ToListAsync(cancellationToken);
+    foreach (var expired in grants.Where(g => g.ExpiresAt is { } end && end <= now))
+      expired.Revoke(now);
 
-    if (alreadyGranted)
-      return Result<AssignRoleToUserCommandResult>.Failure($"This user already holds the '{role.Code.Value}' role.");
+    if (grants.Any(g => g.ExpiresAt is null || g.ExpiresAt > now))
+      return Result<AssignRoleToUserCommandResult>.Failure($"This person already has the role {role.RoleName.Value}.");
 
     var assignment = UserRole.Create(userId, roleId, currentUser.UserId, command.ExpiresAt, now);
 

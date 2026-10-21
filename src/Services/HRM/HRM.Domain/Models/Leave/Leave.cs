@@ -7,15 +7,25 @@ public class LeaveType : Aggregate<LeaveTypeId>
   public string? AccrualRule { get; private set; }
   public bool CarryForwardAllowed { get; private set; }
   public bool AffectsPayroll { get; private set; }
+  /// An inactive type is no longer offered for new applications; old applications keep it.
+  public bool IsActive { get; private set; }
 
   /// Leave that is drawn from a yearly balance (an entitlement must exist before it can be applied for).
   public bool IsBalanceTracked => MaxDaysPerYear.HasValue || CarryForwardAllowed;
 
   public static LeaveType Create(LeaveTypeId id, string name, bool isPaid, decimal? maxDaysPerYear, string? accrualRule, bool carryForwardAllowed, bool affectsPayroll)
   {
-    var type = new LeaveType { Id = id };
+    var type = new LeaveType { Id = id, IsActive = true };
     type.Update(name, isPaid, maxDaysPerYear, accrualRule, carryForwardAllowed, affectsPayroll);
     return type;
+  }
+
+  public void SetActive(bool isActive) => IsActive = isActive;
+
+  public void EnsureActive()
+  {
+    if (!IsActive)
+      throw new DomainException($"'{Name}' is no longer in use; choose another leave type.");
   }
 
   public void Update(string name, bool isPaid, decimal? maxDaysPerYear, string? accrualRule, bool carryForwardAllowed, bool affectsPayroll)
@@ -40,6 +50,27 @@ public class LeaveEntitlement : Aggregate<LeaveEntitlementId>
   public LeaveTypeId LeaveTypeId { get; private set; } = default!;
   public int Year { get; private set; }
   public decimal EntitledDays { get; private set; }
+  /// Made by the system at 0 days to carry a balance (a carry-forward or an opening balance) before the year's leave
+  /// was granted. Granting the year fills it in instead of skipping it.
+  public bool IsPlaceholder { get; private set; }
+
+  /// The 0-day row a carried or opening balance hangs on until the year's leave is granted.
+  public static LeaveEntitlement Placeholder(LeaveEntitlementId id, EmployeeId employeeId, LeaveType leaveType, int year)
+  {
+    var entitlement = Create(id, employeeId, leaveType, year, 0);
+    entitlement.IsPlaceholder = true;
+    return entitlement;
+  }
+
+  /// Grants the year's days: fills in a placeholder; a granted entitlement is left alone (returns false).
+  public bool Grant(decimal entitledDays, decimal ledgerTotal)
+  {
+    if (!IsPlaceholder)
+      return false;
+
+    ChangeDays(entitledDays, ledgerTotal);
+    return true;
+  }
 
   public static LeaveEntitlement Create(LeaveEntitlementId id, EmployeeId employeeId, LeaveType leaveType, int year, decimal entitledDays)
   {
@@ -65,6 +96,7 @@ public class LeaveEntitlement : Aggregate<LeaveEntitlementId>
       throw new DomainException($"{-ledgerTotal:0.##} day(s) are already used; the entitlement cannot be lower than that.");
 
     EntitledDays = days;
+    IsPlaceholder = false;
   }
 }
 
@@ -85,12 +117,19 @@ public class LeaveApplication : Aggregate<LeaveApplicationId>
   public Guid? ApprovedBy { get; private set; }
   public DateOnly? ApprovalDate { get; private set; }
   public string? Reason { get; private set; }
+  /// The last decision (approve, reject, cancel): who, when and why. A rejection and a cancellation need the reason.
+  public Guid? DecidedBy { get; private set; }
+  public DateTime? DecidedAt { get; private set; }
+  public string? DecisionReason { get; private set; }
+  /// The HR action (leave without pay) that recorded this leave, if any.
+  public HrActionRequestId? HrActionId { get; private set; }
 
   public DateRange Range => new(StartDate, EndDate);
 
   public bool IsLive => Status is LeaveStatus.Pending or LeaveStatus.Approved;
 
-  /// `others` = the employee's other live (pending or approved) applications.
+  /// `countedDays` = the employee's working days in the range (LeaveDayCounter); `days` = what is charged: the counted
+  /// days, or half a day less (a half day on one of the dates). `others` = the employee's other live applications.
   public static LeaveApplication Apply(
       LeaveApplicationId id,
       Employee employee,
@@ -105,6 +144,7 @@ public class LeaveApplication : Aggregate<LeaveApplicationId>
     ArgumentNullException.ThrowIfNull(employee);
     ArgumentNullException.ThrowIfNull(leaveType);
     employee.EnsureInService();
+    leaveType.EnsureActive();
 
     var application = new LeaveApplication
     {
@@ -118,6 +158,34 @@ public class LeaveApplication : Aggregate<LeaveApplicationId>
     return application;
   }
 
+  /// Leave without pay recorded by an approved HR action: approved at once by the action's approver (it draws no
+  /// balance, so it writes no ledger rows - payroll reads the dates).
+  public static LeaveApplication RecordForHrAction(
+      LeaveApplicationId id,
+      Employee employee,
+      LeaveType leaveType,
+      DateOnly startDate,
+      DateOnly endDate,
+      decimal days,
+      string? reason,
+      HrActionRequestId hrActionId,
+      Guid? approvedBy,
+      DateTime at,
+      IReadOnlyCollection<LeaveApplication> others)
+  {
+    if (!leaveType.AffectsPayroll)
+      throw new DomainException($"'{leaveType.Name}' is not deducted from pay; leave without pay needs a type that is.");
+
+    var application = Apply(id, employee, leaveType, startDate, endDate, days, reason, DateOnly.FromDateTime(at), others);
+    application.HrActionId = hrActionId;
+    application.ApprovedBy = Guard.Actor(approvedBy, "approve leave");
+    application.ApprovalDate = DateOnly.FromDateTime(at);
+    application.Status = LeaveStatus.Approved;
+    application.DecidedBy = application.ApprovedBy;
+    application.DecidedAt = at;
+    return application;
+  }
+
   public void Change(DateOnly startDate, DateOnly endDate, decimal days, string? reason, IReadOnlyCollection<LeaveApplication> others)
   {
     if (Status != LeaveStatus.Pending)
@@ -126,18 +194,38 @@ public class LeaveApplication : Aggregate<LeaveApplicationId>
     SetPeriod(startDate, endDate, days, reason, others);
   }
 
-  /// Approves and returns the usage rows to add to the ledger (one per calendar year the leave falls in).
-  public IReadOnlyList<LeaveLedgerEntry> Approve(Guid? approvedBy, DateOnly approvalDate, IReadOnlyList<LeaveDaysByYear> daysByYear)
+  /// Takes over a pending application of the same leave without pay for an HR action (approved by the action).
+  public void ApproveForHrAction(HrActionRequestId hrActionId, Guid? approvedBy, DateTime at)
   {
     if (Status != LeaveStatus.Pending)
       throw new DomainException($"The application is {EnumText.Words(Status)}; only a pending one can be approved.");
 
+    HrActionId = hrActionId;
+    ApprovedBy = Guard.Actor(approvedBy, "approve leave");
+    ApprovalDate = DateOnly.FromDateTime(at);
+    Status = LeaveStatus.Approved;
+    DecidedBy = ApprovedBy;
+    DecidedAt = at;
+  }
+
+  /// Approves and returns the usage rows to add to the ledger (one per calendar year the leave falls in).
+  /// `approverEmployeeId` = the employee record linked to the approver's account: nobody approves their own leave.
+  public IReadOnlyList<LeaveLedgerEntry> Approve(Guid? approvedBy, EmployeeId? approverEmployeeId, DateTime at, IReadOnlyList<LeaveDaysByYear> daysByYear)
+  {
+    if (Status != LeaveStatus.Pending)
+      throw new DomainException($"The application is {EnumText.Words(Status)}; only a pending one can be approved.");
+    EnsureNotOwn(approverEmployeeId, "approve");
+
     if (daysByYear.Sum(d => d.Days) != Days)
       throw new DomainException("The days by year do not add up to the days applied for.");
 
+    var approvalDate = DateOnly.FromDateTime(at);
     ApprovedBy = Guard.Actor(approvedBy, "approve leave");
     ApprovalDate = approvalDate;
     Status = LeaveStatus.Approved;
+    DecidedBy = ApprovedBy;
+    DecidedAt = at;
+    DecisionReason = null;
 
     return daysByYear
       .Where(d => d.Days > 0)
@@ -145,23 +233,36 @@ public class LeaveApplication : Aggregate<LeaveApplicationId>
       .ToList();
   }
 
-  public void Reject()
+  public void Reject(Guid? rejectedBy, EmployeeId? rejecterEmployeeId, DateTime at, string? reason)
   {
     if (Status != LeaveStatus.Pending)
       throw new DomainException($"The application is {EnumText.Words(Status)}; only a pending one can be rejected.");
+    EnsureNotOwn(rejecterEmployeeId, "decide");
 
+    DecisionReason = Guard.Text(reason, 1000, "Reason") ?? throw new DomainException("Give the reason for rejecting the leave; the employee sees it.");
+    DecidedBy = Guard.Actor(rejectedBy, "reject leave");
+    DecidedAt = at;
     Status = LeaveStatus.Rejected;
   }
 
   /// Cancels a pending or approved application. For an approved one, `usage` = its usage rows in the ledger, which are
-  /// reversed (the returned rows give the days back).
-  public IReadOnlyList<LeaveLedgerEntry> Cancel(IReadOnlyCollection<LeaveLedgerEntry> usage, DateOnly cancelledOn)
+  /// reversed (the returned rows give the days back). Withdrawing one's own pending application needs no reason;
+  /// cancelling an approved leave does.
+  public IReadOnlyList<LeaveLedgerEntry> Cancel(IReadOnlyCollection<LeaveLedgerEntry> usage, Guid? cancelledBy, DateTime at, string? reason)
   {
     if (!IsLive)
       throw new DomainException($"The application is already {EnumText.Words(Status)}.");
 
     var wasApproved = Status == LeaveStatus.Approved;
+    var why = Guard.Text(reason, 1000, "Reason");
+    if (wasApproved && why is null)
+      throw new DomainException("Give the reason for cancelling an approved leave.");
+
     Status = LeaveStatus.Cancelled;
+    DecidedBy = cancelledBy;
+    DecidedAt = at;
+    DecisionReason = why;
+    var cancelledOn = DateOnly.FromDateTime(at);
 
     if (!wasApproved)
       return [];
@@ -174,6 +275,12 @@ public class LeaveApplication : Aggregate<LeaveApplicationId>
       .Where(x => x.Used > 0)
       .Select(x => LeaveLedgerEntry.UsageReversal(EmployeeId, LeaveTypeId, x.Year, x.Used, Id, cancelledOn))
       .ToList();
+  }
+
+  private void EnsureNotOwn(EmployeeId? deciderEmployeeId, string verb)
+  {
+    if (deciderEmployeeId is not null && deciderEmployeeId == EmployeeId)
+      throw new DomainException($"You cannot {verb} your own leave; another officer decides it.");
   }
 
   private void SetPeriod(DateOnly startDate, DateOnly endDate, decimal days, string? reason, IReadOnlyCollection<LeaveApplication> others)
@@ -290,6 +397,23 @@ public static class LeaveDayCounter
     }
 
     return byYear.Select(kv => new LeaveDaysByYear(kv.Key, kv.Value)).ToList();
+  }
+
+  /// The days a range charges: the counted working days, or half a day less when one of the dates is a half day.
+  /// Any other number is refused - the days follow the dates, they are not typed freely.
+  public static IReadOnlyList<LeaveDaysByYear> Charge(IReadOnlyList<LeaveDaysByYear> counted, decimal? given, DateOnly from, DateOnly to)
+  {
+    var total = counted.Sum(c => c.Days);
+    if (total <= 0)
+      throw new DomainException($"There is no working day between {from:dd MMM yyyy} and {to:dd MMM yyyy} (only holidays and off days).");
+
+    if (given is not { } days || days == total)
+      return counted;
+
+    if (days != total - 0.5m)
+      throw new DomainException($"{total:0.##} working day(s) fall in these dates; the leave is {total:0.##} day(s), or {total - 0.5m:0.##} with a half day.");
+
+    return Split(days, counted, from);
   }
 
   /// Splits a given number of days (e.g. a half day) across the years of the range in proportion to the counted days.

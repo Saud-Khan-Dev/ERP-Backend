@@ -9,6 +9,8 @@ public class GetDisposalMethods : ICarterModule
       var result = await sender.Send(new GetDisposalMethodsQuery(includeInactive ?? false));
       return Results.Ok(new GetDisposalMethodsResponse(result.Value!.Methods));
     })
+      .RequireAnyPermission(AssetsAuthorization.AnyAssetsReader)
+
       .WithName("GetDisposalMethods")
       .Produces<GetDisposalMethodsResponse>(StatusCodes.Status200OK)
       .WithSummary("Get Disposal Method list")

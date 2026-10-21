@@ -1,5 +1,7 @@
 using FluentValidation;
 
+/// DelegatedOfficer / DelegatedOfficerEmployeeId: the officer the appellate authority delegated to (s.32(2)) - picked
+/// from GDA's staff list, or a name only for a provincial officer.
 public sealed record AppealInput(
   Guid AppellantOwnerId,
   string AppealedOrderRef,
@@ -10,7 +12,8 @@ public sealed record AppealInput(
   Guid? OrderSourceId = null,
   string? AppellateAuthority = null,
   string? DelegatedOfficer = null,
-  string? Remarks = null);
+  string? Remarks = null,
+  Guid? DelegatedOfficerEmployeeId = null);
 
 public class AppealInputValidator : AbstractValidator<AppealInput>
 {
@@ -46,5 +49,5 @@ public static class AppealInputs
   public static async Task<PropertyAppeal.Filing> ToFilingAsync(this AppealInput input, IApplicationDbContext context, CancellationToken cancellationToken) => new(
     await context.LoadOwnerAsync(input.AppellantOwnerId, cancellationToken),
     input.AppealedOrderRef, input.AppealedOrderDate, input.OrderReceivedDate, input.OrderSourceTable, input.OrderSourceId,
-    input.AppealDate, input.AppellateAuthority, input.DelegatedOfficer, input.Remarks);
+    input.AppealDate, input.AppellateAuthority, input.DelegatedOfficer, input.Remarks, input.DelegatedOfficerEmployeeId);
 }

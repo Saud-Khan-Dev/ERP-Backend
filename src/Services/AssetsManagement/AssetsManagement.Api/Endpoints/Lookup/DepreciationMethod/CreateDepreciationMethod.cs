@@ -15,6 +15,8 @@ public class CreateDepreciationMethod : ICarterModule
       var response = result.Value.Adapt<CreateDepreciationMethodResponse>();
       return Results.Created($"/depreciation-methods/{response!.Id}", response);
     })
+      .RequirePermission(PermissionCatalog.AssetTaxonomy.Create)
+
       .WithName("CreateDepreciationMethod")
       .Produces<CreateDepreciationMethodResponse>(StatusCodes.Status201Created)
       .ProducesProblem(StatusCodes.Status400BadRequest)

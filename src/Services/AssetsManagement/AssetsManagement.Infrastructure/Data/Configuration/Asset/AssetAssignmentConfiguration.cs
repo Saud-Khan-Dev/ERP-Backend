@@ -14,9 +14,16 @@ public class AssetAssignmentConfiguration : EntityConfiguration<AssetAssignment,
 
     builder.Property(x => x.AssetId).HasConversion(id => id.Value, dbId => AssetId.Of(dbId)).IsRequired();
     builder.Property(x => x.FromDepartmentId).IsRequired(false);
+    builder.Property(x => x.FromDepartmentName).HasMaxLength(200).IsRequired(false);
     builder.Property(x => x.ToDepartmentId).IsRequired(false);
+    builder.Property(x => x.ToDepartmentName).HasMaxLength(200).IsRequired(false);
     builder.Property(x => x.FromCustodianId).IsRequired(false);
+    builder.Property(x => x.FromCustodianName).HasMaxLength(200).IsRequired(false);
+    builder.Property(x => x.FromCustodianNumber).HasMaxLength(50).IsRequired(false);
     builder.Property(x => x.ToCustodianId).IsRequired(false);
+    builder.Property(x => x.ToCustodianName).HasMaxLength(200).IsRequired(false);
+    builder.Property(x => x.ToCustodianNumber).HasMaxLength(50).IsRequired(false);
+    builder.Ignore(x => x.From);
 
     builder.Property(x => x.FromLocationId).HasConversion(id => id!.Value, dbId => LocationId.Of(dbId)).IsRequired(false);
     builder.Property(x => x.ToLocationId).HasConversion(id => id!.Value, dbId => LocationId.Of(dbId)).IsRequired(false);
@@ -25,8 +32,8 @@ public class AssetAssignmentConfiguration : EntityConfiguration<AssetAssignment,
     builder.Property(x => x.ExpectedReturnDate).IsRequired(false);
     builder.Property(x => x.ActualReturnDate).IsRequired(false);
     builder.Property(x => x.Reason).IsRequired(false);
-    builder.Property(x => x.ApprovedBy).IsRequired(false);
-    builder.Property(x => x.ApprovedAt).IsRequired(false);
+    builder.Property(x => x.RecordedBy).IsRequired(false);
+    builder.Property(x => x.RecordedByName).HasMaxLength(100).IsRequired(false);
 
     builder.Ignore(x => x.IsOpenLoan);
 

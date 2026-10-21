@@ -7,7 +7,8 @@ public class PropertyExceptionHandler(ILogger<PropertyExceptionHandler> logger) 
 {
   public async ValueTask<bool> TryHandleAsync(HttpContext context, Exception exception, CancellationToken cancellationToken)
   {
-    logger.LogError("Error Message : {exceptionMessage}, Time of occurance {time}", exception.Message, DateTime.UtcNow);
+    logger.LogError(exception, "Request {path} failed ({trace}): {message} {inner}", context.Request.Path, context.TraceIdentifier,
+      exception.Message, exception.InnerException?.Message);
 
     (string Title, string Detail, int StatusCode) details = exception switch
     {
@@ -49,19 +50,20 @@ public class PropertyExceptionHandler(ILogger<PropertyExceptionHandler> logger) 
 
       DbUpdateConcurrencyException => (
         Title: nameof(DbUpdateConcurrencyException),
-        Detail: "The record was modified by someone else. Reload it and try again.",
+        Detail: "Someone else changed this property's records at the same moment, so nothing was saved. Reload the page and try again.",
         StatusCode: StatusCodes.Status409Conflict
       ),
 
+      // the database's own text (constraint names, SQL) never reaches the clerk; it is in the log
       DbUpdateException => (
         Title: nameof(DbUpdateException),
-        Detail: exception.InnerException?.Message ?? exception.Message,
+        Detail: "The change could not be saved because it clashes with a record already on file (an entry for the same day or code). Reload the page and check.",
         StatusCode: StatusCodes.Status409Conflict
       ),
 
       _ => (
-        Title: exception.GetType().Name,
-        Detail: exception.Message,
+        Title: "ServerError",
+        Detail: $"Something went wrong on the server and nothing was saved. Try again; if it keeps happening, tell the administrator (reference {context.TraceIdentifier}).",
         StatusCode: StatusCodes.Status500InternalServerError
       )
     };

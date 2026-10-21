@@ -9,6 +9,8 @@ public class GetAssetStatuses : ICarterModule
       var result = await sender.Send(new GetAssetStatusesQuery(includeInactive ?? false));
       return Results.Ok(new GetAssetStatusesResponse(result.Value!.Statuses));
     })
+      .RequireAnyPermission(AssetsAuthorization.AnyAssetsReader)
+
       .WithName("GetAssetStatuses")
       .Produces<GetAssetStatusesResponse>(StatusCodes.Status200OK)
       .WithSummary("Get Asset Status list")

@@ -1,6 +1,7 @@
 using FluentValidation;
 
-public sealed record DepreciationMethodInput(string Code, string Name, string? Description, bool IsActive = true);
+/// Kind: how the method is worked out (straight line, declining balance, units of production).
+public sealed record DepreciationMethodInput(string Code, string Name, string? Description, DepreciationMethodKind Kind = DepreciationMethodKind.StraightLine, bool IsActive = true);
 
 public sealed record CreateDepreciationMethodCommandResult(Guid Id);
 
@@ -10,8 +11,9 @@ public class DepreciationMethodInputValidator : AbstractValidator<DepreciationMe
 {
   public DepreciationMethodInputValidator()
   {
-    RuleFor(x => x.Code).NotEmpty().MaximumLength(50);
-    RuleFor(x => x.Name).NotEmpty().MaximumLength(100);
+    RuleFor(x => x.Code).NotEmpty().WithMessage("Give the method a code.").MaximumLength(50);
+    RuleFor(x => x.Name).NotEmpty().WithMessage("Give the method a name.").MaximumLength(100);
+    RuleFor(x => x.Kind).IsInEnum().WithMessage("Choose how the method is worked out.");
   }
 }
 

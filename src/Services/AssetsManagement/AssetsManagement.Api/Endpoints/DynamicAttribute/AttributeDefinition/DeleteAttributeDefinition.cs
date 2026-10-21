@@ -13,6 +13,8 @@ public class DeleteAttributeDefinition : ICarterModule
 
       return Results.Ok(result.Value.Adapt<DeleteAttributeDefinitionResponse>());
     })
+      .RequirePermission(PermissionCatalog.AssetAttributes.Delete)
+
       .WithName("DeleteAttributeDefinition")
       .Produces<DeleteAttributeDefinitionResponse>(StatusCodes.Status200OK)
       .ProducesProblem(StatusCodes.Status400BadRequest)

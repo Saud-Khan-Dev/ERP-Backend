@@ -132,7 +132,9 @@ public class Holiday : Aggregate<HolidayId>
     NotificationRef = Guard.Text(notificationRef, 200, "Notification");
   }
 
-  public bool AppliesTo(LocationId? location) => LocationId is null || LocationId == location;
+  /// A day off for someone working at the location. An optional holiday is no day off for everyone: those who keep it
+  /// take it as leave.
+  public bool AppliesTo(LocationId? location) => HolidayType != HolidayType.Optional && (LocationId is null || LocationId == location);
 }
 
 /// One employee's attendance on one date. Hours, lateness and early departure are worked out from the times and the

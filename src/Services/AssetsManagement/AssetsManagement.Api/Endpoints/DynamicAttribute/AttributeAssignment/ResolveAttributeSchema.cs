@@ -14,6 +14,8 @@ public class ResolveAttributeSchema : ICarterModule
       var result = await sender.Send(new ResolveAttributeSchemaQuery(assetId, assetClassId, assetTypeId, categoryId));
       return Results.Ok(new ResolveAttributeSchemaResponse(result.Value!.Attributes));
     })
+      .RequireAnyPermission(AssetsAuthorization.AnyAssetsReader)
+
       .WithName("ResolveAttributeSchema")
       .Produces<ResolveAttributeSchemaResponse>(StatusCodes.Status200OK)
       .ProducesProblem(StatusCodes.Status400BadRequest)

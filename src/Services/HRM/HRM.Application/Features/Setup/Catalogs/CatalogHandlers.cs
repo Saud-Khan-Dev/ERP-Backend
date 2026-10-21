@@ -229,6 +229,13 @@ public class UpdatePayScaleGradeHandler(IApplicationDbContext context) : IComman
   public async Task<Result<UpdatedResult>> Handle(UpdatePayScaleGradeCommand command, CancellationToken cancellationToken)
   {
     var grade = await context.LoadGradeAsync(command.Id, cancellationToken);
+    if (!command.IsActive && grade.IsActive)
+    {
+      if (await context.PostVersions.AnyAsync(v => v.GradeId == grade.Id && v.EffectiveTo == null && v.LifecycleStatus != PostLifecycle.Abolished, cancellationToken))
+        return Result<UpdatedResult>.Failure($"Posts are graded {grade.GradeName ?? "BPS-" + grade.BpsNumber}; regrade them before deactivating the grade.");
+      if (await context.PayScaleVersions.AnyAsync(v => v.GradeId == grade.Id && v.Status == RecordStatus.Active && v.EffectiveTo == null, cancellationToken))
+        return Result<UpdatedResult>.Failure($"A pay scale of {grade.GradeName ?? "BPS-" + grade.BpsNumber} is in force; withdraw it before deactivating the grade.");
+    }
     grade.Update(command.GradeName, command.IsActive);
     await context.SaveChangesAsync(cancellationToken);
     return CommandResults.Updated();
@@ -271,6 +278,89 @@ public class SetCatalogActivationHandler(IApplicationDbContext context) : IComma
           ?? throw new RequestTypeNotFoundException($"Request type {command.Id} was not found.");
         requestType.SetActive(command.IsActive);
         break;
+    }
+
+    await context.SaveChangesAsync(cancellationToken);
+    return CommandResults.Updated();
+  }
+}
+
+/// Deletes a catalogue value nobody used; a used one answers 409 with the reason (deactivate it instead).
+public sealed record DeleteCatalogValueCommand(CatalogKind Kind, Guid Id) : ICommand<Result<UpdatedResult>>;
+
+public class DeleteCatalogValueHandler(IApplicationDbContext context) : ICommandHandler<DeleteCatalogValueCommand, Result<UpdatedResult>>
+{
+  public async Task<Result<UpdatedResult>> Handle(DeleteCatalogValueCommand command, CancellationToken cancellationToken)
+  {
+    switch (command.Kind)
+    {
+      case CatalogKind.OrganizationUnitType:
+      {
+        var type = await context.LoadUnitTypeAsync(command.Id, cancellationToken);
+        if (await context.OrganizationUnitVersions.AnyAsync(v => v.UnitTypeId == type.Id, cancellationToken))
+          throw new InUseException($"Units are of type '{type.Name}', so it cannot be deleted. Deactivate it instead.");
+        context.OrganizationUnitTypes.Remove(type);
+        break;
+      }
+      case CatalogKind.Location:
+      {
+        var location = await context.LoadLocationAsync(command.Id, cancellationToken);
+        if (await context.OrganizationUnitVersions.AnyAsync(v => v.LocationId == location.Id, cancellationToken)
+            || await context.PostVersions.AnyAsync(v => v.LocationId == location.Id, cancellationToken)
+            || await context.Holidays.AnyAsync(h => h.LocationId == location.Id, cancellationToken))
+          throw new InUseException($"'{location.Name}' is the location of units, posts or holidays, so it cannot be deleted. Deactivate it instead.");
+        context.Locations.Remove(location);
+        break;
+      }
+      case CatalogKind.Designation:
+      {
+        var designation = await context.LoadDesignationAsync(command.Id, cancellationToken);
+        if (await context.PostVersions.AnyAsync(v => v.DesignationId == designation.Id, cancellationToken)
+            || await context.SalaryRules.AnyAsync(r => r.ApplicableDesignationId == designation.Id, cancellationToken))
+          throw new InUseException($"Posts or salary rules use '{designation.Title}', so it cannot be deleted. Deactivate it instead.");
+        context.Designations.Remove(designation);
+        break;
+      }
+      case CatalogKind.DocumentType:
+      {
+        var type = await context.LoadDocumentTypeAsync(command.Id, cancellationToken);
+        if (await context.Documents.AnyAsync(d => d.DocumentTypeId == type.Id, cancellationToken))
+          throw new InUseException($"Papers of the kind '{type.Name}' are on file, so it cannot be deleted. Deactivate it instead.");
+        context.DocumentTypes.Remove(type);
+        break;
+      }
+      case CatalogKind.RecruitmentMethod:
+      {
+        var methodId = RecruitmentMethodId.Of(command.Id);
+        var method = await context.RecruitmentMethods.FirstOrDefaultAsync(m => m.Id == methodId, cancellationToken)
+          ?? throw new RecruitmentMethodNotFoundException($"Recruitment method {command.Id} was not found.");
+        if (await context.ServiceHistory.AnyAsync(h => h.RecruitmentMethodId == method.Id, cancellationToken)
+            || await context.HrActions.AnyAsync(a => a.RecruitmentMethodId == method.Id, cancellationToken))
+          throw new InUseException($"Service records name '{method.Name}', so it cannot be deleted. Deactivate it instead.");
+        context.RecruitmentMethods.Remove(method);
+        break;
+      }
+      case CatalogKind.ServiceEventType:
+      {
+        var eventType = await context.LoadEventTypeAsync(command.Id, cancellationToken);
+        if (ServiceEventNames.IsSystem(eventType.Name))
+          throw new InUseException($"'{eventType.Name}' is the event HR actions are recorded under; it cannot be deleted.");
+        if (await context.ServiceHistory.AnyAsync(h => h.EventTypeId == eventType.Id, cancellationToken)
+            || await context.HrActions.AnyAsync(a => a.EventTypeId == eventType.Id, cancellationToken))
+          throw new InUseException($"Service records are of the event '{eventType.Name}', so it cannot be deleted. Deactivate it instead.");
+        context.ServiceEventTypes.Remove(eventType);
+        break;
+      }
+      case CatalogKind.RequestType:
+      {
+        var requestTypeId = EmployeeRequestTypeId.Of(command.Id);
+        var requestType = await context.RequestTypes.FirstOrDefaultAsync(t => t.Id == requestTypeId, cancellationToken)
+          ?? throw new RequestTypeNotFoundException($"Request type {command.Id} was not found.");
+        if (await context.Requests.AnyAsync(r => r.RequestTypeId == requestType.Id, cancellationToken))
+          throw new InUseException($"Requests of the kind '{requestType.Name}' were raised, so it cannot be deleted. Deactivate it instead.");
+        context.RequestTypes.Remove(requestType);
+        break;
+      }
     }
 
     await context.SaveChangesAsync(cancellationToken);

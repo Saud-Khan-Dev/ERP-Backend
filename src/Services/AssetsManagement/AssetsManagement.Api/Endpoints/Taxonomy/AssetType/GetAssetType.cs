@@ -9,6 +9,8 @@ public class GetAssetType : ICarterModule
       var result = await sender.Send(new GetAssetTypeQuery(id));
       return Results.Ok(new GetAssetTypeResponse(result.Value!.AssetType));
     })
+      .RequireAnyPermission(AssetsAuthorization.AnyAssetsReader)
+
       .WithName("GetAssetType")
       .Produces<GetAssetTypeResponse>(StatusCodes.Status200OK)
       .ProducesProblem(StatusCodes.Status404NotFound)

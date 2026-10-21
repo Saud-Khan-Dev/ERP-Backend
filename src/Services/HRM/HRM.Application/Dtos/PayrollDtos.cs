@@ -19,7 +19,15 @@ public sealed record PayrollRunDto(
   decimal GrossPay,
   decimal TotalDeductions,
   decimal NetPayable,
-  DateTime? CreatedAt);
+  DateTime? CreatedAt,
+  DateTime? CalculatedAt = null,
+  Guid? FinalizedBy = null,
+  Guid? PaidBy = null,
+  Guid? ReversedBy = null,
+  DateTime? ReversedAt = null,
+  string? ReversalReason = null,
+  /// Maker-checker is on: the preparer, the reviewer and anyone who entered an adjustment may not approve.
+  bool RequireSeparateApprover = true);
 
 public sealed record PayrollTransactionSummaryDto(
   Guid Id,
@@ -122,4 +130,6 @@ public sealed record PayslipDto(
   string? Iban,
   string? Remarks,
   bool IsFinal,
-  DateTime? IssuedAt);
+  DateTime? IssuedAt,
+  /// The run's status now (a payslip of a reversed run no longer stands); filled when the payslip is read.
+  PayrollRunStatus? RunStatus = null);

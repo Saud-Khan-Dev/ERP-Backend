@@ -1,7 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 
 public sealed record MyPayslipDto(Guid PayrollTransactionId, Guid PayrollRunId, string Period, int Year, int Month, PayrollRunType RunType, string? RunLabel,
-  decimal GrossPay, decimal TotalDeductions, decimal NetPayable, bool IsHeld, DateTime IssuedAt);
+  decimal GrossPay, decimal TotalDeductions, decimal NetPayable, bool IsHeld, DateTime IssuedAt, PayrollRunStatus RunStatus);
 
 public sealed record GetMyPayslipsQueryResult(IReadOnlyList<MyPayslipDto> Payslips);
 
@@ -85,7 +85,7 @@ public class SelfServiceHandlers(IApplicationDbContext context, HrLookup lookup,
       where year == null || p.Year == year
       orderby p.Year descending, p.Month descending, s.GeneratedAt descending
       select new MyPayslipDto(t.Id.Value, r.Id.Value, "", p.Year, p.Month, r.RunType, r.RunLabel, t.GrossPay, t.TotalDeductions, t.NetPayable,
-        t.Status == PayrollTransactionStatus.Held, s.GeneratedAt);
+        t.Status == PayrollTransactionStatus.Held, s.GeneratedAt, r.Status);
 
     var list = take is { } n ? await rows.Take(n).ToListAsync(cancellationToken) : await rows.ToListAsync(cancellationToken);
     return list.Select(p => p with { Period = $"{new DateOnly(p.Year, p.Month, 1):MMMM yyyy}" }).ToList();

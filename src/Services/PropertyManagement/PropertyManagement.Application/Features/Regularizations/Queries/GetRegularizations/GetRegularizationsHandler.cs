@@ -16,7 +16,7 @@ public class GetRegularizationsHandler(IApplicationDbContext context, MasterLook
         .ToListAsync(cancellationToken);
 
     var refs = await masters.Refs().Add<MeasurementUnit>(cases.Select(r => r.MeasurementUnitId)).LoadAsync(cancellationToken);
-    var today = DateOnly.FromDateTime(DateTime.UtcNow);
+    var today = PakistanDate.Today;
 
     return Result<GetRegularizationsQueryResult>.Success(
       new GetRegularizationsQueryResult(cases.Select(r => r.ToDto(refs, today)).ToList()));

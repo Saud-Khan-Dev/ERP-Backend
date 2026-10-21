@@ -14,15 +14,19 @@ public sealed record UpdatePendingNoticeCommand(Guid Id, NoticeChanges Changes) 
 /// Issues a pending notice, with any last changes (a reason is needed when anything printed changes).
 public sealed record ConfirmNoticeCommand(Guid Id, NoticeChanges? Changes) : ICommand<Result<UpdatedResult>>;
 
-/// Issues every pending notice dated today or earlier, as prepared.
+/// Issues every pending notice of the cycle dated today or earlier, as prepared (a notice made by hand and saved for
+/// review is confirmed on its own).
 public sealed record ConfirmPendingNoticesCommand(Guid? CircleId, NoticeStage? Stage) : ICommand<Result<ConfirmPendingResult>>;
-public sealed record ConfirmPendingResult(int Issued, int SmsQueued);
+/// Skipped: notices left pending, with why (the file is on hold, or nothing is owed on the demand any more).
+public sealed record ConfirmPendingResult(int Issued, int SmsQueued, IReadOnlyList<NoticeSkipDto> Skipped);
+public sealed record NoticeSkipDto(Guid NoticeId, string NoticeNo, string Reason);
 
 public sealed record CancelNoticeCommand(Guid Id) : ICommand<Result<UpdatedResult>>;
 public sealed record ServeNoticeCommand(Guid Id, Guid? ServedByEmployeeId, DateOnly ServedOn, ServiceMode Mode) : ICommand<Result<UpdatedResult>>;
 
 /// Prepares the next notice of every unpaid demand whose date has come (second, final, show cause, counted in working days
-/// from the first notice), for confirmation.
+/// from the first notice), for confirmation. Only a stage above the highest the demand already reached (a stage
+/// cancelled on purpose counts as reached); dated today.
 public sealed record EscalateNoticesCommand : ICommand<Result<EscalateResult>>;
 public sealed record EscalateResult(int Prepared, IReadOnlyList<NoticeBriefDto> Notices);
 
@@ -82,6 +86,7 @@ public class NoticeHandlers(
   Ledger ledger,
   Assessor assessor,
   NoticeComposer composer,
+  NoticeEscalation escalation,
   CalendarProvider calendars,
   Messenger messenger,
   CodeIssuer codes,
@@ -98,7 +103,7 @@ public class NoticeHandlers(
   IQueryHandler<GetNoticeContextQuery, Result<NoticeContextDto>>,
   ICommandHandler<CreateManualNoticeCommand, Result<ManualNoticeResult>>
 {
-  private static readonly NoticeStage[] Ladder = [NoticeStage.First, NoticeStage.Second, NoticeStage.Final, NoticeStage.ShowCause];
+  private static readonly NoticeStage[] Ladder = NoticeEscalation.Ladder;
 
   // ---- reads ----
 
@@ -169,11 +174,19 @@ public class NoticeHandlers(
       : await setup.LayoutAsync(notice.IssueDate, cancellationToken);
     var defaults = layout.OrderedColumns.Where(c => c.PrintedByDefault).Select(c => new NoticeColumn(c.ColumnKey, c.Heading)).ToList();
 
-    // a pending notice shows what it would print today; an issued one shows what was printed
+    // a pending notice shows what it would print today (table, amount and QR worked out now); an issued one what was printed
     string? qrPreview = null;
-    if (notice.Status == NoticeStatus.Pending && notice.PayVia != PayVia.Onelink)
-      qrPreview = PaymentQr.Payload(await setup.SettingsAsync(notice.IssueDate, cancellationToken), file.Psid!, demand.Balance, notice.NoticeNo);
-    return Result<GetNoticeQueryResult>.Success(new(notice.ToDto(demand, file.FileNo, letterhead, defaults, qrPreview)));
+    NoticeParticulars? preview = null;
+    if (notice.Status == NoticeStatus.Pending)
+    {
+      var full = notice.TableLayoutId is { } lid
+        ? await context.TableLayouts.AsNoTracking().Include(l => l.Rows).ThenInclude(r => r.Sources).Include(l => l.Columns).AsSplitQuery().FirstAsync(l => l.Id == lid, cancellationToken)
+        : await setup.LayoutAsync(notice.IssueDate, cancellationToken);
+      preview = await composer.ParticularsAsync(demand, full, cancellationToken);
+      if (notice.PayVia != PayVia.Onelink)
+        qrPreview = PaymentQr.Payload(await setup.SettingsAsync(notice.IssueDate, cancellationToken), file.Psid!, demand.Balance, notice.NoticeNo);
+    }
+    return Result<GetNoticeQueryResult>.Success(new(notice.ToDto(demand, file.FileNo, letterhead, defaults, qrPreview, preview)));
   }
 
   // ---- review and issue ----
@@ -181,7 +194,8 @@ public class NoticeHandlers(
   public async Task<Result<UpdatedResult>> Handle(UpdatePendingNoticeCommand command, CancellationToken cancellationToken)
   {
     var notice = await context.LoadNoticeAsync(command.Id, cancellationToken);
-    notice.Change(command.Changes, await LayoutColumnsAsync(notice, cancellationToken), currentUser.UserId, clock.UtcNow);
+    notice.Change(command.Changes, await LayoutColumnsAsync(notice, cancellationToken), currentUser.UserId, clock.UtcNow,
+      await MovedReplyByAsync(notice, command.Changes, cancellationToken));
     await context.SaveChangesAsync(cancellationToken);
     return CommandResults.Updated();
   }
@@ -193,7 +207,7 @@ public class NoticeHandlers(
     var file = await context.LoadTaxFileAsync(demand.TaxFileId.Value, cancellationToken);
     var actor = Guard.Actor(currentUser.UserId, "issue a notice");
     if (command.Changes is { } changes)
-      notice.Change(changes, await LayoutColumnsAsync(notice, cancellationToken), actor, clock.UtcNow);
+      notice.Change(changes, await LayoutColumnsAsync(notice, cancellationToken), actor, clock.UtcNow, await MovedReplyByAsync(notice, changes, cancellationToken));
     if (notice.IssueDate > clock.Today)
       return Result<UpdatedResult>.Failure($"Notice {notice.NoticeNo} is dated {notice.IssueDate:yyyy-MM-dd}; it is issued on or after that date.");
     if (file.HoldOn(clock.Today) is { } hold)
@@ -207,31 +221,41 @@ public class NoticeHandlers(
   {
     var actor = Guard.Actor(currentUser.UserId, "issue notices");
     var today = clock.Today;
-    var pending = await context.Notices.Where(n => n.Status == NoticeStatus.Pending && n.IssueDate <= today && (command.Stage == null || n.Stage == command.Stage))
+    var pending = await context.Notices.Where(n => n.Status == NoticeStatus.Pending && n.Origin == NoticeOrigin.Cycle && n.IssueDate <= today
+        && (command.Stage == null || n.Stage == command.Stage))
       .OrderBy(n => n.IssueDate).ToListAsync(cancellationToken);
     var issued = 0;
     var sms = 0;
+    var skipped = new List<NoticeSkipDto>();
     foreach (var notice in pending)
     {
       var demand = await context.LoadDemandAsync(notice.DemandId.Value, cancellationToken);
       var file = await context.LoadTaxFileAsync(demand.TaxFileId.Value, cancellationToken);
       if (command.CircleId is { } circle && file.CircleId.Value != circle)
         continue;
-      if (file.HoldOn(today) is not null)
+      if (file.HoldOn(today) is { } hold)
+      {
+        skipped.Add(new(notice.Id.Value, notice.NoticeNo, $"{file.FileNo} is on litigation hold since {hold.StartedOn:dd MMM yyyy}"));
         continue;
+      }
+      if (demand.Balance <= 0)
+      {
+        skipped.Add(new(notice.Id.Value, notice.NoticeNo, $"nothing is owed on {demand.DemandNo} now - cancel it"));
+        continue;
+      }
       await composer.ConfirmAsync(notice, demand, file, actor, cancellationToken);
       issued++;
       if (notice.SmsMessageId is not null)
         sms++;
     }
     await context.SaveChangesAsync(cancellationToken);
-    return Result<ConfirmPendingResult>.Success(new(issued, sms));
+    return Result<ConfirmPendingResult>.Success(new(issued, sms, skipped));
   }
 
   public async Task<Result<UpdatedResult>> Handle(CancelNoticeCommand command, CancellationToken cancellationToken)
   {
     var notice = await context.LoadNoticeAsync(command.Id, cancellationToken);
-    notice.Cancel();
+    notice.Cancel(currentUser.UserId, clock.UtcNow);
     await context.SaveChangesAsync(cancellationToken);
     return CommandResults.Updated();
   }
@@ -248,38 +272,7 @@ public class NoticeHandlers(
 
   public async Task<Result<EscalateResult>> Handle(EscalateNoticesCommand command, CancellationToken cancellationToken)
   {
-    var today = clock.Today;
-    var demands = await context.DemandsWithItems()
-      .Where(d => (d.Status == DemandStatus.Issued || d.Status == DemandStatus.PartPaid) && d.Balance > 0 && d.IssuedOn != null)
-      .ToListAsync(cancellationToken);
-    demands = demands.Where(d => today <= FiscalYear.End(d.FiscalYear)).ToList();
-    var prepared = new List<Notice>();
-    if (demands.Count > 0)
-    {
-      var ids = demands.Select(d => d.Id).ToList();
-      var notices = await context.Notices.AsNoTracking().Where(n => ids.Contains(n.DemandId) && n.Status != NoticeStatus.Cancelled).ToListAsync(cancellationToken);
-      var fileIds = demands.Select(d => d.TaxFileId).Distinct().ToList();
-      var files = (await context.TaxFilesWithDetails().Where(f => fileIds.Contains(f.Id)).ToListAsync(cancellationToken)).ToDictionary(f => f.Id);
-      var settings = await setup.SettingsAsync(today, cancellationToken);
-      var calendar = await calendars.CalendarAsync(settings, demands.Min(d => d.IssuedOn!.Value), today.AddDays(1), cancellationToken);
-      var steps = new[] { (NoticeStage.Second, settings.NoticeSecondDays), (NoticeStage.Final, settings.NoticeFinalDays), (NoticeStage.ShowCause, settings.NoticeShowCauseDays) };
-
-      foreach (var demand in demands)
-      {
-        var mine = notices.Where(n => n.DemandId == demand.Id).ToList();
-        if (mine.Any(n => n.Status == NoticeStatus.Pending) || files[demand.TaxFileId].HoldOn(today) is not null)
-          continue;
-        foreach (var (stage, days) in steps)
-        {
-          if (mine.Any(n => n.Stage == stage))
-            continue;
-          var due = calendar.AddDays(demand.IssuedOn!.Value, days);
-          if (due <= today)
-            prepared.Add(await composer.PrepareAsync(demand, files[demand.TaxFileId], stage, NoticeOrigin.Cycle, due, null, cancellationToken));
-          break;
-        }
-      }
-    }
+    var prepared = await escalation.PrepareDueAsync(cancellationToken);
     await context.SaveChangesAsync(cancellationToken);
     return Result<EscalateResult>.Success(new(prepared.Count, prepared.Select(n => n.ToBrief()).ToList()));
   }
@@ -311,7 +304,12 @@ public class NoticeHandlers(
     if (demand is null && await CarriedAsync(file, fy, cancellationToken) is { } carriedNote)
       notes.Insert(0, carriedNote);
     List<NoticeStage> issuedStages = demand is null ? [] : await context.Notices.Where(n => n.DemandId == demand.Id && n.Status != NoticeStatus.Cancelled).Select(n => n.Stage).ToListAsync(cancellationToken);
-    var next = demand is null || demand.Balance <= 0 ? NoticeStage.First : Ladder.FirstOrDefault(s => !issuedStages.Contains(s), NoticeStage.ShowCause);
+    // the stage after the highest the demand reached
+    var reached = issuedStages.Where(Ladder.Contains).Select(st => Array.IndexOf(Ladder, st)).DefaultIfEmpty(-1).Max();
+    var next = demand is null || demand.Balance <= 0 ? NoticeStage.First : Ladder[Math.Min(reached + 1, Ladder.Length - 1)];
+    var yearStart = FiscalYear.Start(fy);
+    if (demand is null && today < yearStart)
+      notes.Insert(0, $"FY {FiscalYear.Label(fy)} starts on {yearStart:dd MMM yyyy}; its demand is created from that day.");
 
     var heads = (await setup.HeadsAsync(cancellationToken)).ToDictionary(h => h.Id);
     var options = new List<HeadOptionDto>();
@@ -330,9 +328,10 @@ public class NoticeHandlers(
         options.Add(HeadOption(heads[line.HeadId], line.Amount, line.NormalAmount, line.NormalExplanation, line.Mode, line.PolicyId, file, fy, ctx));
     }
 
+    // the notice goes to whoever the dues are addressed to now
     var payer = file.Addressee(today);
-    var defaults = await composer.DefaultsAsync(file, demand?.PayerName ?? payer?.Name ?? "", demand?.PayerCnic ?? payer?.CnicNtn, demand?.PayerMobile ?? payer?.Mobile,
-      demand?.PayerAddress ?? payer?.PostalAddress, fy, next, today, cancellationToken);
+    var defaults = await composer.DefaultsAsync(file, payer?.Name ?? demand?.PayerName ?? "", payer?.CnicNtn ?? demand?.PayerCnic, payer?.Mobile ?? demand?.PayerMobile,
+      payer?.PostalAddress ?? demand?.PayerAddress, fy, next, today, cancellationToken);
     var arrears = demand?.ArrearsRows.Select(a => a.ToDto(heads)).ToList() ?? [];
     var preview = demand is null ? await ledger.ArrearsPreviewAsync(file, fy, cancellationToken) : 0m;
     var layout = await setup.LayoutAsync(today, cancellationToken);
@@ -343,7 +342,8 @@ public class NoticeHandlers(
       file.Id.Value, file.FileNo, fy, FiscalYear.Label(fy), demand?.Id.Value, demand?.DemandNo, demand is null,
       file.HoldOn(today) is { } h ? $"Litigation hold since {h.StartedOn:yyyy-MM-dd}: {h.Reason}" : null, demand is null ? fresh?.SuspendedReason : null,
       next, options, arrears, preview, demand?.PenaltyAmount ?? 0, demand?.PaidAmount ?? 0, payable, defaults,
-      (await setup.SettingsAsync(today, cancellationToken)).PayViaDefault, layout.ToDto().Columns, notes));
+      (await setup.SettingsAsync(today, cancellationToken)).PayViaDefault, layout.ToDto().Columns, notes, yearStart, today >= yearStart,
+      await ledger.CreditAsync(file.Id, cancellationToken)));
   }
 
   private static HeadOptionDto HeadOption(TaxHead head, decimal current, decimal normal, string normalExplanation, LineMode mode, SpecialPolicyId? policyId, TaxFile file,
@@ -366,9 +366,14 @@ public class NoticeHandlers(
     var issueDate = command.IssueDate ?? today;
     var actor = Guard.Actor(currentUser.UserId, "create a notice");
     var reason = string.IsNullOrWhiteSpace(command.Reason) ? null : command.Reason.Trim();
+    var canApprove = currentUser.HasPermission(PermissionCatalog.Tax.Approve);
 
     if (issueDate > today)
       return Result<ManualNoticeResult>.Failure("A notice cannot be dated in the future.");
+    if (command.IssueNow && !currentUser.HasPermission(PermissionCatalog.Tax.Edit))
+      return Result<ManualNoticeResult>.Failure("Issuing a notice at once needs the right to issue notices (TAX.EDIT). Save it for review; an officer issues it.");
+    if (file.TaxStatus == TaxStatus.Closed)
+      return Result<ManualNoticeResult>.Failure($"{file.FileNo} is closed; a closed file gets no notices.");
     if (file.HoldOn(issueDate) is { } hold)
       return Result<ManualNoticeResult>.Failure($"Litigation hold since {hold.StartedOn:yyyy-MM-dd} ({hold.Reason}): no tax or fee while it is open.");
     await setup.TemplateAsync(command.Stage, cancellationToken);
@@ -380,10 +385,10 @@ public class NoticeHandlers(
       var head = await setup.HeadAsync(row.HeadCode.Trim().ToUpperInvariant(), cancellationToken);
       if (!head.IsActive)
         return Result<ManualNoticeResult>.Failure($"{head.Name} is inactive.");
+      if (!head.OnNotice)
+        return Result<ManualNoticeResult>.Failure($"{head.Name} is a fee; charge it on its own, not on a notice.");
       if (row.FiscalYear > fy)
         return Result<ManualNoticeResult>.Failure($"A row for FY {FiscalYear.Label(row.FiscalYear.Value)} is after the notice year.");
-      if (head.Code == HeadCodes.Misc && string.IsNullOrWhiteSpace(row.Description))
-        return Result<ManualNoticeResult>.Failure("Describe each miscellaneous charge (what it is for).");
       rows.Add((row, head));
     }
 
@@ -391,6 +396,27 @@ public class NoticeHandlers(
     var created = demand is null;
     if (created && await CarriedAsync(file, fy, cancellationToken) is { } carried)
       return Result<ManualNoticeResult>.Failure(carried);
+    if (created)
+    {
+      // creating the year's demand with a notice stands in for the run's approval
+      var yearStart = FiscalYear.Start(fy);
+      if (today < yearStart)
+        return Result<ManualNoticeResult>.Failure($"FY {FiscalYear.Label(fy)} starts on {yearStart:dd MMM yyyy}; its demand is created from that day.");
+      if (issueDate < yearStart)
+        return Result<ManualNoticeResult>.Failure($"FY {FiscalYear.Label(fy)}'s demand cannot be dated before the year starts ({yearStart:dd MMM yyyy}).");
+      if (!canApprove)
+        return Result<ManualNoticeResult>.Failure($"FY {FiscalYear.Label(fy)} has no demand on {file.FileNo} yet. Creating it with a notice stands in for the run's approval and needs approval rights (TAX.APPROVE).");
+      if (file.TaxStatus != TaxStatus.Active)
+        return Result<ManualNoticeResult>.Failure($"{file.FileNo} is {EnumText.Words(file.TaxStatus)}; no demand is created for it.");
+    }
+    else if (demand!.IssuedOn is { } issuedOn && issueDate < issuedOn)
+      return Result<ManualNoticeResult>.Failure($"{demand.DemandNo} was issued on {issuedOn:dd MMM yyyy}; a notice on it cannot be dated before that.");
+    if (command.Stage == NoticeStage.Surcharge && (demand is null || demand.PenaltySum(PenaltyKind.IntraYear) <= 0))
+      return Result<ManualNoticeResult>.Failure("A surcharge notice follows a surcharge run; this year's demand has no in-year surcharge.");
+
+    // changing what is charged needs approval rights: typed amounts and Normal / Special switches
+    if (!canApprove && (command.HeadModes is { Count: > 0 } || command.LineAmounts is { Count: > 0 }))
+      return Result<ManualNoticeResult>.Failure("Changing a head's amount or switching it Normal / Special needs approval rights (TAX.APPROVE).");
 
     // the computation is needed to create the demand or to switch a head; an issued demand alone is not recomputed
     AssessmentContext? ctx = null;
@@ -475,6 +501,7 @@ public class NoticeHandlers(
     if ((rows.Count > 0 || changes.Count > 0) && reason is null)
       return Result<ManualNoticeResult>.Failure("Give the reason for the amounts you entered or changed (kept in the audit trail).");
 
+    var surcharge = await setup.HeadAsync(HeadCodes.Surcharge, cancellationToken);
     if (created)
     {
       foreach (var draft in await context.DemandsWithItems().Where(d => d.TaxFileId == file.Id && d.FiscalYear == fy && d.Status == DemandStatus.Draft).ToListAsync(cancellationToken))
@@ -482,10 +509,9 @@ public class NoticeHandlers(
       var payer = file.Addressee(issueDate) ?? throw new DomainException("Property has no owner, lessee, tenant or allottee for it. Record one there and sync the file.");
       demand = Demand.Draft(DemandId.New(), await codes.DemandNoAsync(fy, cancellationToken), null, file, file.CurrentBasis!, payer, fy, lines, 0);
       context.Demands.Add(demand);
-      var surcharge = await setup.HeadAsync(HeadCodes.Surcharge, cancellationToken);
-      var billed = await ledger.CarryIntoAsync(demand, surcharge.Id, actor, clock.UtcNow, cancellationToken);
+      var billed = await ledger.CarryIntoAsync(demand, surcharge.Id, actor, clock.UtcNow, today, cancellationToken);
       var settings = await setup.SettingsAsync(issueDate, cancellationToken);
-      demand.Issue(issueDate, settings.DueDate(fy), billed);
+      demand.Issue(issueDate, settings.DueDate(fy, issueDate), billed);
     }
     else if (changes.Count > 0)
     {
@@ -495,6 +521,11 @@ public class NoticeHandlers(
     foreach (var (row, head) in rows)
       context.ArrearsRows.Add(demand!.AddManualArrears(head, row.FiscalYear, row.Amount, row.Description, reason!, actor, clock.UtcNow));
     var added = rows.Sum(r => Rupees.Round(r.Row.Amount));
+
+    // a credit (paid beyond the charges after a correction) goes to the open demands of the file
+    var credited = await ledger.MoveCreditsAsync(file.Id, surcharge.Id, today, cancellationToken);
+    if (credited > 0)
+      changes.Add($"{Rupees.Text(credited)} paid before was carried as credit");
 
     file.FillPlotNo(command.Options.PlotNo);
     var notice = await composer.PrepareAsync(demand!, file, command.Stage, NoticeOrigin.Manual, issueDate, command.Options, cancellationToken);
@@ -512,7 +543,8 @@ public class NoticeHandlers(
       await composer.ConfirmAsync(notice, demand!, file, actor, cancellationToken);
 
     await context.SaveChangesAsync(cancellationToken);
-    return Result<ManualNoticeResult>.Success(new(notice.Id.Value, notice.NoticeNo, demand!.Id.Value, demand.DemandNo, created, added, changes, command.IssueNow, demand.Excess));
+    return Result<ManualNoticeResult>.Success(new(notice.Id.Value, notice.NoticeNo, demand!.Id.Value, demand.DemandNo, created, added, changes, command.IssueNow,
+      await ledger.CreditAsync(file.Id, cancellationToken)));
   }
 
   private static SpecialPolicy Policy(AssessmentContext ctx, Guid id, TaxHead head, TaxFile file, int fy)
@@ -542,6 +574,17 @@ public class NoticeHandlers(
   private async Task<Demand?> IssuedDemandAsync(TaxFile file, int fiscalYear, CancellationToken cancellationToken) =>
       await context.DemandsWithItems().FirstOrDefaultAsync(d => d.TaxFileId == file.Id && d.FiscalYear == fiscalYear
         && d.Status != DemandStatus.Draft && d.Status != DemandStatus.Cancelled && d.Status != DemandStatus.Carried, cancellationToken);
+
+  /// The pay-by date for a new notice date or number of days, counted as the notice days are (working days by the HRM calendar).
+  private async Task<DateOnly?> MovedReplyByAsync(Notice notice, NoticeChanges changes, CancellationToken cancellationToken)
+  {
+    if (changes.ReplyBy is not null || (changes.IssueDate is null && changes.Days is null))
+      return null;
+    var date = changes.IssueDate ?? notice.IssueDate;
+    var days = changes.Days ?? notice.Variables.Days;
+    var settings = await setup.SettingsAsync(date, cancellationToken);
+    return (await calendars.CalendarAsync(settings, date, date.AddDays(days * 2 + 60), cancellationToken)).AddDays(date, days);
+  }
 
   private async Task<IReadOnlyList<NoticeColumn>> LayoutColumnsAsync(Notice notice, CancellationToken cancellationToken)
   {

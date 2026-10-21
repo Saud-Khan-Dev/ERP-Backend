@@ -35,13 +35,13 @@ public class AssetAttachment : Aggregate<AssetAttachmentId>
     ArgumentException.ThrowIfNullOrWhiteSpace(storagePath);
 
     if (fileSize < 0)
-      throw new DomainException("File size cannot be negative.");
+      throw new DomainException("The file is empty or unreadable.");
 
     if (checksumSha256 is not null && checksumSha256.Length != 64)
-      throw new DomainException("checksum_sha256 must be a 64 character hex digest.");
+      throw new DomainException("The file could not be checked. Upload it again.");
 
     if (isPrimaryImage && attachmentType != AttachmentType.Image)
-      throw new DomainException("Only IMAGE attachments can be the primary image.");
+      throw new DomainException("Only a photo can be the main picture of the asset.");
 
     return new AssetAttachment
     {
@@ -62,7 +62,7 @@ public class AssetAttachment : Aggregate<AssetAttachmentId>
   public void MarkAsPrimary()
   {
     if (AttachmentType != AttachmentType.Image)
-      throw new DomainException("Only IMAGE attachments can be the primary image.");
+      throw new DomainException("Only a photo can be the main picture of the asset.");
 
     IsPrimaryImage = true;
   }

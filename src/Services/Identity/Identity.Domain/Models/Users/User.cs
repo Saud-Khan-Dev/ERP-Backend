@@ -12,8 +12,9 @@ public class User : Aggregate<UserId>
   /// another schema/service entirely.
   public Guid? EmployeeId { get; private set; }
 
-  /// Human-readable employee number (EMP-101), issued from or checked against the admin-editable
-  /// EmployeeCodeTemplate by the application layer. Unique when present.
+  /// The employee number HR gave the person (EMP-101) - set together with <see cref="EmployeeId"/> when the account is
+  /// linked to its HR record, never issued here. An older account may still carry a code Identity issued before HR
+  /// owned the numbering: shown as "not linked" until the account is linked.
   public EmployeeCode? EmployeeCode { get; private set; }
 
   /// Display name shown in admin screens and audit trails, so listing users does not require a
@@ -30,6 +31,9 @@ public class User : Aggregate<UserId>
 
   // ---- brute-force protection ----
   public int FailedLoginAttempts { get; private set; }
+  /// The last wrong password: failures older than the counting window are forgotten, so last month's typos do not
+  /// add to today's.
+  public DateTime? LastFailedLoginAt { get; private set; }
   public DateTime? LockedUntil { get; private set; }
 
   // ---- password hygiene ----
@@ -81,19 +85,30 @@ public class User : Aggregate<UserId>
     };
   }
 
-  public void UpdateProfile(EmailAddress email, Name displayName, Guid? employeeId, EmployeeCode? employeeCode)
+  /// Name and email. The HR link and the employee code change only through <see cref="LinkEmployee"/>.
+  public void UpdateProfile(EmailAddress email, Name displayName)
   {
     ArgumentNullException.ThrowIfNull(email);
     ArgumentNullException.ThrowIfNull(displayName);
     EnsureNotDeleted();
 
-    if (employeeId == Guid.Empty)
-      throw new DomainException("Employee id cannot be empty.");
-
     Email = email;
     DisplayName = displayName;
+  }
+
+  /// Links the account to the person's HR record and takes HR's employee number as its code - or, with no record,
+  /// unlinks it (an older code Identity issued is cleared with it: only HR numbers are shown from now on).
+  public void LinkEmployee(Guid? employeeId, EmployeeCode? employeeCode)
+  {
+    EnsureNotDeleted();
+
+    if (employeeId == Guid.Empty)
+      throw new DomainException("Choose the person's HR record.");
+    if (employeeId is not null && employeeCode is null)
+      throw new DomainException("A linked account shows the person's HR employee number - it is missing.");
+
     EmployeeId = employeeId;
-    EmployeeCode = employeeCode;
+    EmployeeCode = employeeId is null ? null : employeeCode;
   }
 
   /// Throws when this account may not sign in. Called only after the password has been verified,
@@ -111,14 +126,18 @@ public class User : Aggregate<UserId>
       throw new AccountUnavailableException($"This account is locked until {LockedUntil:u}. Contact your administrator.");
   }
 
-  /// Records a failed sign-in and locks the account once the threshold is reached.
-  /// Returns true when this attempt caused the lockout.
+  /// Records a wrong password and locks the account once `maxAttempts` of them fall within the lockout window (the
+  /// same span the lock lasts): failures older than that are forgotten. Returns true when this attempt locked it.
   public bool RegisterFailedLogin(int maxAttempts, TimeSpan lockoutDuration, DateTime now)
   {
     if (maxAttempts <= 0)
       throw new DomainException("maxAttempts must be greater than zero.");
 
+    if (LastFailedLoginAt is not { } last || now - last > lockoutDuration)
+      FailedLoginAttempts = 0;
+
     FailedLoginAttempts++;
+    LastFailedLoginAt = now;
 
     if (FailedLoginAttempts < maxAttempts)
       return false;
@@ -131,6 +150,7 @@ public class User : Aggregate<UserId>
   public void RegisterSuccessfulLogin(IpAddress? ip, DateTime now)
   {
     FailedLoginAttempts = 0;
+    LastFailedLoginAt = null;
     LockedUntil = null;
     LastLoginAt = now;
     LastLoginIp = ip;
@@ -146,6 +166,7 @@ public class User : Aggregate<UserId>
     MustChangePassword = mustChangePassword;
     // a password reset also clears a lockout: the credential that was being guessed is gone
     FailedLoginAttempts = 0;
+    LastFailedLoginAt = null;
     LockedUntil = null;
   }
 
@@ -182,6 +203,7 @@ public class User : Aggregate<UserId>
     EnsureNotDeleted();
     LockedUntil = null;
     FailedLoginAttempts = 0;
+    LastFailedLoginAt = null;
   }
 
   public void VerifyEmail(DateTime now)
@@ -198,6 +220,17 @@ public class User : Aggregate<UserId>
 
     DeletedAt = now;
     DeletedBy = deletedBy;
+    IsActive = false;
+  }
+
+  /// Brings a deleted account back, switched off: an administrator reviews its roles and activates it.
+  public void Restore()
+  {
+    if (!IsDeleted)
+      throw new DomainException("This account is not deleted.");
+
+    DeletedAt = null;
+    DeletedBy = null;
     IsActive = false;
   }
 

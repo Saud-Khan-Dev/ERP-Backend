@@ -37,8 +37,9 @@ public class GetAllotmentsHandler(IApplicationDbContext context, MasterLookup ma
         .ToListAsync(cancellationToken))
       .ToLookup(o => o.AcquiredViaAllotmentId!);
 
+    var today = PakistanDate.Today;
     return rows.Select(a => a.ToDto(refs, owners,
         a.IsActive && inForce.Contains(a.AllotmentStatusId),
-        a.ConfirmedOwnership(confirmations[a.Id])?.Id.Value)).ToList();
+        a.ConfirmedOwnership(confirmations[a.Id])?.Id.Value, today)).ToList();
   }
 }

@@ -85,7 +85,26 @@ public sealed record EmployeeTaxResult(
   decimal TaxableIncomeYtd,
   decimal TaxWithheldYtd,
   decimal Exemptions,
-  IReadOnlyList<TaxLedgerEntryDto> Entries);
+  IReadOnlyList<TaxLedgerEntryDto> Entries,
+  /// Before this payroll paid the employee in the year (going live mid-year, a transfer in): counted in the year-to-date.
+  decimal OpeningTaxableIncome = 0,
+  decimal OpeningTaxWithheld = 0,
+  string? OpeningRemarks = null);
+
+/// The taxable income and tax withheld in a tax year before this payroll (from the previous office's certificate or the
+/// old system): one per employee and year, counted in the year-to-date so the monthly tax is right.
+public sealed record SetTaxOpeningCommand(Guid EmployeeId, Guid TaxYearId, decimal TaxableIncome, decimal TaxWithheld, string? Remarks) : ICommand<Result<UpdatedResult>>;
+public sealed record DeleteTaxOpeningCommand(Guid EmployeeId, Guid TaxYearId) : ICommand<Result<UpdatedResult>>;
+
+public class SetTaxOpeningCommandValidator : AbstractValidator<SetTaxOpeningCommand>
+{
+  public SetTaxOpeningCommandValidator()
+  {
+    RuleFor(x => x.TaxableIncome).GreaterThanOrEqualTo(0);
+    RuleFor(x => x.TaxWithheld).GreaterThanOrEqualTo(0);
+    RuleFor(x => x.Remarks).NotEmpty().WithMessage("Say where the figures come from.").MaximumLength(1000);
+  }
+}
 
 /// Taxable income and tax withheld so far in a tax year (reversed runs left out), with each payroll's share.
 public sealed record GetEmployeeTaxQuery(Guid EmployeeId, Guid? TaxYearId) : IQuery<Result<EmployeeTaxResult>>;
@@ -120,8 +139,34 @@ public class TaxHandlers(IApplicationDbContext context, IClock clock) :
   ICommandHandler<CreateTaxExemptionCommand, Result<CreatedResult>>,
   ICommandHandler<UpdateTaxExemptionCommand, Result<UpdatedResult>>,
   ICommandHandler<DeleteTaxExemptionCommand, Result<UpdatedResult>>,
-  IQueryHandler<GetEmployeeTaxQuery, Result<EmployeeTaxResult>>
+  IQueryHandler<GetEmployeeTaxQuery, Result<EmployeeTaxResult>>,
+  ICommandHandler<SetTaxOpeningCommand, Result<UpdatedResult>>,
+  ICommandHandler<DeleteTaxOpeningCommand, Result<UpdatedResult>>
 {
+  public async Task<Result<UpdatedResult>> Handle(SetTaxOpeningCommand command, CancellationToken cancellationToken)
+  {
+    var employee = await context.LoadEmployeeAsync(command.EmployeeId, cancellationToken);
+    var year = await context.LoadTaxYearAsync(command.TaxYearId, cancellationToken);
+    var existing = await context.TaxOpenings.FirstOrDefaultAsync(o => o.EmployeeId == employee.Id && o.TaxYearId == year.Id, cancellationToken);
+    if (existing is null)
+      context.TaxOpenings.Add(EmployeeTaxOpening.Create(employee.Id, year, command.TaxableIncome, command.TaxWithheld, command.Remarks));
+    else
+      existing.Change(command.TaxableIncome, command.TaxWithheld, command.Remarks);
+    await context.SaveChangesAsync(cancellationToken);
+    return CommandResults.Updated();
+  }
+
+  public async Task<Result<UpdatedResult>> Handle(DeleteTaxOpeningCommand command, CancellationToken cancellationToken)
+  {
+    var employeeId = EmployeeId.Of(command.EmployeeId);
+    var yearId = TaxYearId.Of(command.TaxYearId);
+    var opening = await context.TaxOpenings.FirstOrDefaultAsync(o => o.EmployeeId == employeeId && o.TaxYearId == yearId, cancellationToken)
+      ?? throw new TaxYearNotFoundException("There is no opening tax position for this employee and year.");
+    context.TaxOpenings.Remove(opening);
+    await context.SaveChangesAsync(cancellationToken);
+    return CommandResults.Updated();
+  }
+
   // ---- tax years and slabs ----
 
   public async Task<Result<GetTaxYearsQueryResult>> Handle(GetTaxYearsQuery query, CancellationToken cancellationToken)
@@ -261,8 +306,11 @@ public class TaxHandlers(IApplicationDbContext context, IClock clock) :
         select new { l.Id, l.PayrollTransactionId, p.Year, p.Month, r.RunType, l.TaxableIncome, l.TaxWithheld, l.CreatedAt })
       .ToListAsync(cancellationToken);
 
-    return Result<EmployeeTaxResult>.Success(new(employeeId.Value, year.Id.Value, year.YearLabel, ytd?.TaxableIncomeYtd ?? 0, ytd?.TaxWithheldYtd ?? 0, exemptions,
-      entries.Select(e => new TaxLedgerEntryDto(e.Id.Value, e.PayrollTransactionId.Value, $"{e.Year}-{e.Month:00}", e.RunType, e.TaxableIncome, e.TaxWithheld, e.CreatedAt)).ToList()));
+    var opening = await context.TaxOpenings.AsNoTracking().FirstOrDefaultAsync(o => o.EmployeeId == employeeId && o.TaxYearId == year.Id, cancellationToken);
+    return Result<EmployeeTaxResult>.Success(new(employeeId.Value, year.Id.Value, year.YearLabel,
+      (ytd?.TaxableIncomeYtd ?? 0) + (opening?.TaxableIncome ?? 0), (ytd?.TaxWithheldYtd ?? 0) + (opening?.TaxWithheld ?? 0), exemptions,
+      entries.Select(e => new TaxLedgerEntryDto(e.Id.Value, e.PayrollTransactionId.Value, $"{e.Year}-{e.Month:00}", e.RunType, e.TaxableIncome, e.TaxWithheld, e.CreatedAt)).ToList(),
+      opening?.TaxableIncome ?? 0, opening?.TaxWithheld ?? 0, opening?.Remarks));
   }
 
   /// The given tax year, or the active one in force today.

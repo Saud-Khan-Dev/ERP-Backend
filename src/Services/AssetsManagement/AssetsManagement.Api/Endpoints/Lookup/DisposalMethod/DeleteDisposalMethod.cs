@@ -13,6 +13,8 @@ public class DeleteDisposalMethod : ICarterModule
 
       return Results.Ok(result.Value.Adapt<DeleteDisposalMethodResponse>());
     })
+      .RequirePermission(PermissionCatalog.AssetTaxonomy.Delete)
+
       .WithName("DeleteDisposalMethod")
       .Produces<DeleteDisposalMethodResponse>(StatusCodes.Status200OK)
       .ProducesProblem(StatusCodes.Status400BadRequest)

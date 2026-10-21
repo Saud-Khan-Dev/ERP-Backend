@@ -1,6 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 
-public class OrgUnitHandlers(IApplicationDbContext context) :
+public class OrgUnitHandlers(IApplicationDbContext context, IClock clock) :
   ICommandHandler<CreateOrgUnitCommand, Result<CreatedResult>>,
   ICommandHandler<RestructureOrgUnitCommand, Result<CreatedResult>>,
   ICommandHandler<CorrectOrgUnitCommand, Result<UpdatedResult>>,
@@ -34,8 +34,10 @@ public class OrgUnitHandlers(IApplicationDbContext context) :
   public async Task<Result<UpdatedResult>> Handle(CorrectOrgUnitCommand command, CancellationToken cancellationToken)
   {
     var unit = await context.LoadOrgUnitAsync(command.Id, cancellationToken);
-    var details = await ResolveAsync(unit.Id, command.Details, unit.Latest.EffectiveFrom, unit.Latest.Details, cancellationToken);
-    unit.CorrectLatest(details);
+    var asOf = command.AsOf ?? clock.Today;
+    var version = unit.VersionOn(asOf) ?? throw new DomainException($"Unit {unit.Code} has no version in force on {asOf:dd MMM yyyy}.");
+    var details = await ResolveAsync(unit.Id, command.Details, version.EffectiveFrom, version.Details, cancellationToken);
+    unit.CorrectOn(asOf, details);
 
     await context.SaveChangesAsync(cancellationToken);
     return CommandResults.Updated();

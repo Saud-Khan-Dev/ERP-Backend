@@ -14,6 +14,8 @@ public class UpdateLifecycleEventType : ICarterModule
 
       return Results.Ok(result.Value.Adapt<UpdateLifecycleEventTypeResponse>());
     })
+      .RequirePermission(PermissionCatalog.AssetTaxonomy.Edit)
+
       .WithName("UpdateLifecycleEventType")
       .Produces<UpdateLifecycleEventTypeResponse>(StatusCodes.Status200OK)
       .ProducesProblem(StatusCodes.Status400BadRequest)

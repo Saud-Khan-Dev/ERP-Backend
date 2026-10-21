@@ -6,6 +6,8 @@ public class UpdateAllotmentHandler(IApplicationDbContext context, MasterLookup 
     var allotment = await context.LoadAllotmentAsync(command.Id, cancellationToken);
     var property = await context.LoadPropertyAsync(allotment.PropertyId.Value, cancellationToken);
     var input = command.Allotment;
+    // the dates decide when the allotment is in force
+    context.Touch(property);
 
     allotment.Update(
       property,

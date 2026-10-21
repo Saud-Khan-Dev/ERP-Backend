@@ -296,6 +296,69 @@ namespace Taxation.Infrastructure.Data.Migrations
                     b.ToTable("arrears", "taxation");
                 });
 
+            modelBuilder.Entity("AuditLog", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)")
+                        .HasColumnName("action");
+
+                    b.Property<DateTime>("At")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("at");
+
+                    b.Property<Guid>("EntityId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("entity_id");
+
+                    b.Property<string>("EntityName")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)")
+                        .HasColumnName("entity");
+
+                    b.Property<string>("NewValues")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("new_values");
+
+                    b.Property<string>("OldValues")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("old_values");
+
+                    b.Property<Guid?>("TaxFileId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tax_file_id");
+
+                    b.Property<Guid?>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.Property<string>("UserName")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("user_name");
+
+                    b.HasKey("Id")
+                        .HasName("audit_log_pkey");
+
+                    b.HasIndex("At")
+                        .HasDatabaseName("ix_audit_log_at");
+
+                    b.HasIndex("TaxFileId")
+                        .HasDatabaseName("ix_audit_log_tax_file_id");
+
+                    b.HasIndex("EntityName", "EntityId")
+                        .HasDatabaseName("ix_audit_log_entity_entity_id");
+
+                    b.ToTable("audit_log", "taxation");
+                });
+
             modelBuilder.Entity("CategoryMap", b =>
                 {
                     b.Property<Guid>("Id")
@@ -363,6 +426,10 @@ namespace Taxation.Infrastructure.Data.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("consumed_at");
 
+                    b.Property<Guid?>("ConsumedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("consumed_by");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at")
@@ -389,6 +456,11 @@ namespace Taxation.Infrastructure.Data.Migrations
                         .HasColumnType("numeric(18,2)")
                         .HasColumnName("outstanding_checked");
 
+                    b.Property<string>("PayerName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("payer_name");
+
                     b.Property<Guid?>("PropertyRefId")
                         .HasColumnType("uuid")
                         .HasColumnName("property_ref_id");
@@ -403,6 +475,14 @@ namespace Taxation.Infrastructure.Data.Migrations
                         .HasMaxLength(15)
                         .HasColumnType("character varying(15)")
                         .HasColumnName("purpose");
+
+                    b.Property<DateTime?>("RevokedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("revoked_at");
+
+                    b.Property<Guid?>("RevokedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("revoked_by");
 
                     b.Property<string>("Status")
                         .IsRequired()
@@ -425,6 +505,12 @@ namespace Taxation.Infrastructure.Data.Migrations
                     b.Property<DateOnly>("ValidUntil")
                         .HasColumnType("date")
                         .HasColumnName("valid_until");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
 
                     b.HasKey("Id")
                         .HasName("clearance_pkey");
@@ -572,6 +658,12 @@ namespace Taxation.Infrastructure.Data.Migrations
                     b.Property<Guid?>("UpdatedBy")
                         .HasColumnType("uuid")
                         .HasColumnName("updated_by");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
 
                     b.HasKey("Id")
                         .HasName("demand_pkey");
@@ -805,6 +897,12 @@ namespace Taxation.Infrastructure.Data.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("updated_by");
 
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
                     b.HasKey("Id")
                         .HasName("demand_run_pkey");
 
@@ -903,6 +1001,12 @@ namespace Taxation.Infrastructure.Data.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("updated_by");
 
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
                     b.HasKey("Id")
                         .HasName("fee_pkey");
 
@@ -923,6 +1027,68 @@ namespace Taxation.Infrastructure.Data.Migrations
                         .HasDatabaseName("ix_fee_tax_file_id");
 
                     b.ToTable("fee", "taxation");
+                });
+
+            modelBuilder.Entity("JobRun", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<string>("Error")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("error");
+
+                    b.Property<DateTime?>("FinishedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("finished_at");
+
+                    b.Property<string>("Job")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("job");
+
+                    b.Property<int>("NoticesPrepared")
+                        .HasColumnType("integer")
+                        .HasColumnName("notices_prepared");
+
+                    b.Property<DateOnly>("RunDate")
+                        .HasColumnType("date")
+                        .HasColumnName("run_date");
+
+                    b.Property<DateTime>("StartedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("started_at");
+
+                    b.Property<Guid?>("StartedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("started_by");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)")
+                        .HasColumnName("status");
+
+                    b.Property<string>("Summary")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("summary");
+
+                    b.Property<int>("YearEndSurcharged")
+                        .HasColumnType("integer")
+                        .HasColumnName("year_end_surcharged");
+
+                    b.HasKey("Id")
+                        .HasName("job_run_pkey");
+
+                    b.HasIndex("Job", "RunDate")
+                        .HasDatabaseName("ix_job_run_job_run_date");
+
+                    b.ToTable("job_run", "taxation");
                 });
 
             modelBuilder.Entity("LitigationHold", b =>
@@ -1150,6 +1316,14 @@ namespace Taxation.Infrastructure.Data.Migrations
                         .HasColumnType("numeric(18,2)")
                         .HasColumnName("balance_at_issue");
 
+                    b.Property<DateTime?>("CancelledAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("cancelled_at");
+
+                    b.Property<Guid?>("CancelledBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("cancelled_by");
+
                     b.Property<string>("Columns")
                         .HasColumnType("jsonb")
                         .HasColumnName("columns");
@@ -1323,6 +1497,12 @@ namespace Taxation.Infrastructure.Data.Migrations
                         .IsRequired()
                         .HasColumnType("jsonb")
                         .HasColumnName("variables");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
 
                     b.HasKey("Id")
                         .HasName("notice_pkey");
@@ -1543,13 +1723,6 @@ namespace Taxation.Infrastructure.Data.Migrations
                         .HasDefaultValue(false)
                         .HasColumnName("hide_zero_rows");
 
-                    b.Property<string>("OtherLabel")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)")
-                        .HasDefaultValue("Other charges / earlier dues")
-                        .HasColumnName("other_label");
-
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_at");
@@ -1738,6 +1911,11 @@ namespace Taxation.Infrastructure.Data.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("employee_id");
 
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("is_active");
+
                     b.Property<string>("Mobile")
                         .HasMaxLength(30)
                         .HasColumnType("character varying(30)")
@@ -1813,16 +1991,28 @@ namespace Taxation.Infrastructure.Data.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("created_by");
 
+                    b.Property<Guid?>("FeeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("fee_id");
+
                     b.Property<DateTime>("PaidAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("paid_at");
+
+                    b.Property<Guid?>("PartyId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("party_id");
+
+                    b.Property<string>("PayerName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("payer_name");
 
                     b.Property<DateTime?>("PostedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("posted_at");
 
                     b.Property<string>("Psid")
-                        .IsRequired()
                         .HasMaxLength(30)
                         .HasColumnType("character varying(30)")
                         .HasColumnName("psid");
@@ -1836,18 +2026,30 @@ namespace Taxation.Infrastructure.Data.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("received_by");
 
+                    b.Property<string>("ReversalReason")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
+                        .HasColumnName("reversal_reason");
+
+                    b.Property<DateTime?>("ReversedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("reversed_at");
+
+                    b.Property<Guid?>("ReversedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("reversed_by");
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasMaxLength(10)
                         .HasColumnType("character varying(10)")
                         .HasColumnName("status");
 
-                    b.Property<Guid>("TaxFileId")
+                    b.Property<Guid?>("TaxFileId")
                         .HasColumnType("uuid")
                         .HasColumnName("tax_file_id");
 
                     b.Property<string>("TransactionRef")
-                        .IsRequired()
                         .HasMaxLength(60)
                         .HasColumnType("character varying(60)")
                         .HasColumnName("transaction_ref");
@@ -1860,15 +2062,33 @@ namespace Taxation.Infrastructure.Data.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("updated_by");
 
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
                     b.HasKey("Id")
                         .HasName("payment_pkey");
+
+                    b.HasIndex("FeeId")
+                        .HasDatabaseName("ix_payment_fee_id");
+
+                    b.HasIndex("PartyId")
+                        .HasDatabaseName("ix_payment_party_id");
+
+                    b.HasIndex("ReceiptNo")
+                        .IsUnique()
+                        .HasDatabaseName("payment_receipt_no_key")
+                        .HasFilter("receipt_no IS NOT NULL");
 
                     b.HasIndex("TaxFileId")
                         .HasDatabaseName("ix_payment_tax_file_id");
 
                     b.HasIndex("TransactionRef")
                         .IsUnique()
-                        .HasDatabaseName("payment_transaction_ref_key");
+                        .HasDatabaseName("payment_transaction_ref_key")
+                        .HasFilter("transaction_ref IS NOT NULL");
 
                     b.ToTable("payment", "taxation");
                 });
@@ -2146,12 +2366,12 @@ namespace Taxation.Infrastructure.Data.Migrations
                     b.HasKey("Id")
                         .HasName("penalty_rule_pkey");
 
-                    b.HasIndex("Code")
-                        .IsUnique()
-                        .HasDatabaseName("penalty_rule_code_key");
-
                     b.HasIndex("RateSetId")
                         .HasDatabaseName("ix_penalty_rule_rate_set_id");
+
+                    b.HasIndex("Code", "EffectiveFrom")
+                        .IsUnique()
+                        .HasDatabaseName("penalty_rule_code_effective_from_key");
 
                     b.ToTable("penalty_rule", "taxation");
                 });
@@ -2235,6 +2455,12 @@ namespace Taxation.Infrastructure.Data.Migrations
                     b.Property<Guid?>("UpdatedBy")
                         .HasColumnType("uuid")
                         .HasColumnName("updated_by");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
 
                     b.HasKey("Id")
                         .HasName("penalty_run_pkey");
@@ -2468,6 +2694,10 @@ namespace Taxation.Infrastructure.Data.Migrations
                     b.Property<Guid?>("ApprovedBy")
                         .HasColumnType("uuid")
                         .HasColumnName("approved_by");
+
+                    b.Property<int>("BaseFiscalYear")
+                        .HasColumnType("integer")
+                        .HasColumnName("base_fiscal_year");
 
                     b.Property<DateOnly?>("BoardDecisionDate")
                         .HasColumnType("date")
@@ -2755,10 +2985,6 @@ namespace Taxation.Infrastructure.Data.Migrations
                         .HasColumnType("character varying(30)")
                         .HasColumnName("office_phone");
 
-                    b.Property<Guid?>("OfficerPostId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("officer_post_id");
-
                     b.Property<Guid?>("OrgUnitId")
                         .HasColumnType("uuid")
                         .HasColumnName("org_unit_id");
@@ -3021,6 +3247,12 @@ namespace Taxation.Infrastructure.Data.Migrations
                         .HasMaxLength(12)
                         .HasColumnType("character varying(12)")
                         .HasColumnName("uplift_rate_basis");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
 
                     b.Property<DateOnly?>("WaterFacilityFrom")
                         .HasColumnType("date")
@@ -3468,6 +3700,11 @@ namespace Taxation.Infrastructure.Data.Migrations
                         .HasColumnName("charged_from")
                         .HasDefaultValueSql("'ALWAYS'");
 
+                    b.Property<bool>("ChargedOnNotice")
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("charged_on_notice");
+
                     b.Property<string>("Code")
                         .IsRequired()
                         .HasMaxLength(30)
@@ -3897,11 +4134,22 @@ namespace Taxation.Infrastructure.Data.Migrations
 
             modelBuilder.Entity("Payment", b =>
                 {
+                    b.HasOne("Fee", null)
+                        .WithMany()
+                        .HasForeignKey("FeeId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("payment_fee_id_fkey");
+
+                    b.HasOne("Party", null)
+                        .WithMany()
+                        .HasForeignKey("PartyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("payment_party_id_fkey");
+
                     b.HasOne("TaxFile", null)
                         .WithMany()
                         .HasForeignKey("TaxFileId")
                         .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired()
                         .HasConstraintName("payment_tax_file_id_fkey");
                 });
 

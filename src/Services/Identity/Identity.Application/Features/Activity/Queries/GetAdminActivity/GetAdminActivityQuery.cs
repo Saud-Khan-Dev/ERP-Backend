@@ -1,3 +1,5 @@
+using FluentValidation;
+
 public sealed record GetAdminActivityQueryResult(PaginatedResult<AdminActivityDto> Activities);
 
 /// The administration activity trail: who changed what, filtered by actor, target, person (actor OR
@@ -23,10 +25,12 @@ public static class ActivityKinds
         ActivityAction.UserCreated, ActivityAction.UserProfileUpdated, ActivityAction.UserActivated, ActivityAction.UserDeactivated,
         ActivityAction.UserDeleted, ActivityAction.UserUnlocked, ActivityAction.PasswordReset, ActivityAction.SessionsRevoked,
         ActivityAction.AuthorizedOfficerSet, ActivityAction.AuthorizedOfficerCleared,
+        ActivityAction.EmployeeLinked, ActivityAction.EmployeeUnlinked, ActivityAction.UserRestored,
       ],
       ["access"] =
       [
         ActivityAction.RoleAssigned, ActivityAction.RoleRemoved, ActivityAction.PermissionOverrideSet, ActivityAction.PermissionOverrideRemoved,
+        ActivityAction.RolesChanged,
       ],
       ["roles"] =
       [
@@ -35,4 +39,17 @@ public static class ActivityKinds
       ],
       ["settings"] = [ActivityAction.EmployeeCodeTemplateUpdated, ActivityAction.SecuritySettingsUpdated],
     };
+}
+
+public class GetAdminActivityQueryValidator : AbstractValidator<GetAdminActivityQuery>
+{
+  public GetAdminActivityQueryValidator()
+  {
+    RuleFor(x => x.Pagination.Pageindex).GreaterThanOrEqualTo(0).WithMessage("The page number cannot be negative.");
+    RuleFor(x => x.Pagination.PageSize).InclusiveBetween(1, 200).WithMessage("Ask for between 1 and 200 lines at a time.");
+    RuleFor(x => x.Kind).Must(k => string.IsNullOrWhiteSpace(k) || ActivityKinds.Actions.ContainsKey(k))
+      .WithMessage($"The kind of change is one of: {string.Join(", ", ActivityKinds.Actions.Keys)}.");
+    RuleFor(x => x.Action).Must(a => string.IsNullOrWhiteSpace(a) || Enum.TryParse<ActivityAction>(a, ignoreCase: true, out _))
+      .WithMessage("That action is not one Administration records.");
+  }
 }

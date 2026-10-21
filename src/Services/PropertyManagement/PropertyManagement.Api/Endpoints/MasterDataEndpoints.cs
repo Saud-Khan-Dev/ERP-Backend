@@ -7,24 +7,26 @@ public class MasterDataEndpoints : ICarterModule
     var group = app.MapGroup("/masters").WithTags("Master Data");
 
     group.MapGet("/", async (ISender sender) => (await sender.Send(new GetMasterTypesQuery())).ToOk())
-      .RequirePermission(PermissionCatalog.Property.View)
+      .RequireAnyPermission(PermissionCatalog.Property.View, PermissionCatalog.PropertySetup.View)
       .WithName("GetMasterTypes")
       .Produces<GetMasterTypesQueryResult>()
       .WithSummary("List Master Data Types")
-      .WithDescription("Every lookup list the property module uses, with the slug to call it by and any extra fields it carries.");
+      .WithDescription("Every lookup list the property module uses, with the slug to call it by and any extra fields it carries. readOnly: only the "
+        + "system's acts set its values (no new value, nothing switched off; rename only).");
 
     group.MapGet("/{type}", async (string type, bool? includeInactive, ISender sender) =>
         (await sender.Send(new GetMastersQuery(type, includeInactive ?? false))).ToOk())
-      .RequirePermission(PermissionCatalog.Property.View)
+      .RequireAnyPermission(PermissionCatalog.Property.View, PermissionCatalog.PropertySetup.View)
       .WithName("GetMasters")
       .Produces<GetMastersQueryResult>()
       .ProducesProblem(StatusCodes.Status404NotFound)
       .WithSummary("Get Master Values")
-      .WithDescription("Values of one list (e.g. /masters/towns), in sort order. Inactive values are hidden unless includeInactive=true.");
+      .WithDescription("Values of one list (e.g. /masters/towns), in sort order. Inactive values are hidden unless includeInactive=true. "
+        + "isSystem: a value the application relies on (rename only); usageCount: how many records refer to it.");
 
     group.MapGet("/{type}/{id:guid}", async (string type, Guid id, ISender sender) =>
         (await sender.Send(new GetMasterQuery(type, id))).ToOk())
-      .RequirePermission(PermissionCatalog.Property.View)
+      .RequireAnyPermission(PermissionCatalog.Property.View, PermissionCatalog.PropertySetup.View)
       .WithName("GetMaster")
       .Produces<GetMasterQueryResult>()
       .ProducesProblem(StatusCodes.Status404NotFound)
@@ -55,6 +57,17 @@ public class MasterDataEndpoints : ICarterModule
       .WithName("ActivateMaster")
       .Produces<SetMasterActivationCommandResult>()
       .WithSummary("Activate Master Value");
+
+    group.MapDelete("/{type}/{id:guid}", async (string type, Guid id, ISender sender) =>
+        (await sender.Send(new DeleteMasterCommand(type, id))).ToOk())
+      .RequirePermission(PermissionCatalog.PropertySetup.Delete)
+      .WithName("DeleteMaster")
+      .Produces<DeleteMasterCommandResult>()
+      .ProducesProblem(StatusCodes.Status400BadRequest)
+      .ProducesProblem(StatusCodes.Status404NotFound)
+      .WithSummary("Delete Master Value")
+      .WithDescription("Deletes a value no record refers to (usageCount 0). A system value (isSystem), or one in use, is refused with the reason - "
+        + "deactivate it instead.");
 
     group.MapPost("/{type}/{id:guid}/deactivate", async (string type, Guid id, ISender sender) =>
         (await sender.Send(new SetMasterActivationCommand(type, id, false))).ToOk())

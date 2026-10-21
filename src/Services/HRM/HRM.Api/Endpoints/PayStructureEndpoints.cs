@@ -1,3 +1,4 @@
+public sealed record TaxOpeningRequest(Guid TaxYearId, decimal TaxableIncome, decimal TaxWithheld, string? Remarks);
 public sealed record CreateSalaryComponentRequest(string ComponentCode, string ComponentName, ComponentType ComponentType, bool IsTaxable);
 public sealed record CloseRuleRequest(DateOnly LastDay);
 public sealed record TryRuleRequest(SalaryRuleInput Rule, PayFiguresInput Figures);
@@ -269,7 +270,27 @@ public class PayStructureEndpoints : ICarterModule
       .Produces<EmployeeTaxResult>()
       .ProducesProblem(StatusCodes.Status404NotFound)
       .WithSummary("Get Employee Tax So Far")
-      .WithDescription("Taxable income and tax withheld so far in the tax year (reversed runs left out), each payroll's share, and the exemptions.");
+      .WithDescription("Taxable income and tax withheld so far in the tax year (reversed runs left out; the opening position included), each payroll's share, the opening position and the exemptions.");
+
+    app.MapPut("/employees/{id:guid}/tax-opening", async (Guid id, TaxOpeningRequest r, ISender sender) =>
+        (await sender.Send(new SetTaxOpeningCommand(id, r.TaxYearId, r.TaxableIncome, r.TaxWithheld, r.Remarks))).ToOk())
+      .RequirePermission(PermissionCatalog.Payroll.Edit)
+      .WithTags("Income Tax")
+      .WithName("SetTaxOpening")
+      .Produces<UpdatedResult>()
+      .ProducesProblem(StatusCodes.Status400BadRequest)
+      .WithSummary("Set Opening Tax Position")
+      .WithDescription("Taxable income and tax withheld in the tax year before this payroll paid the employee (going live mid-year, a transfer in), "
+        + "with where the figures come from. Counted in the year-to-date, so the tax spread over the months left is right. One per employee and year.");
+
+    app.MapDelete("/employees/{id:guid}/tax-opening", async (Guid id, Guid taxYearId, ISender sender) =>
+        (await sender.Send(new DeleteTaxOpeningCommand(id, taxYearId))).ToOk())
+      .RequirePermission(PermissionCatalog.Payroll.Edit)
+      .WithTags("Income Tax")
+      .WithName("DeleteTaxOpening")
+      .Produces<UpdatedResult>()
+      .ProducesProblem(StatusCodes.Status404NotFound)
+      .WithSummary("Remove Opening Tax Position");
 
     app.MapGet("/employees/{id:guid}/tax-exemptions", async (Guid id, Guid? taxYearId, ISender sender) =>
         (await sender.Send(new GetTaxExemptionsQuery(id, taxYearId))).ToOk())

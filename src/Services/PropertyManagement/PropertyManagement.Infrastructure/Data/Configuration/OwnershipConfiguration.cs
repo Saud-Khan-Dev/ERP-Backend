@@ -23,6 +23,7 @@ public class PropertyOwnershipConfiguration : EntityConfiguration<PropertyOwners
     builder.Property(x => x.AcquiredViaTransferId).HasConversion(id => id!.Value, value => TransferId.Of(value));
     builder.Property(x => x.AcquiredViaAllotmentId).HasConversion(id => id!.Value, value => AllotmentId.Of(value));
     builder.Property(x => x.ReferenceNo).HasMaxLength(100);
+    builder.Property(x => x.EndReferenceNo).HasMaxLength(PropertyOwnership.ReferenceMaxLength);
     builder.Ignore(x => x.IsCurrent);
     builder.Ignore(x => x.IsTransferable);
 
@@ -55,14 +56,19 @@ public class PropertyTransferConfiguration : EntityConfiguration<PropertyTransfe
     builder.Property(x => x.ShareTransferredPct).HasPrecision(7, 4);
     builder.Property(x => x.ConsiderationAmount).HasPrecision(18, 2);
     builder.Property(x => x.Relationship).HasMaxLength(100);
-    builder.Property(x => x.ApprovedBy).HasMaxLength(150);
+    builder.Property(x => x.ApprovedBy).HasMaxLength(Approver.NameMaxLength);
+    builder.Property(x => x.ApprovedByUserId);
+    builder.Property(x => x.ApprovedByEmployeeId);
     builder.Property(x => x.ApprovalOrderRef).HasMaxLength(100);
+    builder.Property(x => x.NoDuesCertificateNo).HasMaxLength(PropertyTransfer.NoDuesCertificateMaxLength);
     builder.Property(x => x.CompletedBy).HasMaxLength(150);
     builder.Property(x => x.ClosedBy).HasMaxLength(150);
     builder.Property(x => x.ClosingReason);
     // INITIATED, APPROVED (legacy: approved before approval completed it), COMPLETED, CANCELLED, REJECTED
     builder.Property(x => x.TransferStatus).HasUpperSnakeEnum(20).IsRequired();
     builder.Ignore(x => x.IsPending);
+
+    builder.HasXminRowVersion();
 
     builder.HasIndex(x => x.TransferNo).IsUnique();
     builder.HasIndex(x => new { x.PropertyId, x.TransferDate });

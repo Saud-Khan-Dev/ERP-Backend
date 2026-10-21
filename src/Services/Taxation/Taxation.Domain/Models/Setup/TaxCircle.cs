@@ -1,5 +1,6 @@
 /// taxation.tax_circle: a tax administration area (C-I, C-II). Its towns are effective-dated, so a town can move between
-/// circles without rewriting history; the office details are printed under the letterhead of its notices.
+/// circles without rewriting history; the office details are printed under the letterhead of its notices; the holder of
+/// its Taxation Officer post (a tax_circle_staff row) signs them.
 public class TaxCircle : Aggregate<TaxCircleId>
 {
   private readonly List<TaxCircleTown> _towns = new();
@@ -7,7 +8,6 @@ public class TaxCircle : Aggregate<TaxCircleId>
   public string Code { get; private set; } = default!;
   public string Name { get; private set; } = default!;
   public Guid? OrgUnitId { get; private set; }
-  public Guid? OfficerPostId { get; private set; }
   public string? OfficeAddress { get; private set; }
   public string? OfficeFax { get; private set; }
   public string? OfficePhone { get; private set; }
@@ -29,7 +29,6 @@ public class TaxCircle : Aggregate<TaxCircleId>
   {
     Name = Guard.RequiredText(details.Name, 100, "Circle name");
     OrgUnitId = details.OrgUnitId;
-    OfficerPostId = details.OfficerPostId;
     OfficeAddress = Guard.Text(details.OfficeAddress, 300, "Office address");
     OfficeFax = Guard.Text(details.OfficeFax, 30, "Office fax");
     OfficePhone = Guard.Text(details.OfficePhone, 30, "Office phone");
@@ -68,9 +67,35 @@ public class TaxCircle : Aggregate<TaxCircleId>
     _towns.Add(town);
     return town;
   }
+
+  /// The town leaves the circle after a last day (and is in no circle from the next day until assigned again).
+  public void EndTown(TaxCircleTownId id, DateOnly lastDay, IReadOnlyList<TaxCircleTown> townHistory)
+  {
+    var town = _towns.FirstOrDefault(t => t.Id == id) ?? throw new DomainException("The town assignment was not found in this circle.");
+    if (townHistory.Any(t => t.Id != town.Id && t.EffectiveFrom > town.EffectiveFrom))
+      throw new DomainException("A later assignment of the town follows; it already ends this one.");
+    if (town.EffectiveTo is not null)
+      throw new DomainException($"The town left the circle after {town.EffectiveTo:dd MMM yyyy} already.");
+    town.Close(lastDay);
+  }
+
+  /// An assignment made from a later date by mistake is taken back before it is in force; the town's assignment it would
+  /// have ended runs on.
+  public TaxCircleTown? VoidTown(TaxCircleTownId id, DateOnly today, IReadOnlyList<TaxCircleTown> townHistory)
+  {
+    var town = _towns.FirstOrDefault(t => t.Id == id) ?? throw new DomainException("The town assignment was not found in this circle.");
+    if (town.EffectiveFrom <= today)
+      throw new DomainException($"The assignment is in force since {town.EffectiveFrom:dd MMM yyyy}; assign the town to another circle from a new date instead.");
+    if (townHistory.Any(t => t.Id != town.Id && t.EffectiveFrom > town.EffectiveFrom))
+      throw new DomainException("A later assignment of the town follows; take that one back first.");
+    var previous = townHistory.Where(t => t.Id != town.Id && t.EffectiveFrom < town.EffectiveFrom).OrderByDescending(t => t.EffectiveFrom).FirstOrDefault();
+    previous?.Reopen(town.EffectiveFrom.AddDays(-1));
+    _towns.Remove(town);
+    return previous;
+  }
 }
 
-public sealed record CircleDetails(string Name, Guid? OrgUnitId, Guid? OfficerPostId, string? OfficeAddress, string? OfficeFax, string? OfficePhone, int SortOrder);
+public sealed record CircleDetails(string Name, Guid? OrgUnitId, string? OfficeAddress, string? OfficeFax, string? OfficePhone, int SortOrder);
 
 /// taxation.tax_circle_town: which circle a Property town belongs to, from a date. The short code (NG for Nathiagali)
 /// is printed as "Town" on notices.
@@ -102,8 +127,15 @@ public class TaxCircleTown : Entity<TaxCircleTownId>
   internal void Close(DateOnly lastDay)
   {
     if (lastDay < EffectiveFrom)
-      throw new DomainException($"The town's assignment from {EffectiveFrom:yyyy-MM-dd} cannot end before it starts.");
+      throw new DomainException($"The town's assignment from {EffectiveFrom:dd MMM yyyy} cannot end before it starts.");
     EffectiveTo = lastDay;
+  }
+
+  /// The assignment that ended because of one taken back runs on again.
+  internal void Reopen(DateOnly endedOn)
+  {
+    if (EffectiveTo == endedOn)
+      EffectiveTo = null;
   }
 }
 

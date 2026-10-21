@@ -1,6 +1,7 @@
 using FluentValidation;
 
-public sealed record RoleInput(string Code, string Name, string? Description = null, IReadOnlyList<Guid>? PermissionIds = null);
+/// `Code` is optional: left out, the server makes one from the name (an administrator never needs to see codes).
+public sealed record RoleInput(string? Code, string Name, string? Description = null, IReadOnlyList<Guid>? PermissionIds = null);
 
 public sealed record CreateRoleCommandResult(Guid Id);
 
@@ -10,7 +11,7 @@ public class RoleInputValidator : AbstractValidator<RoleInput>
 {
   public RoleInputValidator()
   {
-    RuleFor(x => x.Code).NotEmpty().MaximumLength(LookupCode.MaxLength);
+    RuleFor(x => x.Code).MaximumLength(LookupCode.MaxLength);
     RuleFor(x => x.Name).NotEmpty().MaximumLength(100);
     RuleFor(x => x.Description).MaximumLength(1000);
   }

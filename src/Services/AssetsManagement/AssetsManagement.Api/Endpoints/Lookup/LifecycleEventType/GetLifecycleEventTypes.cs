@@ -9,6 +9,8 @@ public class GetLifecycleEventTypes : ICarterModule
       var result = await sender.Send(new GetLifecycleEventTypesQuery(stage, includeInactive ?? false));
       return Results.Ok(new GetLifecycleEventTypesResponse(result.Value!.EventTypes));
     })
+      .RequireAnyPermission(AssetsAuthorization.AnyAssetsReader)
+
       .WithName("GetLifecycleEventTypes")
       .Produces<GetLifecycleEventTypesResponse>(StatusCodes.Status200OK)
       .WithSummary("Get Lifecycle Event Types")

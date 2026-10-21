@@ -15,6 +15,9 @@ public class DemandRun : Aggregate<DemandRunId>
   public DateTime? ApprovedAt { get; private set; }
   public Guid? ApprovedBy { get; private set; }
 
+  /// Concurrency token (Postgres xmin): a run approved twice at once is approved once.
+  public uint Version { get; private set; }
+
   private DemandRun() { }
 
   public static DemandRun Compute(DemandRunId id, int fiscalYear, TaxCircleId? circleId, RateSet rateSet, Guid? actor, DateTime now)
@@ -42,10 +45,15 @@ public class DemandRun : Aggregate<DemandRunId>
     BasisSyncedAt = basisSyncedAt;
   }
 
-  public void Approve(Guid actor, DateTime now)
+  /// Issues the run. A year whose 1 July is still ahead is worked out (to check it) but issued only from that day.
+  public void Approve(Guid actor, DateTime now, DateOnly today)
   {
     if (Status != DemandRunStatus.Computed)
       throw new DomainException($"The run is {EnumText.Words(Status)}; only a computed run can be approved.");
+    var yearStart = global::FiscalYear.Start(FiscalYear);
+    var yearLabel = global::FiscalYear.Label(FiscalYear);
+    if (today < yearStart)
+      throw new DomainException($"FY {yearLabel} starts on {yearStart:dd MMM yyyy}; its demand is approved from that day.");
     Status = DemandRunStatus.Approved;
     ApprovedBy = actor;
     ApprovedAt = now;
@@ -74,6 +82,9 @@ public class PenaltyRun : Aggregate<PenaltyRunId>
   public int? PropertyCount { get; private set; }
   public decimal? TotalAmount { get; private set; }
   public Guid? ApprovedBy { get; private set; }
+
+  /// Concurrency token (Postgres xmin).
+  public uint Version { get; private set; }
 
   private PenaltyRun() { }
 
@@ -109,28 +120,35 @@ public class PenaltyRun : Aggregate<PenaltyRunId>
 /// What the Section decides for an in-year surcharge run.
 public sealed record SurchargeTerms(int FiscalYear, TaxCircleId? CircleId, TargetSet TargetSet, bool IncludesCurrent, PenaltyRateType RateType, decimal Rate, string? Reference);
 
-/// One demand's place in a surcharge run: the base, the amount, and whether it can be surcharged today.
-public sealed record SurchargeCandidate(Demand Demand, decimal Base, decimal Amount, bool Eligible, string? Reason);
+/// One demand's place in a surcharge run: the base, the amount, and whether it can be surcharged today (SurchargedOn: the
+/// day an earlier run of the same rule surcharged it, which makes it not eligible).
+public sealed record SurchargeCandidate(Demand Demand, decimal Base, decimal Amount, bool Eligible, string? Reason, decimal ArrearsOwed, DateOnly? SurchargedOn);
 
 public static class SurchargeRules
 {
-  /// The unpaid demands of the year a run would surcharge: defaulters only (carrying arrears) or all unpaid; the base is
-  /// the balance, or only the arrears part when the current year is left out. A demand is eligible once the rule's
-  /// period has run and while no litigation hold is open.
+  /// The unpaid demands of the year a run would surcharge: defaulters only (still owing arrears of earlier years) or all
+  /// unpaid; the base is the balance, or only what the arrears still owe when the current year is left out. A demand is
+  /// eligible once the rule's period has run, while no litigation hold is open, and only once a year: a demand an earlier
+  /// run of the same rule surcharged is not surcharged again.
   public static SurchargeCandidate? Candidate(Demand demand, TaxFile file, PenaltyRule rule, SurchargeTerms terms, TaxSettings settings, DateOnly today)
   {
     if (demand.FiscalYear != terms.FiscalYear || demand.Status is not (DemandStatus.Issued or DemandStatus.PartPaid) || demand.Balance <= 0)
       return null;
     if (terms.CircleId is not null && file.CircleId != terms.CircleId)
       return null;
-    if (terms.TargetSet == TargetSet.DefaultersOnly && demand.ArrearsBf <= 0)
+    var arrearsOwed = demand.ArrearsOwed;
+    if (terms.TargetSet == TargetSet.DefaultersOnly && arrearsOwed <= 0)
       return null;
 
-    var baseAmount = terms.IncludesCurrent ? demand.Balance : Math.Min(demand.Balance, demand.ArrearsBf);
+    var baseAmount = terms.IncludesCurrent ? demand.Balance : Math.Min(demand.Balance, arrearsOwed);
     var amount = terms.RateType == PenaltyRateType.Percent ? Rupees.Round(baseAmount * terms.Rate / 100m) : Rupees.Round(terms.Rate);
-    var from = rule.EligibleFrom(demand.FiscalYear, demand.IssuedOn, settings.DueDate(demand.FiscalYear));
+    var from = rule.EligibleFrom(demand.FiscalYear, demand.IssuedOn, demand.DueDate ?? settings.DueDate(demand.FiscalYear));
+    var earlier = demand.Penalties.Where(p => p.Kind == PenaltyKind.IntraYear && p.RuleRef == rule.Code).OrderByDescending(p => p.AppliedOn).FirstOrDefault();
     var held = file.HoldOn(today);
-    var reason = held is not null ? "litigation hold" : from > today ? $"period runs until {from:yyyy-MM-dd}" : baseAmount <= 0 ? "no arrears" : null;
-    return new SurchargeCandidate(demand, baseAmount, amount, reason is null && amount > 0, reason);
+    var reason = earlier is not null ? $"surcharged on {earlier.AppliedOn:dd MMM yyyy}"
+      : held is not null ? "litigation hold"
+      : from > today ? $"period runs until {from:dd MMM yyyy}"
+      : baseAmount <= 0 ? "no arrears" : null;
+    return new SurchargeCandidate(demand, baseAmount, amount, reason is null && amount > 0, reason, arrearsOwed, earlier?.AppliedOn);
   }
 }

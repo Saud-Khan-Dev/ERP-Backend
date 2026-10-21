@@ -1,4 +1,4 @@
-public class EncroachmentActionsHandler(IApplicationDbContext context, MasterLookup masters)
+public class EncroachmentActionsHandler(IApplicationDbContext context, MasterLookup masters, ICurrentUser currentUser)
   : ICommandHandler<UpdateEncroachmentCommand, Result<EncroachmentActionResult>>,
     ICommandHandler<IssueEncroachmentNoticeCommand, Result<EncroachmentActionResult>>,
     ICommandHandler<ChangeEncroachmentStatusCommand, Result<EncroachmentActionResult>>,
@@ -38,21 +38,25 @@ public class EncroachmentActionsHandler(IApplicationDbContext context, MasterLoo
     await context.EnsurePropertyActiveAsync(encroachment.PropertyId, cancellationToken);
     var regularized = command.ResolutionType == EncroachmentResolution.Regularized;
 
+    var today = PropertyWriteGuard.Today();
     encroachment.Resolve(
       await masters.GetByCodeAsync<EncroachmentStatus>(regularized ? SystemMasterCodes.Regularized : SystemMasterCodes.Resolved, cancellationToken),
-      command.ResolutionDate, command.ResolutionType, command.ResolutionReferenceNo);
+      command.ResolutionDate, command.ResolutionType, command.ResolutionReferenceNo, today);
 
     PropertyAreaRegularization? regularization = null;
     if (command.OpenRegularization)
     {
-      // schema note: a regularized encroachment may also produce a property_area_regularization row
+      // schema note: a regularized encroachment may also produce a property_area_regularization row; resolving is an
+      // approver's act (the route), so the case is recorded as decided by the signed-in officer
       var property = await context.LoadPropertyAsync(encroachment.PropertyId.Value, cancellationToken);
       regularization = PropertyAreaRegularization.Open(
         AreaRegularizationId.New(), property,
         await masters.GetAsync<MeasurementUnit>(encroachment.MeasurementUnitId.Value, cancellationToken),
-        encroachment.EncroachmentArea, RegularizationStatus.Regularized, encroachment.DetectionDate, command.ResolutionDate,
-        command.ResolutionReferenceNo, approvedBy: null, command.ResolutionDate,
-        $"Regularized encroachment {encroachment.EncroachmentNo.Value}.");
+        encroachment.EncroachmentArea, encroachment.DetectionDate,
+        new PropertyAreaRegularization.Decision(RegularizationStatus.Regularized, command.ResolutionDate, command.ResolutionReferenceNo,
+          currentUser.Username ?? currentUser.AuditName, currentUser.EmployeeId, command.ResolutionDate, null,
+          $"Regularized encroachment {encroachment.EncroachmentNo.Value}."),
+        today);
 
       await context.AreaRegularizations.AddAsync(regularization, cancellationToken);
     }

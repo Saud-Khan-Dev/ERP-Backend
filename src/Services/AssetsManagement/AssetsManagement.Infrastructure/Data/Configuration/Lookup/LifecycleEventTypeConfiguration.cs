@@ -25,6 +25,12 @@ public class LifecycleEventTypeConfiguration : EntityConfiguration<LifecycleEven
       .IsRequired();
 
     builder.Property(x => x.Description).IsRequired(false);
+    builder.Property(x => x.Purpose).HasConversion<string>().HasMaxLength(30).IsRequired(false);
+    builder.Property(x => x.IsSystem).IsRequired().HasDefaultValue(false);
+    builder.Ignore(x => x.IsHandRecorded);
+
+    // one system type per purpose: the acts find theirs by it
+    builder.HasIndex(x => x.Purpose).IsUnique().HasFilter("purpose IS NOT NULL");
     builder.Property(x => x.IsActive).IsRequired().HasDefaultValue(true);
 
     builder.HasIndex(x => x.Code).IsUnique();

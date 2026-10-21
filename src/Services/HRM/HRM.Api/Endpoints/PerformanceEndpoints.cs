@@ -3,7 +3,9 @@ public sealed record OpenReviewRequest(Guid PeriodId, Guid EvaluatorId);
 public sealed record ChangeEvaluatorRequest(Guid EvaluatorId);
 public sealed record ReviewContentRequest(IReadOnlyList<GoalInput> Goals, IReadOnlyList<KpiInput> Kpis, IReadOnlyList<CompetencyInput> Competencies);
 public sealed record ReviewRecommendationsRequest(bool PromotionRecommended, bool TrainingRecommended, string? Remarks);
-public sealed record FinalizeReviewRequest(decimal? FinalScore, string? PerformanceGrade);
+public sealed record FinalizeReviewRequest(decimal? FinalScore, string? PerformanceGrade, string? Reason);
+public sealed record CountersigningOfficerRequest(Guid? OfficerId);
+public sealed record CountersignReviewRequest(string? Remarks, string? PerformanceGrade);
 
 /// Appraisal periods and performance reviews (PER): draft -> submitted -> acknowledged -> finalized.
 public class PerformanceEndpoints : ICarterModule
@@ -76,7 +78,7 @@ public class PerformanceEndpoints : ICarterModule
       .Produces<GetPerformanceReviewsQueryResult>()
       .ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Get Performance Reviews")
-      .WithDescription("Newest first. status = draft | submitted | acknowledged | finalized; orgUnitId takes in its sub-units.");
+      .WithDescription("Newest first. status = draft | submitted | countersigned | acknowledged | finalized; orgUnitId takes in its sub-units.");
 
     reviews.MapGet("/{id:guid}", async (Guid id, ISender sender) => (await sender.Send(new GetPerformanceReviewQuery(id))).ToOk())
       .RequirePermission(PermissionCatalog.Hr.View)
@@ -125,7 +127,7 @@ public class PerformanceEndpoints : ICarterModule
       .ProducesProblem(StatusCodes.Status400BadRequest)
       .ProducesProblem(StatusCodes.Status404NotFound)
       .WithSummary("Set Recommendations")
-      .WithDescription("Promotion and training recommendations and remarks; open until the review is finalized.");
+      .WithDescription("Promotion and training recommendations and remarks: part of what the reporting officer submits, so only while a draft.");
 
     foreach (var (step, route, summary, description) in new[]
     {
@@ -145,15 +147,34 @@ public class PerformanceEndpoints : ICarterModule
     }
 
     reviews.MapPost("/{id:guid}/finalize", async (Guid id, FinalizeReviewRequest? request, ISender sender) =>
-        (await sender.Send(new FinalizeReviewCommand(id, request?.FinalScore, request?.PerformanceGrade))).ToOk())
+        (await sender.Send(new FinalizeReviewCommand(id, request?.FinalScore, request?.PerformanceGrade, request?.Reason))).ToOk())
       .RequirePermission(PermissionCatalog.Hr.Approve)
       .WithName("FinalizeReview")
       .Produces<UpdatedResult>()
       .ProducesProblem(StatusCodes.Status400BadRequest)
       .ProducesProblem(StatusCodes.Status404NotFound)
       .WithSummary("Finalize Review")
-      .WithDescription("A submitted or acknowledged review. Without finalScore it is the weighted goal score; without a grade, the PER category: "
-        + "Outstanding (90+), Very Good (80+), Good (65+), Average (50+), Below Average.");
+      .WithDescription("A countersigned or acknowledged review (or submitted, when it has no countersigning officer). Without finalScore it is the score "
+        + "worked out from the form (weights: Hrm:PerGoalWeight / PerKpiWeight / PerCompetencyWeight, goals only by default); a different score needs reason. "
+        + "Without a grade: the countersigning officer's, else the PER category: Outstanding (90+), Very Good (80+), Good (65+), Average (50+), Below Average.");
+
+    reviews.MapPut("/{id:guid}/countersigning-officer", async (Guid id, CountersigningOfficerRequest request, ISender sender) =>
+        (await sender.Send(new SetCountersigningOfficerCommand(id, request.OfficerId))).ToOk())
+      .RequirePermission(PermissionCatalog.Hr.Edit)
+      .WithName("SetCountersigningOfficer")
+      .Produces<UpdatedResult>()
+      .ProducesProblem(StatusCodes.Status400BadRequest)
+      .WithSummary("Set Countersigning Officer")
+      .WithDescription("Names (officerId) or clears (null) the countersigning officer, until the review is countersigned.");
+
+    reviews.MapPost("/{id:guid}/countersign", async (Guid id, CountersignReviewRequest request, ISender sender) =>
+        (await sender.Send(new CountersignReviewCommand(id, request.Remarks, request.PerformanceGrade))).ToOk())
+      .RequirePermission(PermissionCatalog.Hr.Approve)
+      .WithName("CountersignReview")
+      .Produces<UpdatedResult>()
+      .ProducesProblem(StatusCodes.Status400BadRequest)
+      .WithSummary("Record Countersigning")
+      .WithDescription("HR records the countersigning officer's remarks (and grading) from the paper PER; the officer may also countersign in the portal.");
 
     reviews.MapDelete("/{id:guid}", async (Guid id, ISender sender) => (await sender.Send(new DeletePerformanceReviewCommand(id))).ToOk())
       .RequirePermission(PermissionCatalog.Hr.Delete)

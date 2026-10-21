@@ -33,7 +33,8 @@ public class UpdatePerformancePeriodCommandValidator : AbstractValidator<UpdateP
 // ---- reviews ----
 
 /// Who is acting through self-service: the reviewed employee or the evaluator may only reach their own reviews.
-public sealed record ReviewActor(Guid EmployeeId, bool AsEvaluator);
+/// Who acts through self-service: the employee reviewed, the evaluator (reporting officer) or the countersigning officer.
+public sealed record ReviewActor(Guid EmployeeId, bool AsEvaluator, bool AsCountersigner = false);
 
 public sealed record GetPerformanceReviewsQueryResult(PaginatedResult<PerformanceReviewSummaryDto> Reviews);
 
@@ -43,7 +44,10 @@ public sealed record GetPerformanceReviewsQuery(
   Guid? EmployeeId,
   Guid? EvaluatorId,
   ReviewStatus? Status,
-  Guid? OrgUnitId) : IQuery<Result<GetPerformanceReviewsQueryResult>>;
+  Guid? OrgUnitId,
+  /// The employee's own list: drafts are not shown (the employee sees a review once it is submitted).
+  bool SubmittedOnly = false,
+  Guid? CountersigningOfficerId = null) : IQuery<Result<GetPerformanceReviewsQueryResult>>;
 
 public sealed record GetPerformanceReviewQueryResult(PerformanceReviewDto Review);
 public sealed record GetPerformanceReviewQuery(Guid Id, ReviewActor? Actor = null) : IQuery<Result<GetPerformanceReviewQueryResult>>;
@@ -66,7 +70,7 @@ public sealed record SaveReviewContentCommand(
   IReadOnlyList<CompetencyInput> Competencies,
   ReviewActor? Actor = null) : ICommand<Result<UpdatedResult>>;
 
-/// The evaluator's or countersigning officer's recommendations; open until the review is finalized.
+/// The reporting officer's recommendations: part of what is submitted, so they change only while a draft.
 public sealed record SetReviewRecommendationsCommand(Guid Id, bool PromotionRecommended, bool TrainingRecommended, string? Remarks, ReviewActor? Actor = null)
   : ICommand<Result<UpdatedResult>>;
 
@@ -79,8 +83,15 @@ public enum ReviewStep
 
 public sealed record MoveReviewCommand(Guid Id, ReviewStep Step, ReviewActor? Actor = null) : ICommand<Result<UpdatedResult>>;
 
-/// Closes the review. Without a score, it is the weighted goal score; without a grade, the PER category of the score.
-public sealed record FinalizeReviewCommand(Guid Id, decimal? FinalScore, string? PerformanceGrade) : ICommand<Result<UpdatedResult>>;
+/// Names (or clears) the countersigning officer.
+public sealed record SetCountersigningOfficerCommand(Guid Id, Guid? OfficerId) : ICommand<Result<UpdatedResult>>;
+
+/// The countersigning officer's remarks and, when they disagree, another grading. Actor: through self-service.
+public sealed record CountersignReviewCommand(Guid Id, string? Remarks, string? PerformanceGrade, ReviewActor? Actor = null) : ICommand<Result<UpdatedResult>>;
+
+/// Closes the review. Without a score, it is the score worked out from the form (weights from the settings); a different
+/// score needs the reason. Without a grade, the countersigning officer's, else the PER category of the score.
+public sealed record FinalizeReviewCommand(Guid Id, decimal? FinalScore, string? PerformanceGrade, string? Reason = null) : ICommand<Result<UpdatedResult>>;
 
 public sealed record DeletePerformanceReviewCommand(Guid Id) : ICommand<Result<UpdatedResult>>;
 
@@ -116,10 +127,13 @@ public class FinalizeReviewCommandValidator : AbstractValidator<FinalizeReviewCo
   {
     RuleFor(x => x.FinalScore).InclusiveBetween(0, 100).When(x => x.FinalScore.HasValue);
     RuleFor(x => x.PerformanceGrade).MaximumLength(50);
+    RuleFor(x => x.Reason).MaximumLength(1000);
   }
 }
 
-public class PerformanceHandlers(IApplicationDbContext context, HrLookup lookup, IClock clock) :
+public class PerformanceHandlers(IApplicationDbContext context, HrLookup lookup, IClock clock, ICurrentUser currentUser, HrmSettings settings) :
+  ICommandHandler<SetCountersigningOfficerCommand, Result<UpdatedResult>>,
+  ICommandHandler<CountersignReviewCommand, Result<UpdatedResult>>,
   IQueryHandler<GetPerformancePeriodsQuery, Result<GetPerformancePeriodsQueryResult>>,
   ICommandHandler<CreatePerformancePeriodCommand, Result<CreatedResult>>,
   ICommandHandler<UpdatePerformancePeriodCommand, Result<UpdatedResult>>,
@@ -208,6 +222,13 @@ public class PerformanceHandlers(IApplicationDbContext context, HrLookup lookup,
     }
     if (query.Status is { } status)
       rows = rows.Where(r => r.Status == status);
+    if (query.SubmittedOnly)
+      rows = rows.Where(r => r.Status != ReviewStatus.Draft);
+    if (query.CountersigningOfficerId is { } officer)
+    {
+      var officerId = EmployeeId.Of(officer);
+      rows = rows.Where(r => r.CountersigningOfficerId == officerId);
+    }
     if (query.OrgUnitId is { } unit)
     {
       var inUnit = await lookup.EmployeesInUnitAsync(OrganizationUnitId.Of(unit), clock.Today, cancellationToken);
@@ -225,7 +246,8 @@ public class PerformanceHandlers(IApplicationDbContext context, HrLookup lookup,
   {
     var review = await LoadAsync(query.Id, query.Actor, cancellationToken);
     var summary = (await SummariesAsync([review], cancellationToken))[0];
-    return Result<GetPerformanceReviewQueryResult>.Success(new(review.ToDto(summary)));
+    var officer = review.CountersigningOfficerId is { } cso ? (await lookup.EmployeesAsync([cso], cancellationToken)).GetValueOrDefault(cso.Value) : null;
+    return Result<GetPerformanceReviewQueryResult>.Success(new(review.ToDto(summary, officer, settings.ScoreWeights)));
   }
 
   public async Task<Result<CreatedResult>> Handle(CreatePerformanceReviewCommand command, CancellationToken cancellationToken)
@@ -351,7 +373,7 @@ public class PerformanceHandlers(IApplicationDbContext context, HrLookup lookup,
     // through self-service the evaluator submits and the employee acknowledges; HR may do either and send it back
     if (command.Actor is { } actor && (command.Step == ReviewStep.Reopen
         || (command.Step == ReviewStep.Submit && !actor.AsEvaluator)
-        || (command.Step == ReviewStep.Acknowledge && actor.AsEvaluator)))
+        || (command.Step == ReviewStep.Acknowledge && (actor.AsEvaluator || actor.AsCountersigner))))
       return Result<UpdatedResult>.Failure(command.Step switch
       {
         ReviewStep.Submit => "Only the evaluator submits the review.",
@@ -361,11 +383,27 @@ public class PerformanceHandlers(IApplicationDbContext context, HrLookup lookup,
 
     switch (command.Step)
     {
-      case ReviewStep.Submit: review.Submit(); break;
+      case ReviewStep.Submit: review.Submit(clock.UtcNow); break;
       case ReviewStep.Reopen: review.Reopen(); break;
-      case ReviewStep.Acknowledge: review.Acknowledge(); break;
+      case ReviewStep.Acknowledge: review.Acknowledge(clock.UtcNow); break;
     }
 
+    await context.SaveChangesAsync(cancellationToken);
+    return CommandResults.Updated();
+  }
+
+  public async Task<Result<UpdatedResult>> Handle(SetCountersigningOfficerCommand command, CancellationToken cancellationToken)
+  {
+    var review = await context.LoadReviewAsync(command.Id, cancellationToken);
+    review.SetCountersigningOfficer(command.OfficerId is { } officer ? await context.LoadEmployeeAsync(officer, cancellationToken) : null);
+    await context.SaveChangesAsync(cancellationToken);
+    return CommandResults.Updated();
+  }
+
+  public async Task<Result<UpdatedResult>> Handle(CountersignReviewCommand command, CancellationToken cancellationToken)
+  {
+    var review = await LoadAsync(command.Id, command.Actor, cancellationToken);
+    review.Countersign(command.Actor is { } actor ? EmployeeId.Of(actor.EmployeeId) : null, command.Remarks, command.PerformanceGrade, clock.UtcNow);
     await context.SaveChangesAsync(cancellationToken);
     return CommandResults.Updated();
   }
@@ -373,7 +411,7 @@ public class PerformanceHandlers(IApplicationDbContext context, HrLookup lookup,
   public async Task<Result<UpdatedResult>> Handle(FinalizeReviewCommand command, CancellationToken cancellationToken)
   {
     var review = await context.LoadReviewAsync(command.Id, cancellationToken);
-    review.FinalizeReview(command.FinalScore, command.PerformanceGrade);
+    review.FinalizeReview(command.FinalScore, command.PerformanceGrade, settings.ScoreWeights, command.Reason, currentUser.UserId, clock.UtcNow);
     await context.SaveChangesAsync(cancellationToken);
     return CommandResults.Updated();
   }
@@ -394,7 +432,10 @@ public class PerformanceHandlers(IApplicationDbContext context, HrLookup lookup,
     if (actor is null)
       return review;
 
-    var mine = actor.AsEvaluator ? review.EvaluatorId.Value == actor.EmployeeId : review.EmployeeId.Value == actor.EmployeeId;
+    var mine = actor.AsCountersigner ? review.CountersigningOfficerId?.Value == actor.EmployeeId && review.Status != ReviewStatus.Draft
+      : actor.AsEvaluator ? review.EvaluatorId.Value == actor.EmployeeId
+      // the employee sees the review once the reporting officer has submitted it
+      : review.EmployeeId.Value == actor.EmployeeId && review.IsVisibleToEmployee;
     if (!mine || (evaluatorOnly && !actor.AsEvaluator))
       throw new PerformanceReviewNotFoundException($"Performance review {id} was not found.");
     return review;

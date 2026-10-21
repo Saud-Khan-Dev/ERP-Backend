@@ -11,15 +11,17 @@ public class TaskRequestEndpoints : ICarterModule
 
     var tasks = app.MapGroup("/tasks").WithTags("Tasks");
 
-    tasks.MapGet("/", async (int? pageIndex, int? pageSize, Guid? employeeId, string? status, string? priority, bool? overdueOnly, bool? openOnly, ISender sender) =>
+    tasks.MapGet("/", async (int? pageIndex, int? pageSize, Guid? employeeId, string? status, string? priority, bool? overdueOnly, bool? openOnly,
+        string? search, bool? assignedByMe, DateOnly? dueFrom, DateOnly? dueTo, ISender sender) =>
         (await sender.Send(new GetTasksQuery(QueryParsing.Page(pageIndex, pageSize), employeeId, QueryParsing.ParseEnum<EmployeeTaskStatus>(status, "status"),
-          QueryParsing.ParseEnum<TaskPriority>(priority, "priority"), overdueOnly ?? false, openOnly ?? false))).ToOk())
+          QueryParsing.ParseEnum<TaskPriority>(priority, "priority"), overdueOnly ?? false, openOnly ?? false, null, search, assignedByMe ?? false, dueFrom, dueTo))).ToOk())
       .RequirePermission(PermissionCatalog.Hr.View)
       .WithName("GetTasks")
       .Produces<GetTasksQueryResult>()
       .ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Get Tasks")
-      .WithDescription("Open tasks first, by due date. status = pending | in_progress | completed | on_hold | cancelled; priority = low | medium | high | urgent.");
+      .WithDescription("Open tasks first, by due date. status = pending | in_progress | completed | on_hold | cancelled; priority = low | medium | high | urgent; "
+        + "search = title, employee number or name; assignedByMe; dueFrom / dueTo.");
 
     tasks.MapGet("/{id:guid}", async (Guid id, ISender sender) => (await sender.Send(new GetTaskQuery(id))).ToOk())
       .RequirePermission(PermissionCatalog.Hr.View)
@@ -70,15 +72,17 @@ public class TaskRequestEndpoints : ICarterModule
 
     var requests = app.MapGroup("/employee-requests").WithTags("Employee Requests");
 
-    requests.MapGet("/", async (int? pageIndex, int? pageSize, Guid? employeeId, string? status, Guid? requestTypeId, ISender sender) =>
+    requests.MapGet("/", async (int? pageIndex, int? pageSize, Guid? employeeId, string? status, Guid? requestTypeId, string? search, DateOnly? from, DateOnly? to,
+        string? sortDir, ISender sender) =>
         (await sender.Send(new GetEmployeeRequestsQuery(QueryParsing.Page(pageIndex, pageSize), employeeId,
-          QueryParsing.ParseEnum<EmployeeRequestStatus>(status, "status"), requestTypeId))).ToOk())
+          QueryParsing.ParseEnum<EmployeeRequestStatus>(status, "status"), requestTypeId, null, search, from, to, QueryParsing.ParseDescending(sortDir) == false))).ToOk())
       .RequirePermission(PermissionCatalog.Hr.View)
       .WithName("GetEmployeeRequests")
       .Produces<GetEmployeeRequestsQueryResult>()
       .ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Get Employee Requests")
-      .WithDescription("Newest first. status = pending | approved | rejected | cancelled.");
+      .WithDescription("Newest first (sortDir=asc: oldest first). status = pending | approved | rejected | cancelled; search = subject, description, "
+        + "employee number or name; from / to on the day it was raised.");
 
     requests.MapGet("/{id:guid}", async (Guid id, ISender sender) => (await sender.Send(new GetEmployeeRequestQuery(id))).ToOk())
       .RequirePermission(PermissionCatalog.Hr.View)
@@ -109,5 +113,15 @@ public class TaskRequestEndpoints : ICarterModule
         .WithSummary(summary)
         .WithDescription(approve ? "Records the decision; the change asked for (e.g. a profile correction) is made in its own screen." : "Remarks (the reason) are required.");
     }
+
+    requests.MapPost("/{id:guid}/withdraw", async (Guid id, DecideRequestBody? r, ISender sender) =>
+        (await sender.Send(new WithdrawEmployeeRequestCommand(id, r?.Remarks))).ToOk())
+      .RequirePermission(PermissionCatalog.Hr.Edit)
+      .WithName("WithdrawEmployeeRequest")
+      .Produces<UpdatedResult>()
+      .ProducesProblem(StatusCodes.Status400BadRequest)
+      .ProducesProblem(StatusCodes.Status404NotFound)
+      .WithSummary("Withdraw Request")
+      .WithDescription("HR withdraws a pending request entered by mistake; remarks (why) are required and kept with who and when.");
   }
 }

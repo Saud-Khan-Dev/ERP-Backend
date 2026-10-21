@@ -14,6 +14,8 @@ public class UpdateDisposalMethod : ICarterModule
 
       return Results.Ok(result.Value.Adapt<UpdateDisposalMethodResponse>());
     })
+      .RequirePermission(PermissionCatalog.AssetTaxonomy.Edit)
+
       .WithName("UpdateDisposalMethod")
       .Produces<UpdateDisposalMethodResponse>(StatusCodes.Status200OK)
       .ProducesProblem(StatusCodes.Status400BadRequest)

@@ -29,6 +29,7 @@ public class PropertyAllotmentConfiguration : EntityConfiguration<PropertyAllotm
     builder.Property(x => x.RestorationOrderRef).HasMaxLength(100);
     builder.Property(x => x.SurrenderDate);
     builder.Property(x => x.IsActive).IsRequired().HasDefaultValue(true);
+    builder.HasXminRowVersion();
 
     builder.HasIndex(x => x.AllotmentNo).IsUnique();
     builder.HasIndex(x => new { x.PropertyId, x.AllotmentStatusId });
@@ -125,9 +126,9 @@ public class AgreementViolationConfiguration : EntityConfiguration<AgreementViol
   {
     base.Configure(builder);
 
-    // the ERD's check constraint (rule 4): exactly one of lease_id / rental_id / transfer_id
+    // the ERD's check constraint (rule 4): exactly one of lease_id / rental_id / transfer_id / allotment_id
     builder.ToTable("agreement_violation", t =>
-      t.HasCheckConstraint("ck_agreement_violation_one_agreement", "num_nonnulls(lease_id, rental_id, transfer_id) = 1"));
+      t.HasCheckConstraint("ck_agreement_violation_one_agreement", "num_nonnulls(lease_id, rental_id, transfer_id, allotment_id) = 1"));
 
     builder.HasKey(x => x.Id);
     builder.Property(x => x.Id).HasConversion(id => id.Value, value => ViolationId.Of(value));
@@ -136,6 +137,7 @@ public class AgreementViolationConfiguration : EntityConfiguration<AgreementViol
     builder.Property(x => x.LeaseId).HasConversion(id => id!.Value, value => LeaseId.Of(value));
     builder.Property(x => x.RentalId).HasConversion(id => id!.Value, value => RentalId.Of(value));
     builder.Property(x => x.TransferId).HasConversion(id => id!.Value, value => TransferId.Of(value));
+    builder.Property(x => x.AllotmentId).HasConversion(id => id!.Value, value => AllotmentId.Of(value));
     builder.Property(x => x.ViolatorOwnerId).HasConversion(id => id.Value, value => OwnerId.Of(value)).IsRequired();
     builder.Property(x => x.ViolationDate).IsRequired();
     builder.Property(x => x.ViolationDescription).IsRequired();
@@ -144,8 +146,15 @@ public class AgreementViolationConfiguration : EntityConfiguration<AgreementViol
     builder.Property(x => x.FineAmount).HasPrecision(18, 2);
     // the imposing officer's Identity user id (the ERD's app_user lives in the Identity service)
     builder.Property(x => x.FineImposedBy);
+    builder.Property(x => x.FineImposedOn);
     // IMPOSED, PAID, WAIVED, RECOVERY_AS_ARREARS — null until a fine is imposed
     builder.Property(x => x.FineStatus).HasNullableUpperSnakeEnum(20);
+    builder.Property(x => x.FineReceiptNo).HasMaxLength(AgreementViolation.ReceiptNoMaxLength);
+    builder.Property(x => x.FinePaidOn);
+    builder.Property(x => x.FineStatusReason);
+    // who recorded the last change of the fine (Identity user id) and when
+    builder.Property(x => x.FineStatusChangedBy);
+    builder.Property(x => x.FineStatusChangedOn);
     builder.Property(x => x.LedToCancellation).IsRequired().HasDefaultValue(false);
     // OPEN (default), RECTIFIED, FINED, CANCELLED, APPEALED
     builder.Property(x => x.ViolationStatus).HasUpperSnakeEnum(20).IsRequired().HasDefaultValue(ViolationStatus.Open);
@@ -155,9 +164,11 @@ public class AgreementViolationConfiguration : EntityConfiguration<AgreementViol
     builder.HasIndex(x => new { x.PropertyId, x.ViolationDate });
     builder.HasIndex(x => x.LeaseId);
     builder.HasIndex(x => x.RentalId);
+    builder.HasIndex(x => x.AllotmentId);
 
     builder.HasOne<Property>().WithMany().HasForeignKey(x => x.PropertyId).OnDelete(DeleteBehavior.Restrict);
     builder.HasOne<AgreementType>().WithMany().HasForeignKey(x => x.AgreementTypeId).OnDelete(DeleteBehavior.Restrict);
+    builder.HasOne<PropertyAllotment>().WithMany().HasForeignKey(x => x.AllotmentId).OnDelete(DeleteBehavior.Restrict);
     builder.HasOne<PropertyLease>().WithMany().HasForeignKey(x => x.LeaseId).OnDelete(DeleteBehavior.Restrict);
     builder.HasOne<PropertyRental>().WithMany().HasForeignKey(x => x.RentalId).OnDelete(DeleteBehavior.Restrict);
     builder.HasOne<PropertyTransfer>().WithMany().HasForeignKey(x => x.TransferId).OnDelete(DeleteBehavior.Restrict);
@@ -249,11 +260,15 @@ public class PropertyOutsourcingConfiguration : EntityConfiguration<PropertyOuts
     builder.Property(x => x.PerformanceGuarantee).HasPrecision(18, 2);
     builder.Property(x => x.ReferenceNo).HasMaxLength(100);
     builder.Property(x => x.TerminationReason);
+    // RECEIVABLE (the contractor pays GDA) or PAYABLE (GDA pays the contractor); null on contracts entered before
+    builder.Property(x => x.MoneyDirection).HasNullableUpperSnakeEnum(20);
+    builder.Property(x => x.RenewedFromContractId).HasConversion(id => id!.Value, value => OutsourcingId.Of(value));
 
     builder.HasIndex(x => x.ContractNo).IsUnique();
     builder.HasIndex(x => new { x.PropertyId, x.ContractStatusId });
 
     builder.HasOne<Property>().WithMany().HasForeignKey(x => x.PropertyId).OnDelete(DeleteBehavior.Restrict);
+    builder.HasOne<PropertyOutsourcing>().WithMany().HasForeignKey(x => x.RenewedFromContractId).OnDelete(DeleteBehavior.Restrict);
     builder.HasOne<PropertyOwner>().WithMany().HasForeignKey(x => x.OutsourcedPartyOwnerId).OnDelete(DeleteBehavior.Restrict);
     builder.HasOne<OutsourcingType>().WithMany().HasForeignKey(x => x.OutsourcingTypeId).OnDelete(DeleteBehavior.Restrict);
     builder.HasOne<ContractStatus>().WithMany().HasForeignKey(x => x.ContractStatusId).OnDelete(DeleteBehavior.Restrict);

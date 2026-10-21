@@ -19,6 +19,8 @@ public class AddStructureField : ICarterModule
 
       return Results.Created($"/attribute-assignments/{result.Value!.AssignmentId}", result.Value);
     })
+      .RequirePermission(PermissionCatalog.AssetAttributes.Create)
+
       .WithName("AddStructureField")
       .Produces<AddStructureFieldCommandResult>(StatusCodes.Status201Created)
       .ProducesProblem(StatusCodes.Status400BadRequest)

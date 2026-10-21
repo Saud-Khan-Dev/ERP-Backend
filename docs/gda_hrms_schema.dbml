@@ -27,6 +27,7 @@ Enum gender_enum {
   male
   female
   other
+  transgender
 }
 
 Enum marital_status_enum {
@@ -45,6 +46,10 @@ Enum employment_status_enum {
   resigned
   terminated
   deceased
+  dismissed
+  removed
+  contract_ended
+  repatriated
 }
 
 Enum employment_type_enum {
@@ -206,8 +211,11 @@ Enum address_type_enum {
 }
 
 Enum qualification_level_enum {
+  primary
+  middle
   matric
   intermediate
+  diploma
   bachelors
   masters
   mphil
@@ -224,6 +232,9 @@ Enum separation_type_enum {
   end_of_contract
   deputation_end
   other
+  compulsory_retirement
+  premature_retirement
+  removal_from_service
 }
 
 Enum hr_action_type_enum {
@@ -243,6 +254,12 @@ Enum hr_action_type_enum {
   termination
   death
   other
+  dismissal
+  removal_from_service
+  compulsory_retirement
+  premature_retirement
+  end_of_contract
+  deputation_end
 }
 
 Enum hr_action_status_enum {
@@ -259,6 +276,7 @@ Enum review_status_enum {
   submitted
   acknowledged
   finalized
+  countersigned
 }
 
 Enum attendance_status_enum {
@@ -495,12 +513,16 @@ Table employee {
   profile_status record_status_enum [not null, default: 'active']
   employment_status employment_status_enum [not null, default: 'active']
   photo_reference varchar
+  term_from date [note: 'Start of the term (contract, ad hoc, project, deputation in)']
+  term_to date
+  lending_department varchar [note: 'The department an employee on deputation came from']
   created_at timestamptz [not null, default: `now()`]
   created_by uuid
   updated_at timestamptz
   updated_by uuid
 
   indexes {
+    term_to [name: 'idx_employee_term_to']
     employment_status [name: 'idx_employee_status']
     employment_type [name: 'idx_employee_type']
   }
@@ -515,6 +537,7 @@ Table employee_pay_record {
   basic_pay numeric(14,2) [not null]
   last_increment_date date
   next_increment_date date
+  increment_deferred_days integer [not null, default: 0, note: 'Days of leave without pay that moved the next increment']
   reason varchar
   order_number varchar
   effective_from date [not null]
@@ -755,10 +778,26 @@ Table hr_action_request {
   order_number varchar
   reason text
   supporting_document_id uuid
+  end_date date
+  event_type_id uuid
+  external_reference_org varchar
+  employment_method employment_method_enum
+  recruitment_method_id uuid
+  stage_number integer
+  basic_pay numeric(14,2)
+  notice_period_days integer
   status hr_action_status_enum [not null, default: 'draft']
   approval_request_id uuid
+  submitted_by uuid
+  submitted_at timestamptz
   approved_by uuid
   approved_at timestamptz
+  decided_by uuid
+  decided_at timestamptz
+  decision_remarks text
+  applied_by uuid
+  applied_at timestamptz
+  leave_application_id uuid
   resulting_service_history_id uuid
   created_by uuid
   created_at timestamptz [not null, default: `now()`]
@@ -766,6 +805,9 @@ Table hr_action_request {
   updated_by uuid
 
   indexes {
+    recruitment_method_id [name: 'idx_hr_action_request_recruitment_method_id']
+    leave_application_id [name: 'idx_hr_action_request_leave_application_id']
+    event_type_id [name: 'idx_hr_action_request_event_type_id']
     (employee_id, effective_date) [name: 'idx_har_employee']
     status [name: 'idx_har_status']
     new_grade_id [name: 'idx_hr_action_request_new_grade_id']
@@ -824,18 +866,27 @@ Table performance_review {
   employee_id uuid [not null]
   performance_period_id uuid [not null]
   evaluator_id uuid [not null]
+  countersigning_officer_id uuid
   status review_status_enum [not null, default: 'draft']
   final_score numeric(6,2)
   performance_grade varchar
   promotion_recommended boolean [not null, default: false]
   training_recommended boolean [not null, default: false]
   remarks text
+  countersign_remarks text
+  final_score_reason text
+  submitted_at timestamptz
+  acknowledged_at timestamptz
+  countersigned_at timestamptz
+  finalized_at timestamptz
+  finalized_by uuid
   created_at timestamptz [not null, default: `now()`]
   created_by uuid
   updated_at timestamptz
   updated_by uuid
 
   indexes {
+    countersigning_officer_id [name: 'idx_pr_countersigning_officer']
     (employee_id, performance_period_id) [unique, name: 'performance_review_employee_id_performance_period_id_key']
     performance_period_id [name: 'idx_performance_review_performance_period_id']
     evaluator_id [name: 'idx_pr_evaluator']
@@ -959,6 +1010,7 @@ Table leave_type {
   accrual_rule text
   carry_forward_allowed boolean [not null, default: false]
   affects_payroll boolean [not null, default: false]
+  is_active boolean [not null, default: true]
 }
 
 Table leave_entitlement {
@@ -967,6 +1019,7 @@ Table leave_entitlement {
   leave_type_id uuid [not null]
   year int [not null]
   entitled_days numeric(6,2) [not null, default: 0]
+  is_placeholder boolean [not null, default: false, note: 'Opened by the year-end only to carry days forward']
   created_at timestamptz [not null, default: `now()`]
   created_by uuid
 
@@ -988,11 +1041,16 @@ Table leave_application {
   approved_by uuid
   approval_date date
   reason text
+  decided_by uuid
+  decided_at timestamptz
+  decision_reason text
+  hr_action_id uuid
   created_at timestamptz [not null, default: `now()`]
   updated_at timestamptz
   updated_by uuid
 
   indexes {
+    hr_action_id [name: 'idx_leave_application_hr_action_id']
     (employee_id, start_date) [name: 'idx_la_employee_start']
     status [name: 'idx_la_status']
     leave_type_id [name: 'idx_leave_application_leave_type_id']
@@ -1181,6 +1239,9 @@ Table employee_loan {
   deduction_priority int [not null, default: 100]
   status loan_status_enum [not null, default: 'active']
   approved_by uuid
+  closure_reason text
+  closed_by uuid
+  closed_at timestamptz
   created_at timestamptz [not null, default: `now()`]
   created_by uuid
   updated_at timestamptz
@@ -1200,6 +1261,9 @@ Table loan_installment_schedule {
   amount numeric(14,2) [not null]
   paid_amount numeric(14,2) [not null, default: 0]
   status installment_status_enum [not null, default: 'pending']
+  waive_reason text
+  waived_by uuid
+  waived_at timestamptz
 
   indexes {
     (employee_loan_id, installment_number) [unique, name: 'loan_installment_schedule_employee_loan_id_installment_numb_key']
@@ -1279,6 +1343,12 @@ Table payroll_run {
   approval_date timestamptz
   finalization_date timestamptz
   payment_date timestamptz
+  calculated_at timestamptz
+  finalized_by uuid
+  paid_by uuid
+  reversed_by uuid
+  reversed_at timestamptz
+  reversal_reason text
   created_at timestamptz [not null, default: `now()`]
   updated_at timestamptz
 
@@ -1397,7 +1467,7 @@ Table payroll_payment {
   id uuid [pk, default: `gen_random_uuid()`]
   payroll_transaction_id uuid [not null]
   employee_id uuid [not null]
-  bank_account_id uuid [not null]
+  bank_account_id uuid [note: 'Required for a bank transfer; none for cheque or cash']
   bank_name_snapshot varchar
   branch_name_snapshot varchar
   account_number_snapshot varchar
@@ -1491,6 +1561,61 @@ Table employee_request {
 // ---------------------------------------------------------------------
 // RELATIONSHIPS  (> many-to-one, - one-to-one)
 // ---------------------------------------------------------------------
+
+Table employee_change_log {
+  id uuid [pk, default: `gen_random_uuid()`]
+  employee_id uuid [not null]
+  field varchar [not null]
+  old_value varchar
+  new_value varchar
+  reason text
+  changed_by uuid
+  changed_by_name varchar
+  changed_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (employee_id, changed_at) [name: 'idx_ecl_employee_at']
+  }
+
+  Note: '''Append-only trail of changes to an employee's identity, employment, sign-in account and pay: old -> new, reason, who and when.'''
+}
+
+Table employee_tax_opening {
+  id uuid [pk, default: `gen_random_uuid()`]
+  employee_id uuid [not null]
+  tax_year_id uuid [not null]
+  taxable_income numeric(14,2) [not null]
+  tax_withheld numeric(14,2) [not null]
+  remarks text
+  created_at timestamptz [not null, default: `now()`]
+  created_by uuid
+  updated_at timestamptz
+  updated_by uuid
+
+  indexes {
+    (employee_id, tax_year_id) [unique, name: 'uq_eto_employee_year']
+    tax_year_id [name: 'idx_employee_tax_opening_tax_year_id']
+  }
+
+  Note: '''Taxable income and tax withheld in a tax year before this payroll paid the employee; counted in the year-to-date.'''
+}
+
+Table loan_repayment {
+  id uuid [pk, default: `gen_random_uuid()`]
+  employee_loan_id uuid [not null]
+  paid_on date [not null]
+  amount numeric(14,2) [not null]
+  receipt_number varchar [not null]
+  remarks text
+  created_at timestamptz [not null, default: `now()`]
+  created_by uuid
+
+  indexes {
+    employee_loan_id [name: 'idx_loan_repayment_employee_loan_id']
+  }
+
+  Note: '''Append-only: money paid back on a loan outside payroll, with the receipt or challan and who recorded it.'''
+}
 
 Ref: organization_unit_version.head_post_id > post.id
 Ref: organization_unit_version.location_id > location.id
@@ -1756,3 +1881,12 @@ TableGroup tasks_and_requests {
   employee_request_type
   employee_request
 }
+Ref: employee_change_log.employee_id > employee.id
+Ref: employee_tax_opening.employee_id > employee.id
+Ref: employee_tax_opening.tax_year_id > tax_year.id
+Ref: loan_repayment.employee_loan_id > employee_loan.id
+Ref: hr_action_request.event_type_id > service_event_type.id
+Ref: hr_action_request.recruitment_method_id > recruitment_method.id
+Ref: hr_action_request.leave_application_id > leave_application.id
+Ref: leave_application.hr_action_id > hr_action_request.id
+Ref: performance_review.countersigning_officer_id > employee.id

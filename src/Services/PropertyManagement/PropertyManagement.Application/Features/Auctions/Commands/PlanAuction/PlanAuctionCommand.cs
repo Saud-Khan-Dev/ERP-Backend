@@ -28,7 +28,8 @@ public class AuctionDetailsInputValidator : AbstractValidator<AuctionDetailsInpu
   }
 }
 
-public sealed record PlanAuctionCommandResult(Guid Id, string AuctionNo);
+/// Warnings: agreements running on the property (an auction of a let or allotted property).
+public sealed record PlanAuctionCommandResult(Guid Id, string AuctionNo, IReadOnlyList<string> Warnings);
 
 /// AUC-00001 is generated; the auction starts PLANNED.
 public sealed record PlanAuctionCommand(Guid PropertyId, AuctionDetailsInput Auction) : ICommand<Result<PlanAuctionCommandResult>>;

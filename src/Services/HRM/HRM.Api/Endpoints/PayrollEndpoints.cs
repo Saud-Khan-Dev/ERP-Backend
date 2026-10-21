@@ -1,4 +1,5 @@
 public sealed record CreatePayrollPeriodRequest(int Year, int Month, DateOnly? StartDate, DateOnly? EndDate);
+public sealed record PayrollPeriodDatesRequest(DateOnly StartDate, DateOnly EndDate);
 public sealed record CreatePayrollRunRequest(Guid PeriodId, PayrollRunType RunType, string? RunLabel, Guid? ReplacesRunId);
 public sealed record RenamePayrollRunRequest(string? RunLabel);
 public sealed record CalculatePayrollRunRequest(IReadOnlyList<Guid>? EmployeeIds);
@@ -6,6 +7,7 @@ public sealed record ReversePayrollRunRequest(string Reason);
 public sealed record PayrollAdjustmentRequest(Guid EmployeeId, AdjustmentType AdjustmentType, decimal Amount, string Reason);
 public sealed record HoldRequest(string? Remarks);
 public sealed record GeneratePaymentsRequest(PaymentMethod? PaymentMethod);
+public sealed record WorkOutArrearsRequest(Guid SourcePeriodId, IReadOnlyList<Guid>? EmployeeIds, bool DryRun);
 public sealed record ProcessPaymentsRequest(DateOnly PaymentDate, string PaymentReference, IReadOnlyList<Guid>? PaymentIds);
 public sealed record PaymentStatusRequest(string? PaymentReference);
 
@@ -34,6 +36,23 @@ public class PayrollEndpoints : ICarterModule
       .ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Open Payroll Month")
       .WithDescription("The calendar month unless startDate / endDate are given (at most 31 days).");
+
+    periods.MapPut("/{id:guid}", async (Guid id, PayrollPeriodDatesRequest r, ISender sender) =>
+        (await sender.Send(new UpdatePayrollPeriodDatesCommand(id, r.StartDate, r.EndDate))).ToOk())
+      .RequirePermission(PermissionCatalog.Payroll.Create)
+      .WithName("UpdatePayrollPeriodDates")
+      .Produces<UpdatedResult>()
+      .ProducesProblem(StatusCodes.Status400BadRequest)
+      .WithSummary("Change Payroll Month Dates")
+      .WithDescription("An open month without runs; at most 31 days and no day shared with another month.");
+
+    periods.MapDelete("/{id:guid}", async (Guid id, ISender sender) => (await sender.Send(new DeletePayrollPeriodCommand(id))).ToOk())
+      .RequirePermission(PermissionCatalog.Payroll.Create)
+      .WithName("DeletePayrollPeriod")
+      .Produces<UpdatedResult>()
+      .ProducesProblem(StatusCodes.Status400BadRequest)
+      .WithSummary("Delete Payroll Month")
+      .WithDescription("An open month opened by mistake; refused once it has any run.");
 
     foreach (var (action, route, permission, summary, description) in new[]
     {
@@ -181,6 +200,19 @@ public class PayrollEndpoints : ICarterModule
       .WithDescription("One row per pay slip and one column per component (earnings, then deductions; ADJ_PAY / ADJ_RECOVERY for adjustments), with totals. "
         + "Issued slips appear as issued.");
 
+    runs.MapPost("/{id:guid}/arrears", async (Guid id, WorkOutArrearsRequest r, ISender sender) =>
+        (await sender.Send(new WorkOutArrearsCommand(id, r.SourcePeriodId, r.EmployeeIds, r.DryRun))).ToOk())
+      .RequirePermission(PermissionCatalog.Payroll.Edit)
+      .WithTags("Pay Slips")
+      .WithName("WorkOutArrears")
+      .Produces<WorkOutArrearsResult>()
+      .ProducesProblem(StatusCodes.Status400BadRequest)
+      .WithSummary("Work Out Arrears for a Past Month")
+      .WithDescription("Recalculates the earnings of a finalized month (sourcePeriodId) with today's records - back-dated promotions, increments, pay revisions, "
+        + "late leave without pay or separations - and compares them with what was paid. dryRun=true only lists the differences; otherwise each difference "
+        + "becomes an Arrears (more due) or Recovery (less due) adjustment on this run (an arrears run, or this month's regular run), replacing an earlier "
+        + "working-out of the same month, and the run is recalculated (only the extra tax they cause). Loans, GP Fund and that month's tax are not touched.");
+
     runs.MapPost("/{id:guid}/adjustments", async (Guid id, PayrollAdjustmentRequest r, ISender sender) =>
         (await sender.Send(new AddPayrollAdjustmentCommand(id, r.EmployeeId, r.AdjustmentType, r.Amount, r.Reason))).ToOk())
       .RequirePermission(PermissionCatalog.Payroll.Edit)
@@ -278,7 +310,17 @@ public class PayrollEndpoints : ICarterModule
       .Produces<BankAdviceResult>()
       .ProducesProblem(StatusCodes.Status404NotFound)
       .WithSummary("Bank Advice")
-      .WithDescription("The run's pending and processed payments bank by bank, with account, IBAN and amount.");
+      .WithDescription("The run's pending and processed bank transfers bank by bank, with account, IBAN and amount (cheques and cash are not in it).");
+
+    runs.MapGet("/{id:guid}/reconciliation", async (Guid id, ISender sender) => (await sender.Send(new GetPaymentReconciliationQuery(id))).ToOk())
+      .RequirePermission(PermissionCatalog.Payroll.View)
+      .WithTags("Salary Payments")
+      .WithName("GetPaymentReconciliation")
+      .Produces<PaymentReconciliationResult>()
+      .ProducesProblem(StatusCodes.Status404NotFound)
+      .WithSummary("Where the Net Pay Goes")
+      .WithDescription("Net payable = to the banks + by cheque + in cash + held + not paid yet (no payment made, usually no salary account), with counts; "
+        + "processed, failed or returned payments and how many unpaid slips have no salary account.");
 
     foreach (var (action, route, summary) in new[] { (PaymentAction.Fail, "fail", "Payment Failed"), (PaymentAction.Return, "return", "Payment Returned") })
     {

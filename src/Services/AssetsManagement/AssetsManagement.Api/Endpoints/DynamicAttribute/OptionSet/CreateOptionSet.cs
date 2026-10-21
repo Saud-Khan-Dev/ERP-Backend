@@ -15,6 +15,8 @@ public class CreateOptionSet : ICarterModule
       var response = result.Value.Adapt<CreateOptionSetResponse>();
       return Results.Created($"/option-sets/{response!.Id}", response);
     })
+      .RequirePermission(PermissionCatalog.AssetAttributes.Create)
+
       .WithName("CreateOptionSet")
       .Produces<CreateOptionSetResponse>(StatusCodes.Status201Created)
       .ProducesProblem(StatusCodes.Status400BadRequest)

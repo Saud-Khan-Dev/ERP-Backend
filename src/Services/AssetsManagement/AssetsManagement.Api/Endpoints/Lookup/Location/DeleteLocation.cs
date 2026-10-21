@@ -13,6 +13,8 @@ public class DeleteLocation : ICarterModule
 
       return Results.Ok(result.Value.Adapt<DeleteLocationResponse>());
     })
+      .RequirePermission(PermissionCatalog.AssetTaxonomy.Delete)
+
       .WithName("DeleteLocation")
       .Produces<DeleteLocationResponse>(StatusCodes.Status200OK)
       .ProducesProblem(StatusCodes.Status400BadRequest)

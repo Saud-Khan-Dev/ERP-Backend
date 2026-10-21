@@ -11,9 +11,17 @@ public class CreateLeaseHandler(IApplicationDbContext context, MasterLookup mast
       LeaseId.New(), property, lessee, await codes.NextAsync(CodeSequenceKeys.Lease, cancellationToken), status,
       await command.Terms.ToTermsAsync(masters, cancellationToken));
 
+    // one lease at a time on a property; a draft is checked when it is activated
+    var warnings = new List<string>(lease.TermWarnings());
+    if (!command.AsDraft)
+    {
+      context.Touch(property);
+      warnings.AddRange(AgreementOverlap.Check(lease.Span(lessee.OwnerName.Value), await context.RunningOnAsync(property.Id, cancellationToken)));
+    }
+
     await context.Leases.AddAsync(lease, cancellationToken);
     await context.SaveChangesAsync(cancellationToken);
 
-    return Result<CreateLeaseCommandResult>.Success(new CreateLeaseCommandResult(lease.Id.Value, lease.LeaseNo.Value));
+    return Result<CreateLeaseCommandResult>.Success(new CreateLeaseCommandResult(lease.Id.Value, lease.LeaseNo.Value, warnings));
   }
 }

@@ -37,7 +37,9 @@ public sealed record EmployeeRequestDto(
   DateTime SubmittedAt,
   Guid? ReviewedBy,
   DateTime? ReviewedAt,
-  string? Remarks);
+  string? Remarks,
+  /// The paper sent with the request: its kind and number, to open it from the request.
+  string? SupportingDocument = null);
 
 // ---- tasks ----
 
@@ -51,7 +53,11 @@ public sealed record GetTasksQuery(
   TaskPriority? Priority,
   bool OverdueOnly,
   bool OpenOnly,
-  Guid? OnlyForEmployee = null) : IQuery<Result<GetTasksQueryResult>>;
+  Guid? OnlyForEmployee = null,
+  string? Search = null,
+  bool AssignedByMe = false,
+  DateOnly? DueFrom = null,
+  DateOnly? DueTo = null) : IQuery<Result<GetTasksQueryResult>>;
 
 public sealed record GetTaskQueryResult(TaskDto Task);
 public sealed record GetTaskQuery(Guid Id, Guid? OnlyForEmployee = null) : IQuery<Result<GetTaskQueryResult>>;
@@ -110,7 +116,14 @@ public sealed record GetEmployeeRequestsQuery(
   Guid? EmployeeId,
   EmployeeRequestStatus? Status,
   Guid? RequestTypeId,
-  Guid? OnlyForEmployee = null) : IQuery<Result<GetEmployeeRequestsQueryResult>>;
+  Guid? OnlyForEmployee = null,
+  string? Search = null,
+  DateOnly? From = null,
+  DateOnly? To = null,
+  bool OldestFirst = false) : IQuery<Result<GetEmployeeRequestsQueryResult>>;
+
+/// HR withdraws a request entered by mistake (kept as cancelled, with who, when and why).
+public sealed record WithdrawEmployeeRequestCommand(Guid Id, string? Remarks) : ICommand<Result<UpdatedResult>>;
 
 public sealed record GetEmployeeRequestQueryResult(EmployeeRequestDto Request);
 public sealed record GetEmployeeRequestQuery(Guid Id, Guid? OnlyForEmployee = null) : IQuery<Result<GetEmployeeRequestQueryResult>>;
@@ -155,7 +168,8 @@ public class TaskRequestHandlers(IApplicationDbContext context, HrLookup lookup,
   IQueryHandler<GetEmployeeRequestQuery, Result<GetEmployeeRequestQueryResult>>,
   ICommandHandler<SubmitEmployeeRequestCommand, Result<CreatedResult>>,
   ICommandHandler<DecideEmployeeRequestCommand, Result<UpdatedResult>>,
-  ICommandHandler<CancelEmployeeRequestCommand, Result<UpdatedResult>>
+  ICommandHandler<CancelEmployeeRequestCommand, Result<UpdatedResult>>,
+  ICommandHandler<WithdrawEmployeeRequestCommand, Result<UpdatedResult>>
 {
   // ---- tasks ----
 
@@ -177,6 +191,19 @@ public class TaskRequestHandlers(IApplicationDbContext context, HrLookup lookup,
     {
       var today = clock.Today;
       rows = rows.Where(t => t.DueDate != null && t.DueDate < today);
+    }
+    if (query.AssignedByMe && currentUser.UserId is { } me)
+      rows = rows.Where(t => t.AssignedBy == me);
+    if (query.DueFrom is { } dueFrom)
+      rows = rows.Where(t => t.DueDate != null && t.DueDate >= dueFrom);
+    if (query.DueTo is { } dueTo)
+      rows = rows.Where(t => t.DueDate != null && t.DueDate <= dueTo);
+    if (!string.IsNullOrWhiteSpace(query.Search))
+    {
+      var pattern = SearchPattern.Contains(query.Search);
+      rows = rows.Where(t => EF.Functions.Like(t.Title.ToLower(), pattern, SearchPattern.Escape)
+        || context.Employees.Any(e => e.Id == t.EmployeeId && (EF.Functions.Like(e.EmployeeNumber.ToLower(), pattern, SearchPattern.Escape)
+          || EF.Functions.Like(e.FullName!.ToLower(), pattern, SearchPattern.Escape))));
     }
 
     var total = await rows.LongCountAsync(cancellationToken);
@@ -252,9 +279,27 @@ public class TaskRequestHandlers(IApplicationDbContext context, HrLookup lookup,
       var typeId = EmployeeRequestTypeId.Of(type);
       rows = rows.Where(r => r.RequestTypeId == typeId);
     }
+    if (query.From is { } from)
+    {
+      var start = from.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc).AddHours(-5);
+      rows = rows.Where(r => r.SubmittedAt >= start);
+    }
+    if (query.To is { } to)
+    {
+      var end = to.AddDays(1).ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc).AddHours(-5);
+      rows = rows.Where(r => r.SubmittedAt < end);
+    }
+    if (!string.IsNullOrWhiteSpace(query.Search))
+    {
+      var pattern = SearchPattern.Contains(query.Search);
+      rows = rows.Where(r => (r.Subject != null && EF.Functions.Like(r.Subject.ToLower(), pattern, SearchPattern.Escape))
+        || (r.Description != null && EF.Functions.Like(r.Description.ToLower(), pattern, SearchPattern.Escape))
+        || context.Employees.Any(e => e.Id == r.EmployeeId && (EF.Functions.Like(e.EmployeeNumber.ToLower(), pattern, SearchPattern.Escape)
+          || EF.Functions.Like(e.FullName!.ToLower(), pattern, SearchPattern.Escape))));
+    }
 
     var total = await rows.LongCountAsync(cancellationToken);
-    var page = await rows.OrderByDescending(r => r.SubmittedAt)
+    var page = await (query.OldestFirst ? rows.OrderBy(r => r.SubmittedAt) : rows.OrderByDescending(r => r.SubmittedAt))
       .Skip(query.Pagination.Pageindex * query.Pagination.PageSize).Take(query.Pagination.PageSize).ToListAsync(cancellationToken);
     var data = await RequestsAsync(page, cancellationToken);
     return Result<GetEmployeeRequestsQueryResult>.Success(new(new PaginatedResult<EmployeeRequestDto>(query.Pagination.Pageindex, query.Pagination.PageSize, total, data)));
@@ -289,6 +334,14 @@ public class TaskRequestHandlers(IApplicationDbContext context, HrLookup lookup,
     else
       request.Reject(currentUser.UserId, clock.UtcNow, command.Remarks);
 
+    await context.SaveChangesAsync(cancellationToken);
+    return CommandResults.Updated();
+  }
+
+  public async Task<Result<UpdatedResult>> Handle(WithdrawEmployeeRequestCommand command, CancellationToken cancellationToken)
+  {
+    var request = await LoadRequestAsync(command.Id, null, cancellationToken);
+    request.Withdraw(currentUser.UserId, clock.UtcNow, command.Remarks);
     await context.SaveChangesAsync(cancellationToken);
     return CommandResults.Updated();
   }
@@ -342,13 +395,20 @@ public class TaskRequestHandlers(IApplicationDbContext context, HrLookup lookup,
   {
     var people = await lookup.EmployeesAsync(requests.Select(r => (EmployeeId?)r.EmployeeId), cancellationToken);
     var types = await context.RequestTypes.AsNoTracking().ToDictionaryAsync(t => t.Id, t => t.Name, cancellationToken);
+    var documentIds = requests.Where(r => r.SupportingDocumentId is not null).Select(r => r.SupportingDocumentId!).ToList();
+    var documents = await (
+        from d in context.Documents.AsNoTracking()
+        where documentIds.Contains(d.Id)
+        join t in context.DocumentTypes on d.DocumentTypeId equals t.Id
+        select new { d.Id, t.Name, d.DocumentNumber })
+      .ToDictionaryAsync(d => d.Id, d => d.DocumentNumber is null ? d.Name : $"{d.Name} {d.DocumentNumber}", cancellationToken);
     return requests.Select(r =>
     {
       var person = people.GetValueOrDefault(r.EmployeeId.Value);
       JsonElement? data = r.RequestedData is { } json ? JsonDocument.Parse(json).RootElement.Clone() : null;
       return new EmployeeRequestDto(r.Id.Value, r.EmployeeId.Value, person?.EmployeeNumber ?? "", person?.FullName ?? "", r.RequestTypeId.Value,
         types.GetValueOrDefault(r.RequestTypeId), r.Subject, r.Description, data, r.SupportingDocumentId?.Value, r.Status, r.SubmittedAt, r.ReviewedBy,
-        r.ReviewedAt, r.Remarks);
+        r.ReviewedAt, r.Remarks, r.SupportingDocumentId is null ? null : documents.GetValueOrDefault(r.SupportingDocumentId));
     }).ToList();
   }
 }

@@ -24,16 +24,16 @@ public static class MasterRegistry
 
     // ---- management ----
     MasterDescriptor.Of<AllotmentType>("allotment-types", "allotment_type", "Allotment type"),
-    MasterDescriptor.Of<AllotmentStatus>("allotment-statuses", "allotment_status", "Allotment status"),
+    MasterDescriptor.Of<AllotmentStatus>("allotment-statuses", "allotment_status", "Allotment status", readOnly: true),
     MasterDescriptor.Of<LeaseType>("lease-types", "lease_type", "Lease type"),
-    MasterDescriptor.Of<LeaseStatus>("lease-statuses", "lease_status", "Lease status"),
+    MasterDescriptor.Of<LeaseStatus>("lease-statuses", "lease_status", "Lease status", readOnly: true),
     MasterDescriptor.Of<RentalType>("rental-types", "rental_type", "Rental type"),
-    MasterDescriptor.Of<RentalStatus>("rental-statuses", "rental_status", "Rental status"),
+    MasterDescriptor.Of<RentalStatus>("rental-statuses", "rental_status", "Rental status", readOnly: true),
     MasterDescriptor.Of<AuctionType>("auction-types", "auction_type", "Auction type"),
     MasterDescriptor.Of<AuctionStatus>("auction-statuses", "auction_status", "Auction status"),
     MasterDescriptor.Of<OutsourcingType>("outsourcing-types", "outsourcing_type", "Outsourcing type"),
-    MasterDescriptor.Of<ContractStatus>("contract-statuses", "contract_status", "Contract status"),
-    MasterDescriptor.Of<AgreementType>("agreement-types", "agreement_type", "Agreement type"),
+    MasterDescriptor.Of<ContractStatus>("contract-statuses", "contract_status", "Contract status", readOnly: true),
+    MasterDescriptor.Of<AgreementType>("agreement-types", "agreement_type", "Agreement type", readOnly: true),
 
     // ---- compliance ----
     MasterDescriptor.Of<EncroachmentStatus>("encroachment-statuses", "encroachment_status", "Encroachment status"),
@@ -81,6 +81,9 @@ public sealed class MasterDescriptor
   public string Label { get; }
   public Type ClrType { get; }
   public MasterExtraColumns Extras { get; }
+  /// Only the system's own acts set these values (statuses no act can move a record into, the agreement kinds a
+  /// violation names): a new value could never be used, and none can be switched off. They can still be renamed.
+  public bool ReadOnly { get; }
 
   public required Func<IApplicationDbContext, bool, CancellationToken, Task<List<MasterData>>> ListAsync { get; init; }
   /// Tracked, for updates.
@@ -88,20 +91,22 @@ public sealed class MasterDescriptor
   public required Func<IApplicationDbContext, IReadOnlyCollection<MasterId>, CancellationToken, Task<List<MasterData>>> LoadAsync { get; init; }
   public required Func<IApplicationDbContext, MasterCode, CancellationToken, Task<bool>> CodeExistsAsync { get; init; }
   public required Func<IApplicationDbContext, MasterData, CancellationToken, Task> AddAsync { get; init; }
+  public required Action<IApplicationDbContext, MasterData> Remove { get; init; }
   public required Func<MasterId, MasterCode, Name, string?, int, MasterExtras, MasterData> Create { get; init; }
 
-  private MasterDescriptor(string slug, string table, string label, Type clrType, MasterExtraColumns extras)
+  private MasterDescriptor(string slug, string table, string label, Type clrType, MasterExtraColumns extras, bool readOnly)
   {
     Slug = slug;
     Table = table;
     Label = label;
     ClrType = clrType;
     Extras = extras;
+    ReadOnly = readOnly;
   }
 
-  public static MasterDescriptor Of<T>(string slug, string table, string label, MasterExtraColumns extras = MasterExtraColumns.None)
+  public static MasterDescriptor Of<T>(string slug, string table, string label, MasterExtraColumns extras = MasterExtraColumns.None, bool readOnly = false)
       where T : MasterData, new() =>
-      new(slug, table, label, typeof(T), extras)
+      new(slug, table, label, typeof(T), extras, readOnly)
       {
         ListAsync = async (context, includeInactive, cancellationToken) =>
           (await context.Set<T>().AsNoTracking()
@@ -122,6 +127,8 @@ public sealed class MasterDescriptor
 
         AddAsync = (context, master, cancellationToken) =>
           context.Set<T>().AddAsync((T)master, cancellationToken).AsTask(),
+
+        Remove = (context, master) => context.Set<T>().Remove((T)master),
 
         Create = (id, code, name, description, sortOrder, masterExtras) =>
           MasterData.Create<T>(id, code, name, description, sortOrder, masterExtras)

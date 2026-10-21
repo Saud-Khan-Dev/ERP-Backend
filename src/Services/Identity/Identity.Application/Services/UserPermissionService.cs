@@ -40,4 +40,13 @@ public class UserPermissionService(IApplicationDbContext context) : IUserPermiss
 
     return PermissionResolver.Resolve(roleGrants, rolePermissions, overrides, now);
   }
+
+  public async Task<IReadOnlyDictionary<string, string>> RoleNamesAsync(IEnumerable<string> roleCodes, CancellationToken cancellationToken)
+  {
+    var codes = roleCodes.Distinct().Select(LookupCode.Of).ToList();
+    if (codes.Count == 0)
+      return new Dictionary<string, string>();
+    var roles = await context.Roles.AsNoTracking().Where(r => codes.Contains(r.Code)).ToListAsync(cancellationToken);
+    return roles.ToDictionary(r => r.Code.Value, r => r.RoleName.Value, StringComparer.Ordinal);
+  }
 }

@@ -176,7 +176,7 @@ public class AssessmentTests
     policy.SetActive(false);
     var a = Assess(file, 2025, policies: [policy]);
     Assert.Equal(14500m, Line(a, PropertyTax));
-    Assert.Contains(a.Notes, n => n.Contains("not active"));
+    Assert.Contains(a.Notes, n => n.Contains("not in force"));
   }
 
   [Fact]

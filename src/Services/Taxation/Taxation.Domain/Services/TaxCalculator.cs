@@ -137,6 +137,11 @@ public static class TaxCalculator
         {
           var share = 1m;
           var fromNote = "";
+          if (head.EffectiveFrom is { } headFrom && headFrom > FiscalYear.End(fy))
+          {
+            notes.Add($"{head.Name}: charged from {headFrom:dd MMM yyyy}, after this year.");
+            continue;
+          }
           if (head.ChargedFrom == ChargedFrom.Registration)
           {
             share = FiscalYear.ShareFrom(fy, file.RegisteredOn);
@@ -167,9 +172,13 @@ public static class TaxCalculator
               fromNote = $"; {facility} from {from:yyyy-MM-dd} ({Math.Round(share * 100)} % of the year)";
           }
 
+          // a head added after the rate set was approved is charged once a rate set gives it rates
           var rows = rateSet.HeadRows(head.Id, file.TaxCategory, file.TownId);
           if (rows.Count == 0)
-            throw new DomainException($"'{rateSet.Name}' has no {(file.TaxCategory == TaxCategory.Com ? "commercial" : "residential")} rates for {head.Name}.");
+          {
+            notes.Add($"{head.Name}: '{rateSet.Name}' has no {(file.TaxCategory == TaxCategory.Com ? "commercial" : "residential")} rates for it, so it is not charged.");
+            continue;
+          }
           var result = HeadAmount(head, rows, quantities, file.HeadValue(head.Id)?.Quantity, ltfVars);
           if (result is null || result.Value.Amount * share <= 0)
             continue;
@@ -208,14 +217,14 @@ public static class TaxCalculator
     if (ov is { Mode: OverrideMode.Special, PolicyId: not null })
     {
       var policy = policies.FirstOrDefault(p => p.Id == ov.PolicyId);
-      if (policy is { IsActive: true })
+      if (policy is not null && policy.AvailableFor(head.Id, file.TaxCategory, fy))
       {
         var pa = PolicyAmount(policy, head, file, fy, normal, rateSet, settings);
         (lineBase, lineUplift, increase, mode, policyId, text) = (pa.Amount, 0m, 0m, LineMode.Policy, policy.Id, pa.Explanation);
       }
       else
       {
-        notes.Add($"{head.Name}: the special policy assigned to this property is not active; the normal tax is charged.");
+        notes.Add($"{head.Name}: the special policy assigned to this property is not in force for FY {FiscalYear.Label(fy)}; the normal tax is charged.");
       }
     }
     else if (ov is { Mode: OverrideMode.Special, Amount: { } special })
@@ -288,10 +297,14 @@ public static class TaxCalculator
       {
         var x = first.RoundUp ? Math.Ceiling(qty) : qty;
         var (amount, row, note) = BandAbove(rows, x);
-        return (amount, $"{Rupees.Number(qty)} {unit}{(note.Length > 0 ? "; " + note : "")}", qty, UnitCode(first), row);
+        return (amount, $"{Rupees.Number(qty)} {unit}{(x != qty ? $" (rounded up to {Rupees.Number(x)})" : "")}{(note.Length > 0 ? "; " + note : "")}", qty, UnitCode(first), row);
       }
       case CalcMethod.Rate:
-        return (first.Rate * qty, $"{Rupees.Number(qty)} {unit} × {Rupees.Number(first.Rate)}", qty, UnitCode(first), first);
+      {
+        // round up: a part unit counts as a whole one (3.2 rooms are charged as 4)
+        var x = first.RoundUp ? Math.Ceiling(qty) : qty;
+        return (first.Rate * x, $"{Rupees.Number(qty)} {unit}{(x != qty ? $" (rounded up to {Rupees.Number(x)})" : "")} × {Rupees.Number(first.Rate)}", qty, UnitCode(first), first);
+      }
       case CalcMethod.Fixed:
         return (first.Rate, "fixed amount a year", null, null, first);
       case CalcMethod.Formula:

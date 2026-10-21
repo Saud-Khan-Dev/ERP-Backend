@@ -120,7 +120,7 @@ public class BuildingPlanTests
   public void Revision_keeps_the_plan_number_and_supersedes_the_previous_row()
   {
     var plan = BuildingPlan.Submit(BuildingPlanId.New(), Property(), BusinessCode.Of("BP-00001"), Submitted, Details());
-    plan.Approve(Submitted, Approved, D("2026-05-20"), "officer", null, null);
+    plan.Approve(Submitted, Approved, new BuildingPlan.Approval(D("2026-05-20"), "officer", null, null, null));
 
     Assert.Throws<DomainException>(() => plan.Update(Approved, Details()));
 

@@ -9,19 +9,22 @@ public sealed record ConfirmOwnershipRequest(DateOnly EffectiveFrom, decimal Own
 public sealed record CreateLeaseRequest(Guid LesseeOwnerId, LeaseTermsInput Terms, bool AsDraft = false);
 public sealed record RenewLeaseRequest(LeaseTermsInput Terms, Guid? LesseeOwnerId = null);
 public sealed record EndAgreementRequest(DateOnly TerminationDate, string Reason);
+public sealed record WithdrawDraftRequest(string Reason);
 
-public sealed record CreateRentalRequest(Guid TenantOwnerId, RentalTermsInput Terms);
+public sealed record CreateRentalRequest(Guid TenantOwnerId, RentalTermsInput Terms, bool AsDraft = false);
 public sealed record RenewRentalRequest(RentalTermsInput Terms, Guid? TenantOwnerId = null);
 
 public sealed record ViolationNoticeRequest(string NoticeNo, DateOnly NoticeDate, DateOnly? NoticeDeadline = null);
 public sealed record ImposeFineRequest(decimal FineAmount);
-public sealed record FineStatusRequest(FineStatus FineStatus);
+/// Paid: receiptNo and paidOn required. Waived: reason required (PROPERTY.APPROVE). RecoveryAsArrears: PROPERTY.APPROVE.
+public sealed record FineStatusRequest(FineStatus FineStatus, string? ReceiptNo = null, DateOnly? PaidOn = null, string? Reason = null);
 
 public sealed record RecordBidRequest(Guid BidderOwnerId, decimal BidAmount, decimal? EarnestMoney = null, string? Remarks = null);
 public sealed record AwardAuctionRequest(DateOnly AwardDate, Guid? WinningBidId = null, Guid? SuccessfulBidderOwnerId = null, decimal? WinningBidAmount = null, string? AwardReferenceNo = null);
 public sealed record ReAuctionRequest(DateOnly AuctionDate, decimal? BaseReservePrice = null, string? AuctionCommitteeRef = null);
 
-public sealed record CreateOutsourcingRequest(Guid OutsourcedPartyOwnerId, OutsourcingTermsInput Terms);
+public sealed record CreateOutsourcingRequest(Guid OutsourcedPartyOwnerId, OutsourcingTermsInput Terms, bool AsDraft = false);
+public sealed record RenewOutsourcingRequest(OutsourcingTermsInput Terms, Guid? OutsourcedPartyOwnerId = null);
 
 /// Management records (schema guide, "Management records"): allotment, lease, rental, agreement
 /// violations (Act s.28-A), auction and outsourcing. Each has its own dates, amounts and status life-cycle.
@@ -45,12 +48,14 @@ public class ManagementEndpoints : ICarterModule
   {
     app.MapPost("/properties/{id:guid}/allotments", async (Guid id, AllotPropertyRequest request, ISender sender) =>
         (await sender.Send(new AllotPropertyCommand(id, request.AllotteeOwnerId, request.Allotment))).ToCreated(r => $"/allotments/{r.Id}"))
-      .RequirePermission(PermissionCatalog.Property.Edit)
+      .RequirePermission(PermissionCatalog.Property.Approve)
       .WithTags("Allotments").WithName("AllotProperty")
       .Produces<AllotPropertyCommandResult>(StatusCodes.Status201Created).ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Allot Property")
-      .WithDescription("Allots the plot (ALT-00001 is generated; status ACTIVE). Only property classified GDA_PROPERTY can be allotted, only one allotment "
-        + "may be in force (ACTIVE / RESTORED) per property, and the allotment date may not be in the future. Allotment is not ownership — confirm it separately.");
+      .WithDescription("An approver allots the plot (ALT-00001 is generated; status ACTIVE, in force from its effective date - the allotment date when none "
+        + "is given). Only property classified GDA_PROPERTY that nobody holds privately (a share held by an owner who is not a government body) can be "
+        + "allotted; only one allotment may be current (ACTIVE / RESTORED) per property; the allotment date may not be in the future. warnings: a lease, "
+        + "rental or contract running at the same time. Allotment is not ownership — confirm it separately.");
 
     app.MapGet("/properties/{id:guid}/allotments", async (Guid id, bool? includeInactive, ISender sender) =>
         (await sender.Send(new GetPropertyAllotmentsQuery(id, includeInactive ?? false))).ToOk())
@@ -90,9 +95,9 @@ public class ManagementEndpoints : ICarterModule
         (await sender.Send(new ChangeAllotmentStatusCommand(id, request.StatusId, request.Date))).ToOk())
       .RequirePermission(PermissionCatalog.Property.Edit)
       .WithName("ChangeAllotmentStatus").Produces<AllotmentLifecycleResult>().ProducesProblem(StatusCodes.Status400BadRequest)
-      .WithSummary("Change Allotment Status").WithDescription("An allotment in force becomes SURRENDERED (date required: the surrender date; a confirmed "
-        + "ownership through it ends that day) or EXPIRED (only after its expiry date; without an expiry date, date is required and recorded as the expiry date). "
-        + "Nothing goes back to ACTIVE; cancel / restore have their own acts.");
+      .WithSummary("Change Allotment Status").WithDescription("An allotment in force becomes SURRENDERED (an approver's act, 403 otherwise; date required: "
+        + "the surrender date; a confirmed ownership through it ends that day) or EXPIRED (only after its expiry date; without an expiry date, date is "
+        + "required and recorded as the expiry date). Nothing goes back to ACTIVE; cancel / restore have their own acts.");
 
     allotments.MapPost("/{id:guid}/deactivate", async (Guid id, ISender sender) =>
         (await sender.Send(new DeactivateAllotmentCommand(id))).ToOk())
@@ -107,8 +112,8 @@ public class ManagementEndpoints : ICarterModule
       .WithName("ConfirmAllotmentOwnership").Produces<ConfirmAllotmentOwnershipCommandResult>().ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Confirm Allottee As Owner")
       .WithDescription("GDA confirms the allottee as legal owner: a property_ownership row with acquired_via_allotment_id. Only while the allotment is in force "
-        + "and not confirmed yet; effectiveFrom between the allotment (or restoration) date and today; refused when someone already holds 100% (transfer a "
-        + "share to the allottee instead). Shares may not exceed 100%.");
+        + "and not confirmed yet; effectiveFrom between the day the allotment takes effect (or its restoration) and today; refused when someone already "
+        + "holds 100% (transfer a share to the allottee instead). Shares may not exceed 100%.");
   }
 
   // =====================================================
@@ -122,7 +127,9 @@ public class ManagementEndpoints : ICarterModule
       .RequirePermission(PermissionCatalog.Property.Edit)
       .WithTags("Leases").WithName("CreateLease")
       .Produces<CreateLeaseCommandResult>(StatusCodes.Status201Created).ProducesProblem(StatusCodes.Status400BadRequest)
-      .WithSummary("Create Lease").WithDescription("LSE-00001 is generated. asDraft=true keeps the terms editable until the lease is activated.");
+      .WithSummary("Create Lease").WithDescription("LSE-00001 is generated. asDraft=true keeps the terms editable until the lease is activated. An active lease "
+        + "may not overlap another active lease of the property (400); warnings: other agreements running at the same time, a term in years that does not "
+        + "match the dates.");
 
     app.MapGet("/properties/{id:guid}/leases", async (Guid id, ISender sender) => (await sender.Send(new GetPropertyLeasesQuery(id))).ToOk())
       .RequirePermission(PermissionCatalog.Property.View)
@@ -138,12 +145,13 @@ public class ManagementEndpoints : ICarterModule
         (await sender.Send(new UpdateLeaseTermsCommand(id, terms))).ToOk())
       .RequirePermission(PermissionCatalog.Property.Edit)
       .WithName("UpdateLeaseTerms").Produces<UpdateLeaseTermsCommandResult>().ProducesProblem(StatusCodes.Status400BadRequest)
-      .WithSummary("Update Draft Lease").WithDescription("Draft leases only. Once in force the terms are history (rule 2) — renew to change them.");
+      .WithSummary("Update Lease").WithDescription("A draft takes any change. Once in force the terms are history (rule 2) — renew to change them; only the "
+        + "agreement reference, its date and the remarks can be corrected.");
 
     leases.MapPost("/{id:guid}/activate", async (Guid id, ISender sender) => (await sender.Send(new ActivateLeaseCommand(id))).ToOk())
       .RequirePermission(PermissionCatalog.Property.Edit)
       .WithName("ActivateLease").Produces<LeaseLifecycleResult>().ProducesProblem(StatusCodes.Status400BadRequest)
-      .WithSummary("Activate Lease");
+      .WithSummary("Activate Lease").WithDescription("A draft comes into force; refused when it would overlap another active lease of the property.");
 
     leases.MapPost("/{id:guid}/renew", async (Guid id, RenewLeaseRequest request, ISender sender) =>
         (await sender.Send(new RenewLeaseCommand(id, request.Terms, request.LesseeOwnerId))).ToCreated(r => $"/leases/{r.Id}"))
@@ -155,7 +163,14 @@ public class ManagementEndpoints : ICarterModule
         (await sender.Send(new TerminateLeaseCommand(id, request.TerminationDate, request.Reason))).ToOk())
       .RequirePermission(PermissionCatalog.Property.Approve)
       .WithName("TerminateLease").Produces<LeaseLifecycleResult>().ProducesProblem(StatusCodes.Status400BadRequest)
-      .WithSummary("Terminate Lease");
+      .WithSummary("Terminate Lease").WithDescription("An approver ends the lease early by an order (TERMINATED); the date is not in the future and not after "
+        + "the agreed end (mark it expired then).");
+
+    leases.MapPost("/{id:guid}/withdraw", async (Guid id, WithdrawDraftRequest request, ISender sender) =>
+        (await sender.Send(new WithdrawLeaseDraftCommand(id, request.Reason))).ToOk())
+      .RequirePermission(PermissionCatalog.Property.Edit)
+      .WithName("WithdrawLeaseDraft").Produces<LeaseLifecycleResult>().ProducesProblem(StatusCodes.Status400BadRequest)
+      .WithSummary("Withdraw Draft Lease").WithDescription("A draft that will not go ahead becomes WITHDRAWN (reason required); it never came into force.");
 
     leases.MapPost("/{id:guid}/expire", async (Guid id, ISender sender) => (await sender.Send(new ExpireLeaseCommand(id))).ToOk())
       .RequirePermission(PermissionCatalog.Property.Edit)
@@ -171,11 +186,13 @@ public class ManagementEndpoints : ICarterModule
   private static void MapRentals(IEndpointRouteBuilder app)
   {
     app.MapPost("/properties/{id:guid}/rentals", async (Guid id, CreateRentalRequest request, ISender sender) =>
-        (await sender.Send(new CreateRentalCommand(id, request.TenantOwnerId, request.Terms))).ToCreated(r => $"/rentals/{r.Id}"))
+        (await sender.Send(new CreateRentalCommand(id, request.TenantOwnerId, request.Terms, request.AsDraft))).ToCreated(r => $"/rentals/{r.Id}"))
       .RequirePermission(PermissionCatalog.Property.Edit)
       .WithTags("Rentals").WithName("CreateRental")
       .Produces<CreateRentalCommandResult>(StatusCodes.Status201Created).ProducesProblem(StatusCodes.Status400BadRequest)
-      .WithSummary("Create Rental").WithDescription("RNT-00001 is generated; the rental starts ACTIVE. Rent collection belongs to the Tax / Finance Module.");
+      .WithSummary("Create Rental").WithDescription("RNT-00001 is generated; the rental starts ACTIVE (asDraft=true: DRAFT, terms editable until it is "
+        + "activated). An active rental may not overlap another active rental of the property; warnings: other agreements running at the same time. "
+        + "Rent collection belongs to the Tax / Finance Module.");
 
     app.MapGet("/properties/{id:guid}/rentals", async (Guid id, ISender sender) => (await sender.Send(new GetPropertyRentalsQuery(id))).ToOk())
       .RequirePermission(PermissionCatalog.Property.View)
@@ -191,19 +208,38 @@ public class ManagementEndpoints : ICarterModule
         (await sender.Send(new UpdateRentalTermsCommand(id, terms))).ToOk())
       .RequirePermission(PermissionCatalog.Property.Edit)
       .WithName("UpdateRentalTerms").Produces<UpdateRentalTermsCommandResult>().ProducesProblem(StatusCodes.Status400BadRequest)
-      .WithSummary("Update Rental");
+      .WithSummary("Update Rental").WithDescription("A draft takes any change. Once in force the terms are history — renew or revise them; only the agreement "
+        + "reference, its date and the remarks can be corrected.");
+
+    rentals.MapPost("/{id:guid}/activate", async (Guid id, ISender sender) => (await sender.Send(new ActivateRentalCommand(id))).ToOk())
+      .RequirePermission(PermissionCatalog.Property.Edit)
+      .WithName("ActivateRental").Produces<RentalLifecycleResult>().ProducesProblem(StatusCodes.Status400BadRequest)
+      .WithSummary("Activate Rental").WithDescription("A draft comes into force; refused when it would overlap another active rental of the property.");
+
+    rentals.MapPost("/{id:guid}/withdraw", async (Guid id, WithdrawDraftRequest request, ISender sender) =>
+        (await sender.Send(new WithdrawRentalDraftCommand(id, request.Reason))).ToOk())
+      .RequirePermission(PermissionCatalog.Property.Edit)
+      .WithName("WithdrawRentalDraft").Produces<RentalLifecycleResult>().ProducesProblem(StatusCodes.Status400BadRequest)
+      .WithSummary("Withdraw Draft Rental").WithDescription("A draft that will not go ahead becomes WITHDRAWN (reason required); it never came into force.");
+
+    rentals.MapPost("/{id:guid}/expire", async (Guid id, ISender sender) => (await sender.Send(new ExpireRentalCommand(id))).ToOk())
+      .RequirePermission(PermissionCatalog.Property.Edit)
+      .WithName("ExpireRental").Produces<RentalLifecycleResult>().ProducesProblem(StatusCodes.Status400BadRequest)
+      .WithSummary("Mark Rental Expired").WithDescription("An ACTIVE rental, once its end date has passed. An open-ended rental is terminated instead.");
 
     rentals.MapPost("/{id:guid}/renew", async (Guid id, RenewRentalRequest request, ISender sender) =>
         (await sender.Send(new RenewRentalCommand(id, request.Terms, request.TenantOwnerId))).ToCreated(r => $"/rentals/{r.Id}"))
       .RequirePermission(PermissionCatalog.Property.Edit)
       .WithName("RenewRental").Produces<RenewRentalCommandResult>(StatusCodes.Status201Created).ProducesProblem(StatusCodes.Status400BadRequest)
-      .WithSummary("Renew Rental").WithDescription("A new rental row (renewed_from_rental_id → this one), starting after this one started; this one ENDS the day before the renewal starts.");
+      .WithSummary("Renew Rental").WithDescription("Renew or revise the terms: a new rental row (renewed_from_rental_id → this one), starting after this one "
+        + "started; an active one ENDS the day before the renewal starts (an expired one keeps its status).");
 
     rentals.MapPost("/{id:guid}/terminate", async (Guid id, EndAgreementRequest request, ISender sender) =>
         (await sender.Send(new TerminateRentalCommand(id, request.TerminationDate, request.Reason))).ToOk())
-      .RequirePermission(PermissionCatalog.Property.Edit)
+      .RequirePermission(PermissionCatalog.Property.Approve)
       .WithName("TerminateRental").Produces<RentalLifecycleResult>().ProducesProblem(StatusCodes.Status400BadRequest)
-      .WithSummary("Terminate Rental");
+      .WithSummary("Terminate Rental").WithDescription("An approver ends the rental early by an order (TERMINATED), like a lease; the date is not in the future "
+        + "and not after the agreed end. ENDED is a rental that ran its course or was replaced by its renewal.");
   }
 
   // =====================================================
@@ -218,7 +254,11 @@ public class ManagementEndpoints : ICarterModule
       .WithTags("Agreement Violations").WithName("RecordViolation")
       .Produces<RecordViolationCommandResult>(StatusCodes.Status201Created).ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Record Agreement Violation")
-      .WithDescription("Exactly one of leaseId / rentalId / transferId (rule 4). Dated between the agreement's start and today. occurrenceNo counts the agreement's violations dated on or before this one; the third, dated inside the period of a notice served on an earlier violation (notice date to comply-by date), cancels the lease or rental (rule 5, Act s.28-A). A notice no. is needed for any notice date; a notice without a comply-by date is accepted with a warning.");
+      .WithDescription("Exactly one of leaseId / rentalId / transferId / allotmentId (rule 4); the violator must be the agreement's party (lessee, tenant, a "
+        + "transferee, the allottee). Dated between the agreement's start and today. occurrenceNo counts the agreement's violations dated on or before this "
+        + "one; the third, dated inside the period of a notice served on an earlier violation (notice date to comply-by date), cancels the lease or rental "
+        + "(rule 5, Act s.28-A) - recording that one needs PROPERTY.APPROVE (403 otherwise, nothing saved). A notice no. is needed for any notice date; a "
+        + "notice without a comply-by date is accepted with a warning.");
 
     app.MapGet("/properties/{id:guid}/violations", async (Guid id, Guid? leaseId, Guid? rentalId, Guid? transferId, ISender sender) =>
         (await sender.Send(new GetPropertyViolationsQuery(id, leaseId, rentalId, transferId))).ToOk())
@@ -246,10 +286,11 @@ public class ManagementEndpoints : ICarterModule
       .WithSummary("Impose Fine").WithDescription("Up to Rs 1,000,000 (s.28-A), imposed by an authorized officer (the Identity user flag, carried in the token) and recorded against them; anyone else gets 403. Collection is the Tax / Finance Module's job.");
 
     violations.MapPost("/{id:guid}/fine-status", async (Guid id, FineStatusRequest request, ISender sender) =>
-        (await sender.Send(new SetFineStatusCommand(id, request.FineStatus))).ToOk())
+        (await sender.Send(new SetFineStatusCommand(id, request.FineStatus, request.ReceiptNo, request.PaidOn, request.Reason))).ToOk())
       .RequirePermission(PermissionCatalog.Property.Edit)
       .WithName("SetFineStatus").Produces<ViolationActionResult>().ProducesProblem(StatusCodes.Status400BadRequest)
-      .WithSummary("Update Fine Status").WithDescription("Paid, Waived, or RecoveryAsArrears (s.28(2)).");
+      .WithSummary("Update Fine Status").WithDescription("Paid (receiptNo and paidOn required, paidOn not in the future), Waived (reason required; "
+        + "PROPERTY.APPROVE) or RecoveryAsArrears (s.28(2); PROPERTY.APPROVE). Paid and Waived are final; 403 for a decision without the approval right.");
 
     violations.MapPost("/{id:guid}/rectify", async (Guid id, RemarksRequest request, ISender sender) =>
         (await sender.Send(new RectifyViolationCommand(id, request.Remarks))).ToOk())
@@ -270,7 +311,8 @@ public class ManagementEndpoints : ICarterModule
       .RequirePermission(PermissionCatalog.Property.Edit)
       .WithTags("Auctions").WithName("PlanAuction")
       .Produces<PlanAuctionCommandResult>(StatusCodes.Status201Created).ProducesProblem(StatusCodes.Status400BadRequest)
-      .WithSummary("Plan Auction").WithDescription("AUC-00001 is generated; the auction starts PLANNED.");
+      .WithSummary("Plan Auction").WithDescription("AUC-00001 is generated; the auction starts PLANNED. warnings: a lease, rental, contract or allotment "
+        + "running on the property.");
 
     app.MapGet("/properties/{id:guid}/auctions", async (Guid id, ISender sender) => (await sender.Send(new GetPropertyAuctionsQuery(id))).ToOk())
       .RequirePermission(PermissionCatalog.Property.View)
@@ -329,11 +371,13 @@ public class ManagementEndpoints : ICarterModule
   private static void MapOutsourcing(IEndpointRouteBuilder app)
   {
     app.MapPost("/properties/{id:guid}/outsourcing-contracts", async (Guid id, CreateOutsourcingRequest request, ISender sender) =>
-        (await sender.Send(new CreateOutsourcingCommand(id, request.OutsourcedPartyOwnerId, request.Terms))).ToCreated(r => $"/outsourcing-contracts/{r.Id}"))
+        (await sender.Send(new CreateOutsourcingCommand(id, request.OutsourcedPartyOwnerId, request.Terms, request.AsDraft))).ToCreated(r => $"/outsourcing-contracts/{r.Id}"))
       .RequirePermission(PermissionCatalog.Property.Edit)
       .WithTags("Outsourcing").WithName("CreateOutsourcing")
       .Produces<CreateOutsourcingCommandResult>(StatusCodes.Status201Created).ProducesProblem(StatusCodes.Status400BadRequest)
-      .WithSummary("Create Outsourcing Contract").WithDescription("CON-00001 is generated; the contract starts ACTIVE.");
+      .WithSummary("Create Outsourcing Contract").WithDescription("CON-00001 is generated; the contract starts ACTIVE (asDraft=true: DRAFT). terms.moneyDirection "
+        + "is required: Receivable (the contractor pays GDA) or Payable (GDA pays the contractor). An active contract may not overlap another active contract "
+        + "of the same type on the property; warnings: other agreements running at the same time.");
 
     app.MapGet("/properties/{id:guid}/outsourcing-contracts", async (Guid id, ISender sender) =>
         (await sender.Send(new GetPropertyOutsourcingsQuery(id))).ToOk())
@@ -352,19 +396,45 @@ public class ManagementEndpoints : ICarterModule
         (await sender.Send(new UpdateOutsourcingCommand(id, terms))).ToOk())
       .RequirePermission(PermissionCatalog.Property.Edit)
       .WithName("UpdateOutsourcing").Produces<OutsourcingActionResult>().ProducesProblem(StatusCodes.Status400BadRequest)
-      .WithSummary("Update Outsourcing Contract");
+      .WithSummary("Update Outsourcing Contract").WithDescription("A draft takes any change. Once in force the terms are history — renew or revise them; only the "
+        + "reference no. and the remarks can be corrected, and a money direction never recorded can be set.");
+
+    contracts.MapPost("/{id:guid}/activate", async (Guid id, ISender sender) => (await sender.Send(new ActivateOutsourcingCommand(id))).ToOk())
+      .RequirePermission(PermissionCatalog.Property.Edit)
+      .WithName("ActivateOutsourcing").Produces<OutsourcingActionResult>().ProducesProblem(StatusCodes.Status400BadRequest)
+      .WithSummary("Activate Outsourcing Contract").WithDescription("A draft comes into force; refused when it would overlap an active contract of the same type.");
+
+    contracts.MapPost("/{id:guid}/renew", async (Guid id, RenewOutsourcingRequest request, ISender sender) =>
+        (await sender.Send(new RenewOutsourcingCommand(id, request.Terms, request.OutsourcedPartyOwnerId))).ToCreated(r => $"/outsourcing-contracts/{r.Id}"))
+      .RequirePermission(PermissionCatalog.Property.Edit)
+      .WithName("RenewOutsourcing").Produces<RenewOutsourcingCommandResult>(StatusCodes.Status201Created).ProducesProblem(StatusCodes.Status400BadRequest)
+      .WithSummary("Renew Outsourcing Contract").WithDescription("Renew or revise the terms: a new contract row (renewedFromContractId → this one) starting after "
+        + "this one started; an active one becomes RENEWED and ends the day before the renewal starts.");
+
+    contracts.MapPost("/{id:guid}/withdraw", async (Guid id, WithdrawDraftRequest request, ISender sender) =>
+        (await sender.Send(new WithdrawOutsourcingDraftCommand(id, request.Reason))).ToOk())
+      .RequirePermission(PermissionCatalog.Property.Edit)
+      .WithName("WithdrawOutsourcingDraft").Produces<OutsourcingActionResult>().ProducesProblem(StatusCodes.Status400BadRequest)
+      .WithSummary("Withdraw Draft Contract").WithDescription("A draft that will not go ahead becomes WITHDRAWN (reason required); it never came into force.");
+
+    contracts.MapPost("/{id:guid}/expire", async (Guid id, ISender sender) => (await sender.Send(new ExpireOutsourcingCommand(id))).ToOk())
+      .RequirePermission(PermissionCatalog.Property.Edit)
+      .WithName("ExpireOutsourcing").Produces<OutsourcingActionResult>().ProducesProblem(StatusCodes.Status400BadRequest)
+      .WithSummary("Mark Contract Expired").WithDescription("An ACTIVE contract, once its end date has passed. An open-ended contract is terminated instead.");
 
     contracts.MapPost("/{id:guid}/status", async (Guid id, ChangeMasterStatusRequest request, ISender sender) =>
         (await sender.Send(new ChangeContractStatusCommand(id, request.StatusId))).ToOk())
       .RequirePermission(PermissionCatalog.Property.Edit)
       .WithName("ChangeContractStatus").Produces<OutsourcingActionResult>().ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Change Contract Status")
-      .WithDescription("Expired (only after the contract's end date; an open-ended contract is terminated instead) or another admin-defined status. Terminated goes through terminate.");
+      .WithDescription("Only EXPIRED, the same as /expire (only after the contract's end date). A contract changes status only through its acts: activate, renew, "
+        + "terminate, expire.");
 
     contracts.MapPost("/{id:guid}/terminate", async (Guid id, EndAgreementRequest request, ISender sender) =>
         (await sender.Send(new TerminateOutsourcingCommand(id, request.TerminationDate, request.Reason))).ToOk())
       .RequirePermission(PermissionCatalog.Property.Approve)
       .WithName("TerminateOutsourcing").Produces<OutsourcingActionResult>().ProducesProblem(StatusCodes.Status400BadRequest)
-      .WithSummary("Terminate Outsourcing Contract");
+      .WithSummary("Terminate Outsourcing Contract").WithDescription("An approver ends the contract early by an order (TERMINATED); the date is not in the "
+        + "future and not after the agreed end.");
   }
 }

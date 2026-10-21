@@ -11,7 +11,7 @@ public class DeleteAssetStatusHandler(IApplicationDbContext context)
 
     if (await context.Assets.IgnoreQueryFilters().AnyAsync(a => a.StatusId == id, cancellationToken)
         || await context.AssetLifecycleEvents.AnyAsync(e => e.FromStatusId == id || e.ToStatusId == id, cancellationToken))
-      return Result<DeleteAssetStatusCommandResult>.Failure("This status is referenced by assets or lifecycle events. Deactivate it instead.");
+      return Result<DeleteAssetStatusCommandResult>.Failure($"'{status.Name.Value}' is used by assets or their history, so it cannot be deleted. Switch it off instead - it then stays readable on old records.");
 
     context.AssetStatuses.Remove(status);
     await context.SaveChangesAsync(cancellationToken);

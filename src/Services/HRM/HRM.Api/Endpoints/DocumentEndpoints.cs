@@ -47,7 +47,16 @@ public class DocumentEndpoints : ICarterModule
       .WithName("GetExpiringDocuments")
       .Produces<GetExpiringDocumentsQueryResult>()
       .WithSummary("Get Expiring Documents")
-      .WithDescription("Papers of employees in service that expire within withinDays (default 60), soonest first; includeExpired=true adds those already expired.");
+      .WithDescription("Papers of employees in service that expire within withinDays (default 60), soonest first; includeExpired=true adds those already expired. "
+        + "A paper renewed by a later one of the same kind is left out.");
+
+    documents.MapGet("/to-verify", async (Guid? documentTypeId, string? search, ISender sender) =>
+        (await sender.Send(new GetDocumentsToVerifyQuery(documentTypeId, search))).ToOk())
+      .RequirePermission(PermissionCatalog.Hr.View)
+      .WithName("GetDocumentsToVerify")
+      .Produces<GetExpiringDocumentsQueryResult>()
+      .WithSummary("Documents to Verify")
+      .WithDescription("Papers of employees in service not verified yet (or sent for verification), oldest first; search = employee number or name.");
 
     documents.MapPut("/{id:guid}", async (Guid id, DocumentDetailsInput details, ISender sender) =>
         (await sender.Send(new UpdateDocumentDetailsCommand(id, details))).ToOk())

@@ -23,7 +23,7 @@ public class AssetAcquisitionConfiguration : EntityConfiguration<AssetAcquisitio
 
     builder.Property(x => x.ExchangeRate).HasPrecision(18, 6).IsRequired(false);
     builder.Property(x => x.BaseCurrencyCost).HasPrecision(18, 2).IsRequired(false);
-    builder.Property(x => x.SupplierId).IsRequired(false);
+    builder.Property(x => x.SupplierName).HasMaxLength(200).IsRequired(false);
     builder.Property(x => x.PurchaseReference).HasMaxLength(100).IsRequired(false);
     builder.Property(x => x.AcquisitionType).HasEnumString().IsRequired();
     builder.Property(x => x.WarrantyStartDate).IsRequired(false);

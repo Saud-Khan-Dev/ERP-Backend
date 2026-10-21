@@ -1,5 +1,6 @@
 public sealed record SanctionLoanRequest(Guid LoanTypeId, decimal PrincipalAmount, decimal? InterestAmount, int InstallmentsCount, DateOnly StartDate, int? DeductionPriority);
-public sealed record RepayLoanRequest(decimal Amount, DateOnly? PaidOn, string? Remarks);
+public sealed record RepayLoanRequest(decimal Amount, DateOnly? PaidOn, string? Remarks, string? ReceiptNumber);
+public sealed record LoanReasonRequest(string? Reason);
 public sealed record LoanPriorityRequest(int DeductionPriority);
 public sealed record OpenGpFundAccountRequest(string? AccountNumber, DateOnly OpenedOn, decimal MonthlySubscription, decimal? OpeningBalance);
 public sealed record UpdateGpFundAccountRequest(string? AccountNumber, decimal MonthlySubscription);
@@ -56,8 +57,8 @@ public class LoanEndpoints : ICarterModule
 
     var loans = app.MapGroup("/loans").WithTags("Loans");
 
-    loans.MapGet("/", async (int? pageIndex, int? pageSize, Guid? employeeId, Guid? loanTypeId, string? status, ISender sender) =>
-        (await sender.Send(new GetLoansQuery(QueryParsing.Page(pageIndex, pageSize), employeeId, loanTypeId, QueryParsing.ParseEnum<LoanStatus>(status, "status")))).ToOk())
+    loans.MapGet("/", async (int? pageIndex, int? pageSize, Guid? employeeId, Guid? loanTypeId, string? status, bool? overdue, ISender sender) =>
+        (await sender.Send(new GetLoansQuery(QueryParsing.Page(pageIndex, pageSize), employeeId, loanTypeId, QueryParsing.ParseEnum<LoanStatus>(status, "status"), overdue ?? false))).ToOk())
       .RequirePermission(PermissionCatalog.Payroll.View)
       .WithName("GetLoans")
       .Produces<GetLoansQueryResult>()
@@ -86,13 +87,15 @@ public class LoanEndpoints : ICarterModule
         + "A GP Fund advance is paid out of the employee's fund (not more than its balance; one at a time). "
         + "deductionPriority (default 100): lower is recovered first when the pay cannot cover every deduction.");
 
-    loans.MapPost("/{id:guid}/repay", async (Guid id, RepayLoanRequest r, ISender sender) => (await sender.Send(new RepayLoanCommand(id, r.Amount, r.PaidOn, r.Remarks))).ToOk())
-      .RequirePermission(PermissionCatalog.Payroll.Create)
+    loans.MapPost("/{id:guid}/repay", async (Guid id, RepayLoanRequest r, ISender sender) =>
+        (await sender.Send(new RepayLoanCommand(id, r.Amount, r.PaidOn, r.Remarks, r.ReceiptNumber))).ToOk())
+      .RequirePermission(PermissionCatalog.Payroll.Approve)
       .WithName("RepayLoan")
       .Produces<LoanRepaymentResult>()
       .ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Record Repayment")
-      .WithDescription("Money paid back outside payroll, applied to the oldest open installments. A GP Fund advance repayment goes back into the fund.");
+      .WithDescription("Money paid back outside payroll (PAYROLL.APPROVE: it lowers what is owed), applied to the oldest open installments and kept with "
+        + "the receipt or challan number (required), the date and who recorded it. A GP Fund advance repayment goes back into the fund.");
 
     loans.MapPut("/{id:guid}/priority", async (Guid id, LoanPriorityRequest r, ISender sender) =>
         (await sender.Send(new ChangeLoanPriorityCommand(id, r.DeductionPriority))).ToOk())
@@ -102,14 +105,14 @@ public class LoanEndpoints : ICarterModule
       .ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Change Recovery Priority");
 
-    loans.MapPost("/{id:guid}/installments/{installmentId:guid}/waive", async (Guid id, Guid installmentId, ISender sender) =>
-        (await sender.Send(new WaiveInstallmentCommand(id, installmentId))).ToOk())
+    loans.MapPost("/{id:guid}/installments/{installmentId:guid}/waive", async (Guid id, Guid installmentId, LoanReasonRequest? r, ISender sender) =>
+        (await sender.Send(new WaiveInstallmentCommand(id, installmentId, r?.Reason))).ToOk())
       .RequirePermission(PermissionCatalog.Payroll.Approve)
       .WithName("WaiveInstallment")
       .Produces<UpdatedResult>()
       .ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Waive Installment")
-      .WithDescription("Forgives what is left of one installment (not for GP Fund advances).");
+      .WithDescription("Forgives what is left of one installment (not for GP Fund advances); reason (the sanction) required and kept with who and when.");
 
     foreach (var (action, route, summary, description) in new[]
     {
@@ -117,13 +120,13 @@ public class LoanEndpoints : ICarterModule
       (LoanAction.WriteOff, "write-off", "Write Off Loan", "Gives up the balance still owed; it stays on record (not for GP Fund advances).")
     })
     {
-      loans.MapPost($"/{{id:guid}}/{route}", async (Guid id, ISender sender) => (await sender.Send(new CloseLoanCommand(id, action, null))).ToOk())
+      loans.MapPost($"/{{id:guid}}/{route}", async (Guid id, LoanReasonRequest? r, ISender sender) => (await sender.Send(new CloseLoanCommand(id, action, r?.Reason))).ToOk())
         .RequirePermission(PermissionCatalog.Payroll.Approve)
         .WithName($"{action}Loan")
         .Produces<UpdatedResult>()
         .ProducesProblem(StatusCodes.Status400BadRequest)
         .WithSummary(summary)
-        .WithDescription(description);
+        .WithDescription(description + " The reason is required and kept with who and when.");
     }
 
     // ---- GP Fund ----

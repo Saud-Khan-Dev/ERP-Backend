@@ -9,6 +9,8 @@ public class GetAssetCategory : ICarterModule
       var result = await sender.Send(new GetAssetCategoryQuery(id));
       return Results.Ok(new GetAssetCategoryResponse(result.Value!.Category, result.Value.Ancestors));
     })
+      .RequireAnyPermission(AssetsAuthorization.AnyAssetsReader)
+
       .WithName("GetAssetCategory")
       .Produces<GetAssetCategoryResponse>(StatusCodes.Status200OK)
       .ProducesProblem(StatusCodes.Status404NotFound)

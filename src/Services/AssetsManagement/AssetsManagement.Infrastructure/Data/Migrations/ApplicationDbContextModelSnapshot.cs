@@ -25,6 +25,8 @@ namespace AssetsManagement.Infrastructure.Data.Migrations
             NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "ltree");
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.HasSequence("asset_tag_seq", "assets");
+
             modelBuilder.Entity("Asset", b =>
                 {
                     b.Property<Guid>("Id")
@@ -75,6 +77,16 @@ namespace AssetsManagement.Infrastructure.Data.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("custodian_id");
 
+                    b.Property<string>("CustodianName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("custodian_name");
+
+                    b.Property<string>("CustodianNumber")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("custodian_number");
+
                     b.Property<DateTime?>("DeletedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("deleted_at");
@@ -84,9 +96,19 @@ namespace AssetsManagement.Infrastructure.Data.Migrations
                         .HasColumnType("character varying(100)")
                         .HasColumnName("deleted_by");
 
+                    b.Property<string>("DeletionReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("deletion_reason");
+
                     b.Property<Guid?>("DepartmentId")
                         .HasColumnType("uuid")
                         .HasColumnName("department_id");
+
+                    b.Property<string>("DepartmentName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("department_name");
 
                     b.Property<string>("Description")
                         .HasColumnType("text")
@@ -251,9 +273,10 @@ namespace AssetsManagement.Infrastructure.Data.Migrations
                         .HasColumnType("character varying(100)")
                         .HasColumnName("purchase_reference");
 
-                    b.Property<Guid?>("SupplierId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("supplier_id");
+                    b.Property<string>("SupplierName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("supplier_name");
 
                     b.Property<DateOnly?>("WarrantyExpiryDate")
                         .HasColumnType("date")
@@ -291,14 +314,6 @@ namespace AssetsManagement.Infrastructure.Data.Migrations
                         .HasColumnType("date")
                         .HasColumnName("actual_return_date");
 
-                    b.Property<DateTime?>("ApprovedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("approved_at");
-
-                    b.Property<Guid?>("ApprovedBy")
-                        .HasColumnType("uuid")
-                        .HasColumnName("approved_by");
-
                     b.Property<Guid>("AssetId")
                         .HasColumnType("uuid")
                         .HasColumnName("asset_id");
@@ -324,9 +339,24 @@ namespace AssetsManagement.Infrastructure.Data.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("from_custodian_id");
 
+                    b.Property<string>("FromCustodianName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("from_custodian_name");
+
+                    b.Property<string>("FromCustodianNumber")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("from_custodian_number");
+
                     b.Property<Guid?>("FromDepartmentId")
                         .HasColumnType("uuid")
                         .HasColumnName("from_department_id");
+
+                    b.Property<string>("FromDepartmentName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("from_department_name");
 
                     b.Property<Guid?>("FromLocationId")
                         .HasColumnType("uuid")
@@ -345,13 +375,37 @@ namespace AssetsManagement.Infrastructure.Data.Migrations
                         .HasColumnType("text")
                         .HasColumnName("reason");
 
+                    b.Property<Guid?>("RecordedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("recorded_by");
+
+                    b.Property<string>("RecordedByName")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("recorded_by_name");
+
                     b.Property<Guid?>("ToCustodianId")
                         .HasColumnType("uuid")
                         .HasColumnName("to_custodian_id");
 
+                    b.Property<string>("ToCustodianName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("to_custodian_name");
+
+                    b.Property<string>("ToCustodianNumber")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("to_custodian_number");
+
                     b.Property<Guid?>("ToDepartmentId")
                         .HasColumnType("uuid")
                         .HasColumnName("to_department_id");
+
+                    b.Property<string>("ToDepartmentName")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("to_department_name");
 
                     b.Property<Guid?>("ToLocationId")
                         .HasColumnType("uuid")
@@ -497,6 +551,11 @@ namespace AssetsManagement.Infrastructure.Data.Migrations
                     b.Property<Guid?>("ChangedBy")
                         .HasColumnType("uuid")
                         .HasColumnName("changed_by");
+
+                    b.Property<string>("ChangedByName")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("changed_by_name");
 
                     b.Property<DateTime?>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
@@ -878,6 +937,11 @@ namespace AssetsManagement.Infrastructure.Data.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("posted_by");
 
+                    b.Property<string>("PostedByName")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("posted_by_name");
+
                     b.Property<DateTime?>("ReversedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("reversed_at");
@@ -885,6 +949,11 @@ namespace AssetsManagement.Infrastructure.Data.Migrations
                     b.Property<Guid?>("ReversedBy")
                         .HasColumnType("uuid")
                         .HasColumnName("reversed_by");
+
+                    b.Property<string>("ReversedByName")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("reversed_by_name");
 
                     b.Property<Guid>("ScheduleId")
                         .HasColumnType("uuid")
@@ -963,6 +1032,11 @@ namespace AssetsManagement.Infrastructure.Data.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("method_id");
 
+                    b.Property<decimal>("OpeningBookValue")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)")
+                        .HasColumnName("opening_book_value");
+
                     b.Property<decimal>("SalvageValue")
                         .ValueGeneratedOnAdd()
                         .HasPrecision(18, 2)
@@ -1010,6 +1084,11 @@ namespace AssetsManagement.Infrastructure.Data.Migrations
                     b.Property<Guid?>("ApprovedBy")
                         .HasColumnType("uuid")
                         .HasColumnName("approved_by");
+
+                    b.Property<string>("ApprovedByName")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("approved_by_name");
 
                     b.Property<Guid>("AssetId")
                         .HasColumnType("uuid")
@@ -1138,6 +1217,11 @@ namespace AssetsManagement.Infrastructure.Data.Migrations
                     b.Property<Guid?>("PerformedBy")
                         .HasColumnType("uuid")
                         .HasColumnName("performed_by");
+
+                    b.Property<string>("PerformedByName")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("performed_by_name");
 
                     b.Property<Guid?>("ToStatusId")
                         .HasColumnType("uuid")
@@ -1368,6 +1452,15 @@ namespace AssetsManagement.Infrastructure.Data.Migrations
                         .HasColumnType("text")
                         .HasColumnName("notes");
 
+                    b.Property<Guid?>("RecordedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("recorded_by");
+
+                    b.Property<string>("RecordedByName")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("recorded_by_name");
+
                     b.Property<DateOnly>("ValuationDate")
                         .HasColumnType("date")
                         .HasColumnName("valuation_date");
@@ -1382,9 +1475,10 @@ namespace AssetsManagement.Infrastructure.Data.Migrations
                         .HasColumnType("numeric(18,2)")
                         .HasColumnName("value");
 
-                    b.Property<Guid?>("ValuedBy")
-                        .HasColumnType("uuid")
-                        .HasColumnName("valued_by");
+                    b.Property<string>("ValuedByName")
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("valued_by_name");
 
                     b.HasKey("Id")
                         .HasName("pk_asset_valuation_history");
@@ -1477,6 +1571,12 @@ namespace AssetsManagement.Infrastructure.Data.Migrations
                         .HasColumnType("boolean")
                         .HasDefaultValue(false)
                         .HasColumnName("is_filterable");
+
+                    b.Property<bool>("IsHidden")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_hidden");
 
                     b.Property<bool>("IsReadonly")
                         .ValueGeneratedOnAdd()
@@ -1881,6 +1981,18 @@ namespace AssetsManagement.Infrastructure.Data.Migrations
                         .HasDefaultValue(true)
                         .HasColumnName("is_active");
 
+                    b.Property<bool>("IsSystem")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_system");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)")
+                        .HasColumnName("kind");
+
                     b.Property<DateTime?>("LastModified")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("last_modified");
@@ -1911,6 +2023,12 @@ namespace AssetsManagement.Infrastructure.Data.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid")
                         .HasColumnName("id");
+
+                    b.Property<bool>("AllowsValue")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true)
+                        .HasColumnName("allows_value");
 
                     b.Property<string>("Code")
                         .IsRequired()
@@ -2349,6 +2467,12 @@ namespace AssetsManagement.Infrastructure.Data.Migrations
                         .HasDefaultValue(true)
                         .HasColumnName("is_active");
 
+                    b.Property<bool>("IsSystem")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_system");
+
                     b.Property<DateTime?>("LastModified")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("last_modified");
@@ -2364,6 +2488,11 @@ namespace AssetsManagement.Infrastructure.Data.Migrations
                         .HasColumnType("character varying(100)")
                         .HasColumnName("name");
 
+                    b.Property<string>("Purpose")
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)")
+                        .HasColumnName("purpose");
+
                     b.Property<string>("Stage")
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)")
@@ -2375,6 +2504,11 @@ namespace AssetsManagement.Infrastructure.Data.Migrations
                     b.HasIndex("Code")
                         .IsUnique()
                         .HasDatabaseName("ix_lifecycle_event_type_code");
+
+                    b.HasIndex("Purpose")
+                        .IsUnique()
+                        .HasDatabaseName("ix_lifecycle_event_type_purpose")
+                        .HasFilter("purpose IS NOT NULL");
 
                     b.ToTable("lifecycle_event_type", "assets");
                 });

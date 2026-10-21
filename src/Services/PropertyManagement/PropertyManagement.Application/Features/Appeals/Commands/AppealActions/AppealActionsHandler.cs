@@ -30,7 +30,7 @@ public class AppealActionsHandler(IApplicationDbContext context, MasterLookup ma
   {
     var appeal = await context.LoadAppealAsync(command.Id, cancellationToken);
     await context.EnsurePropertyActiveAsync(appeal.PropertyId, cancellationToken);
-    appeal.Decide(command.DecisionDate, command.DecisionOutcome, command.DecisionDetails);
+    appeal.Decide(command.DecisionDate, command.DecisionOutcome, command.DecisionDetails, PropertyWriteGuard.Today());
 
     var warnings = command.DecisionDate > appeal.DecisionDueDate
       ? new[] { $"Decided {command.DecisionDate.DayNumber - appeal.DecisionDueDate.DayNumber} days after the {PropertyAppeal.DecisionWindowDays}-day limit of Act s.32(1)." }
@@ -50,10 +50,22 @@ public class AppealActionsHandler(IApplicationDbContext context, MasterLookup ma
     return await SaveAsync(appeal, Array.Empty<string>(), effects, cancellationToken);
   }
 
-  /// A closed appeal against a violation moves the violation out of APPEALED: set aside when the appeal is
-  /// allowed (and a lease / rental it cancelled is reinstated), otherwise back to its status before the appeal.
+  /// What a closed appeal does to the record whose order it was against:
+  ///   violation  — out of APPEALED: set aside when the appeal is allowed (and a lease / rental it cancelled is
+  ///                reinstated), otherwise back to its status before the appeal;
+  ///   allotment  — allowed against its cancellation: the allotment is restored on the decision date (unless another
+  ///                allotment is in force by now, which the clerk is told);
+  ///   building plan — allowed against its rejection: the plan is under consideration again.
   private async Task<IReadOnlyList<string>> ApplyToAppealedRecordAsync(PropertyAppeal appeal, CancellationToken cancellationToken)
   {
+    var allowed = appeal.AppealStatus == AppealStatus.Decided && appeal.DecisionOutcome == AppealOutcome.Allowed;
+
+    if (allowed && appeal.OrderSourceTable == AppealOrderSource.PropertyAllotment && appeal.OrderSourceId is { } allotmentId)
+      return await RestoreAllotmentAsync(appeal, allotmentId, cancellationToken);
+
+    if (allowed && appeal.OrderSourceTable == AppealOrderSource.BuildingPlan && appeal.OrderSourceId is { } planId)
+      return await ReopenPlanAsync(appeal, planId, cancellationToken);
+
     if (appeal.OrderSourceTable != AppealOrderSource.AgreementViolation || appeal.OrderSourceId is not { } violationId)
       return Array.Empty<string>();
 
@@ -102,6 +114,40 @@ public class AppealActionsHandler(IApplicationDbContext context, MasterLookup ma
     }
 
     return effects;
+  }
+
+  private async Task<IReadOnlyList<string>> RestoreAllotmentAsync(PropertyAppeal appeal, Guid allotmentId, CancellationToken cancellationToken)
+  {
+    var allotment = await context.LoadAllotmentAsync(allotmentId, cancellationToken);
+    var status = await masters.GetAsync<AllotmentStatus>(allotment.AllotmentStatusId.Value, cancellationToken);
+
+    if (!status.Is(SystemMasterCodes.Cancelled) || !allotment.IsActive)
+      return new[] { $"Allotment {allotment.AllotmentNo.Value} is {status.Name.Value.ToLowerInvariant()}, not cancelled, so the appeal had nothing to restore." };
+
+    var property = await context.LoadPropertyAsync(allotment.PropertyId.Value, cancellationToken);
+    var other = await context.AllotmentInForceAsync(property.Id, allotment.Id, cancellationToken);
+    if (other is not null)
+      return new[] { $"Allotment {allotment.AllotmentNo.Value} was not restored: {other.Allotment.AllotmentNo.Value} to {other.AllotteeName} is in force on the plot now. Settle that first, then restore it." };
+
+    context.Touch(property);
+    var restoredOn = appeal.DecisionDate ?? PropertyWriteGuard.Today();
+    allotment.Restore(property, status, await masters.GetByCodeAsync<AllotmentStatus>(SystemMasterCodes.Restored, cancellationToken),
+      restoredOn < (allotment.CancellationDate ?? restoredOn) ? allotment.CancellationDate!.Value : restoredOn,
+      appeal.AppealNo.Value, other, PropertyWriteGuard.Today());
+
+    return new[] { $"Allotment {allotment.AllotmentNo.Value} is restored by this decision; confirm the allottee as owner again if they had been." };
+  }
+
+  private async Task<IReadOnlyList<string>> ReopenPlanAsync(PropertyAppeal appeal, Guid planId, CancellationToken cancellationToken)
+  {
+    var plan = await context.LoadBuildingPlanAsync(planId, cancellationToken);
+    var status = await masters.GetAsync<BuildingPlanStatus>(plan.BuildingPlanStatusId.Value, cancellationToken);
+
+    if (!status.Is(SystemMasterCodes.Rejected))
+      return new[] { $"Plan {plan.PlanNo.Value} rev. {plan.RevisionNo} is {status.Name.Value.ToLowerInvariant()}, not rejected, so the appeal had nothing to reopen." };
+
+    plan.ReopenOnAppeal(status, await masters.GetByCodeAsync<BuildingPlanStatus>(SystemMasterCodes.Submitted, cancellationToken), appeal.AppealNo.Value);
+    return new[] { $"Plan {plan.PlanNo.Value} rev. {plan.RevisionNo} is under consideration again." };
   }
 
   private async Task<Result<AppealActionResult>> SaveAsync(PropertyAppeal appeal, IReadOnlyList<string> warnings, IReadOnlyList<string> effects, CancellationToken cancellationToken)

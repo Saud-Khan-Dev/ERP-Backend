@@ -29,6 +29,20 @@ public static class DependencyInjection
     services.Configure<AttachmentOptions>(configuration.GetSection(AttachmentOptions.SectionName));
     services.AddSingleton<IFileStorage, LocalFileStorage>();
 
+    services.AddSingleton<IClock, OrganisationClock>();
+    services.AddScoped<IAssetDataQueries, AssetDataQueries>();
+
+    // ---- HRM's staff directory, called with the signed-in user's token ----
+    var endpoints = configuration.GetSection(ServiceEndpointsOptions.SectionName).Get<ServiceEndpointsOptions>() ?? new ServiceEndpointsOptions();
+    services.AddHttpContextAccessor();
+    services.AddTransient<ForwardAuthorizationHandler>();
+    services.AddHttpClient<IHrmDirectory, HrmDirectoryClient>(http =>
+    {
+      if (!string.IsNullOrWhiteSpace(endpoints.HrmBaseUrl))
+        http.BaseAddress = new Uri(endpoints.HrmBaseUrl.TrimEnd('/') + "/");
+      http.Timeout = TimeSpan.FromSeconds(Math.Clamp(endpoints.TimeoutSeconds, 2, 120));
+    }).AddHttpMessageHandler<ForwardAuthorizationHandler>();
+
     return services;
   }
 }

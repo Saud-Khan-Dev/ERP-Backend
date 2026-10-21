@@ -93,7 +93,13 @@ public class PostQueryHandlers(IApplicationDbContext context, HrLookup lookup, C
     if (!string.IsNullOrWhiteSpace(query.Search))
     {
       var pattern = SearchPattern.Contains(query.Search);
-      rows = rows.Where(r => EF.Functions.Like(r.Code.ToLower(), pattern, SearchPattern.Escape));
+      // the code, the designation, or the name / number of someone holding it that day
+      rows = rows.Where(r => EF.Functions.Like(r.Code.ToLower(), pattern, SearchPattern.Escape)
+        || context.Designations.Any(d => d.Id == r.Version.DesignationId && EF.Functions.Like(d.Title.ToLower(), pattern, SearchPattern.Escape))
+        || context.PositionAssignments.Any(a => a.PostId == r.Version.PostId && a.Status == RecordStatus.Active
+          && a.EffectiveFrom <= date && (a.EffectiveTo == null || a.EffectiveTo >= date)
+          && context.Employees.Any(e => e.Id == a.EmployeeId && (EF.Functions.Like(e.FullName!.ToLower(), pattern, SearchPattern.Escape)
+            || EF.Functions.Like(e.EmployeeNumber.ToLower(), pattern, SearchPattern.Escape)))));
     }
 
     rows = query.Status switch

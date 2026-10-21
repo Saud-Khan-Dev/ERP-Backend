@@ -3,7 +3,7 @@ public sealed record UpdatePayScaleGradeRequest(string? GradeName, bool IsActive
 
 /// HR catalogues: org unit types, locations, designations, BPS grades, document types, recruitment methods, service
 /// event types and employee request types. Any signed-in user may read them (they label every HR screen); changing
-/// them needs HR_SETUP. Values are deactivated, never deleted.
+/// them needs HR_SETUP. Values in use are deactivated; a value nobody used may be deleted.
 public class SetupEndpoints : ICarterModule
 {
   public void AddRoutes(IEndpointRouteBuilder app)
@@ -109,5 +109,15 @@ public class SetupEndpoints : ICarterModule
       .ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary($"Deactivate {name}")
       .WithDescription("The value stays on old records but is no longer offered.");
+
+    group.MapDelete($"{route}/{{id:guid}}", async (Guid id, ISender sender) =>
+        (await sender.Send(new DeleteCatalogValueCommand(kind, id))).ToOk())
+      .RequirePermission(PermissionCatalog.HrSetup.Delete)
+      .WithName($"Delete{name}")
+      .Produces<UpdatedResult>()
+      .ProducesProblem(StatusCodes.Status404NotFound)
+      .ProducesProblem(StatusCodes.Status409Conflict)
+      .WithSummary($"Delete {name}")
+      .WithDescription("Only a value nobody used (a mistyped one); a used value answers 409 with the reason - deactivate it instead.");
   }
 }

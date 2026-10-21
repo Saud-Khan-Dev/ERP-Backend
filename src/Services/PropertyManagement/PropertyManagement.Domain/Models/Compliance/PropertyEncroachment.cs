@@ -158,11 +158,14 @@ public class PropertyEncroachment : Aggregate<EncroachmentId>
     EncroachmentStatusId = status.Id;
   }
 
-  /// Removed / litigated / other → RESOLVED; regularized → REGULARIZED.
-  public void Resolve(EncroachmentStatus resolvedStatus, DateOnly resolutionDate, EncroachmentResolution resolutionType, string? referenceNo)
+  /// Removed / litigated → RESOLVED; regularized → REGULARIZED. The resolution is a recorded event: not in the future.
+  public void Resolve(EncroachmentStatus resolvedStatus, DateOnly resolutionDate, EncroachmentResolution resolutionType, string? referenceNo, DateOnly? today = null)
   {
     ArgumentNullException.ThrowIfNull(resolvedStatus);
     EnsureUnresolved();
+
+    if (today is { } day && resolutionDate > day)
+      throw new DomainException($"The resolution date cannot be in the future ({resolutionDate:yyyy-MM-dd}); today is {day:yyyy-MM-dd}.");
 
     if (!Enum.IsDefined(resolutionType))
       throw new DomainException("Unknown resolution type.");

@@ -18,7 +18,8 @@ public sealed record HeadRateInput(
 
 /// taxation.rate_set: a Board decision with its locality tax factors (ltf_factor) and the rates of every other head
 /// (rate_band). A draft is edited freely; approval fixes it and closes the set it replaces the day before. A demand run
-/// uses the approved set in force on 1 July of its year, and the annual increase compounds from that set's year.
+/// uses the approved set in force on 1 July of its year, and the annual increase compounds from the set's base year -
+/// stated on the set (a new tariff copied from the last one keeps its base year, so the compounding goes on).
 public class RateSet : Aggregate<RateSetId>
 {
   private readonly List<LtfFactor> _ltfFactors = new();
@@ -37,21 +38,26 @@ public class RateSet : Aggregate<RateSetId>
   public IReadOnlyList<RateBand> RateBands => _rateBands.AsReadOnly();
 
   /// The fiscal year the rates are stated for: the annual increase compounds from here.
-  public int BaseFiscalYear => FiscalYear.Of(EffectiveFrom);
+  public int BaseFiscalYear { get; private set; }
+
+  /// The first year whose demand uses a set in force from a date: the year of the first 1 July on or after it.
+  public static int FirstYearFrom(DateOnly effectiveFrom) =>
+      effectiveFrom.Month == 7 && effectiveFrom.Day == 1 ? FiscalYear.Of(effectiveFrom) : FiscalYear.Of(effectiveFrom) + 1;
 
   private RateSet() { }
 
-  public static RateSet Create(RateSetId id, string name, string boardReference, DateOnly? boardDecisionDate, DateOnly effectiveFrom)
+  /// baseFiscalYear: the year the rates are stated for; empty = the first year the set is used for.
+  public static RateSet Create(RateSetId id, string name, string boardReference, DateOnly? boardDecisionDate, DateOnly effectiveFrom, int? baseFiscalYear = null)
   {
     var set = new RateSet { Id = id, Status = RateSetStatus.Draft };
-    set.SetDetails(name, boardReference, boardDecisionDate, effectiveFrom);
+    set.SetDetails(name, boardReference, boardDecisionDate, effectiveFrom, baseFiscalYear);
     return set;
   }
 
-  public void UpdateDetails(string name, string boardReference, DateOnly? boardDecisionDate, DateOnly effectiveFrom)
+  public void UpdateDetails(string name, string boardReference, DateOnly? boardDecisionDate, DateOnly effectiveFrom, int? baseFiscalYear = null)
   {
     EnsureDraft();
-    SetDetails(name, boardReference, boardDecisionDate, effectiveFrom);
+    SetDetails(name, boardReference, boardDecisionDate, effectiveFrom, baseFiscalYear ?? BaseFiscalYear);
   }
 
   /// Starts a draft from another set's factors and rates.
@@ -264,8 +270,16 @@ public class RateSet : Aggregate<RateSetId>
     foreach (var head in regularHeads.Where(h => h.IsActive && h.HeadKind == HeadKind.Regular && !h.IsBuiltin))
     foreach (var category in new[] { TaxCategory.Res, TaxCategory.Com }.Where(head.AppliesToCategory))
     {
-      if (HeadRows(head.Id, category, null).Count == 0 && !_rateBands.Any(b => b.HeadId == head.Id && b.TaxCategory == category))
-        problems.Add($"{head.Name}: no {(category == TaxCategory.Com ? "commercial" : "residential")} rates");
+      var who = category == TaxCategory.Com ? "commercial" : "residential";
+      bool Has(Guid? town) => _rateBands.Any(b => b.HeadId == head.Id && b.TownId == town && (b.TaxCategory == category || b.TaxCategory == null));
+      // rates for all towns, or a town's own rates for every town in a circle
+      if (Has(null))
+        continue;
+      var missing = assignedTowns.Where(t => !Has(t.TownId)).Select(t => t.TownCode).ToList();
+      if (missing.Count == assignedTowns.Count)
+        problems.Add($"{head.Name}: no {who} rates");
+      else if (missing.Count > 0)
+        problems.Add($"{head.Name}: no {who} rates for {string.Join(", ", missing)} (give them, or rates for all towns)");
     }
     foreach (var town in assignedTowns)
     foreach (var category in new[] { TaxCategory.Res, TaxCategory.Com })
@@ -305,7 +319,7 @@ public class RateSet : Aggregate<RateSetId>
       throw new DomainException($"'{Name}' is approved and can no longer change. Start a new rate set from it.");
   }
 
-  private void SetDetails(string name, string boardReference, DateOnly? boardDecisionDate, DateOnly effectiveFrom)
+  private void SetDetails(string name, string boardReference, DateOnly? boardDecisionDate, DateOnly effectiveFrom, int? baseFiscalYear)
   {
     Name = Guard.RequiredText(name, 150, "Rate set name");
     BoardReference = Guard.RequiredText(boardReference, 100, "Board reference");
@@ -313,6 +327,11 @@ public class RateSet : Aggregate<RateSetId>
     if (boardDecisionDate is { } decided && decided > effectiveFrom.AddYears(1))
       throw new DomainException("The Board decision date is more than a year after the rates take effect.");
     EffectiveFrom = effectiveFrom;
+    var first = FirstYearFrom(effectiveFrom);
+    var baseYear = FiscalYear.Valid(baseFiscalYear ?? first, "The increase base year");
+    if (baseYear > first)
+      throw new DomainException($"The rates are first used for FY {FiscalYear.Label(first)}; the annual increase cannot be counted from a later year.");
+    BaseFiscalYear = baseYear;
   }
 }
 

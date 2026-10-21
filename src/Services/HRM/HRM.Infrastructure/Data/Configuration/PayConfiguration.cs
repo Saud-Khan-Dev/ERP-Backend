@@ -152,6 +152,45 @@ public class EmployeeTaxExemptionConfiguration : EntityConfiguration<EmployeeTax
   }
 }
 
+public class EmployeeTaxOpeningConfiguration : EntityConfiguration<EmployeeTaxOpening, TaxOpeningId>
+{
+  public override void Configure(EntityTypeBuilder<EmployeeTaxOpening> builder)
+  {
+    base.Configure(builder);
+    builder.ToTable("employee_tax_opening", t =>
+    {
+      t.HasCheckConstraint("ck_eto_amounts", "taxable_income >= 0 AND tax_withheld >= 0 AND tax_withheld <= taxable_income");
+    });
+
+    builder.Property(x => x.TaxableIncome).Money();
+    builder.Property(x => x.TaxWithheld).Money();
+    builder.Property(x => x.Remarks).Text();
+
+    builder.HasOne<Employee>().WithMany().HasForeignKey(x => x.EmployeeId).OnDelete(DeleteBehavior.NoAction);
+    builder.HasOne<TaxYear>().WithMany().HasForeignKey(x => x.TaxYearId).OnDelete(DeleteBehavior.NoAction);
+    builder.HasIndex(x => new { x.EmployeeId, x.TaxYearId }).IsUnique().HasDatabaseName("uq_eto_employee_year");
+    builder.HasIndex(x => x.TaxYearId).HasDatabaseName("idx_employee_tax_opening_tax_year_id");
+  }
+}
+
+public class LoanRepaymentConfiguration : EntityConfiguration<LoanRepayment, LoanRepaymentId>
+{
+  protected override AuditColumns Audit => AuditColumns.Created;
+
+  public override void Configure(EntityTypeBuilder<LoanRepayment> builder)
+  {
+    base.Configure(builder);
+    builder.ToTable("loan_repayment", t => t.HasCheckConstraint("ck_lr_amount", "amount > 0"));
+
+    builder.Property(x => x.Amount).Money();
+    builder.Property(x => x.ReceiptNumber).IsRequired();
+    builder.Property(x => x.Remarks).Text();
+
+    builder.HasOne<EmployeeLoan>().WithMany().HasForeignKey(x => x.EmployeeLoanId).OnDelete(DeleteBehavior.NoAction);
+    builder.HasIndex(x => x.EmployeeLoanId).HasDatabaseName("idx_loan_repayment_employee_loan_id");
+  }
+}
+
 public class EmployeeTaxLedgerEntryConfiguration : EntityConfiguration<EmployeeTaxLedgerEntry, TaxLedgerEntryId>
 {
   protected override AuditColumns Audit => AuditColumns.CreatedAt;
@@ -220,6 +259,7 @@ public class EmployeeLoanConfiguration : EntityConfiguration<EmployeeLoan, Emplo
     builder.Property(x => x.RemainingBalance).Money();
     builder.Property(x => x.DeductionPriority).HasDefaultValue(100);
     builder.Property(x => x.Status).HasDefaultValue(LoanStatus.Active);
+    builder.Property(x => x.ClosureReason).Text();
     builder.Property<uint>("xmin").HasColumnName("xmin").IsRowVersion();
 
     builder.HasOne<Employee>().WithMany().HasForeignKey(x => x.EmployeeId).OnDelete(DeleteBehavior.NoAction);
@@ -251,6 +291,7 @@ public class LoanInstallmentConfiguration : EntityConfiguration<LoanInstallment,
     builder.Property(x => x.Amount).Money();
     builder.Property(x => x.PaidAmount).Money().HasDefaultValueSql("0");
     builder.Property(x => x.Status).HasDefaultValue(InstallmentStatus.Pending);
+    builder.Property(x => x.WaiveReason).Text();
 
     // target of payroll_loan_deduction's composite FK: the deducted installment belongs to the deducted loan
     builder.HasAlternateKey(x => new { x.Id, x.EmployeeLoanId }).HasName("uq_lis_id_loan");

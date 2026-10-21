@@ -56,11 +56,14 @@ public class OrganizationUnit : Aggregate<OrganizationUnitId>
     return Append(Latest.Details, effectiveFrom, RecordStatus.Active);
   }
 
-  /// Fixes a mistake in the latest version without starting a new period (a typo in the name, a wrong location).
-  public void CorrectLatest(OrganizationUnitDetails details)
+  /// Fixes a mistake (a typo in the name, a wrong location) in the version in force on a date (today's by default)
+  /// without starting a new period. A version planned for later keeps its own values.
+  public OrganizationUnitVersion CorrectOn(DateOnly asOf, OrganizationUnitDetails details)
   {
     EnsureNotOwnParent(details);
-    Latest.Correct(details);
+    var version = VersionOn(asOf) ?? throw new DomainException($"Unit {Code} has no version in force on {asOf:dd MMM yyyy}.");
+    version.Correct(details);
+    return version;
   }
 
   private OrganizationUnitVersion Append(OrganizationUnitDetails details, DateOnly effectiveFrom, RecordStatus status)

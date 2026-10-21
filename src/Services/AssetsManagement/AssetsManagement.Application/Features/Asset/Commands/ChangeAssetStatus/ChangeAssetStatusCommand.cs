@@ -2,13 +2,12 @@ using FluentValidation;
 
 public sealed record ChangeAssetStatusCommandResult(Guid LifecycleEventId);
 
-/// Moves the asset to another status and records the transition as a lifecycle event.
+/// Moves the asset to another (not final) status and writes "Status changed" on its timeline. A final status is
+/// reached only by disposing of the asset.
 public sealed record ChangeAssetStatusCommand(
   Guid AssetId,
   Guid ToStatusId,
-  Guid EventTypeId,
   string? Notes = null,
-  Guid? PerformedBy = null,
   DateTime? EventDate = null) : ICommand<Result<ChangeAssetStatusCommandResult>>;
 
 public class ChangeAssetStatusCommandValidator : AbstractValidator<ChangeAssetStatusCommand>
@@ -16,7 +15,7 @@ public class ChangeAssetStatusCommandValidator : AbstractValidator<ChangeAssetSt
   public ChangeAssetStatusCommandValidator()
   {
     RuleFor(x => x.AssetId).NotEmpty();
-    RuleFor(x => x.ToStatusId).NotEmpty();
-    RuleFor(x => x.EventTypeId).NotEmpty();
+    RuleFor(x => x.ToStatusId).NotEmpty().WithMessage("Choose the new status.");
+    RuleFor(x => x.Notes).MaximumLength(1000);
   }
 }

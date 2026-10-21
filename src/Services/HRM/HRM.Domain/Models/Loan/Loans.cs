@@ -63,6 +63,10 @@ public class EmployeeLoan : Aggregate<EmployeeLoanId>
   public int DeductionPriority { get; private set; }
   public LoanStatus Status { get; private set; }
   public Guid? ApprovedBy { get; private set; }
+  /// Why the loan was cancelled or written off, who decided and when.
+  public string? ClosureReason { get; private set; }
+  public Guid? ClosedBy { get; private set; }
+  public DateTime? ClosedAt { get; private set; }
 
   public IReadOnlyList<LoanInstallment> Installments => _installments.OrderBy(i => i.InstallmentNumber).ToList().AsReadOnly();
 
@@ -79,10 +83,14 @@ public class EmployeeLoan : Aggregate<EmployeeLoanId>
       int installmentsCount,
       DateOnly startDate,
       int deductionPriority,
-      Guid? approvedBy)
+      Guid? approvedBy,
+      DateOnly? today = null)
   {
     ArgumentNullException.ThrowIfNull(employee);
     ArgumentNullException.ThrowIfNull(loanType);
+    // a start in a past month would make every past installment fall due in the next payroll at once
+    if (today is { } now && startDate < new DateOnly(now.Year, now.Month, 1))
+      throw new DomainException("The first installment cannot fall in a month already gone. For a loan already running, sanction the balance still owed, starting this month.");
     employee.EnsureInService();
     loanType.EnsureActive();
     if (loanType.SalaryComponentId is null)
@@ -190,32 +198,41 @@ public class EmployeeLoan : Aggregate<EmployeeLoanId>
     return applied;
   }
 
-  /// Forgives the rest of one installment (sanctioned by the competent authority).
-  public decimal WaiveInstallment(LoanInstallmentId installmentId)
+  /// Forgives the rest of one installment (sanctioned by the competent authority), with the reason.
+  public decimal WaiveInstallment(LoanInstallmentId installmentId, string? reason, Guid? waivedBy, DateTime at)
   {
     EnsureActive();
     var installment = Installment(installmentId);
     var forgiven = installment.Amount - installment.PaidAmount;
-    installment.Waive();
+    installment.Waive(Guard.Text(reason, 1000, "Reason") ?? throw new DomainException("Give the reason (the sanction) for waiving the installment."),
+      Guard.Actor(waivedBy, "waive an installment"), at);
     Reduce(forgiven);
     return forgiven;
   }
 
   /// Withdraws a loan before anything was recovered.
-  public void Cancel()
+  public void Cancel(string? reason, Guid? cancelledBy, DateTime at)
   {
     EnsureActive();
     if (_installments.Any(i => i.PaidAmount > 0))
       throw new DomainException("Installments have already been recovered; write the loan off instead of cancelling it.");
 
-    Status = LoanStatus.Cancelled;
+    Close(LoanStatus.Cancelled, reason, cancelledBy, at, "cancelling");
   }
 
-  /// Gives up on the balance still owed (it stays on record as remaining_balance).
-  public void WriteOff()
+  /// Gives up on the balance still owed (it stays on record as remaining_balance), with the reason.
+  public void WriteOff(string? reason, Guid? writtenOffBy, DateTime at)
   {
     EnsureActive();
-    Status = LoanStatus.WrittenOff;
+    Close(LoanStatus.WrittenOff, reason, writtenOffBy, at, "writing off");
+  }
+
+  private void Close(LoanStatus status, string? reason, Guid? by, DateTime at, string act)
+  {
+    ClosureReason = Guard.Text(reason, 1000, "Reason") ?? throw new DomainException($"Give the reason for {act} the loan.");
+    ClosedBy = Guard.Actor(by, $"close a loan");
+    ClosedAt = at;
+    Status = status;
   }
 
   public void ChangePriority(int deductionPriority)
@@ -246,6 +263,10 @@ public class LoanInstallment : Entity<LoanInstallmentId>
   public decimal Amount { get; private set; }
   public decimal PaidAmount { get; private set; }
   public InstallmentStatus Status { get; private set; }
+  /// Why the rest of the installment was forgiven, who and when (a superseded installment says so).
+  public string? WaiveReason { get; private set; }
+  public Guid? WaivedBy { get; private set; }
+  public DateTime? WaivedAt { get; private set; }
 
   public bool IsOpen => Status is InstallmentStatus.Pending or InstallmentStatus.Partial;
 
@@ -281,12 +302,15 @@ public class LoanInstallment : Entity<LoanInstallmentId>
     Status = PaidAmount == 0 ? InstallmentStatus.Pending : InstallmentStatus.Partial;
   }
 
-  internal void Waive()
+  internal void Waive(string reason, Guid waivedBy, DateTime at)
   {
     if (!IsOpen)
       throw new DomainException($"Installment {InstallmentNumber} is already {EnumText.Words(Status)}.");
 
     Status = InstallmentStatus.Waived;
+    WaiveReason = reason;
+    WaivedBy = waivedBy;
+    WaivedAt = at;
   }
 
   /// Replaced by a re-issued installment: what was paid stays paid; the rest moves to the new installment.
@@ -300,7 +324,36 @@ public class LoanInstallment : Entity<LoanInstallmentId>
     else
     {
       Status = InstallmentStatus.Waived;
+      WaiveReason = "Superseded: the payroll that recovered it was reversed, and the amount moved to a re-issued installment.";
     }
+  }
+}
+
+/// A repayment made outside payroll (cash, bank challan): when, how much, the receipt, who recorded it. The loan's
+/// installments are paid from the oldest; this row keeps the trail.
+public class LoanRepayment : Aggregate<LoanRepaymentId>
+{
+  public EmployeeLoanId EmployeeLoanId { get; private set; } = default!;
+  public DateOnly PaidOn { get; private set; }
+  public decimal Amount { get; private set; }
+  public string ReceiptNumber { get; private set; } = default!;
+  public string? Remarks { get; private set; }
+
+  public static LoanRepayment Record(EmployeeLoan loan, DateOnly paidOn, decimal amount, string? receiptNumber, string? remarks, DateOnly today)
+  {
+    ArgumentNullException.ThrowIfNull(loan);
+    if (paidOn > today)
+      throw new DomainException("A repayment cannot be dated in the future.");
+
+    return new LoanRepayment
+    {
+      Id = LoanRepaymentId.New(),
+      EmployeeLoanId = loan.Id,
+      PaidOn = paidOn,
+      Amount = Guard.Money(Guard.Positive(amount, "Repayment"), "Repayment"),
+      ReceiptNumber = Guard.RequiredText(receiptNumber, 100, "Receipt or challan number"),
+      Remarks = Guard.Text(remarks, 2000, "Remarks")
+    };
   }
 }
 

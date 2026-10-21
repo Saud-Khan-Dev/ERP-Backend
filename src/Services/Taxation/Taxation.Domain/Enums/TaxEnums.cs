@@ -346,7 +346,8 @@ public enum PsidSyncReason
   PenaltyAddUp,
   Override,
   Payment,
-  Correction
+  Correction,
+  Reversal
 }
 
 /// No 1Link connector exists yet: every sync is PENDING until one acknowledges it.
@@ -372,6 +373,13 @@ public enum PaymentStatus
   Reversed
 }
 
+/// What a payment paid: the dues behind a file's reference, or one fee (a fee receipt).
+public enum PaymentKind
+{
+  Demand,
+  Fee
+}
+
 public enum PartyType
 {
   Owner,
@@ -390,8 +398,7 @@ public enum FeeSourceType
   Violation,
   WaterConnection,
   Enlistment,
-  Licence,
-  Misc
+  Licence
 }
 
 public enum FeeStatus
@@ -421,5 +428,14 @@ public enum SmsStatus
   Queued,
   Sent,
   Delivered,
+  Failed
+}
+
+// ---- the daily job ----
+
+public enum JobRunStatus
+{
+  Running,
+  Done,
   Failed
 }

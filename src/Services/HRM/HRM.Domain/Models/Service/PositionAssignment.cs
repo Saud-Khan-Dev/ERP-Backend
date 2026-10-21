@@ -107,16 +107,29 @@ public class PositionAssignment : Aggregate<PositionAssignmentId>
   }
 }
 
-/// Seats of a post: regular holders overlapping a period may not exceed the sanctioned count. The database checks the
-/// same at commit (a deferred trigger that locks the post), so two clerks cannot fill the last seat twice.
+/// Seats of a post: at no time inside a period may its regular holders exceed the sanctioned count. Holders who follow
+/// one another (one relieved, the next appointed) share a seat. The database checks the same at commit (a deferred
+/// trigger that locks the post), so two clerks cannot fill the last seat twice.
 public static class PostCapacity
 {
   public static int FilledOn(IEnumerable<PositionAssignment> postAssignments, DateOnly date) =>
       postAssignments.Count(a => a.TakesSeat && a.Range.Contains(date));
 
+  /// The most regular holders the post has on any one day of the range (`self` and `employee` not counted).
+  public static int MostHeld(IEnumerable<PositionAssignment> postAssignments, DateRange range, PositionAssignmentId? self = null, EmployeeId? employee = null)
+  {
+    var holders = postAssignments.Where(a => a.TakesSeat && a.Id != self && (employee is null || a.EmployeeId != employee) && a.Range.Overlaps(range)).ToList();
+    if (holders.Count == 0)
+      return 0;
+
+    // the count only rises where a holding starts, so the busiest day is the range start or one of those starts
+    var days = holders.Select(a => a.EffectiveFrom).Where(d => range.Contains(d)).Append(range.From).Distinct();
+    return days.Max(day => holders.Count(a => a.Range.Contains(day)));
+  }
+
   public static void EnsureSeatFree(string postCode, int sanctionedCount, IEnumerable<PositionAssignment> postAssignments, DateRange range, PositionAssignmentId? self)
   {
-    var taken = postAssignments.Count(a => a.TakesSeat && a.Id != self && a.Range.Overlaps(range));
+    var taken = MostHeld(postAssignments, range, self);
     if (taken >= sanctionedCount)
       throw new DomainException($"Post {postCode} is full: {taken} of {sanctionedCount} seat(s) are already held in that period.");
   }

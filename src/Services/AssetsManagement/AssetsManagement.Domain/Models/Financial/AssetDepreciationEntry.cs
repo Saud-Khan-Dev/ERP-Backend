@@ -1,3 +1,5 @@
+/// One period of a depreciation schedule (a calendar month, or the part of one at the start or the end of the asset's
+/// life). PeriodEnd is the first day AFTER the period - LastDay is the period's own last day.
 public class AssetDepreciationEntry : Entity<AssetDepreciationEntryId>
 {
   public AssetDepreciationScheduleId ScheduleId { get; private set; } = default!;
@@ -10,10 +12,18 @@ public class AssetDepreciationEntry : Entity<AssetDepreciationEntryId>
   public bool Posted { get; private set; }
   public DateTime? PostedAt { get; private set; }
   public Guid? PostedBy { get; private set; }
+  public string? PostedByName { get; private set; }
   public DateTime? ReversedAt { get; private set; }
   public Guid? ReversedBy { get; private set; }
+  public string? ReversedByName { get; private set; }
 
   public bool IsReversed => ReversedAt.HasValue;
+
+  /// The last day the period covers.
+  public DateOnly LastDay => PeriodEnd.AddDays(-1);
+
+  /// Posted, not reversed, and its period over by `date`: written off the asset's value by then.
+  public bool WrittenOffBy(DateOnly date) => Posted && !IsReversed && LastDay <= date;
 
   internal static AssetDepreciationEntry Create(
       AssetDepreciationScheduleId scheduleId,
@@ -24,13 +34,13 @@ public class AssetDepreciationEntry : Entity<AssetDepreciationEntryId>
       decimal accumulatedDepreciation)
   {
     if (periodEnd <= periodStart)
-      throw new DomainException("period_end must be after period_start.");
+      throw new DomainException("A depreciation period must end after it starts.");
 
     if (depreciationAmount < 0)
-      throw new DomainException("Depreciation amount cannot be negative.");
+      throw new DomainException("A depreciation amount cannot be negative.");
 
     if (depreciationAmount > openingBookValue)
-      throw new DomainException("Depreciation amount cannot exceed the opening book value.");
+      throw new DomainException("A month's depreciation cannot be more than the book value at its start.");
 
     return new AssetDepreciationEntry
     {
@@ -46,28 +56,38 @@ public class AssetDepreciationEntry : Entity<AssetDepreciationEntryId>
     };
   }
 
-  internal void Post(Guid? postedBy, DateTime postedAt)
+  /// A month is posted (made final) once it is over - its last day may be today.
+  internal void Post(ActorRef postedBy, DateTime postedAt, DateOnly today)
   {
+    ArgumentNullException.ThrowIfNull(postedBy);
+
     if (IsReversed)
-      throw new DomainException("A reversed entry cannot be posted.");
+      throw new DomainException("A reversed month cannot be posted again.");
 
     if (Posted)
-      throw new DomainException("This entry has already been posted.");
+      throw new DomainException("This month is already posted.");
+
+    if (LastDay > today)
+      throw new DomainException($"The period {PeriodStart:d MMM yyyy} - {LastDay:d MMM yyyy} has not ended yet. A month is posted once it is over.");
 
     Posted = true;
     PostedAt = postedAt;
-    PostedBy = postedBy;
+    PostedBy = postedBy.Id;
+    PostedByName = postedBy.ShortName;
   }
 
-  internal void Reverse(Guid? reversedBy, DateTime reversedAt)
+  internal void Reverse(ActorRef reversedBy, DateTime reversedAt)
   {
+    ArgumentNullException.ThrowIfNull(reversedBy);
+
     if (!Posted)
-      throw new DomainException("Only posted entries can be reversed. Delete unposted entries instead.");
+      throw new DomainException("Only a posted month can be reversed. A draft month is deleted instead.");
 
     if (IsReversed)
-      throw new DomainException("This entry has already been reversed.");
+      throw new DomainException("This month has already been reversed.");
 
     ReversedAt = reversedAt;
-    ReversedBy = reversedBy;
+    ReversedBy = reversedBy.Id;
+    ReversedByName = reversedBy.ShortName;
   }
 }

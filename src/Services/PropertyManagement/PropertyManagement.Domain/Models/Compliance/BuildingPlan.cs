@@ -15,11 +15,17 @@ public class BuildingPlan : Aggregate<BuildingPlanId>
   public OwnerId? ApplicantOwnerId { get; private set; }
   public DateOnly? SubmissionDate { get; private set; }
   public DateOnly? ApprovalDate { get; private set; }
+  /// The approving officer: the name as it stood then, and their HR record when picked from the staff list.
   public string? ApprovedBy { get; private set; }
+  public Guid? ApprovedByEmployeeId { get; private set; }
   public string? ApprovalReferenceNo { get; private set; }
+  /// The Taxation no-dues certificate (clearance) the approval relied on, when one was given.
+  public string? NoDuesCertificateNo { get; private set; }
   public DateOnly? ValidityEndDate { get; private set; }
   public decimal? CoveredArea { get; private set; }
   public MasterId? MeasurementUnitId { get; private set; }
+  /// The covered area in square feet (rule 7), converted with the unit's factor when it was entered.
+  public decimal? CoveredAreaBase { get; private set; }
   public int? Floors { get; private set; }
   public string? ArchitectName { get; private set; }
   public string? Remarks { get; private set; }
@@ -66,18 +72,58 @@ public class BuildingPlan : Aggregate<BuildingPlanId>
     BuildingPlanStatusId = status.Id;
   }
 
-  public void Approve(BuildingPlanStatus currentStatus, BuildingPlanStatus approvedStatus, DateOnly approvalDate, string approvedBy, string? approvalReferenceNo, DateOnly? validityEndDate)
+  /// What an approval records: the date, the approving officer (name, and HR record when picked), the order, how long
+  /// it is valid and the no-dues certificate relied on.
+  public sealed record Approval(
+      DateOnly ApprovalDate,
+      string ApprovedBy,
+      Guid? ApprovedByEmployeeId,
+      string? ApprovalReferenceNo,
+      DateOnly? ValidityEndDate,
+      string? NoDuesCertificateNo = null);
+
+  public const int NoDuesCertificateMaxLength = 50;
+
+  /// Approves the plan (a recorded decision: not in the future). slopeDegrees: the current boundary survey's slope -
+  /// above the Building & Construction Regulations 2026 limit the approval goes through with a warning, never refused.
+  public IReadOnlyList<string> Approve(BuildingPlanStatus currentStatus, BuildingPlanStatus approvedStatus, Approval approval, DateOnly? today = null, decimal? slopeDegrees = null)
   {
+    ArgumentNullException.ThrowIfNull(approval);
     EnsureUnderConsideration(currentStatus);
     approvedStatus.EnsureIs(SystemMasterCodes.Approved);
-    Guard.DateOrder(SubmissionDate, approvalDate, "Submission date", "Approval date");
-    Guard.DateOrder(approvalDate, validityEndDate, "Approval date", "Validity end date");
+    Guard.DateOrder(SubmissionDate, approval.ApprovalDate, "Submission date", "Approval date");
+    Guard.DateOrder(approval.ApprovalDate, approval.ValidityEndDate, "Approval date", "Validity end date");
+
+    if (today is { } day && approval.ApprovalDate > day)
+      throw new DomainException($"The approval date cannot be in the future ({approval.ApprovalDate:yyyy-MM-dd}); today is {day:yyyy-MM-dd}.");
 
     BuildingPlanStatusId = approvedStatus.Id;
-    ApprovalDate = approvalDate;
-    ApprovedBy = Guard.RequiredText(approvedBy, 150, "Approved by");
-    ApprovalReferenceNo = Guard.Text(approvalReferenceNo, 100, "Approval reference no.");
-    ValidityEndDate = validityEndDate;
+    ApprovalDate = approval.ApprovalDate;
+    ApprovedBy = Guard.RequiredText(approval.ApprovedBy, 150, "Approved by");
+    ApprovedByEmployeeId = approval.ApprovedByEmployeeId;
+    ApprovalReferenceNo = Guard.Text(approval.ApprovalReferenceNo, 100, "Approval reference no.");
+    ValidityEndDate = approval.ValidityEndDate;
+    NoDuesCertificateNo = Guard.Text(approval.NoDuesCertificateNo, NoDuesCertificateMaxLength, "No-dues certificate no.");
+
+    return slopeDegrees is { } slope && slope > PropertyBoundary.SteepSlopeDegrees
+      ? new[] { $"The plot's surveyed slope is {slope:0.##}°, above the 45° limit of the Building & Construction Regulations 2026; the plan was approved as entered." }
+      : Array.Empty<string>();
+  }
+
+  /// An appeal (s.32) set aside the rejection: the plan is under consideration again (SUBMITTED), with a remark.
+  public void ReopenOnAppeal(BuildingPlanStatus currentStatus, BuildingPlanStatus submittedStatus, string appealNo)
+  {
+    ArgumentNullException.ThrowIfNull(currentStatus);
+    submittedStatus.EnsureIs(SystemMasterCodes.Submitted);
+
+    if (currentStatus.Id != BuildingPlanStatusId)
+      throw new DomainException("The supplied status does not match the plan.");
+
+    if (!currentStatus.Is(SystemMasterCodes.Rejected))
+      throw new DomainException($"Plan {PlanNo.Value} rev. {RevisionNo} is {currentStatus.Name.Value.ToLowerInvariant()}, not rejected, so the appeal has nothing to reopen.");
+
+    BuildingPlanStatusId = submittedStatus.Id;
+    Remarks = RemarkText.Append(Remarks, $"Rejection set aside on appeal {appealNo}; under consideration again.");
   }
 
   public void Reject(BuildingPlanStatus currentStatus, BuildingPlanStatus rejectedStatus, string? remarks)
@@ -160,6 +206,7 @@ public class BuildingPlan : Aggregate<BuildingPlanId>
     SubmissionDate = details.SubmissionDate;
     CoveredArea = details.CoveredArea is null ? null : decimal.Round(Guard.Positive(details.CoveredArea.Value, "Covered area"), 4);
     MeasurementUnitId = details.Unit?.Id;
+    CoveredAreaBase = CoveredArea is { } covered && details.Unit is { } areaUnit ? areaUnit.ToBase(covered) : null;
     Floors = details.Floors;
     ArchitectName = Guard.Text(details.ArchitectName, 150, "Architect name");
     Remarks = Guard.Text(details.Remarks, 4000, "Remarks");

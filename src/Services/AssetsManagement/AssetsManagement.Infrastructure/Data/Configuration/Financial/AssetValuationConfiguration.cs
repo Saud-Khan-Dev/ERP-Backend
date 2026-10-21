@@ -22,7 +22,9 @@ public class AssetValuationConfiguration : EntityConfiguration<AssetValuation, A
       .IsRequired();
 
     builder.Property(x => x.ValuationMethod).HasMaxLength(100).IsRequired(false);
-    builder.Property(x => x.ValuedBy).IsRequired(false);
+    builder.Property(x => x.ValuedByName).HasMaxLength(150).IsRequired(false);
+    builder.Property(x => x.RecordedBy).IsRequired(false);
+    builder.Property(x => x.RecordedByName).HasMaxLength(100).IsRequired(false);
     builder.Property(x => x.Notes).IsRequired(false);
 
     builder.HasIndex(x => x.AssetId);

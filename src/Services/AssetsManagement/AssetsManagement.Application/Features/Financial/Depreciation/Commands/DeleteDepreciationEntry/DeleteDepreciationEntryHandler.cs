@@ -7,7 +7,9 @@ public class DeleteDepreciationEntryHandler(IApplicationDbContext context)
   {
     var scheduleId = AssetDepreciationScheduleId.Of(command.ScheduleId);
     var schedule = await context.AssetDepreciationSchedules.Include(s => s.Entries).FirstOrDefaultAsync(s => s.Id == scheduleId, cancellationToken)
-      ?? throw new DepreciationScheduleNotFoundException($"Depreciation schedule {command.ScheduleId} was not found.");
+      ?? throw new DepreciationScheduleNotFoundException("That depreciation schedule was not found.");
+
+    await AssetRecordGuard.EnsureScheduleAssetOpenAsync(context, schedule.AssetId, cancellationToken);
 
     schedule.RemoveEntry(AssetDepreciationEntryId.Of(command.EntryId));
     await context.SaveChangesAsync(cancellationToken);

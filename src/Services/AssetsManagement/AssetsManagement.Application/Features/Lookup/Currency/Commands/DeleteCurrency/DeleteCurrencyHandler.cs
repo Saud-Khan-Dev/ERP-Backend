@@ -12,7 +12,7 @@ public class DeleteCurrencyHandler(IApplicationDbContext context)
     if (await context.AssetAcquisitions.AnyAsync(a => a.CurrencyCode == code, cancellationToken)
         || await context.AssetValuations.AnyAsync(v => v.CurrencyCode == code, cancellationToken)
         || await context.AssetDisposals.AnyAsync(d => d.CurrencyCode == code, cancellationToken))
-      return Result<DeleteCurrencyCommandResult>.Failure("This currency is referenced by financial records. Deactivate it instead.");
+      return Result<DeleteCurrencyCommandResult>.Failure($"Purchases, valuations or disposals are recorded in {command.Code.ToUpperInvariant()}, so it cannot be deleted. Switch it off instead.");
 
     context.Currencies.Remove(currency);
     await context.SaveChangesAsync(cancellationToken);

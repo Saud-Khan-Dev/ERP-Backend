@@ -11,10 +11,11 @@ public class RemoveRoleFromUserHandler(IApplicationDbContext context, IdentityGu
     var userId = UserId.Of(command.UserId);
     var roleId = RoleId.Of(command.RoleId);
 
-    guard.EnsureNotSelf(userId, "change roles");
+    guard.EnsureNotSelf(userId, "change the roles of");
+    await guard.EnsureCanActOnAsync(userId, "change the roles of", cancellationToken);
 
     var role = await context.Roles.AsNoTracking().FirstOrDefaultAsync(r => r.Id == roleId, cancellationToken)
-      ?? throw new RoleNotFoundException($"Role {command.RoleId} was not found.");
+      ?? throw new RoleNotFoundException("This role was not found.");
 
     guard.EnsureCanAdministerRole(role);
 
@@ -23,7 +24,7 @@ public class RemoveRoleFromUserHandler(IApplicationDbContext context, IdentityGu
 
     var assignment = await context.UserRoles
         .FirstOrDefaultAsync(ur => ur.UserId == userId && ur.RoleId == roleId && ur.RevokedAt == null, cancellationToken)
-      ?? throw new RoleNotFoundException("This user does not hold that role.");
+      ?? throw new DomainException($"This person does not have the role {role.RoleName.Value}.");
 
     assignment.Revoke(now);
     var targetName = await context.Users.IgnoreQueryFilters().AsNoTracking().Where(u => u.Id == userId).Select(u => u.Username.Value).FirstOrDefaultAsync(cancellationToken);

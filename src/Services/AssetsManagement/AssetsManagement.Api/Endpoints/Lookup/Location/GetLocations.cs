@@ -9,6 +9,8 @@ public class GetLocations : ICarterModule
       var result = await sender.Send(new GetLocationsQuery(parentLocationId, onlyRoots ?? false, locationType, includeInactive ?? false));
       return Results.Ok(new GetLocationsResponse(result.Value!.Locations));
     })
+      .RequireAnyPermission(AssetsAuthorization.AnyAssetsReader)
+
       .WithName("GetLocations")
       .Produces<GetLocationsResponse>(StatusCodes.Status200OK)
       .WithSummary("Get Locations")

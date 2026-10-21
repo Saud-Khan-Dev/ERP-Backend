@@ -3,8 +3,12 @@ using Microsoft.EntityFrameworkCore;
 /// Sign-in.
 ///
 /// Order matters: the password is verified *before* the account state is checked, so that a locked
-/// or disabled account cannot be used to discover which usernames exist. Every outcome — including
-/// "no such user" — is written to login_attempt.
+/// or disabled account cannot be used to discover which usernames exist - and an unknown username is checked against a
+/// dummy hash, so it takes as long as a known one. Every outcome — including "no such user" — is written to
+/// login_attempt with its specific reason.
+///
+/// An account still holding a temporary password gets a token with no permissions and no roles (claim `pwd`): it opens
+/// only the person's own /auth routes until the password is changed.
 public class LoginHandler(
     IApplicationDbContext context,
     IPasswordHasher passwordHasher,
@@ -23,7 +27,10 @@ public class LoginHandler(
     var user = await FindUserAsync(attempted, cancellationToken);
 
     if (user is null)
+    {
+      passwordHasher.Verify(DummyHash(), command.Password ?? string.Empty);
       await FailAsync(null, attempted, "Unknown username", ip, command.UserAgent, now, cancellationToken);
+    }
 
     var verification = passwordHasher.Verify(user!.PasswordHash.Value, command.Password);
 
@@ -46,8 +53,9 @@ public class LoginHandler(
     }
     catch (AccountUnavailableException)
     {
+      var reason = user.IsDeleted ? "Account deleted" : !user.IsActive ? "Account deactivated" : "Account locked";
       await RecordAttemptAsync(
-        LoginAttempt.Failure(user.Id, attempted, "Account unavailable", ip, command.UserAgent, now),
+        LoginAttempt.Failure(user.Id, attempted, reason, ip, command.UserAgent, now),
         cancellationToken);
       throw;
     }
@@ -57,16 +65,25 @@ public class LoginHandler(
       user.SetPassword(PasswordHash.Of(passwordHasher.Hash(command.Password)), user.MustChangePassword, now);
 
     var resolved = await permissionService.ResolveAsync(user.Id, cancellationToken);
+    var roleNames = await permissionService.RoleNamesAsync(resolved.RoleCodes, cancellationToken);
 
     var sessionId = SessionId.Of(Guid.NewGuid());
     var refresh = tokenService.CreateRefreshToken(security.RefreshTokenLifetime);
     var session = Session.Create(sessionId, user.Id, refresh.Hash, ip, command.UserAgent, now, refresh.ExpiresAt);
 
+    // a temporary password opens nothing but the change-password screen
     var access = tokenService.CreateAccessToken(
       user, sessionId,
-      resolved.PermissionCodes.ToArray(),
-      resolved.RoleCodes.ToArray(),
+      user.MustChangePassword ? [] : resolved.PermissionCodes.ToArray(),
+      user.MustChangePassword ? [] : resolved.RoleCodes.ToArray(),
       security.AccessTokenLifetime);
+
+    // sessions that ended long ago are only clutter (every refresh rotates one): keep a month of them
+    var cutoff = now.AddDays(-30);
+    var stale = await context.Sessions
+      .Where(s => s.UserId == user.Id && ((s.RevokedAt != null && s.RevokedAt < cutoff) || s.ExpiresAt < cutoff))
+      .ToListAsync(cancellationToken);
+    context.Sessions.RemoveRange(stale);
 
     user.RegisterSuccessfulLogin(ip, now);
 
@@ -81,8 +98,13 @@ public class LoginHandler(
       refresh.Value,
       refresh.ExpiresAt,
       user.MustChangePassword,
-      user.ToCurrentUserDto(resolved))));
+      user.ToCurrentUserDto(resolved, roleNames))));
   }
+
+  private static string? _dummyHash;
+
+  /// A hash of nothing anyone knows, verified for unknown usernames so they take as long as known ones.
+  private string DummyHash() => _dummyHash ??= passwordHasher.Hash(Guid.NewGuid().ToString("N"));
 
   /// Accepts either the username or the email address.
   private async Task<User?> FindUserAsync(string attempted, CancellationToken cancellationToken)

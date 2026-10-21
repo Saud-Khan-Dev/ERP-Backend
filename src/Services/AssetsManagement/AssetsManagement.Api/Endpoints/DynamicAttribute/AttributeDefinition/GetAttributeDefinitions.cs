@@ -9,6 +9,8 @@ public class GetAttributeDefinitions : ICarterModule
       var result = await sender.Send(new GetAttributeDefinitionsQuery(dataType, search, includeInactive ?? false));
       return Results.Ok(new GetAttributeDefinitionsResponse(result.Value!.Definitions));
     })
+      .RequireAnyPermission(AssetsAuthorization.AnyAssetsReader)
+
       .WithName("GetAttributeDefinitions")
       .Produces<GetAttributeDefinitionsResponse>(StatusCodes.Status200OK)
       .WithSummary("Get Attribute Definitions")

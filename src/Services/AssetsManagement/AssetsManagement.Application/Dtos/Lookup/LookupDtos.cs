@@ -28,12 +28,15 @@ public sealed record LocationDto(
   decimal? Longitude,
   bool IsActive);
 
+/// Purpose is set on the SYSTEM types the acts write themselves (isSystem); hand-recorded types have none.
 public sealed record LifecycleEventTypeDto(
   Guid Id,
   string? Stage,
   string Code,
   string Name,
   string? Description,
+  EventPurpose? Purpose,
+  bool IsSystem,
   bool IsActive);
 
 public sealed record DepreciationMethodDto(
@@ -41,6 +44,8 @@ public sealed record DepreciationMethodDto(
   string Code,
   string Name,
   string? Description,
+  DepreciationMethodKind Kind,
+  bool IsSystem,
   bool IsActive);
 
 public sealed record DisposalMethodDto(
@@ -48,6 +53,7 @@ public sealed record DisposalMethodDto(
   string Code,
   string Name,
   bool RequiresValue,
+  bool AllowsValue,
   bool IsActive);
 
 public static class LookupMappings
@@ -63,11 +69,11 @@ public static class LookupMappings
     x.Address, x.Latitude, x.Longitude, x.IsActive);
 
   public static LifecycleEventTypeDto ToDto(this LifecycleEventType x) => new(
-    x.Id.Value, x.Stage, x.Code.Value, x.Name.Value, x.Description, x.IsActive);
+    x.Id.Value, x.Stage, x.Code.Value, x.Name.Value, x.Description, x.Purpose, x.IsSystem, x.IsActive);
 
   public static DepreciationMethodDto ToDto(this DepreciationMethod x) => new(
-    x.Id.Value, x.Code.Value, x.Name.Value, x.Description, x.IsActive);
+    x.Id.Value, x.Code.Value, x.Name.Value, x.Description, x.Kind, x.IsSystem, x.IsActive);
 
   public static DisposalMethodDto ToDto(this DisposalMethod x) => new(
-    x.Id.Value, x.Code.Value, x.Name.Value, x.RequiresValue, x.IsActive);
+    x.Id.Value, x.Code.Value, x.Name.Value, x.RequiresValue, x.AllowsValue, x.IsActive);
 }

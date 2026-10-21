@@ -17,6 +17,9 @@ public sealed record GetExpiringDocumentsQueryResult(DateOnly AsOf, IReadOnlyLis
 /// Papers that expire within the window (and, when asked, those already expired), soonest first.
 public sealed record GetExpiringDocumentsQuery(int WithinDays, bool IncludeExpired, Guid? DocumentTypeId) : IQuery<Result<GetExpiringDocumentsQueryResult>>;
 
+/// Papers waiting for verification (not yet verified, or sent for verification) of people in service, oldest first.
+public sealed record GetDocumentsToVerifyQuery(Guid? DocumentTypeId, string? Search) : IQuery<Result<GetExpiringDocumentsQueryResult>>;
+
 /// OnlyForEmployee: self-service may open only its own documents.
 public sealed record GetDocumentContentQuery(Guid Id, Guid? OnlyForEmployee = null) : IQuery<Result<StoredFile>>;
 
@@ -73,6 +76,7 @@ public class GetExpiringDocumentsQueryValidator : AbstractValidator<GetExpiringD
 public class DocumentHandlers(IApplicationDbContext context, FileUploads files, HrLookup lookup, ICurrentUser currentUser, IClock clock) :
   IQueryHandler<GetEmployeeDocumentsQuery, Result<GetEmployeeDocumentsQueryResult>>,
   IQueryHandler<GetExpiringDocumentsQuery, Result<GetExpiringDocumentsQueryResult>>,
+  IQueryHandler<GetDocumentsToVerifyQuery, Result<GetExpiringDocumentsQueryResult>>,
   IQueryHandler<GetDocumentContentQuery, Result<StoredFile>>,
   ICommandHandler<UploadEmployeeDocumentCommand, Result<CreatedResult>>,
   ICommandHandler<UpdateDocumentDetailsCommand, Result<UpdatedResult>>,
@@ -105,10 +109,12 @@ public class DocumentHandlers(IApplicationDbContext context, FileUploads files, 
       documents = documents.Where(d => d.DocumentTypeId == typeId);
     }
 
-    // only people still on the books
+    // only people still on the books, and only the latest paper of a kind (a renewed one replaces the old)
+    var inService = EmploymentStatuses.InService;
     documents = documents.Where(d => context.Employees.Any(e => e.Id == d.EmployeeId && e.ProfileStatus == RecordStatus.Active
-      && e.EmploymentStatus != EmploymentStatus.Retired && e.EmploymentStatus != EmploymentStatus.Resigned
-      && e.EmploymentStatus != EmploymentStatus.Terminated && e.EmploymentStatus != EmploymentStatus.Deceased));
+      && inService.Contains(e.EmploymentStatus)));
+    documents = documents.Where(d => !context.Documents.Any(n => n.EmployeeId == d.EmployeeId && n.DocumentTypeId == d.DocumentTypeId && n.Id != d.Id
+      && n.VerificationStatus != VerificationStatus.Rejected && n.ExpiryDate != null && n.ExpiryDate > d.ExpiryDate));
 
     var rows = await documents.OrderBy(d => d.ExpiryDate).Take(5000).ToListAsync(cancellationToken);
     var types = await TypeNamesAsync(cancellationToken);
@@ -147,9 +153,45 @@ public class DocumentHandlers(IApplicationDbContext context, FileUploads files, 
     return CommandResults.Created(probe.Id);
   }
 
+  public async Task<Result<GetExpiringDocumentsQueryResult>> Handle(GetDocumentsToVerifyQuery query, CancellationToken cancellationToken)
+  {
+    var today = clock.Today;
+    var inService = EmploymentStatuses.InService;
+    var documents = context.Documents.AsNoTracking().Where(d => (d.VerificationStatus == VerificationStatus.Unverified || d.VerificationStatus == VerificationStatus.Pending)
+      && context.Employees.Any(e => e.Id == d.EmployeeId && e.ProfileStatus == RecordStatus.Active && inService.Contains(e.EmploymentStatus)));
+    if (query.DocumentTypeId is { } type)
+    {
+      var typeId = DocumentTypeId.Of(type);
+      documents = documents.Where(d => d.DocumentTypeId == typeId);
+    }
+    if (!string.IsNullOrWhiteSpace(query.Search))
+    {
+      var pattern = SearchPattern.Contains(query.Search);
+      documents = documents.Where(d => context.Employees.Any(e => e.Id == d.EmployeeId && (EF.Functions.Like(e.EmployeeNumber.ToLower(), pattern, SearchPattern.Escape)
+        || EF.Functions.Like(e.FullName!.ToLower(), pattern, SearchPattern.Escape))));
+    }
+
+    var rows = await documents.OrderBy(d => d.CreatedAt).Take(5000).ToListAsync(cancellationToken);
+    var types = await TypeNamesAsync(cancellationToken);
+    var people = await lookup.EmployeesAsync(rows.Select(d => (EmployeeId?)d.EmployeeId), cancellationToken);
+    var data = rows.Select(d => new ExpiringDocumentDto(
+      d.ToDto(types.GetValueOrDefault(d.DocumentTypeId), today),
+      people.GetValueOrDefault(d.EmployeeId.Value)?.EmployeeNumber ?? "", people.GetValueOrDefault(d.EmployeeId.Value)?.FullName ?? "",
+      d.ExpiryDate is { } expiry ? expiry.DayNumber - today.DayNumber : 0)).ToList();
+    return Result<GetExpiringDocumentsQueryResult>.Success(new(today, data));
+  }
+
+  /// A deactivated profile is read-only: its papers do not change either.
+  private async Task EnsureProfileActiveAsync(EmployeeId employeeId, CancellationToken cancellationToken)
+  {
+    var employee = await context.Employees.AsNoTracking().FirstAsync(e => e.Id == employeeId, cancellationToken);
+    employee.EnsureProfileActive();
+  }
+
   public async Task<Result<UpdatedResult>> Handle(UpdateDocumentDetailsCommand command, CancellationToken cancellationToken)
   {
     var document = await context.LoadDocumentAsync(command.Id, cancellationToken);
+    await EnsureProfileActiveAsync(document.EmployeeId, cancellationToken);
     var type = await context.LoadDocumentTypeAsync(command.Details.DocumentTypeId, cancellationToken);
     document.UpdateDetails(type, command.Details.ToDetails());
     await context.SaveChangesAsync(cancellationToken);
@@ -159,6 +201,7 @@ public class DocumentHandlers(IApplicationDbContext context, FileUploads files, 
   public async Task<Result<UpdatedResult>> Handle(ReplaceDocumentFileCommand command, CancellationToken cancellationToken)
   {
     var document = await context.LoadDocumentAsync(command.Id, cancellationToken);
+    await EnsureProfileActiveAsync(document.EmployeeId, cancellationToken);
     if (document.VerificationStatus == VerificationStatus.Verified)
       return Result<UpdatedResult>.Failure("A verified document cannot be changed. Upload a new one instead.");
 
@@ -171,6 +214,7 @@ public class DocumentHandlers(IApplicationDbContext context, FileUploads files, 
   public async Task<Result<UpdatedResult>> Handle(ReviewDocumentCommand command, CancellationToken cancellationToken)
   {
     var document = await context.LoadDocumentAsync(command.Id, cancellationToken);
+    await EnsureProfileActiveAsync(document.EmployeeId, cancellationToken);
     switch (command.Action)
     {
       case DocumentReview.Submit:
@@ -191,6 +235,7 @@ public class DocumentHandlers(IApplicationDbContext context, FileUploads files, 
   public async Task<Result<UpdatedResult>> Handle(DeleteDocumentCommand command, CancellationToken cancellationToken)
   {
     var document = await context.LoadDocumentAsync(command.Id, cancellationToken);
+    await EnsureProfileActiveAsync(document.EmployeeId, cancellationToken);
     if (document.VerificationStatus == VerificationStatus.Verified)
       return Result<UpdatedResult>.Failure("A verified document stays on the file.");
 

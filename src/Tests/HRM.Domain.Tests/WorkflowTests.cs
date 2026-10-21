@@ -164,7 +164,7 @@ public class PerformanceTests
     review.SetContent([new GoalInput("Water scheme", 60, null, null, 85), new GoalInput("Approvals", 40, null, null, 92)], [], []);
     review.Submit();
 
-    review.FinalizeReview(null, null);
+    review.FinalizeReview(null, null, ScoreWeights.GoalsOnly);
 
     Assert.Equal(87.8m, review.FinalScore);
     Assert.Equal("Very Good", review.PerformanceGrade);
