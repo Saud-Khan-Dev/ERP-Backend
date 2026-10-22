@@ -35,6 +35,11 @@ public static class DependencyInjection
     app.UseAuthorization();
 
     app.MapCarter();
+
+    // the shared audit trail (GET /audit for Administration, POST /audit/exports from every CSV and print) and the
+    // service's health for Administration › System
+    app.MapAuditTrail<ApplicationDbContext>(PermissionCatalog.Hr.Export, PermissionCatalog.Attendance.Export, PermissionCatalog.Payroll.Export);
+    app.MapSystemStatus<ApplicationDbContext>(HrmAuditProfile.Module);
     app.MapOpenApi();
 
     return app;

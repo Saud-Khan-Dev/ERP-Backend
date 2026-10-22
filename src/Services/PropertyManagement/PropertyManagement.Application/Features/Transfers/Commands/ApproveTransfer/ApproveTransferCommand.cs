@@ -1,5 +1,4 @@
 using FluentValidation;
-using Microsoft.Extensions.Options;
 
 /// Approving a transfer registers it: ClosedOwnershipIds are the rows ended on the transfer date,
 /// OpenedOwnershipIds the rows that now hold the shares.
@@ -9,8 +8,9 @@ public sealed record ApproveTransferCommandResult(
   IReadOnlyList<Guid> OpenedOwnershipIds);
 
 /// Approves AND completes an INITIATED transfer in one step (the only waiting state is "pending approval").
-/// The approver is the signed-in officer (never typed); with Transfers:RequireSeparateApprover the person who started
-/// the transfer cannot approve it. ApprovalDate defaults to today. NoDuesCertificateNo: the Taxation clearance the
+/// The approver is the signed-in officer (never typed); while the PROPERTY_TRANSFER separation rule is on the person who
+/// started (or recorded) the transfer cannot approve it. ApprovalDate defaults to the one recorded with a past transfer,
+/// else today; the order ref and certificate default to the recorded ones too. NoDuesCertificateNo: the Taxation clearance the
 /// approval relied on, when given. TenureTypeId is the tenure for transferees who owned nothing before (defaults to OWNED).
 public sealed record ApproveTransferCommand(
   Guid Id,
@@ -39,7 +39,7 @@ public static class TransferRegistration
         : await masters.GetByCodeAsync<TenureType>(SystemMasterCodes.TenureOwned, cancellationToken);
 
   /// The name written to completed_by / approved_by / closed_by for the signed-in user.
-  public static string ActorName(ICurrentUser currentUser) => currentUser.Username ?? currentUser.AuditName;
+  public static string ActorName(ICurrentUser currentUser) => currentUser.AuditName;
 
   /// The signed-in officer as the approver of an act.
   public static Approver Approver(ICurrentUser currentUser) => new(currentUser.UserId, currentUser.EmployeeId, ActorName(currentUser));

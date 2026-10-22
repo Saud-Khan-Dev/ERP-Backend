@@ -4,7 +4,8 @@ public sealed record PersonalDetailsInput(
   string FirstName,
   string? MiddleName,
   string? LastName,
-  string Cnic,
+  /// Required at registration. On an update, left empty by someone who may not see it (HR_SENSITIVE.VIEW) it stays as it is.
+  string? Cnic,
   DateOnly? DateOfBirth,
   Gender? Gender,
   string? Nationality,
@@ -13,7 +14,7 @@ public sealed record PersonalDetailsInput(
   /// Why the CNIC or the date of birth is corrected (required when either changes; kept in the change log).
   string? ChangeReason = null)
 {
-  public PersonalDetails ToDetails() => new(FirstName, MiddleName, LastName, Cnic, DateOfBirth, Gender, Nationality, MaritalStatus, BloodGroup);
+  public PersonalDetails ToDetails() => new(FirstName, MiddleName, LastName, Cnic ?? "", DateOfBirth, Gender, Nationality, MaritalStatus, BloodGroup);
 }
 
 /// The engagement period of a contract, deputation-in, ad hoc, daily-wage or project employee.
@@ -75,11 +76,6 @@ public sealed record CorrectEmployeeNumberCommand(Guid Id, string EmployeeNumber
 /// Sets or extends the engagement period of a non-regular employee (a contract extension is a new end date).
 public sealed record SetEmployeeTermCommand(Guid Id, DateOnly? TermFrom, DateOnly? TermTo, string? LendingDepartment, string? Reason) : ICommand<Result<UpdatedResult>>;
 
-public sealed record GetEmployeeChangeLogQueryResult(IReadOnlyList<EmployeeChangeDto> Changes);
-
-/// Every change to the employee's identity, employment and pay, newest first.
-public sealed record GetEmployeeChangeLogQuery(Guid Id) : IQuery<Result<GetEmployeeChangeLogQueryResult>>;
-
 /// Links (UserId set) or unlinks (null) the employee's Identity login.
 public sealed record LinkEmployeeUserCommand(Guid Id, Guid? UserId) : ICommand<Result<UpdatedResult>>;
 
@@ -94,7 +90,7 @@ public class PersonalDetailsInputValidator : AbstractValidator<PersonalDetailsIn
     RuleFor(x => x.FirstName).NotEmpty().MaximumLength(Employee.NameMaxLength);
     RuleFor(x => x.MiddleName).MaximumLength(Employee.NameMaxLength);
     RuleFor(x => x.LastName).MaximumLength(Employee.NameMaxLength);
-    RuleFor(x => x.Cnic).NotEmpty().MaximumLength(20);
+    RuleFor(x => x.Cnic).MaximumLength(20);
     RuleFor(x => x.Gender).IsInEnum().When(x => x.Gender.HasValue);
     RuleFor(x => x.MaritalStatus).IsInEnum().When(x => x.MaritalStatus.HasValue);
     RuleFor(x => x.Nationality).MaximumLength(60);

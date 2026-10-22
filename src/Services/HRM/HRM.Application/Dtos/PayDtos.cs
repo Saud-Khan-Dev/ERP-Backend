@@ -75,7 +75,9 @@ public sealed record LoanSummaryDto(
   bool IsGpfAdvance = false,
   string? ClosureReason = null,
   Guid? ClosedBy = null,
-  DateTime? ClosedAt = null);
+  DateTime? ClosedAt = null,
+  /// Who entered the application: while LOAN_SANCTION is on they may not sanction it.
+  Guid? EnteredBy = null);
 
 public sealed record LoanInstallmentDto(Guid Id, int InstallmentNumber, DateOnly DueDate, decimal Amount, decimal PaidAmount, decimal Outstanding, InstallmentStatus Status,
   string? WaiveReason = null, Guid? WaivedBy = null, DateTime? WaivedAt = null);
@@ -123,7 +125,9 @@ public sealed record BankAccountDto(
   string? Iban,
   bool IsPrimary,
   RecordStatus Status,
-  DateTime? CreatedAt);
+  DateTime? CreatedAt,
+  /// "accountNumber", "iban" when withheld (no HR_SENSITIVE.VIEW).
+  IReadOnlyList<string>? Restricted = null);
 
 public static class PayMappings
 {

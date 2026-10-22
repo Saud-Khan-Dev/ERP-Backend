@@ -157,7 +157,7 @@ public class DecideEmployeeRequestCommandValidator : AbstractValidator<DecideEmp
   public DecideEmployeeRequestCommandValidator() => RuleFor(x => x.Remarks).MaximumLength(4000);
 }
 
-public class TaskRequestHandlers(IApplicationDbContext context, HrLookup lookup, ICurrentUser currentUser, IClock clock) :
+public class TaskRequestHandlers(IApplicationDbContext context, HrLookup lookup, ICurrentUser currentUser, IClock clock, DutyGuard duty, IAuditTrail audit) :
   IQueryHandler<GetTasksQuery, Result<GetTasksQueryResult>>,
   IQueryHandler<GetTaskQuery, Result<GetTaskQueryResult>>,
   ICommandHandler<AssignTaskCommand, Result<CreatedResult>>,
@@ -329,10 +329,12 @@ public class TaskRequestHandlers(IApplicationDbContext context, HrLookup lookup,
   public async Task<Result<UpdatedResult>> Handle(DecideEmployeeRequestCommand command, CancellationToken cancellationToken)
   {
     var request = await LoadRequestAsync(command.Id, null, cancellationToken);
+    await duty.EnsureNotOwnRecordAsync(request.EmployeeId, "decide a request", request, cancellationToken);
     if (command.Approve)
       request.Approve(currentUser.UserId, clock.UtcNow, command.Remarks);
     else
       request.Reject(currentUser.UserId, clock.UtcNow, command.Remarks);
+    audit.Record(command.Approve ? HrmVerbs.Approved : HrmVerbs.Rejected, request, string.IsNullOrWhiteSpace(command.Remarks) ? null : $"Remarks: {command.Remarks.Trim()}");
 
     await context.SaveChangesAsync(cancellationToken);
     return CommandResults.Updated();

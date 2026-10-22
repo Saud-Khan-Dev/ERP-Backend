@@ -16,6 +16,8 @@ public class AssetDepreciationEntry : Entity<AssetDepreciationEntryId>
   public DateTime? ReversedAt { get; private set; }
   public Guid? ReversedBy { get; private set; }
   public string? ReversedByName { get; private set; }
+  /// Why a posted month was reversed (asked since 2026-10-21; empty on older reversals).
+  public string? ReversalReason { get; private set; }
 
   public bool IsReversed => ReversedAt.HasValue;
 
@@ -76,7 +78,7 @@ public class AssetDepreciationEntry : Entity<AssetDepreciationEntryId>
     PostedByName = postedBy.ShortName;
   }
 
-  internal void Reverse(ActorRef reversedBy, DateTime reversedAt)
+  internal void Reverse(ActorRef reversedBy, DateTime reversedAt, string? reason)
   {
     ArgumentNullException.ThrowIfNull(reversedBy);
 
@@ -89,5 +91,6 @@ public class AssetDepreciationEntry : Entity<AssetDepreciationEntryId>
     ReversedAt = reversedAt;
     ReversedBy = reversedBy.Id;
     ReversedByName = reversedBy.ShortName;
+    ReversalReason = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim();
   }
 }

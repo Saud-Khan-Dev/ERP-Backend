@@ -33,7 +33,7 @@ public class GetAssetReportHandler(IApplicationDbContext context, IAssetDataQuer
     var acquisitions = await context.AssetAcquisitions.AsNoTracking()
       .Where(q => assetIds.Contains(q.AssetId)).ToDictionaryAsync(q => q.AssetId, cancellationToken);
     var disposals = await context.AssetDisposals.AsNoTracking()
-      .Where(d => assetIds.Contains(d.AssetId)).ToDictionaryAsync(d => d.AssetId, cancellationToken);
+      .Where(d => assetIds.Contains(d.AssetId) && d.State == DisposalState.Approved).ToDictionaryAsync(d => d.AssetId, cancellationToken);
     var schedules = (await context.AssetDepreciationSchedules.AsNoTracking().Include(s => s.Entries)
         .Where(s => assetIds.Contains(s.AssetId)).ToListAsync(cancellationToken))
       .GroupBy(s => s.AssetId).ToDictionary(g => g.Key, g => g.ToList());

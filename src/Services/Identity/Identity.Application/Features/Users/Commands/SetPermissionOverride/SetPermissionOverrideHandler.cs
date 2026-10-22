@@ -47,6 +47,8 @@ public class SetPermissionOverrideHandler(IApplicationDbContext context, Identit
     await activity.RecordAsync(ActivityAction.PermissionOverrideSet, ActivityTargetType.User, userId.Value, targetName,
       $"{permission.Code.Value} \u00b7 {command.Effect}", cancellationToken);
 
+    // tokens issued before this change stop working at once
+    await context.AccessChangedAsync(userId, cancellationToken);
     await context.SaveChangesAsync(cancellationToken);
 
     return Result<SetPermissionOverrideCommandResult>.Success(new SetPermissionOverrideCommandResult(true));

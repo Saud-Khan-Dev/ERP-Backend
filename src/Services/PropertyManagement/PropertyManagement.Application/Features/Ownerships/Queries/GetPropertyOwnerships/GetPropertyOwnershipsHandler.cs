@@ -18,8 +18,8 @@ public class GetPropertyOwnershipsHandler(IApplicationDbContext context, Propert
   {
     var ownerId = OwnerId.Of(query.OwnerId);
 
-    if (!await context.Owners.AnyAsync(o => o.Id == ownerId, cancellationToken))
-      throw new OwnerNotFoundException($"Owner {query.OwnerId} was not found.");
+    // outside the caller's towns: 404; inside, the shares listed are those on properties in their towns (query filter)
+    await context.EnsureOwnerVisibleAsync(ownerId, cancellationToken);
 
     return await BuildAsync(context.Ownerships.Where(o => o.OwnerId == ownerId), query.IncludeHistory, withTotal: false, cancellationToken);
   }

@@ -4,7 +4,8 @@ public class ChangePasswordHandler(
     IApplicationDbContext context,
     IPasswordHasher passwordHasher,
     ICurrentUser currentUser,
-    ISecuritySettingsProvider securitySettings)
+    ISecuritySettingsProvider securitySettings,
+    IActivityRecorder activity)
   : ICommandHandler<ChangePasswordCommand, Result<ChangePasswordCommandResult>>
 {
   public async Task<Result<ChangePasswordCommandResult>> Handle(ChangePasswordCommand command, CancellationToken cancellationToken)
@@ -23,8 +24,12 @@ public class ChangePasswordHandler(
       // guessing the current password here counts like guessing it at sign-in
       var locked = user.RegisterFailedLogin(security.MaxFailedLoginAttempts, security.LockoutDuration, now);
       if (locked)
+      {
         foreach (var live in await context.Sessions.Where(s => s.UserId == user.Id && s.RevokedAt == null).ToListAsync(cancellationToken))
           live.Revoke(now, "Account locked");
+        await activity.RecordAsync(ActivityAction.AccountLockedByPasswordChange, ActivityTargetType.User, user.Id.Value, user.Username.Value,
+          $"Wrong current passwords on Change password - locked for {security.LockoutMinutes} minutes, signed out everywhere", cancellationToken);
+      }
       await context.SaveChangesAsync(cancellationToken);
       return Result<ChangePasswordCommandResult>.Failure(locked
         ? $"Your current password is incorrect. Too many wrong passwords: the account is locked for {security.LockoutMinutes} minutes."
@@ -44,6 +49,8 @@ public class ChangePasswordHandler(
     foreach (var session in sessions)
       session.Revoke(now, "Password changed");
 
+    await activity.RecordAsync(ActivityAction.PasswordChanged, ActivityTargetType.User, user.Id.Value, user.Username.Value,
+      sessions.Count > 0 ? $"Signed out of {sessions.Count} session{(sessions.Count == 1 ? "" : "s")}" : null, cancellationToken);
     await context.SaveChangesAsync(cancellationToken);
 
     return Result<ChangePasswordCommandResult>.Success(new ChangePasswordCommandResult(true));

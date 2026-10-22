@@ -8,6 +8,7 @@ using Microsoft.EntityFrameworkCore;
 /// double click, not theft: it is refused without revoking anything.
 public class RefreshTokenHandler(
     IApplicationDbContext context,
+    IActivityRecorder activity,
     ITokenService tokenService,
     IUserPermissionService permissionService,
     ISecuritySettingsProvider securitySettings)
@@ -35,6 +36,14 @@ public class RefreshTokenHandler(
     if (!session.IsActive(now))
       throw new InvalidCredentialsException(session.IsRevoked ? "Session revoked" : "Session expired");
 
+    // a sign-in is renewed only so long: then the password is asked again
+    if (now - session.SignedInAt > security.SignInMaxLifetime)
+    {
+      session.Revoke(now, "Sign-in reached its longest lifetime");
+      await context.SaveChangesAsync(cancellationToken);
+      throw new InvalidCredentialsException("Sign-in expired");
+    }
+
     var user = await context.Users.FirstOrDefaultAsync(u => u.Id == session.UserId, cancellationToken)
       ?? throw new InvalidCredentialsException("Session belongs to a missing user");
 
@@ -47,14 +56,16 @@ public class RefreshTokenHandler(
 
     var newSessionId = SessionId.Of(Guid.NewGuid());
     var refresh = tokenService.CreateRefreshToken(security.RefreshTokenLifetime);
-    var replacement = Session.Create(newSessionId, user.Id, refresh.Hash, ip, command.UserAgent, now, refresh.ExpiresAt);
+    var replacement = Session.Create(newSessionId, user.Id, refresh.Hash, ip, command.UserAgent, now, refresh.ExpiresAt, session.SignedInAt);
 
     session.RotateTo(newSessionId, now);
 
+    var scopes = await context.UserScopes.AsNoTracking().Where(s => s.UserId == user.Id).ToListAsync(cancellationToken);
     var access = tokenService.CreateAccessToken(
       user, newSessionId,
       user.MustChangePassword ? [] : resolved.PermissionCodes.ToArray(),
       user.MustChangePassword ? [] : resolved.RoleCodes.ToArray(),
+      scopes,
       security.AccessTokenLifetime);
 
     await context.Sessions.AddAsync(replacement, cancellationToken);
@@ -81,6 +92,8 @@ public class RefreshTokenHandler(
       successor.Revoke(now, reason);
       next = successor.ReplacedBySessionId;
     }
+    await activity.RecordAsAsync(null, "Sign-in protection", ActivityAction.SessionTheftDetected, ActivityTargetType.User, reused.UserId.Value, null,
+      $"An old refresh token was used again from {reused.IpAddress?.Value ?? "an unknown address"} - that sign-in was ended on every device it reached", cancellationToken);
     await context.SaveChangesAsync(cancellationToken);
   }
 }

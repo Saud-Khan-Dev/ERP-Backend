@@ -12,7 +12,7 @@ public class DeleteAttributeDefinitionHandler(IApplicationDbContext context)
   public async Task<Result<DeleteAttributeDefinitionCommandResult>> Handle(DeleteAttributeDefinitionCommand command, CancellationToken cancellationToken)
   {
     var definition = await context.LoadAttributeDefinitionAsync(command.Id, cancellationToken);
-    var values = await context.PropertyAttributeValues.Where(v => v.AttributeDefinitionId == definition.Id).ToListAsync(cancellationToken);
+    var values = await context.PropertyAttributeValues.IgnoreQueryFilters().Where(v => v.AttributeDefinitionId == definition.Id).ToListAsync(cancellationToken);
     var held = values.Count(v => v.Value != null);
 
     if (held > 0)

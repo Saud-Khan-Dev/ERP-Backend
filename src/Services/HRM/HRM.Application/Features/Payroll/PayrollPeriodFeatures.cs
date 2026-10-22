@@ -31,7 +31,7 @@ public class CreatePayrollPeriodCommandValidator : AbstractValidator<CreatePayro
   }
 }
 
-public class PayrollPeriodHandlers(IApplicationDbContext context) :
+public class PayrollPeriodHandlers(IApplicationDbContext context, OfficeScope scope, IAuditTrail audit) :
   IQueryHandler<GetPayrollPeriodsQuery, Result<GetPayrollPeriodsQueryResult>>,
   ICommandHandler<CreatePayrollPeriodCommand, Result<CreatedResult>>,
   ICommandHandler<ChangePayrollPeriodStatusCommand, Result<UpdatedResult>>,
@@ -56,6 +56,8 @@ public class PayrollPeriodHandlers(IApplicationDbContext context) :
 
   public async Task<Result<CreatedResult>> Handle(CreatePayrollPeriodCommand command, CancellationToken cancellationToken)
   {
+    if (await scope.WholeOrganizationRefusalAsync("open a payroll month", cancellationToken) is { } refusal)
+      return Result<CreatedResult>.Failure(refusal);
     if (await context.PayrollPeriods.AnyAsync(p => p.Year == command.Year && p.Month == command.Month, cancellationToken))
       return Result<CreatedResult>.Failure($"{new DateOnly(command.Year, command.Month, 1):MMMM yyyy} already exists.");
 
@@ -69,6 +71,8 @@ public class PayrollPeriodHandlers(IApplicationDbContext context) :
 
   public async Task<Result<UpdatedResult>> Handle(ChangePayrollPeriodStatusCommand command, CancellationToken cancellationToken)
   {
+    if (await scope.WholeOrganizationRefusalAsync("close, reopen or lock a payroll month", cancellationToken) is { } refusal)
+      return Result<UpdatedResult>.Failure(refusal);
     var period = await context.LoadPayrollPeriodAsync(command.Id, cancellationToken);
     switch (command.Action)
     {
@@ -83,12 +87,21 @@ public class PayrollPeriodHandlers(IApplicationDbContext context) :
         break;
     }
 
+    audit.Record(command.Action switch
+    {
+      PayrollPeriodAction.Close => HrmVerbs.Closed,
+      PayrollPeriodAction.Reopen => HrmVerbs.Reopened,
+      _ => HrmVerbs.Locked
+    }, period);
+
     await context.SaveChangesAsync(cancellationToken);
     return CommandResults.Updated();
   }
 
   public async Task<Result<UpdatedResult>> Handle(UpdatePayrollPeriodDatesCommand command, CancellationToken cancellationToken)
   {
+    if (await scope.WholeOrganizationRefusalAsync("change a payroll month's dates", cancellationToken) is { } refusal)
+      return Result<UpdatedResult>.Failure(refusal);
     var period = await context.LoadPayrollPeriodAsync(command.Id, cancellationToken);
     period.ChangeDates(command.StartDate, command.EndDate, await context.PayrollRuns.CountAsync(r => r.PayrollPeriodId == period.Id, cancellationToken));
     if (await OverlapAsync(period.Id, period.StartDate, period.EndDate, cancellationToken) is { } clash)
@@ -99,6 +112,8 @@ public class PayrollPeriodHandlers(IApplicationDbContext context) :
 
   public async Task<Result<UpdatedResult>> Handle(DeletePayrollPeriodCommand command, CancellationToken cancellationToken)
   {
+    if (await scope.WholeOrganizationRefusalAsync("delete a payroll month", cancellationToken) is { } refusal)
+      return Result<UpdatedResult>.Failure(refusal);
     var period = await context.LoadPayrollPeriodAsync(command.Id, cancellationToken);
     period.EnsureUnused(await context.PayrollRuns.CountAsync(r => r.PayrollPeriodId == period.Id, cancellationToken), "be deleted");
     context.PayrollPeriods.Remove(period);

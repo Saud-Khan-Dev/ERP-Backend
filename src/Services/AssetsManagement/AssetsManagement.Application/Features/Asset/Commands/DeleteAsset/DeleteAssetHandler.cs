@@ -1,6 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 
-public class DeleteAssetHandler(IApplicationDbContext context, ICurrentUser currentUser, IClock clock)
+public class DeleteAssetHandler(IApplicationDbContext context, ICurrentUser currentUser, IClock clock, IAuditTrail audit)
   : ICommandHandler<DeleteAssetCommand, Result<DeleteAssetCommandResult>>
 {
   public async Task<Result<DeleteAssetCommandResult>> Handle(DeleteAssetCommand command, CancellationToken cancellationToken)
@@ -8,8 +8,11 @@ public class DeleteAssetHandler(IApplicationDbContext context, ICurrentUser curr
     var id = AssetId.Of(command.Id);
     var asset = await AssetRecordGuard.LoadAsync(context, id, track: true, cancellationToken);
 
-    if (await context.AssetDisposals.AnyAsync(d => d.AssetId == id, cancellationToken))
+    if (await context.AssetDisposals.AnyAsync(d => d.AssetId == id && d.State == DisposalState.Approved, cancellationToken))
       return Result<DeleteAssetCommandResult>.Failure("A disposed asset stays in the register as the record of its disposal, so it cannot be deleted.");
+
+    if (await context.AssetDisposals.AnyAsync(d => d.AssetId == id && d.State == DisposalState.Proposed, cancellationToken))
+      return Result<DeleteAssetCommandResult>.Failure("A disposal is proposed for this asset. It must be rejected or withdrawn before the asset can be deleted.");
 
     var schedules = await context.AssetDepreciationSchedules.Include(s => s.Entries).Where(s => s.AssetId == id).ToListAsync(cancellationToken);
     var posted = schedules.SelectMany(s => s.Entries).Count(e => e.Posted && !e.IsReversed);
@@ -28,6 +31,8 @@ public class DeleteAssetHandler(IApplicationDbContext context, ICurrentUser curr
 
     var actor = currentUser.Actor();
     asset.SoftDelete(actor.ShortName, command.Reason, clock.UtcNow);
+    // taken out of the register: the trail keeps who, when and why (the asset's own row keeps it too)
+    audit.Line(AuditActions.Removed, AssetAuditKinds.Asset, asset, detail: $"Reason: {command.Reason.Trim()}");
     await context.SaveChangesAsync(cancellationToken);
 
     return Result<DeleteAssetCommandResult>.Success(new DeleteAssetCommandResult(true));

@@ -1,6 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 
-public class AllotPropertyHandler(IApplicationDbContext context, MasterLookup masters, CodeGenerator codes)
+public class AllotPropertyHandler(IApplicationDbContext context, MasterLookup masters, CodeGenerator codes, IAuditTrail audit)
   : ICommandHandler<AllotPropertyCommand, Result<AllotPropertyCommandResult>>
 {
   public async Task<Result<AllotPropertyCommandResult>> Handle(AllotPropertyCommand command, CancellationToken cancellationToken)
@@ -30,6 +30,7 @@ public class AllotPropertyHandler(IApplicationDbContext context, MasterLookup ma
       (await context.RunningOnAsync(property.Id, cancellationToken)).Where(s => s.Kind != AgreementSpanKind.Allotment));
 
     await context.Allotments.AddAsync(allotment, cancellationToken);
+    audit.Record(PropertyAuditActions.Allotted, allotment, $"Allotted to {allottee.OwnerName.Value} ({allottee.OwnerCode.Value})");
     await context.SaveChangesAsync(cancellationToken);
 
     return Result<AllotPropertyCommandResult>.Success(new AllotPropertyCommandResult(allotment.Id.Value, allotment.AllotmentNo.Value, warnings));

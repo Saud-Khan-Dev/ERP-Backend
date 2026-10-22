@@ -47,7 +47,7 @@ public class PayrollEndpoints : ICarterModule
       .WithDescription("An open month without runs; at most 31 days and no day shared with another month.");
 
     periods.MapDelete("/{id:guid}", async (Guid id, ISender sender) => (await sender.Send(new DeletePayrollPeriodCommand(id))).ToOk())
-      .RequirePermission(PermissionCatalog.Payroll.Create)
+      .RequirePermission(PermissionCatalog.Payroll.Delete)
       .WithName("DeletePayrollPeriod")
       .Produces<UpdatedResult>()
       .ProducesProblem(StatusCodes.Status400BadRequest)
@@ -147,7 +147,7 @@ public class PayrollEndpoints : ICarterModule
         .WithSummary(summary)
         .WithDescription(step switch
         {
-          PayrollRunStep.Approve => "A reviewed run. The person who prepared the payroll cannot approve it (unless Payroll:RequireSeparateApprover is off).",
+          PayrollRunStep.Approve => "A reviewed run. Whoever prepared, reviewed or adjusted it cannot approve it (duty rule PAYROLL_APPROVE). Needs every office.",
           PayrollRunStep.ResetToDraft => "A calculated run goes back to draft; its pay slips and adjustments are deleted.",
           _ => ""
         });
@@ -164,7 +164,7 @@ public class PayrollEndpoints : ICarterModule
         + "From then on the run's figures cannot change.");
 
     runs.MapPost("/{id:guid}/reverse", async (Guid id, ReversePayrollRunRequest r, ISender sender) => (await sender.Send(new ReversePayrollRunCommand(id, r.Reason))).ToOk())
-      .RequirePermission(PermissionCatalog.Payroll.Post)
+      .RequirePermission(PermissionCatalog.Payroll.Reverse)
       .WithName("ReversePayrollRun")
       .Produces<ReversePayrollRunResult>()
       .ProducesProblem(StatusCodes.Status400BadRequest)
@@ -215,7 +215,7 @@ public class PayrollEndpoints : ICarterModule
 
     runs.MapPost("/{id:guid}/adjustments", async (Guid id, PayrollAdjustmentRequest r, ISender sender) =>
         (await sender.Send(new AddPayrollAdjustmentCommand(id, r.EmployeeId, r.AdjustmentType, r.Amount, r.Reason))).ToOk())
-      .RequirePermission(PermissionCatalog.Payroll.Edit)
+      .RequirePermission(PermissionCatalog.Payroll.Adjust)
       .WithTags("Pay Slips")
       .WithName("AddPayrollAdjustment")
       .Produces<CreatedResult>()
@@ -225,7 +225,7 @@ public class PayrollEndpoints : ICarterModule
         + "The employee is added to the run if needed and the slip is worked out again.");
 
     app.MapDelete("/payroll-adjustments/{id:guid}", async (Guid id, ISender sender) => (await sender.Send(new RemovePayrollAdjustmentCommand(id))).ToOk())
-      .RequirePermission(PermissionCatalog.Payroll.Edit)
+      .RequirePermission(PermissionCatalog.Payroll.Adjust)
       .WithTags("Pay Slips")
       .WithName("RemovePayrollAdjustment")
       .Produces<UpdatedResult>()
@@ -303,8 +303,9 @@ public class PayrollEndpoints : ICarterModule
       .WithSummary("Mark Payments Processed")
       .WithDescription("The bank confirmed the transfer: the run's pending payments (or paymentIds) are processed with the bank's reference.");
 
+    // the bank advice is the letter to the bank: printing or downloading it is the point, so it needs PAYROLL.EXPORT
     runs.MapGet("/{id:guid}/bank-advice", async (Guid id, ISender sender) => (await sender.Send(new GetBankAdviceQuery(id))).ToOk())
-      .RequirePermission(PermissionCatalog.Payroll.View)
+      .RequirePermission(PermissionCatalog.Payroll.Export)
       .WithTags("Salary Payments")
       .WithName("GetBankAdvice")
       .Produces<BankAdviceResult>()
@@ -326,7 +327,7 @@ public class PayrollEndpoints : ICarterModule
     {
       app.MapPost($"/payroll-payments/{{id:guid}}/{route}", async (Guid id, PaymentStatusRequest? r, ISender sender) =>
           (await sender.Send(new ChangePaymentStatusCommand(id, action, r?.PaymentReference))).ToOk())
-        .RequirePermission(PermissionCatalog.Payroll.Post)
+        .RequirePermission(PermissionCatalog.Payroll.Reverse)
         .WithTags("Salary Payments")
         .WithName($"{action}Payment")
         .Produces<UpdatedResult>()

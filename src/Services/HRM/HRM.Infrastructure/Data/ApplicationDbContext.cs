@@ -1,3 +1,4 @@
+using System.Linq.Expressions;
 using System.Reflection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata;
@@ -9,7 +10,19 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
   /// All services share one ERP database; this service owns the "hrms" schema.
   public const string Schema = "hrms";
 
-  public ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : base(options) { }
+  private readonly EmployeeScope? _scope;
+
+  public ApplicationDbContext(DbContextOptions<ApplicationDbContext> options, EmployeeScope? scope = null) : base(options)
+  {
+    _scope = scope;
+  }
+
+  /// The employees the signed-in person may see (office scope); null = no limit. Read by the query filters below at
+  /// every query, so a limited person's lists, records, reports and loaders stop at their offices (404 outside).
+  public List<EmployeeId>? ScopedEmployees => _scope?.Employees;
+
+  /// The same ids as Guids, for the read-only views.
+  public List<Guid>? ScopedEmployeeGuids => _scope?.EmployeeGuids;
 
   // ---- 1. organization ----
   public DbSet<OrganizationUnitType> OrganizationUnitTypes => Set<OrganizationUnitType>();
@@ -105,6 +118,8 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
   public DbSet<GpFundBalance> GpFundBalances => Set<GpFundBalance>();
   public DbSet<EmployeeTaxYtd> EmployeeTaxYtd => Set<EmployeeTaxYtd>();
 
+  public IQueryable<AuditRecord> AuditEntries => Set<AuditRecord>().AsNoTracking();
+
   public Task<IDbContextTransaction> BeginTransactionAsync(CancellationToken cancellationToken) =>
       Database.BeginTransactionAsync(cancellationToken);
 
@@ -129,6 +144,8 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
     builder.HasDefaultSchema(Schema);
     builder.HasPostgresExtension("btree_gist");
     builder.ApplyConfigurationsFromAssembly(Assembly.GetExecutingAssembly());
+    builder.AddAuditTrail();
+    ApplyOfficeScope(builder);
 
     foreach (var entity in builder.Model.GetEntityTypes().Where(e => e.FindPrimaryKey() is not null))
     {
@@ -152,6 +169,35 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
     }
 
     base.OnModelCreating(builder);
+  }
+
+  /// The office-scope filter on every table that belongs to one employee. The post assignments and the service book
+  /// are left out: seats, holders and the structure are counted for everyone, and they are only ever read for an
+  /// employee already in scope or for a post.
+  private void ApplyOfficeScope(ModelBuilder builder)
+  {
+    var context = Expression.Constant(this, typeof(ApplicationDbContext));
+    var typed = Expression.Property(context, nameof(ScopedEmployees));
+    var guids = Expression.Property(context, nameof(ScopedEmployeeGuids));
+    var skipped = new[] { typeof(PositionAssignment), typeof(EmployeeServiceHistory), typeof(EmployeeChangeLogEntry) };
+
+    foreach (var entity in builder.Model.GetEntityTypes().ToList())
+    {
+      var clr = entity.ClrType;
+      if (skipped.Contains(clr) || entity.BaseType is not null || clr == typeof(AuditRecord))
+        continue;
+
+      var property = clr == typeof(Employee) ? clr.GetProperty(nameof(Employee.Id)) : clr.GetProperty("EmployeeId");
+      if (property is null || (property.PropertyType != typeof(EmployeeId) && property.PropertyType != typeof(Guid)))
+        continue;
+
+      var list = property.PropertyType == typeof(EmployeeId) ? typed : guids;
+      var row = Expression.Parameter(clr, "row");
+      var body = Expression.OrElse(
+        Expression.Equal(list, Expression.Constant(null, list.Type)),
+        Expression.Call(typeof(Enumerable), nameof(Enumerable.Contains), [property.PropertyType], list, Expression.Property(row, property)));
+      builder.Entity(clr).HasQueryFilter(Expression.Lambda(body, row));
+    }
   }
 
   /// Postgres cuts identifiers at 63 bytes.

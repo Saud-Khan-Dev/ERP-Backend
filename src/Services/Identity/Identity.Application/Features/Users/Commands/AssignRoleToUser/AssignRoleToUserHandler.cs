@@ -42,6 +42,8 @@ public class AssignRoleToUserHandler(IApplicationDbContext context, IdentityGuar
     var targetName = await context.Users.IgnoreQueryFilters().AsNoTracking().Where(u => u.Id == userId).Select(u => u.Username.Value).FirstOrDefaultAsync(cancellationToken);
     await activity.RecordAsync(ActivityAction.RoleAssigned, ActivityTargetType.User, userId.Value, targetName, role.RoleName.Value, cancellationToken);
 
+    // tokens issued before this change stop working at once
+    await context.AccessChangedAsync(userId, cancellationToken);
     await context.SaveChangesAsync(cancellationToken);
 
     return Result<AssignRoleToUserCommandResult>.Success(new AssignRoleToUserCommandResult(assignment.Id.Value));

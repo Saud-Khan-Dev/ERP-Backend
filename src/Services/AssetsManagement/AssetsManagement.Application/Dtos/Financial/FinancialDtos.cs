@@ -15,7 +15,8 @@ public sealed record AssetDepreciationEntryDto(
   string? PostedByName,
   DateTime? ReversedAt,
   Guid? ReversedBy,
-  string? ReversedByName);
+  string? ReversedByName,
+  string? ReversalReason);
 
 public sealed record AssetDepreciationScheduleDto(
   Guid Id,
@@ -43,26 +44,43 @@ public sealed record AssetValuationDto(
   Guid? RecordedBy,
   string? RecordedByName);
 
+/// A disposal: State Proposed (waiting for approval; no book value or gain / loss yet), Approved (the asset left),
+/// Rejected or Withdrawn (the proposal was turned down or taken back - DecidedBy, DecidedAt, DecisionNote), Cancelled
+/// (an approved disposal undone as a mistake - CancelledBy, CancelledAt, CancellationReason).
 public sealed record AssetDisposalDto(
   Guid Id,
   Guid AssetId,
+  DisposalState State,
   DateOnly DisposalDate,
   Guid DisposalMethodId,
+  Guid? ToStatusId,
   decimal? DisposalValue,
   string? CurrencyCode,
   decimal? NetBookValueAtDisposal,
   decimal? GainLoss,
   string? BuyerInfo,
   string? Reason,
+  Guid? ProposedBy,
+  string? ProposedByName,
+  DateTime? ProposedAt,
   Guid? ApprovedBy,
   string? ApprovedByName,
-  DateTime? ApprovedAt);
+  DateTime? ApprovedAt,
+  Guid? DecidedBy,
+  string? DecidedByName,
+  DateTime? DecidedAt,
+  string? DecisionNote,
+  Guid? CancelledBy,
+  string? CancelledByName,
+  DateTime? CancelledAt,
+  string? CancellationReason);
 
 public static class FinancialMappings
 {
   public static AssetDepreciationEntryDto ToDto(this AssetDepreciationEntry x) => new(
     x.Id.Value, x.ScheduleId.Value, x.PeriodStart, x.PeriodEnd, x.LastDay, x.OpeningBookValue, x.DepreciationAmount,
-    x.AccumulatedDepreciation, x.BookValueAfter, x.Posted, x.PostedAt, x.PostedBy, x.PostedByName, x.ReversedAt, x.ReversedBy, x.ReversedByName);
+    x.AccumulatedDepreciation, x.BookValueAfter, x.Posted, x.PostedAt, x.PostedBy, x.PostedByName, x.ReversedAt, x.ReversedBy, x.ReversedByName,
+    x.ReversalReason);
 
   public static AssetDepreciationScheduleDto ToDto(this AssetDepreciationSchedule x) => new(
     x.Id.Value, x.AssetId.Value, x.MethodId.Value, x.UsefulLifeMonths, x.SalvageValue, x.OpeningBookValue, x.DepreciableBase,
@@ -74,6 +92,8 @@ public static class FinancialMappings
     x.RecordedBy, x.RecordedByName);
 
   public static AssetDisposalDto ToDto(this AssetDisposal x) => new(
-    x.Id.Value, x.AssetId.Value, x.DisposalDate, x.DisposalMethodId.Value, x.DisposalValue, x.CurrencyCode?.Value,
-    x.NetBookValueAtDisposal, x.GainLoss, x.BuyerInfo, x.Reason, x.ApprovedBy, x.ApprovedByName, x.ApprovedAt);
+    x.Id.Value, x.AssetId.Value, x.State, x.DisposalDate, x.DisposalMethodId.Value, x.ToStatusId?.Value, x.DisposalValue, x.CurrencyCode?.Value,
+    x.NetBookValueAtDisposal, x.GainLoss, x.BuyerInfo, x.Reason, x.ProposedBy, x.ProposedByName, x.ProposedAt,
+    x.ApprovedBy, x.ApprovedByName, x.ApprovedAt, x.DecidedBy, x.DecidedByName, x.DecidedAt, x.DecisionNote,
+    x.CancelledBy, x.CancelledByName, x.CancelledAt, x.CancellationReason);
 }

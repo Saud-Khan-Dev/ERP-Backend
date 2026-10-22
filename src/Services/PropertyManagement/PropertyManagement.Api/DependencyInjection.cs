@@ -35,6 +35,10 @@ public static class DependencyInjection
     app.UseAuthorization();
 
     app.MapCarter();
+    // the module's trail for Administration (GET /audit, /audit/kinds) and the note a screen writes when it exports or
+    // prints (POST /audit/exports, PROPERTY.EXPORT); the system page's health (GET /system/status)
+    app.MapAuditTrail<ApplicationDbContext>(PermissionCatalog.Property.Export);
+    app.MapSystemStatus<ApplicationDbContext>(PropertyAudit.Module);
     app.MapOpenApi();
 
     return app;

@@ -10,7 +10,7 @@ public class FileLitigationHandler(IApplicationDbContext context, MasterLookup m
 
     var caseNo = input.CaseNo.Trim();
     var court = input.CourtAuthority.Trim();
-    if (await context.Litigations.AnyAsync(l => l.CaseNo == caseNo && l.CourtAuthority == court, cancellationToken))
+    if (await context.Litigations.IgnoreQueryFilters().AnyAsync(l => l.CaseNo == caseNo && l.CourtAuthority == court, cancellationToken))
       return Result<FileLitigationCommandResult>.Failure($"Case {caseNo} before {court} is already recorded.");
 
     var status = input.LitigationStatusId is { } statusId

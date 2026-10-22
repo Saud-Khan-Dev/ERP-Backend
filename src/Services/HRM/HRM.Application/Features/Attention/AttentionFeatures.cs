@@ -5,7 +5,7 @@ using Microsoft.EntityFrameworkCore;
 /// linked to an employee. Keys are documented in docs/claude/hrm.md › Attention.
 public sealed record GetAttentionQuery : IQuery<Result<AttentionResponse>>;
 
-public class AttentionHandlers(IApplicationDbContext context, ICurrentUser currentUser, CurrentEmployee me, HrmSettings settings, IClock clock) :
+public class AttentionHandlers(IApplicationDbContext context, ICurrentUser currentUser, CurrentEmployee me, HrmSettings settings, IClock clock, DutyGuard duty, EmployeeScope scope) :
   IQueryHandler<GetAttentionQuery, Result<AttentionResponse>>
 {
   public async Task<Result<AttentionResponse>> Handle(GetAttentionQuery query, CancellationToken cancellationToken)
@@ -23,7 +23,7 @@ public class AttentionHandlers(IApplicationDbContext context, ICurrentUser curre
     if (Can(PermissionCatalog.Hr.Approve))
     {
       var pending = context.HrActions.Where(a => a.Status == HrActionStatus.Pending);
-      if (settings.RequireSeparateHrApprover)
+      if (await duty.IsOnAsync(DutyRules.HrAction, cancellationToken))
         pending = pending.Where(a => a.CreatedBy != user && a.SubmittedBy != user);
       items.Add(new("hrActions.toApprove", await pending.CountAsync(cancellationToken),
         At(await pending.MinAsync(a => (DateTime?)(a.SubmittedAt ?? a.CreatedAt), cancellationToken))));
@@ -120,7 +120,8 @@ public class AttentionHandlers(IApplicationDbContext context, ICurrentUser curre
       await Runs("payroll.toPay", PayrollRunStatus.Finalized);
     }
 
-    // ---- the caller's own work ----
+    // ---- the caller's own work (never limited by an office scope: the people they appraise may sit anywhere) ----
+    using var own = scope.Unrestricted();
     if (await me.TryIdAsync(cancellationToken) is { } self)
     {
       var mine = context.Tasks.Where(t => t.EmployeeId == self && t.Status != EmployeeTaskStatus.Completed && t.Status != EmployeeTaskStatus.Cancelled);

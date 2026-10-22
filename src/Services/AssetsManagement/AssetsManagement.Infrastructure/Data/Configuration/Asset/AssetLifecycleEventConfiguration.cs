@@ -27,7 +27,8 @@ public class AssetLifecycleEventConfiguration : EntityConfiguration<AssetLifecyc
     builder.HasIndex(x => x.EventDate);
     builder.HasIndex(x => x.Details).HasMethod("gin");
 
-    builder.HasOne<Asset>().WithMany().HasForeignKey(x => x.AssetId).IsRequired().OnDelete(DeleteBehavior.Cascade);
+    // Restrict: an asset is only ever soft-deleted, and a hard delete must never take its history with it
+    builder.HasOne<Asset>().WithMany().HasForeignKey(x => x.AssetId).IsRequired().OnDelete(DeleteBehavior.Restrict);
     builder.HasOne<LifecycleEventType>().WithMany().HasForeignKey(x => x.EventTypeId).IsRequired().OnDelete(DeleteBehavior.Restrict);
     builder.HasOne<AssetStatus>().WithMany().HasForeignKey(x => x.FromStatusId).IsRequired(false).OnDelete(DeleteBehavior.Restrict);
     builder.HasOne<AssetStatus>().WithMany().HasForeignKey(x => x.ToStatusId).IsRequired(false).OnDelete(DeleteBehavior.Restrict);

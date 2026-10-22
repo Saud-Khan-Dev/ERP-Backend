@@ -5,23 +5,38 @@ using Microsoft.EntityFrameworkCore;
 /// - nobody edits their own authorization (roles, exceptions, active state, password from Administration);
 /// - only a Super Administrator acts on a Super Administrator's account (reset, edit, unlock, deactivate, delete, sign
 ///   out, roles, exceptions) - otherwise "Reset password" on a Super Admin hands its password to a lesser account;
+/// - nobody acts on an account that can do more than they can (the same takeover, one level down: resetting the
+///   Payroll Director's password from a clerk-level administration role);
 /// - nobody grants access they do not hold themselves - roles given to an account, permissions put on a role, Allow
 ///   exceptions (a Super Administrator excepted);
 /// - nobody rewrites a role they hold themselves.
 /// Together they stop an administrator of one area from promoting themselves through the normal API.
-public class IdentityGuard(IApplicationDbContext context, ICurrentUser currentUser)
+public class IdentityGuard(IApplicationDbContext context, ICurrentUser currentUser, IUserPermissionService permissions)
 {
   /// The caller holds the Super Administrator role (from the token).
   public bool CallerIsSuperAdmin => currentUser.Roles.Contains(Role.SuperAdminCode, StringComparer.Ordinal);
 
-  /// Only a Super Administrator acts on a Super Administrator's account.
+  /// Only a Super Administrator acts on a Super Administrator's account, and nobody acts on an account that can do
+  /// something they cannot: power only flows downward.
   public async Task EnsureCanActOnAsync(UserId target, string action, CancellationToken cancellationToken)
   {
     ArgumentNullException.ThrowIfNull(target);
     if (CallerIsSuperAdmin)
       return;
     if (await HoldsSuperAdminAsync(target, cancellationToken))
-      throw new DomainException($"Only a Super Administrator can {action} a Super Administrator's account.");
+      throw new AccessRefusedException($"Only a Super Administrator can {action} a Super Administrator's account.");
+
+    var theirs = await permissions.ResolveAsync(target, cancellationToken);
+    var held = currentUser.Permissions.ToHashSet(StringComparer.OrdinalIgnoreCase);
+    var beyond = theirs.PermissionCodes.Where(code => !held.Contains(code)).ToList();
+    if (beyond.Count == 0)
+      return;
+    var names = await context.Permissions.AsNoTracking()
+      .Where(p => beyond.Contains(p.Code.Value))
+      .Select(p => p.PermissionName.Value)
+      .OrderBy(n => n)
+      .ToListAsync(cancellationToken);
+    throw new AccessRefusedException($"You cannot {action} this account: it can do things you cannot ({string.Join(", ", names.Take(3))}{(names.Count > 3 ? $" and {names.Count - 3} more" : "")}). An administrator who holds that access must do it.");
   }
 
   /// Nobody hands out access they do not have themselves (a Super Administrator excepted).
@@ -40,7 +55,7 @@ public class IdentityGuard(IApplicationDbContext context, ICurrentUser currentUs
     var held = currentUser.Permissions.ToHashSet(StringComparer.OrdinalIgnoreCase);
     var missing = wanted.Where(p => !held.Contains(p.Code.Value)).Select(p => p.PermissionName.Value).OrderBy(n => n).ToList();
     if (missing.Count > 0)
-      throw new DomainException($"You cannot {what}: it gives access you do not have yourself ({string.Join(", ", missing.Take(4))}{(missing.Count > 4 ? $" and {missing.Count - 4} more" : "")}).");
+      throw new AccessRefusedException($"You cannot {what}: it gives access you do not have yourself ({string.Join(", ", missing.Take(4))}{(missing.Count > 4 ? $" and {missing.Count - 4} more" : "")}).");
   }
 
   /// Giving roles is giving everything they carry.
@@ -67,14 +82,14 @@ public class IdentityGuard(IApplicationDbContext context, ICurrentUser currentUs
     var holds = await context.UserRoles.AsNoTracking()
       .AnyAsync(ur => ur.UserId == UserId.Of(me) && ur.RoleId == roleId && ur.RevokedAt == null && (ur.ExpiresAt == null || ur.ExpiresAt > now), cancellationToken);
     if (holds)
-      throw new DomainException("You hold this role yourself - another administrator must change what it can do.");
+      throw new AccessRefusedException("You hold this role yourself - another administrator must change what it can do.");
   }
 
   /// The caller holds a permission (from the token) - for commands whose extra parts need more than the route asks.
   public void EnsurePermission(string permissionCode, string what)
   {
     if (!currentUser.HasPermission(permissionCode))
-      throw new DomainException($"You cannot {what}.");
+      throw new AccessRefusedException($"You cannot {what}.");
   }
 
   private async Task<bool> HoldsSuperAdminAsync(UserId userId, CancellationToken cancellationToken)
@@ -94,7 +109,7 @@ public class IdentityGuard(IApplicationDbContext context, ICurrentUser currentUs
     ArgumentNullException.ThrowIfNull(targetUserId);
 
     if (currentUser.UserId == targetUserId.Value)
-      throw new DomainException($"You cannot {action} your own account - another administrator must do it.");
+      throw new AccessRefusedException($"You cannot {action} your own account - another administrator must do it.");
   }
 
   /// Only an existing Super Admin may grant or remove the Super Admin role.
@@ -103,7 +118,7 @@ public class IdentityGuard(IApplicationDbContext context, ICurrentUser currentUs
     ArgumentNullException.ThrowIfNull(role);
 
     if (role.IsSuperAdmin && !CallerIsSuperAdmin)
-      throw new DomainException("Only a Super Administrator may give or take away the Super Administrator role.");
+      throw new AccessRefusedException("Only a Super Administrator may give or take away the Super Administrator role.");
   }
 
   /// The system must always keep at least one usable Super Admin, or nobody can administer it again.
@@ -134,6 +149,6 @@ public class IdentityGuard(IApplicationDbContext context, ICurrentUser currentUs
         .CountAsync(u => u.IsActive, cancellationToken);
 
     if (otherSuperAdmins == 0)
-      throw new DomainException($"This is the last active Super Administrator; {action} would leave nobody able to manage the system.");
+      throw new AccessRefusedException($"This is the last active Super Administrator; {action} would leave nobody able to manage the system.");
   }
 }

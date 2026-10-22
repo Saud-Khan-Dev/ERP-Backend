@@ -14,7 +14,7 @@ public class ReviseDepreciationSchedule : ICarterModule
 
       return Results.Created($"/depreciation-schedules/{result.Value!.ScheduleId}", result.Value);
     })
-      .RequirePermission(PermissionCatalog.AssetFinance.Edit)
+      .RequireFinance(PermissionCatalog.AssetFinance.Edit)
 
       .WithName("ReviseDepreciationSchedule")
       .Produces<ReviseDepreciationScheduleCommandResult>(StatusCodes.Status201Created)

@@ -23,6 +23,156 @@ namespace Identity.Infrastructure.Data.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("AccessReview", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<int>("AccountCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("account_count");
+
+                    b.Property<DateTime?>("ClosedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("closed_at");
+
+                    b.Property<string>("ClosedByName")
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("closed_by_name");
+
+                    b.Property<DateTime?>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CreatedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTime?>("LastModified")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_modified");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("last_modified_by");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("note");
+
+                    b.Property<DateTime>("StartedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("started_at");
+
+                    b.Property<Guid?>("StartedById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("started_by_id");
+
+                    b.Property<string>("StartedByName")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("started_by_name");
+
+                    b.HasKey("Id")
+                        .HasName("pk_access_reviews");
+
+                    b.HasIndex("StartedAt")
+                        .HasDatabaseName("ix_access_reviews_started_at");
+
+                    b.ToTable("access_reviews", "auth");
+                });
+
+            modelBuilder.Entity("AccessReviewDecision", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("AccessText")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("access_text");
+
+                    b.Property<DateTime?>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CreatedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTime>("DecidedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("decided_at");
+
+                    b.Property<Guid?>("DecidedById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("decided_by_id");
+
+                    b.Property<string>("DecidedByName")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("decided_by_name");
+
+                    b.Property<DateTime?>("LastModified")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_modified");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("last_modified_by");
+
+                    b.Property<DateTime?>("LastSignInAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_sign_in_at");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("note");
+
+                    b.Property<string>("Outcome")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("outcome");
+
+                    b.Property<Guid>("ReviewId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("review_id");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.Property<string>("UserName")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("user_name");
+
+                    b.HasKey("Id")
+                        .HasName("pk_access_review_decisions");
+
+                    b.HasIndex("ReviewId", "UserId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_access_review_decisions_review_id_user_id");
+
+                    b.ToTable("access_review_decisions", "auth");
+                });
+
             modelBuilder.Entity("AdminActivity", b =>
                 {
                     b.Property<Guid>("Id")
@@ -41,7 +191,7 @@ namespace Identity.Infrastructure.Data.Migrations
                         .HasColumnType("character varying(150)")
                         .HasColumnName("actor_name");
 
-                    b.Property<Guid>("ActorUserId")
+                    b.Property<Guid?>("ActorUserId")
                         .HasColumnType("uuid")
                         .HasColumnName("actor_user_id");
 
@@ -55,8 +205,8 @@ namespace Identity.Infrastructure.Data.Migrations
                         .HasColumnName("created_by");
 
                     b.Property<string>("Detail")
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
                         .HasColumnName("detail");
 
                     b.Property<string>("IpAddress")
@@ -113,6 +263,61 @@ namespace Identity.Infrastructure.Data.Migrations
                         .HasDatabaseName("ix_admin_activities_target_id");
 
                     b.ToTable("admin_activities", "auth");
+                });
+
+            modelBuilder.Entity("DutyRuleSwitch", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)")
+                        .HasColumnName("code");
+
+                    b.Property<DateTime>("ChangedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("changed_at");
+
+                    b.Property<Guid?>("ChangedById")
+                        .HasColumnType("uuid")
+                        .HasColumnName("changed_by_id");
+
+                    b.Property<string>("ChangedByName")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("changed_by_name");
+
+                    b.Property<DateTime?>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CreatedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("created_by");
+
+                    b.Property<bool>("IsOn")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_on");
+
+                    b.Property<DateTime?>("LastModified")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_modified");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("last_modified_by");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("reason");
+
+                    b.HasKey("Id")
+                        .HasName("pk_duty_rules");
+
+                    b.ToTable("duty_rules", "auth");
                 });
 
             modelBuilder.Entity("LoginAttempt", b =>
@@ -426,6 +631,12 @@ namespace Identity.Infrastructure.Data.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
+                    b.Property<int>("AccessReviewMonths")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(6)
+                        .HasColumnName("access_review_months");
+
                     b.Property<int>("AccessTokenMinutes")
                         .HasColumnType("integer")
                         .HasColumnName("access_token_minutes");
@@ -438,6 +649,12 @@ namespace Identity.Infrastructure.Data.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)")
                         .HasColumnName("created_by");
+
+                    b.Property<int>("DormantAfterDays")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(90)
+                        .HasColumnName("dormant_after_days");
 
                     b.Property<DateTime?>("LastModified")
                         .HasColumnType("timestamp with time zone")
@@ -479,6 +696,18 @@ namespace Identity.Infrastructure.Data.Migrations
                     b.Property<int>("RefreshTokenDays")
                         .HasColumnType("integer")
                         .HasColumnName("refresh_token_days");
+
+                    b.Property<int>("SignInMaxDays")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(30)
+                        .HasColumnName("sign_in_max_days");
+
+                    b.Property<bool>("SwitchOffDormant")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("switch_off_dormant");
 
                     b.HasKey("Id")
                         .HasName("pk_security_settings");
@@ -541,6 +770,10 @@ namespace Identity.Infrastructure.Data.Migrations
                         .HasColumnType("character varying(200)")
                         .HasColumnName("revoked_reason");
 
+                    b.Property<DateTime>("SignedInAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("signed_in_at");
+
                     b.Property<string>("UserAgent")
                         .HasMaxLength(512)
                         .HasColumnType("character varying(512)")
@@ -574,6 +807,12 @@ namespace Identity.Infrastructure.Data.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid")
                         .HasColumnName("id");
+
+                    b.Property<long>("AccessStamp")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(1L)
+                        .HasColumnName("access_stamp");
 
                     b.Property<DateTime?>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
@@ -852,6 +1091,71 @@ namespace Identity.Infrastructure.Data.Migrations
                     b.ToTable("user_roles", "auth");
                 });
 
+            modelBuilder.Entity("UserScope", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime?>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("CreatedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("kind");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("label");
+
+                    b.Property<DateTime?>("LastModified")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_modified");
+
+                    b.Property<string>("LastModifiedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("last_modified_by");
+
+                    b.Property<Guid>("RefId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("ref_id");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_user_scopes");
+
+                    b.HasIndex("UserId", "Kind", "RefId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_user_scopes_user_id_kind_ref_id");
+
+                    b.ToTable("user_scopes", "auth");
+                });
+
+            modelBuilder.Entity("AccessReviewDecision", b =>
+                {
+                    b.HasOne("AccessReview", null)
+                        .WithMany()
+                        .HasForeignKey("ReviewId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_access_review_decisions_access_reviews_review_id");
+                });
+
             modelBuilder.Entity("AdminActivity", b =>
                 {
                     b.HasOne("User", null)
@@ -945,6 +1249,16 @@ namespace Identity.Infrastructure.Data.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("fk_user_roles_users_user_id");
+                });
+
+            modelBuilder.Entity("UserScope", b =>
+                {
+                    b.HasOne("User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_user_scopes_users_user_id");
                 });
 #pragma warning restore 612, 618
         }

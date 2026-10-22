@@ -58,7 +58,7 @@ public class ComplianceEndpoints : ICarterModule
   {
     app.MapPost("/properties/{id:guid}/encroachments", async (Guid id, EncroachmentInput encroachment, ISender sender) =>
         (await sender.Send(new RecordEncroachmentCommand(id, encroachment))).ToCreated(r => $"/encroachments/{r.Id}"))
-      .RequirePermission(PermissionCatalog.Property.Edit)
+      .RequirePermission(PermissionCatalog.PropertyLegal.Edit)
       .WithTags("Encroachments").WithName("RecordEncroachment")
       .Produces<RecordEncroachmentCommandResult>(StatusCodes.Status201Created).ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Record Encroachment")
@@ -66,38 +66,38 @@ public class ComplianceEndpoints : ICarterModule
 
     app.MapGet("/properties/{id:guid}/encroachments", async (Guid id, bool? unresolvedOnly, ISender sender) =>
         (await sender.Send(new GetPropertyEncroachmentsQuery(id, unresolvedOnly ?? false))).ToOk())
-      .RequirePermission(PermissionCatalog.Property.View)
+      .RequirePermission(PermissionCatalog.PropertyLegal.View)
       .WithTags("Encroachments").WithName("GetPropertyEncroachments").Produces<GetEncroachmentsQueryResult>()
       .WithSummary("Get Encroachments");
 
     var encroachments = app.MapGroup("/encroachments").WithTags("Encroachments");
 
     encroachments.MapGet("/{id:guid}", async (Guid id, ISender sender) => (await sender.Send(new GetEncroachmentQuery(id))).ToOk())
-      .RequirePermission(PermissionCatalog.Property.View)
+      .RequirePermission(PermissionCatalog.PropertyLegal.View)
       .WithName("GetEncroachment").Produces<GetEncroachmentQueryResult>().ProducesProblem(StatusCodes.Status404NotFound)
       .WithSummary("Get Encroachment");
 
     encroachments.MapPut("/{id:guid}", async (Guid id, EncroachmentDetailsInput details, ISender sender) =>
         (await sender.Send(new UpdateEncroachmentCommand(id, details))).ToOk())
-      .RequirePermission(PermissionCatalog.Property.Edit)
+      .RequirePermission(PermissionCatalog.PropertyLegal.Edit)
       .WithName("UpdateEncroachment").Produces<EncroachmentActionResult>().ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Update Encroachment").WithDescription("Encroacher and description. The area is fixed once recorded — a different area is a new case.");
 
     encroachments.MapPost("/{id:guid}/notice", async (Guid id, EncroachmentNoticeRequest request, ISender sender) =>
         (await sender.Send(new IssueEncroachmentNoticeCommand(id, request.NoticeNo, request.NoticeDate))).ToOk())
-      .RequirePermission(PermissionCatalog.Property.Edit)
+      .RequirePermission(PermissionCatalog.PropertyLegal.Edit)
       .WithName("IssueEncroachmentNotice").Produces<EncroachmentActionResult>().ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Issue Encroachment Notice").WithDescription("Dated between the detection date and today. An ACTIVE encroachment moves to UNDER_NOTICE.");
 
     encroachments.MapPost("/{id:guid}/status", async (Guid id, ChangeMasterStatusRequest request, ISender sender) =>
         (await sender.Send(new ChangeEncroachmentStatusCommand(id, request.StatusId))).ToOk())
-      .RequirePermission(PermissionCatalog.Property.Edit)
+      .RequirePermission(PermissionCatalog.PropertyLegal.Edit)
       .WithName("ChangeEncroachmentStatus").Produces<EncroachmentActionResult>().ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Change Encroachment Status").WithDescription("Under Notice, Under Litigation ...");
 
     encroachments.MapPost("/{id:guid}/resolve", async (Guid id, ResolveEncroachmentRequest request, ISender sender) =>
         (await sender.Send(new ResolveEncroachmentCommand(id, request.ResolutionDate, request.ResolutionType, request.ResolutionReferenceNo, request.OpenRegularization))).ToOk())
-      .RequirePermission(PermissionCatalog.Property.Approve)
+      .RequirePermission(PermissionCatalog.PropertyLegal.Approve)
       .WithName("ResolveEncroachment").Produces<EncroachmentActionResult>().ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Resolve Encroachment")
       .WithDescription("An approver closes the case (resolution date not in the future). Removed / Litigated → RESOLVED. Regularized → REGULARIZED; with "
@@ -105,7 +105,7 @@ public class ComplianceEndpoints : ICarterModule
 
     encroachments.MapPost("/{id:guid}/boundary", async (Guid id, EncroachmentBoundaryRequest request, ISender sender) =>
         (await sender.Send(new SetEncroachmentBoundaryCommand(id, request.Points))).ToOk())
-      .RequirePermission(PermissionCatalog.Property.Edit)
+      .RequirePermission(PermissionCatalog.PropertyLegal.Edit)
       .WithName("SetEncroachmentBoundary").Produces<EncroachmentActionResult>().ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Capture Encroached Polygon").WithDescription("Once per encroachment; it is never overwritten.");
   }
@@ -118,14 +118,14 @@ public class ComplianceEndpoints : ICarterModule
   {
     app.MapPost("/properties/{id:guid}/litigations", async (Guid id, LitigationInput litigation, ISender sender) =>
         (await sender.Send(new FileLitigationCommand(id, litigation))).ToCreated(r => $"/litigations/{r.Id}"))
-      .RequirePermission(PermissionCatalog.Property.Edit)
+      .RequirePermission(PermissionCatalog.PropertyLegal.Edit)
       .WithTags("Litigation").WithName("FileLitigation")
       .Produces<FileLitigationCommandResult>(StatusCodes.Status201Created).ProducesProblem(StatusCodes.Status400BadRequest).ProducesProblem(StatusCodes.Status403Forbidden)
       .WithSummary("Record Court Case")
       .WithDescription("case_no + court must be unique; a new case starts open (PENDING by default). A criminal complaint is filed only by an authorized officer (Act s.30; 403 otherwise) and is recorded against that signed-in officer (filedByOfficerId is never taken from the request). relatedEncroachmentId moves an unresolved encroachment to UNDER_LITIGATION. With parentLitigationId the case is an appeal: the lower-court case must be DECIDED (not pending, not already appealed) and becomes APPEALED.");
 
     app.MapGet("/properties/{id:guid}/litigations", async (Guid id, ISender sender) => (await sender.Send(new GetPropertyLitigationsQuery(id))).ToOk())
-      .RequirePermission(PermissionCatalog.Property.View)
+      .RequirePermission(PermissionCatalog.PropertyLegal.View)
       .WithTags("Litigation").WithName("GetPropertyLitigations").Produces<GetLitigationsQueryResult>()
       .WithSummary("Get Court Cases");
 
@@ -133,44 +133,44 @@ public class ComplianceEndpoints : ICarterModule
 
     litigations.MapGet("/upcoming-hearings", async (int? days, ISender sender) =>
         (await sender.Send(new GetUpcomingHearingsQuery(days ?? 30))).ToOk())
-      .RequirePermission(PermissionCatalog.Property.View)
+      .RequirePermission(PermissionCatalog.PropertyLegal.View)
       .WithName("GetUpcomingHearings").Produces<GetLitigationsQueryResult>()
       .WithSummary("Hearing Diary").WithDescription("Cases with a hearing in the next `days` days (default 30), soonest first.");
 
     litigations.MapGet("/{id:guid}", async (Guid id, ISender sender) => (await sender.Send(new GetLitigationQuery(id))).ToOk())
-      .RequirePermission(PermissionCatalog.Property.View)
+      .RequirePermission(PermissionCatalog.PropertyLegal.View)
       .WithName("GetLitigation").Produces<GetLitigationQueryResult>().ProducesProblem(StatusCodes.Status404NotFound)
       .WithSummary("Get Court Case").WithDescription("The case with its parties and hearing log.");
 
     litigations.MapPut("/{id:guid}", async (Guid id, LitigationDetailsInput details, ISender sender) =>
         (await sender.Send(new UpdateLitigationCommand(id, details))).ToOk())
-      .RequirePermission(PermissionCatalog.Property.Edit)
+      .RequirePermission(PermissionCatalog.PropertyLegal.Edit)
       .WithName("UpdateLitigation").Produces<LitigationActionResult>().ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Update Court Case").WithDescription("Open cases only. Changing the type to Criminal Complaint needs an authorized officer (403 otherwise), who becomes the filing officer; the officer of an existing complaint never changes.");
 
     litigations.MapPost("/{id:guid}/parties", async (Guid id, LitigationPartyInput party, ISender sender) =>
         (await sender.Send(new AddLitigationPartyCommand(id, party))).ToOk())
-      .RequirePermission(PermissionCatalog.Property.Edit)
+      .RequirePermission(PermissionCatalog.PropertyLegal.Edit)
       .WithName("AddLitigationParty").Produces<LitigationActionResult>().ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Add Party").WithDescription("Open cases only.");
 
     litigations.MapPost("/{id:guid}/hearings", async (Guid id, RecordHearingRequest request, ISender sender) =>
         (await sender.Send(new RecordHearingCommand(id, request.HearingDate, request.Proceedings, request.OrderPassed, request.NextHearingDate,
           request.AttendedBy, request.AttendedByEmployeeId))).ToOk())
-      .RequirePermission(PermissionCatalog.Property.Edit)
+      .RequirePermission(PermissionCatalog.PropertyLegal.Edit)
       .WithName("RecordHearing").Produces<LitigationActionResult>().ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Record Hearing").WithDescription("Open cases only; a hearing that took place (not in the future). Its next hearing date becomes the case's "
         + "next hearing date. attendedBy / attendedByEmployeeId: the GDA officer, picked from the staff list.");
 
     litigations.MapPost("/{id:guid}/status", async (Guid id, ChangeMasterStatusRequest request, ISender sender) =>
         (await sender.Send(new ChangeLitigationStatusCommand(id, request.StatusId))).ToOk())
-      .RequirePermission(PermissionCatalog.Property.Edit)
+      .RequirePermission(PermissionCatalog.PropertyLegal.Edit)
       .WithName("ChangeLitigationStatus").Produces<LitigationActionResult>().ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Change Case Status").WithDescription("Withdrawn, Settled, Closed ... (these close the case and clear its next hearing). Decided goes through decide; Appealed by filing the appeal as a new case. Decided, Appealed, Withdrawn, Settled and Closed cases cannot change.");
 
     litigations.MapPost("/{id:guid}/decide", async (Guid id, DecideLitigationRequest request, ISender sender) =>
         (await sender.Send(new DecideLitigationCommand(id, request.DecisionDate, request.DecisionOutcome, request.DecisionResult, request.ResolveRelatedEncroachment))).ToOk())
-      .RequirePermission(PermissionCatalog.Property.Approve)
+      .RequirePermission(PermissionCatalog.PropertyLegal.Approve)
       .WithName("DecideLitigation").Produces<LitigationActionResult>().ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Record Decision")
       .WithDescription("An approver records the decision (date not in the future): decisionOutcome (its wording) and decisionResult (InFavourOfGda | AgainstGda | "
@@ -186,41 +186,41 @@ public class ComplianceEndpoints : ICarterModule
   {
     app.MapPost("/properties/{id:guid}/appeals", async (Guid id, AppealInput appeal, ISender sender) =>
         (await sender.Send(new FileAppealCommand(id, appeal))).ToCreated(r => $"/appeals/{r.Id}"))
-      .RequirePermission(PermissionCatalog.Property.Edit)
+      .RequirePermission(PermissionCatalog.PropertyLegal.Edit)
       .WithTags("Appeals").WithName("FileAppeal")
       .Produces<FileAppealCommandResult>(StatusCodes.Status201Created).ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("File Appeal To Chief Secretary")
       .WithDescription("APL-00001 is generated; decisionDueDate = appealDate + 120 days. Filed more than 30 days after the order was received → a warning is returned (rule 6). An order is appealed once: refused while another appeal against the same order (same record, or same order ref) is open or after one was decided. An appeal against a violation marks it APPEALED (a rectified violation cannot be appealed).");
 
     app.MapGet("/properties/{id:guid}/appeals", async (Guid id, ISender sender) => (await sender.Send(new GetPropertyAppealsQuery(id))).ToOk())
-      .RequirePermission(PermissionCatalog.Property.View)
+      .RequirePermission(PermissionCatalog.PropertyLegal.View)
       .WithTags("Appeals").WithName("GetPropertyAppeals").Produces<GetAppealsQueryResult>().WithSummary("Get Appeals");
 
     var appeals = app.MapGroup("/appeals").WithTags("Appeals");
 
     appeals.MapGet("/overdue", async (ISender sender) => (await sender.Send(new GetOverdueAppealsQuery())).ToOk())
-      .RequirePermission(PermissionCatalog.Property.View)
+      .RequirePermission(PermissionCatalog.PropertyLegal.View)
       .WithName("GetOverdueAppeals").Produces<GetAppealsQueryResult>()
       .WithSummary("Overdue Appeals").WithDescription("Open appeals past their 120-day decision date (Act s.32(1)).");
 
     appeals.MapGet("/{id:guid}", async (Guid id, ISender sender) => (await sender.Send(new GetAppealQuery(id))).ToOk())
-      .RequirePermission(PermissionCatalog.Property.View)
+      .RequirePermission(PermissionCatalog.PropertyLegal.View)
       .WithName("GetAppeal").Produces<GetAppealQueryResult>().ProducesProblem(StatusCodes.Status404NotFound).WithSummary("Get Appeal");
 
     appeals.MapPut("/{id:guid}", async (Guid id, AppealInput appeal, ISender sender) =>
         (await sender.Send(new UpdateAppealCommand(id, appeal))).ToOk())
-      .RequirePermission(PermissionCatalog.Property.Edit)
+      .RequirePermission(PermissionCatalog.PropertyLegal.Edit)
       .WithName("UpdateAppeal").Produces<AppealActionResult>().ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Update Appeal").WithDescription("While FILED only. The appealed record (orderSourceTable / orderSourceId) cannot change: withdraw and file a new appeal.");
 
     appeals.MapPost("/{id:guid}/start-hearing", async (Guid id, ISender sender) => (await sender.Send(new StartAppealHearingCommand(id))).ToOk())
-      .RequirePermission(PermissionCatalog.Property.Edit)
+      .RequirePermission(PermissionCatalog.PropertyLegal.Edit)
       .WithName("StartAppealHearing").Produces<AppealActionResult>().ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Move Appeal To Hearing");
 
     appeals.MapPost("/{id:guid}/decide", async (Guid id, DecideAppealRequest request, ISender sender) =>
         (await sender.Send(new DecideAppealCommand(id, request.DecisionDate, request.DecisionOutcome, request.DecisionDetails))).ToOk())
-      .RequirePermission(PermissionCatalog.Property.Approve)
+      .RequirePermission(PermissionCatalog.PropertyLegal.Approve)
       .WithName("DecideAppeal").Produces<AppealActionResult>().ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Record Appeal Decision").WithDescription("Allowed / Dismissed / Remanded / Modified; the decision date is not in the future. The decision "
         + "is final (s.32); a late decision returns a warning. On an appealed violation: Allowed sets it aside (RECTIFIED with a remark, an imposed fine "
@@ -230,7 +230,7 @@ public class ComplianceEndpoints : ICarterModule
 
     appeals.MapPost("/{id:guid}/withdraw", async (Guid id, RemarksRequest request, ISender sender) =>
         (await sender.Send(new WithdrawAppealCommand(id, request.Remarks))).ToOk())
-      .RequirePermission(PermissionCatalog.Property.Edit)
+      .RequirePermission(PermissionCatalog.PropertyLegal.Edit)
       .WithName("WithdrawAppeal").Produces<AppealActionResult>().ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Withdraw Appeal").WithDescription("An appealed violation goes back to its status before the appeal. A withdrawn appeal does not block a new appeal against the same order.");
   }

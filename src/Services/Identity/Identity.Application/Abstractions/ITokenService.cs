@@ -10,6 +10,7 @@ public interface ITokenService
       SessionId sessionId,
       IReadOnlyCollection<string> permissionCodes,
       IReadOnlyCollection<string> roleCodes,
+      IReadOnlyCollection<UserScope> scopes,
       TimeSpan lifetime);
 
   /// Generates a cryptographically random refresh token plus the hash to store.

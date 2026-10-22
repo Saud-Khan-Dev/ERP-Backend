@@ -11,18 +11,24 @@ public static class DependencyInjection
 
     services.AddScoped<ISaveChangesInterceptor, AuditableEntityInterceptors>();
     services.AddScoped<ISaveChangesInterceptor, DispatchDomainEventInterceptor>();
-    services.AddScoped<ISaveChangesInterceptor, AuditLogInterceptor>();
+
+    // the audit trail (audit_entry): every change in the same save, who did it, before and after
+    services.AddAuditTrail<ApplicationDbContext>(TaxationAudit.Module, TaxationAudit.Configure);
 
     services.AddDbContext<ApplicationDbContext>((sp, opt) =>
     {
       opt.AddInterceptors(sp.GetServices<ISaveChangesInterceptor>()!);
+      // last, so it sees the rows the other interceptors stamped
+      opt.AddInterceptors(sp.GetRequiredService<AuditTrailInterceptor>());
       // Shared ERP database: this service owns the "taxation" schema and its own migrations history.
       opt.UseNpgsql(connectionString, npgsql => npgsql.MigrationsHistoryTable("__EFMigrationsHistory", ApplicationDbContext.Schema));
       // schema naming: tax_file_basis, effective_from ...
       opt.UseSnakeCaseNamingConvention();
     });
 
-    services.AddScoped<IApplicationDbContext, ApplicationDbContext>();
+    // one context per request: the handlers' and the audit trail's lines are saved together
+    services.AddScoped<IApplicationDbContext>(sp => sp.GetRequiredService<ApplicationDbContext>());
+    services.AddScoped<ISystemJobSource, TaxationJobs>();
     services.AddScoped<INumberSource, PostgresNumberSource>();
 
     // ---- files ----

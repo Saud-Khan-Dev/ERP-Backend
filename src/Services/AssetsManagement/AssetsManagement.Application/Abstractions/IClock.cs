@@ -9,4 +9,7 @@ public interface IClock
 
   /// The organisation's calendar day of an instant.
   DateOnly DayOf(DateTime utc);
+
+  /// The organisation's local time of an instant (what a person in GDA reads on a clock).
+  DateTime LocalOf(DateTime utc);
 }

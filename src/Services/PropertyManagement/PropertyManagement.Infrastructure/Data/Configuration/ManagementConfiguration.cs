@@ -210,7 +210,7 @@ public class PropertyAuctionConfiguration : EntityConfiguration<PropertyAuction,
     builder.HasOne<PropertyOwner>().WithMany().HasForeignKey(x => x.SuccessfulBidderOwnerId).OnDelete(DeleteBehavior.Restrict);
     builder.HasOne<PropertyAuction>().WithMany().HasForeignKey(x => x.PreviousAuctionId).OnDelete(DeleteBehavior.Restrict);
 
-    builder.HasMany(x => x.Bids).WithOne().HasForeignKey(b => b.AuctionId).OnDelete(DeleteBehavior.Restrict);
+    builder.HasMany(x => x.Bids).WithOne(b => b.Auction).HasForeignKey(b => b.AuctionId).OnDelete(DeleteBehavior.Restrict);
     builder.Navigation(x => x.Bids).UsePropertyAccessMode(PropertyAccessMode.Field);
   }
 }

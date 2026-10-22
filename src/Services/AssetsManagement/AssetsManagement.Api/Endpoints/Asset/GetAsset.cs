@@ -1,4 +1,5 @@
-public sealed record GetAssetResponse(AssetDto Asset, IReadOnlyList<ResolvedAttributeDto> AttributeSchema, IReadOnlyList<RetiredAttributeDto> RetiredAttributes);
+public sealed record GetAssetResponse(AssetDto Asset, IReadOnlyList<ResolvedAttributeDto> AttributeSchema, IReadOnlyList<RetiredAttributeDto> RetiredAttributes,
+  PendingDisposalDto? PendingDisposal);
 
 public class GetAsset : ICarterModule
 {
@@ -7,7 +8,7 @@ public class GetAsset : ICarterModule
     app.MapGet("/assets/{id}", async (Guid id, ISender sender) =>
     {
       var result = await sender.Send(new GetAssetQuery(id));
-      return Results.Ok(new GetAssetResponse(result.Value!.Asset, result.Value.AttributeSchema, result.Value.RetiredAttributes));
+      return Results.Ok(new GetAssetResponse(result.Value!.Asset, result.Value.AttributeSchema, result.Value.RetiredAttributes, result.Value.PendingDisposal));
     })
       .RequirePermission(PermissionCatalog.Assets.View)
 

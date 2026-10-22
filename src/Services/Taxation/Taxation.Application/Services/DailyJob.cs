@@ -5,10 +5,17 @@ using Microsoft.Extensions.Logging;
 /// The daily job: the year-end surcharges of years that are over (the demands become defaulted), then the notices due for
 /// their next stage, prepared for confirmation. Each step is idempotent. The run is recorded in taxation.job_run (its own
 /// save, so a failure is recorded too); run by the schedule (DailyJobService) or at once by an officer.
+///
+/// The audit trail gets one "Ran" line per run (what it did, or why it failed) instead of a line per surcharge and notice;
+/// a scheduled run is written as "System · Daily job", a run started by a person under their name.
 public sealed class DailyJob(IServiceScopeFactory scopes, ILogger<DailyJob> logger)
 {
+  public const string AuditKind = "Daily job";
+
   public async Task<JobRunDto> RunAsync(Guid? startedBy, CancellationToken cancellationToken)
   {
+    using var system = startedBy is null ? AuditScope.ActingAs("Daily job") : null;
+    using var quiet = AuditScope.Quietly();
     JobRunId id;
     using (var scope = scopes.CreateScope())
     {
@@ -34,6 +41,7 @@ public sealed class DailyJob(IServiceScopeFactory scopes, ILogger<DailyJob> logg
       var summary = $"{yearEnd} year-end surcharge(s) applied; {prepared.Count} notice(s) prepared for confirmation"
         + (calendars.FellBack ? "; HRM holidays could not be read, so notice days skipped weekends only" : "") + ".";
       run.Finish(yearEnd, prepared.Count, summary, clock.UtcNow);
+      sp.GetRequiredService<IAuditTrail>().Record(AuditActions.Ran, AuditKind, run.Id.Value, run.RunDate.ToString("yyyy-MM-dd"), null, null, null, summary);
       await context.SaveChangesAsync(cancellationToken);
       return run.ToDto();
     }
@@ -45,6 +53,8 @@ public sealed class DailyJob(IServiceScopeFactory scopes, ILogger<DailyJob> logg
       var clock = scope.ServiceProvider.GetRequiredService<IClock>();
       var run = await context.JobRuns.FirstAsync(r => r.Id == id, cancellationToken);
       run.Fail(ex is DomainException d ? DomainMessages.Text(d) : ex.Message, clock.UtcNow);
+      scope.ServiceProvider.GetRequiredService<IAuditTrail>().Record(AuditActions.Ran, AuditKind, run.Id.Value, run.RunDate.ToString("yyyy-MM-dd"), null, null, null,
+        "Failed: " + run.Error);
       await context.SaveChangesAsync(cancellationToken);
       return run.ToDto();
     }

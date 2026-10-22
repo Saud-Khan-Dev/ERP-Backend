@@ -611,6 +611,123 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
                     b.ToTable("auction_type", "property");
                 });
 
+            modelBuilder.Entity("AuditRecord", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("action");
+
+                    b.Property<Guid?>("ActorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("actor_id");
+
+                    b.Property<string>("ActorName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("actor_name");
+
+                    b.Property<DateTimeOffset>("At")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("at");
+
+                    b.Property<string>("Detail")
+                        .HasColumnType("text")
+                        .HasColumnName("detail");
+
+                    b.Property<string>("Device")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
+                        .HasColumnName("device");
+
+                    b.Property<string>("Field")
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("field");
+
+                    b.Property<string>("IpAddress")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("ip_address");
+
+                    b.Property<string>("Module")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)")
+                        .HasColumnName("module");
+
+                    b.Property<string>("NewValue")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)")
+                        .HasColumnName("new_value");
+
+                    b.Property<string>("OldValue")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)")
+                        .HasColumnName("old_value");
+
+                    b.Property<string>("ParentCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("parent_code");
+
+                    b.Property<Guid?>("ParentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("parent_id");
+
+                    b.Property<string>("RecordCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("record_code");
+
+                    b.Property<Guid?>("RecordId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("record_id");
+
+                    b.Property<string>("RecordKind")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("record_kind");
+
+                    b.Property<string>("RecordLabel")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
+                        .HasColumnName("record_label");
+
+                    b.Property<string>("RequestId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("request_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_audit_entry");
+
+                    b.HasIndex("At")
+                        .HasDatabaseName("ix_audit_entry_at");
+
+                    b.HasIndex("ActorId", "At")
+                        .HasDatabaseName("ix_audit_entry_actor_id_at");
+
+                    b.HasIndex("ParentId", "At")
+                        .HasDatabaseName("ix_audit_entry_parent_id_at");
+
+                    b.HasIndex("RecordId", "At")
+                        .HasDatabaseName("ix_audit_entry_record_id_at");
+
+                    b.HasIndex("RecordKind", "At")
+                        .HasDatabaseName("ix_audit_entry_record_kind_at");
+
+                    b.ToTable("audit_entry", "property");
+                });
+
             modelBuilder.Entity("BoundaryPoint", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1759,6 +1876,21 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
                         .HasDatabaseName("ix_owner_type_code");
 
                     b.ToTable("owner_type", "property");
+                });
+
+            modelBuilder.Entity("OwnershipLink", b =>
+                {
+                    b.Property<Guid>("OwnerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("owner_id");
+
+                    b.Property<Guid>("PropertyId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("property_id");
+
+                    b.ToTable((string)null);
+
+                    b.ToView("property_ownership", "property");
                 });
 
             modelBuilder.Entity("Property", b =>
@@ -4384,7 +4516,7 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
 
             modelBuilder.Entity("AuctionBid", b =>
                 {
-                    b.HasOne("PropertyAuction", null)
+                    b.HasOne("PropertyAuction", "Auction")
                         .WithMany("Bids")
                         .HasForeignKey("AuctionId")
                         .OnDelete(DeleteBehavior.Restrict)
@@ -4397,6 +4529,8 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_auction_bid_property_owner_bidder_owner_id");
+
+                    b.Navigation("Auction");
                 });
 
             modelBuilder.Entity("BoundaryPoint", b =>
@@ -4463,17 +4597,19 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
 
             modelBuilder.Entity("LitigationHearing", b =>
                 {
-                    b.HasOne("PropertyLitigation", null)
+                    b.HasOne("PropertyLitigation", "Litigation")
                         .WithMany("Hearings")
                         .HasForeignKey("LitigationId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_litigation_hearing_property_litigation_litigation_id");
+
+                    b.Navigation("Litigation");
                 });
 
             modelBuilder.Entity("LitigationParty", b =>
                 {
-                    b.HasOne("PropertyLitigation", null)
+                    b.HasOne("PropertyLitigation", "Litigation")
                         .WithMany("Parties")
                         .HasForeignKey("LitigationId")
                         .OnDelete(DeleteBehavior.Restrict)
@@ -4485,6 +4621,8 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
                         .HasForeignKey("PartyOwnerId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .HasConstraintName("fk_litigation_party_property_owner_party_owner_id");
+
+                    b.Navigation("Litigation");
                 });
 
             modelBuilder.Entity("OwnerAddress", b =>
@@ -5031,12 +5169,14 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
                         .IsRequired()
                         .HasConstraintName("fk_property_transfer_party_property_owner_owner_id");
 
-                    b.HasOne("PropertyTransfer", null)
+                    b.HasOne("PropertyTransfer", "Transfer")
                         .WithMany("Parties")
                         .HasForeignKey("PropertyTransferId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_property_transfer_party_property_transfer_property_transfer");
+
+                    b.Navigation("Transfer");
                 });
 
             modelBuilder.Entity("PropertyAuction", b =>

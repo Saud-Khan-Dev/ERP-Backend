@@ -320,6 +320,7 @@ Enum loan_status_enum {
   completed
   cancelled
   written_off
+  pending
 }
 
 Enum installment_status_enum {
@@ -1046,6 +1047,7 @@ Table leave_application {
   decision_reason text
   hr_action_id uuid
   created_at timestamptz [not null, default: `now()`]
+  created_by uuid
   updated_at timestamptz
   updated_by uuid
 
@@ -1890,3 +1892,26 @@ Ref: hr_action_request.recruitment_method_id > recruitment_method.id
 Ref: hr_action_request.leave_application_id > leave_application.id
 Ref: leave_application.hr_action_id > hr_action_request.id
 Ref: performance_review.countersigning_officer_id > employee.id
+
+Table audit_entry {
+  id uuid [pk]
+  at timestamptz [not null]
+  module varchar(60) [not null]
+  actor_id uuid
+  actor_name varchar(200) [not null]
+  action varchar(40) [not null]
+  record_kind varchar(100) [not null]
+  record_id uuid
+  record_code varchar(100)
+  record_label varchar(300)
+  parent_id uuid
+  parent_code varchar(100)
+  field varchar(150)
+  old_value varchar(4000)
+  new_value varchar(4000)
+  detail varchar
+  ip_address varchar(64)
+  device varchar(300)
+  request_id varchar(100)
+  Note: 'The shared audit trail: append-only (triggers refuse UPDATE, DELETE and TRUNCATE).'
+}

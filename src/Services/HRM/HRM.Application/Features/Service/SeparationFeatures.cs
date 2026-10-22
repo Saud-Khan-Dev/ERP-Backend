@@ -94,7 +94,7 @@ public class UpdateSeparationCommandValidator : AbstractValidator<UpdateSeparati
   }
 }
 
-public class SeparationHandlers(IApplicationDbContext context, ServiceRecordWriter writer, HrLookup lookup, ICurrentUser currentUser) :
+public class SeparationHandlers(IApplicationDbContext context, ServiceRecordWriter writer, HrLookup lookup, ICurrentUser currentUser, DutyGuard duty, IAuditTrail audit) :
   IQueryHandler<GetSeparationsQuery, Result<GetSeparationsQueryResult>>,
   IQueryHandler<GetEmployeeSeparationQuery, Result<GetSeparationQueryResult>>,
   IQueryHandler<GetSeparationChecklistQuery, Result<SeparationChecklistDto>>,
@@ -148,6 +148,7 @@ public class SeparationHandlers(IApplicationDbContext context, ServiceRecordWrit
   public async Task<Result<RecordSeparationResult>> Handle(RecordSeparationCommand command, CancellationToken cancellationToken)
   {
     var employee = await context.LoadEmployeeAsync(command.EmployeeId, cancellationToken);
+    await duty.EnsureNotOwnRecordAsync(employee.Id, "record a separation", employee, cancellationToken);
 
     EmployeeDocumentId? documentId = null;
     if (command.SupportingDocumentId is { } doc)
@@ -162,6 +163,8 @@ public class SeparationHandlers(IApplicationDbContext context, ServiceRecordWrit
       command.Reason, command.NoticePeriodDays, command.EmploymentStatus, command.EventTypeId is { } eventType ? ServiceEventTypeId.Of(eventType) : null,
       documentId, currentUser.UserId), cancellationToken);
 
+    audit.Record(HrmVerbs.Separated, employee, $"{EnumText.Label(command.SeparationType)} on {command.SeparationDate:yyyy-MM-dd}"
+      + (string.IsNullOrWhiteSpace(command.Reason) ? "" : $" · Reason: {command.Reason.Trim()}"));
     await context.SaveChangesAsync(cancellationToken);
     return Result<RecordSeparationResult>.Success(new(separation.Id.Value, checklist));
   }
@@ -171,6 +174,7 @@ public class SeparationHandlers(IApplicationDbContext context, ServiceRecordWrit
     var separationId = SeparationId.Of(command.Id);
     var separation = await context.Separations.FirstOrDefaultAsync(s => s.Id == separationId, cancellationToken)
       ?? throw new SeparationNotFoundException($"Separation {command.Id} was not found.");
+    await duty.EnsureNotOwnRecordAsync(separation.EmployeeId, "change a separation settlement", separation, cancellationToken);
     separation.UpdateSettlement(command.OrderNumber, command.Reason, command.NoticePeriodDays, command.FinalSettlementAmount,
       command.OutstandingLoanAmount, command.LeaveEncashmentAmount, command.PensionReference);
     await context.SaveChangesAsync(cancellationToken);

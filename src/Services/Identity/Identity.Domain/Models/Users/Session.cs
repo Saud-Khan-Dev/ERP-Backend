@@ -10,6 +10,9 @@ public class Session : Aggregate<SessionId>
   public IpAddress? IpAddress { get; private set; }
   public string? UserAgent { get; private set; }
   public DateTime IssuedAt { get; private set; }
+  /// When the person typed their password for this sign-in: carried through every rotation, so a sign-in cannot be
+  /// renewed for ever (SecuritySettings.SignInMaxDays).
+  public DateTime SignedInAt { get; private set; }
   public DateTime ExpiresAt { get; private set; }
   public DateTime? RevokedAt { get; private set; }
   public string? RevokedReason { get; private set; }
@@ -29,7 +32,8 @@ public class Session : Aggregate<SessionId>
       IpAddress? ipAddress,
       string? userAgent,
       DateTime issuedAt,
-      DateTime expiresAt)
+      DateTime expiresAt,
+      DateTime? signedInAt = null)
   {
     ArgumentNullException.ThrowIfNull(userId);
 
@@ -47,6 +51,7 @@ public class Session : Aggregate<SessionId>
       IpAddress = ipAddress,
       UserAgent = Truncate(userAgent),
       IssuedAt = issuedAt,
+      SignedInAt = signedInAt ?? issuedAt,
       ExpiresAt = expiresAt
     };
   }

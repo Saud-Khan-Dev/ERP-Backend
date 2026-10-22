@@ -50,11 +50,11 @@ public class MoneyEndpoints : ICarterModule
         + "confirmation and a reference re-sync. A demand already surcharged by the rule is left out.");
 
     app.MapPost("/penalties/year-end", async (ISender sender) => (await sender.Send(new ApplyYearEndCommand())).ToOk())
-      .RequirePermission(PermissionCatalog.Tax.Edit)
+      .RequirePermission(PermissionCatalog.Tax.Run)
       .WithTags("Penalties").WithName("ApplyYearEnd").Produces<ApplyYearEndResult>()
       .WithSummary("Apply Year-end Surcharge")
       .WithDescription("The automatic surcharge on whatever is outstanding once 30 June of a demand's year is over; the demand becomes defaulted. Each demand takes it "
-        + "once, so it is safe to run daily (a demand run also applies it first).");
+        + "once, so it is safe to run daily (a demand run also applies it first). TAX.RUN, and every town.");
 
     // ---- payments ----
 
@@ -70,11 +70,12 @@ public class MoneyEndpoints : ICarterModule
         + "no., issued as MR-00001 when not given; a number is used once). Not more than is behind the reference. The file is locked while it is taken.");
 
     payments.MapPost("/{id:guid}/reverse", async (Guid id, ReasonRequest r, ISender sender) => (await sender.Send(new ReversePaymentCommand(id, r.Reason))).ToOk())
-      .RequirePermission(PermissionCatalog.Tax.Approve)
+      .RequirePermission(PermissionCatalog.Tax.Reverse)
       .WithName("ReversePayment").Produces<ReversePaymentResult>().ProducesProblem(StatusCodes.Status400BadRequest).ProducesProblem(StatusCodes.Status404NotFound)
       .WithSummary("Reverse Payment")
       .WithDescription("A bounced cheque or a posting on the wrong reference: everything it paid is owed again (a year carried since is billed again on the demand "
-        + "holding the balance), a fee it paid is due again, and the reference is re-synced. The payment stays on record as reversed, with the reason.");
+        + "holding the balance), a fee it paid is due again, and the reference is re-synced. The payment stays on record as reversed, with the reason. TAX.REVERSE; "
+        + "while the duty rule TAX_PAYMENT_REVERSE is on, the person who posted the payment cannot reverse it.");
 
     payments.MapGet("/", async (int? pageIndex, int? pageSize, Guid? taxFileId, string? channel, DateOnly? from, DateOnly? to, string? search, string? kind, string? status,
         Guid? receivedBy, Guid? circleId, Guid? partyId, Guid? feeId, ISender sender) =>
@@ -161,7 +162,8 @@ public class MoneyEndpoints : ICarterModule
       .WithName("ChargeFee").Produces<ChargeFeeResult>(StatusCodes.Status201Created).ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Charge Fee")
       .WithDescription("Recorded due. payNow {channel, receiptNo, transactionRef, bankCode, paidAt}: its receipt is taken at once (needs TAX.POST); an exemption "
-        + "reason waives it at once (needs TAX.APPROVE; a gift or inheritance transfer). A paid water connection fee starts the file's water charges from today.");
+        + "reason waives it at once (needs TAX.WAIVE; a gift or inheritance transfer; refused while the duty rule TAX_FEE_WAIVE is on - the person charging a fee does "
+        + "not exempt it). A paid water connection fee starts the file's water charges from today.");
 
     fees.MapGet("/", async (int? pageIndex, int? pageSize, Guid? taxFileId, Guid? partyId, string? headCode, string? status, string? search, DateOnly? from, DateOnly? to,
         ISender sender) =>
@@ -183,15 +185,15 @@ public class MoneyEndpoints : ICarterModule
       .WithDescription("A payment for the fee's whole amount: channel cash | bank_counter (receiptNo, issued when not given) | onelink | qr_code | online (transactionRef).");
 
     fees.MapPost("/{id:guid}/waive", async (Guid id, WaiveRequest r, ISender sender) => (await sender.Send(new WaiveFeeCommand(id, r.Reason))).ToOk())
-      .RequirePermission(PermissionCatalog.Tax.Approve)
+      .RequirePermission(PermissionCatalog.Tax.Waive)
       .WithName("WaiveFee").Produces<UpdatedResult>().ProducesProblem(StatusCodes.Status400BadRequest)
-      .WithSummary("Waive Fee");
+      .WithSummary("Waive Fee").WithDescription("TAX.WAIVE; while the duty rule TAX_FEE_WAIVE is on, the person who charged the fee cannot waive it.");
 
     var clearances = app.MapGroup("/clearances").WithTags("Fees");
 
     clearances.MapPost("/", async (IssueClearanceRequest r, ISender sender) =>
         (await sender.Send(new IssueClearanceCommand(r.TaxFileId, r.Purpose, r.PropertyRefId, r.PropertyRefNo, r.FeeId))).ToCreated(c => $"/clearances/{c.Id}"))
-      .RequirePermission(PermissionCatalog.Tax.Approve)
+      .RequirePermission(PermissionCatalog.Tax.Issue)
       .WithName("IssueClearance").Produces<CreatedResult>(StatusCodes.Status201Created).ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Issue Clearance")
       .WithDescription("purpose = transfer | building_plan. Only when nothing is owed on the file: nothing behind its reference and no fee due on it. Valid for "
@@ -224,13 +226,13 @@ public class MoneyEndpoints : ICarterModule
       .RequireAnyPermission(TaxAuthorization.ClearanceConsumer)
       .WithName("ConsumeClearance").Produces<UpdatedResult>().ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Use a Clearance")
-      .WithDescription("When Property approves the transfer or plan with it (TAX.APPROVE or PROPERTY.APPROVE). Refused, with the reason, when it was already used, "
+      .WithDescription("When Property approves the transfer or plan with it (TAX.ISSUE or PROPERTY.APPROVE; the trail names who used it). Refused, with the reason, when it was already used, "
         + "has expired or was revoked; propertyId and purpose, when sent, must be the certificate's. propertyRefId / propertyRefNo: the transfer or plan that used it.");
 
-    clearances.MapPost("/{id:guid}/revoke", async (Guid id, ISender sender) => (await sender.Send(new RevokeClearanceCommand(id))).ToOk())
-      .RequirePermission(PermissionCatalog.Tax.Approve)
+    clearances.MapPost("/{id:guid}/revoke", async (Guid id, ReasonRequest r, ISender sender) => (await sender.Send(new RevokeClearanceCommand(id, r.Reason))).ToOk())
+      .RequirePermission(PermissionCatalog.Tax.Issue)
       .WithName("RevokeClearance").Produces<UpdatedResult>().ProducesProblem(StatusCodes.Status400BadRequest)
-      .WithSummary("Revoke Clearance");
+      .WithSummary("Revoke Clearance").WithDescription("reason: why (kept in the audit trail).");
 
   }
 }

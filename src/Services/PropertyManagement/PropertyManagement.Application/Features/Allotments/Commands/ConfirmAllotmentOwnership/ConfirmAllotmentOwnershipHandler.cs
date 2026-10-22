@@ -1,4 +1,4 @@
-public class ConfirmAllotmentOwnershipHandler(IApplicationDbContext context, MasterLookup masters)
+public class ConfirmAllotmentOwnershipHandler(IApplicationDbContext context, MasterLookup masters, IAuditTrail audit)
   : ICommandHandler<ConfirmAllotmentOwnershipCommand, Result<ConfirmAllotmentOwnershipCommandResult>>
 {
   public async Task<Result<ConfirmAllotmentOwnershipCommandResult>> Handle(ConfirmAllotmentOwnershipCommand command, CancellationToken cancellationToken)
@@ -16,6 +16,7 @@ public class ConfirmAllotmentOwnershipHandler(IApplicationDbContext context, Mas
     var ownership = allotment.ConfirmOwnership(
       OwnershipId.New(), status, allottee, tenure, command.OwnershipSharePct, command.EffectiveFrom,
       command.ReferenceNo, command.Remarks, record);
+    audit.Record(PropertyAuditActions.Confirmed, allotment, "The allottee is confirmed as owner");
 
     await context.Ownerships.AddAsync(ownership, cancellationToken);
     await context.SaveChangesAsync(cancellationToken);

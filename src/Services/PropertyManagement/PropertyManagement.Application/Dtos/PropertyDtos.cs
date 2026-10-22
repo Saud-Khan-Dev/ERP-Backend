@@ -219,7 +219,9 @@ public sealed record TransferPartyDto(OwnerRef? Owner, TransferPartyRole Role, d
 /// CompletedOn / CompletedBy: when and by whom the ownership register was changed. ClosedOn / ClosedBy /
 /// ClosingReason: the rejection or cancellation. ApprovedBy: the approver's name as it stood (the signed-in officer);
 /// ApprovedByUserId / ApprovedByEmployeeId: who that is (Identity account, HRM record when linked). NoDuesCertificateNo:
-/// the Taxation clearance the approval relied on.
+/// the Taxation clearance the approval relied on. RecordedPast: a transfer that already happened, entered while two people
+/// must pass every transfer - INITIATED, waiting for a second officer; its ApprovalDate / ApprovalOrderRef /
+/// NoDuesCertificateNo are the ones read off the paper, not yet an approval here.
 public sealed record TransferDto(
   Guid Id,
   PropertyRef? Property,
@@ -245,7 +247,8 @@ public sealed record TransferDto(
   string? ClosingReason,
   Guid? ApprovedByUserId = null,
   Guid? ApprovedByEmployeeId = null,
-  string? NoDuesCertificateNo = null);
+  string? NoDuesCertificateNo = null,
+  bool RecordedPast = false);
 
 public sealed record EncumbranceDto(
   Guid Id,

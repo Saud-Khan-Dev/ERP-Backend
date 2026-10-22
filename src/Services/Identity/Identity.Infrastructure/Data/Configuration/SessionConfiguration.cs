@@ -25,6 +25,7 @@ public class SessionConfiguration : EntityConfiguration<Session, SessionId>
 
     builder.Property(x => x.UserAgent).HasMaxLength(512).IsRequired(false);
     builder.Property(x => x.IssuedAt).IsRequired();
+    builder.Property(x => x.SignedInAt).IsRequired();
     builder.Property(x => x.ExpiresAt).IsRequired();
     builder.Property(x => x.RevokedAt).IsRequired(false);
     builder.Property(x => x.RevokedReason).HasMaxLength(200).IsRequired(false);

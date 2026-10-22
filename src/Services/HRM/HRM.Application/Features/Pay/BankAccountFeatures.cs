@@ -38,7 +38,7 @@ public class UpdateBankAccountCommandValidator : AbstractValidator<UpdateBankAcc
   public UpdateBankAccountCommandValidator() => RuleFor(x => x.Account).NotNull().SetValidator(new BankAccountInputValidator());
 }
 
-public class BankAccountHandlers(IApplicationDbContext context) :
+public class BankAccountHandlers(IApplicationDbContext context, DutyGuard duty, Sensitive sensitive) :
   IQueryHandler<GetBankAccountsQuery, Result<GetBankAccountsQueryResult>>,
   ICommandHandler<CreateBankAccountCommand, Result<CreatedResult>>,
   ICommandHandler<UpdateBankAccountCommand, Result<UpdatedResult>>,
@@ -51,12 +51,16 @@ public class BankAccountHandlers(IApplicationDbContext context) :
     var rows = await context.BankAccounts.AsNoTracking()
       .Where(a => a.EmployeeId == employeeId && (query.IncludeInactive || a.Status == RecordStatus.Active))
       .OrderByDescending(a => a.IsPrimary).ThenByDescending(a => a.CreatedAt).ToListAsync(cancellationToken);
-    return Result<GetBankAccountsQueryResult>.Success(new(rows.Select(a => a.ToDto()).ToList()));
+    // account numbers and IBANs are sensitive: shown only with HR_SENSITIVE.VIEW
+    return Result<GetBankAccountsQueryResult>.Success(new(rows.Select(a => sensitive.CanView
+      ? a.ToDto()
+      : a.ToDto() with { AccountNumber = null, Iban = null, Restricted = [Sensitive.AccountNumber, Sensitive.Iban] }).ToList()));
   }
 
   public async Task<Result<CreatedResult>> Handle(CreateBankAccountCommand command, CancellationToken cancellationToken)
   {
     var employee = await context.LoadEmployeeAsync(command.EmployeeId, cancellationToken);
+    await duty.EnsureNotOwnRecordAsync(employee.Id, "add a salary bank account", employee, cancellationToken);
     employee.EnsureProfileActive();
     var i = command.Account;
     var account = EmployeeBankAccount.Create(BankAccountId.New(), employee.Id, i.BankName, i.BranchName, i.AccountNumber, i.Iban);
@@ -76,6 +80,7 @@ public class BankAccountHandlers(IApplicationDbContext context) :
   public async Task<Result<UpdatedResult>> Handle(UpdateBankAccountCommand command, CancellationToken cancellationToken)
   {
     var account = await LoadAsync(command.Id, cancellationToken);
+    await duty.EnsureNotOwnRecordAsync(account.EmployeeId, "change a salary bank account", account, cancellationToken);
     var i = command.Account;
     account.Update(i.BankName, i.BranchName, i.AccountNumber, i.Iban);
     if (Duplicate(await AccountsOfAsync(account.EmployeeId, cancellationToken), account) is { } same)
@@ -88,6 +93,7 @@ public class BankAccountHandlers(IApplicationDbContext context) :
   public async Task<Result<UpdatedResult>> Handle(MakeBankAccountPrimaryCommand command, CancellationToken cancellationToken)
   {
     var account = await LoadAsync(command.Id, cancellationToken);
+    await duty.EnsureNotOwnRecordAsync(account.EmployeeId, "change the salary account", account, cancellationToken);
     EmployeeBankAccounts.MakePrimary(await AccountsOfAsync(account.EmployeeId, cancellationToken), account);
     await context.SaveChangesAsync(cancellationToken);
     return CommandResults.Updated();
@@ -96,6 +102,7 @@ public class BankAccountHandlers(IApplicationDbContext context) :
   public async Task<Result<UpdatedResult>> Handle(SetBankAccountActivationCommand command, CancellationToken cancellationToken)
   {
     var account = await LoadAsync(command.Id, cancellationToken);
+    await duty.EnsureNotOwnRecordAsync(account.EmployeeId, "open or close a salary bank account", account, cancellationToken);
     var accounts = await AccountsOfAsync(account.EmployeeId, cancellationToken);
     if (command.IsActive)
       account.Activate();

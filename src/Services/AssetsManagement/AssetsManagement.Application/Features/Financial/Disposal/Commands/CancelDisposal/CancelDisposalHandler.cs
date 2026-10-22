@@ -2,7 +2,7 @@ using System.Globalization;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 
-public class CancelDisposalHandler(IApplicationDbContext context, ICurrentUser currentUser, IClock clock)
+public class CancelDisposalHandler(IApplicationDbContext context, ICurrentUser currentUser, IClock clock, IAuditTrail audit)
   : ICommandHandler<CancelDisposalCommand, Result<CancelDisposalCommandResult>>
 {
   public async Task<Result<CancelDisposalCommandResult>> Handle(CancelDisposalCommand command, CancellationToken cancellationToken)
@@ -10,8 +10,8 @@ public class CancelDisposalHandler(IApplicationDbContext context, ICurrentUser c
     var assetId = AssetId.Of(command.AssetId);
     var asset = await AssetRecordGuard.LoadAsync(context, assetId, track: true, cancellationToken);
 
-    var disposal = await context.AssetDisposals.FirstOrDefaultAsync(d => d.AssetId == assetId, cancellationToken)
-      ?? throw new AssetDisposalNotFoundException("This asset has not been disposed of.");
+    var disposal = await context.AssetDisposals.FirstOrDefaultAsync(d => d.AssetId == assetId && d.State == DisposalState.Approved, cancellationToken)
+      ?? throw new AssetDisposalNotFoundException("This asset has not been disposed of. A proposal waiting for approval is rejected or withdrawn instead.");
 
     // the status it had before: the "from" side of its disposal event
     var disposalType = await SystemEvents.TypeAsync(context, EventPurpose.Disposal, cancellationToken);
@@ -36,16 +36,20 @@ public class CancelDisposalHandler(IApplicationDbContext context, ICurrentUser c
       stopped?.Reopen();
     }
 
+    var actor = currentUser.Actor();
     var method = await context.DisposalMethods.AsNoTracking().FirstOrDefaultAsync(m => m.Id == disposal.DisposalMethodId, cancellationToken);
     var details = JsonSerializer.SerializeToElement(new Dictionary<string, string>
     {
       ["Was disposed on"] = disposal.DisposalDate.ToString("d MMM yyyy", CultureInfo.InvariantCulture),
       ["How"] = method?.Name.Value ?? "—",
     });
-    await SystemEvents.AddAsync(context, assetId, EventPurpose.DisposalCancelled, clock.UtcNow, currentUser.Actor(), command.Reason, details,
+    await SystemEvents.AddAsync(context, assetId, EventPurpose.DisposalCancelled, clock.UtcNow, actor, command.Reason, details,
       current.Id, restoreTo.Id, cancellationToken);
 
-    context.AssetDisposals.Remove(disposal);
+    // the disposal stays on record, marked cancelled - with its proceeds, book value, gain or loss and approver
+    disposal.Cancel(actor, command.Reason, clock.UtcNow);
+    audit.Record(AssetAuditActions.Cancelled, disposal, AssetAudit.Join($"Reason: {command.Reason.Trim()}",
+      $"Was disposed on {AssetAudit.Day(disposal.DisposalDate)}", disposal.ApprovedByName is { } approver ? $"Approved by {approver}" : null));
     await context.SaveChangesAsync(cancellationToken);
 
     return Result<CancelDisposalCommandResult>.Success(new CancelDisposalCommandResult(true));

@@ -35,7 +35,8 @@ public sealed class IdentitySeeder(
     }
 
     var moduleIds = await SeedModulesAsync(cancellationToken);
-    await SeedPermissionsAsync(moduleIds, cancellationToken);
+    var added = await SeedPermissionsAsync(moduleIds, cancellationToken);
+    await GrantInheritedAsync(added, cancellationToken);
     var superAdminRole = await SeedSuperAdminRoleAsync(cancellationToken);
     await SeedSuperAdminUserAsync(superAdminRole, cancellationToken);
     await SeedSecuritySettingsAsync(cancellationToken);
@@ -92,16 +93,26 @@ public sealed class IdentitySeeder(
     return existing.ToDictionary(kv => kv.Key, kv => kv.Value.Id);
   }
 
-  private async Task SeedPermissionsAsync(Dictionary<string, PermissionModuleId> moduleIds, CancellationToken cancellationToken)
+  /// Adds the catalogue's new permissions, keeps every name in step with it, and switches off a permission the catalogue
+  /// no longer has (it stays in the table so history reads, but no role grants it any more). Returns the codes added.
+  private async Task<List<string>> SeedPermissionsAsync(Dictionary<string, PermissionModuleId> moduleIds, CancellationToken cancellationToken)
   {
-    var existing = await context.Permissions.Select(p => p.Code.Value).ToListAsync(cancellationToken);
-    var known = existing.ToHashSet(StringComparer.Ordinal);
-    var added = 0;
+    var existing = await context.Permissions.ToDictionaryAsync(p => p.Code.Value, StringComparer.Ordinal, cancellationToken);
+    var catalogue = PermissionCatalog.All.ToDictionary(p => p.Code, StringComparer.Ordinal);
+    var added = new List<string>();
+    var changed = 0;
 
     foreach (var definition in PermissionCatalog.All)
     {
-      if (known.Contains(definition.Code))
+      if (existing.TryGetValue(definition.Code, out var known))
+      {
+        if (known.PermissionName.Value != definition.Name || !known.IsActive)
+        {
+          known.Update(Name.Of(definition.Name), known.Description, isActive: true);
+          changed++;
+        }
         continue;
+      }
 
       if (!moduleIds.TryGetValue(definition.Module, out var moduleId))
       {
@@ -123,14 +134,70 @@ public sealed class IdentitySeeder(
         Name.Of(definition.Name),
         description: null), cancellationToken);
 
-      added++;
+      added.Add(definition.Code);
     }
 
-    if (added > 0)
+    foreach (var gone in existing.Values.Where(p => p.IsActive && !catalogue.ContainsKey(p.Code.Value)))
+    {
+      gone.Update(gone.PermissionName, gone.Description, isActive: false);
+      changed++;
+    }
+
+    if (added.Count > 0 || changed > 0)
     {
       await context.SaveChangesAsync(cancellationToken);
-      logger.LogInformation("Seeded {Count} permission(s).", added);
+      logger.LogInformation("Seeded {Added} permission(s), brought {Changed} in step with the catalogue.", added.Count, changed);
     }
+    return added;
+  }
+
+  /// A permission split off an older one goes to every role that held the older one, once, when it is first created -
+  /// nobody's work stops; an administrator then takes it away where it is not wanted. Written to the activity trail as
+  /// the system's own change.
+  private async Task GrantInheritedAsync(List<string> added, CancellationToken cancellationToken)
+  {
+    var inherited = added.Where(code => PermissionCatalog.InheritedFrom.ContainsKey(code)).ToList();
+    if (inherited.Count == 0)
+      return;
+
+    var permissions = await context.Permissions.ToDictionaryAsync(p => p.Code.Value, p => p.Id, StringComparer.Ordinal, cancellationToken);
+    var superAdmin = LookupCode.Of(Role.SuperAdminCode);
+    var roles = await context.Roles.IgnoreQueryFilters().Where(r => r.Code != superAdmin).ToListAsync(cancellationToken);
+    var held = await context.RolePermissions.Select(rp => new { rp.RoleId, rp.PermissionId }).ToListAsync(cancellationToken);
+    var now = DateTime.UtcNow;
+    var lines = new List<string>();
+    var touched = new HashSet<RoleId>();
+
+    foreach (var code in inherited)
+    {
+      var sources = PermissionCatalog.InheritedFrom[code].Where(permissions.ContainsKey).Select(c => permissions[c]).ToHashSet();
+      foreach (var role in roles)
+      {
+        var holds = held.Any(h => h.RoleId == role.Id && sources.Contains(h.PermissionId));
+        var already = held.Any(h => h.RoleId == role.Id && h.PermissionId == permissions[code]);
+        if (!holds || already)
+          continue;
+        await context.RolePermissions.AddAsync(RolePermission.Create(role.Id, permissions[code], assignedBy: null, now), cancellationToken);
+        lines.Add($"{role.RoleName.Value}: {code}");
+        touched.Add(role.Id);
+      }
+    }
+
+    if (lines.Count == 0)
+      return;
+
+    foreach (var roleId in touched)
+    {
+      var holderIds = await context.UserRoles.Where(ur => ur.RoleId == roleId && ur.RevokedAt == null).Select(ur => ur.UserId).ToListAsync(cancellationToken);
+      foreach (var holder in await context.Users.Where(u => holderIds.Contains(u.Id)).ToListAsync(cancellationToken))
+        holder.AccessChanged();
+    }
+
+    await context.AdminActivities.AddAsync(AdminActivity.Record(
+      null, "System · Startup", ActivityAction.PermissionsSeeded, ActivityTargetType.System, null, "New permissions",
+      "Split from what these roles already did: " + string.Join("; ", lines), null, null, now), cancellationToken);
+    await context.SaveChangesAsync(cancellationToken);
+    logger.LogInformation("Gave {Count} new permission(s) to the roles that did their acts before: {Lines}", lines.Count, string.Join("; ", lines));
   }
 
   private async Task<Role> SeedSuperAdminRoleAsync(CancellationToken cancellationToken)
@@ -169,6 +236,10 @@ public sealed class IdentitySeeder(
 
     if (missing.Count > 0)
     {
+      // the holders' tokens are re-issued with the new permissions
+      var holderIds = await context.UserRoles.Where(ur => ur.RoleId == role.Id && ur.RevokedAt == null).Select(ur => ur.UserId).ToListAsync(cancellationToken);
+      foreach (var holder in await context.Users.Where(u => holderIds.Contains(u.Id)).ToListAsync(cancellationToken))
+        holder.AccessChanged();
       await context.SaveChangesAsync(cancellationToken);
       logger.LogInformation("Granted {Count} new permission(s) to {Role}.", missing.Count, Role.SuperAdminCode);
     }
@@ -242,7 +313,11 @@ public sealed class IdentitySeeder(
 
     await context.UserRoles.AddAsync(
       UserRole.Create(user.Id, superAdminRole.Id, assignedBy: null, expiresAt: null, now), cancellationToken);
+    user.AccessChanged();
 
+    await context.AdminActivities.AddAsync(AdminActivity.Record(
+      null, "System · Startup", ActivityAction.SuperAdminSeeded, ActivityTargetType.User, user.Id.Value, user.DisplayName.Value,
+      "No Super Administrator was left, so the first one was set up at startup", null, null, now), cancellationToken);
     await context.SaveChangesAsync(cancellationToken);
   }
 }

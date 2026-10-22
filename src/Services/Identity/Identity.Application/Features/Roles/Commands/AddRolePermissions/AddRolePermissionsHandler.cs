@@ -38,6 +38,8 @@ public class AddRolePermissionsHandler(IApplicationDbContext context, IdentityGu
       await activity.RecordAsync(ActivityAction.RolePermissionsAdded, ActivityTargetType.Role, role.Id.Value, role.RoleName.Value,
         await RolePermissionDetail.DescribeAsync(context, toAdd, [], cancellationToken), cancellationToken);
 
+    // every holder's tokens issued before this change stop working at once
+    await context.HoldersAccessChangedAsync(roleId, cancellationToken);
     await context.SaveChangesAsync(cancellationToken);
 
     return Result<AddRolePermissionsCommandResult>.Success(new AddRolePermissionsCommandResult(toAdd.Count));

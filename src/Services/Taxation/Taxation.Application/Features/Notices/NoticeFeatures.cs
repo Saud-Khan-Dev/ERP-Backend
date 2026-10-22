@@ -21,7 +21,13 @@ public sealed record ConfirmPendingNoticesCommand(Guid? CircleId, NoticeStage? S
 public sealed record ConfirmPendingResult(int Issued, int SmsQueued, IReadOnlyList<NoticeSkipDto> Skipped);
 public sealed record NoticeSkipDto(Guid NoticeId, string NoticeNo, string Reason);
 
-public sealed record CancelNoticeCommand(Guid Id) : ICommand<Result<UpdatedResult>>;
+/// Cancels a pending notice, with the reason the trail keeps.
+public sealed record CancelNoticeCommand(Guid Id, string Reason) : ICommand<Result<UpdatedResult>>;
+
+public class CancelNoticeCommandValidator : AbstractValidator<CancelNoticeCommand>
+{
+  public CancelNoticeCommandValidator() => RuleFor(x => x.Reason).NotEmpty().WithMessage("Say why the notice is cancelled.").MaximumLength(300);
+}
 public sealed record ServeNoticeCommand(Guid Id, Guid? ServedByEmployeeId, DateOnly ServedOn, ServiceMode Mode) : ICommand<Result<UpdatedResult>>;
 
 /// Prepares the next notice of every unpaid demand whose date has come (second, final, show cause, counted in working days
@@ -91,6 +97,7 @@ public class NoticeHandlers(
   Messenger messenger,
   CodeIssuer codes,
   ICurrentUser currentUser,
+  IAuditTrail audit,
   IClock clock) :
   IQueryHandler<GetNoticesQuery, Result<GetNoticesQueryResult>>,
   IQueryHandler<GetNoticeQuery, Result<GetNoticeQueryResult>>,
@@ -109,7 +116,7 @@ public class NoticeHandlers(
 
   public async Task<Result<GetNoticesQueryResult>> Handle(GetNoticesQuery query, CancellationToken cancellationToken)
   {
-    var rows = context.Notices.AsNoTracking();
+    var rows = context.Notices.AsNoTracking().InScope(context);
     if (query.Status is { } status)
       rows = rows.Where(n => n.Status == status);
     if (query.Stage is { } stage)
@@ -194,8 +201,10 @@ public class NoticeHandlers(
   public async Task<Result<UpdatedResult>> Handle(UpdatePendingNoticeCommand command, CancellationToken cancellationToken)
   {
     var notice = await context.LoadNoticeAsync(command.Id, cancellationToken);
+    var edits = notice.EditedFields?.Count ?? 0;
     notice.Change(command.Changes, await LayoutColumnsAsync(notice, cancellationToken), currentUser.UserId, clock.UtcNow,
       await MovedReplyByAsync(notice, command.Changes, cancellationToken));
+    RecordEdits(notice, edits);
     await context.SaveChangesAsync(cancellationToken);
     return CommandResults.Updated();
   }
@@ -206,22 +215,37 @@ public class NoticeHandlers(
     var demand = await context.LoadDemandAsync(notice.DemandId.Value, cancellationToken);
     var file = await context.LoadTaxFileAsync(demand.TaxFileId.Value, cancellationToken);
     var actor = Guard.Actor(currentUser.UserId, "issue a notice");
+    var edits = notice.EditedFields?.Count ?? 0;
     if (command.Changes is { } changes)
       notice.Change(changes, await LayoutColumnsAsync(notice, cancellationToken), actor, clock.UtcNow, await MovedReplyByAsync(notice, changes, cancellationToken));
+    RecordEdits(notice, edits);
     if (notice.IssueDate > clock.Today)
       return Result<UpdatedResult>.Failure($"Notice {notice.NoticeNo} is dated {notice.IssueDate:yyyy-MM-dd}; it is issued on or after that date.");
     if (file.HoldOn(clock.Today) is { } hold)
       return Result<UpdatedResult>.Failure($"{file.FileNo} is on litigation hold since {hold.StartedOn:yyyy-MM-dd}; no notice is issued while it is open.");
     await composer.ConfirmAsync(notice, demand, file, actor, cancellationToken);
+    audit.Record("Issued", notice, $"{EnumText.Words(notice.Stage)} notice, endorsement {notice.EndstNo}, {Rupees.Text(notice.AmountWithinDue)} behind the reference");
     await context.SaveChangesAsync(cancellationToken);
     return CommandResults.Updated();
+  }
+
+  /// A printed field changed on review: one line per change, with the reason given (the notice keeps them too).
+  private void RecordEdits(Notice notice, int before)
+  {
+    foreach (var edit in (notice.EditedFields ?? []).Skip(before))
+    {
+      var words = AuditProfile.Words(edit.Field);
+      audit.Record(AuditActions.Changed, notice, edit.Reason, words.Length > 0 ? char.ToUpperInvariant(words[0]) + words[1..] : edit.Field, edit.From, edit.To);
+    }
   }
 
   public async Task<Result<ConfirmPendingResult>> Handle(ConfirmPendingNoticesCommand command, CancellationToken cancellationToken)
   {
     var actor = Guard.Actor(currentUser.UserId, "issue notices");
     var today = clock.Today;
-    var pending = await context.Notices.Where(n => n.Status == NoticeStatus.Pending && n.Origin == NoticeOrigin.Cycle && n.IssueDate <= today
+    // many notices at once: one line for the batch
+    using var quiet = audit.Quietly();
+    var pending = await context.Notices.InScope(context).Where(n => n.Status == NoticeStatus.Pending && n.Origin == NoticeOrigin.Cycle && n.IssueDate <= today
         && (command.Stage == null || n.Stage == command.Stage))
       .OrderBy(n => n.IssueDate).ToListAsync(cancellationToken);
     var issued = 0;
@@ -248,6 +272,9 @@ public class NoticeHandlers(
       if (notice.SmsMessageId is not null)
         sms++;
     }
+    if (issued > 0 || skipped.Count > 0)
+      audit.Record(AuditActions.Ran, "Issue pending notices", null, today.ToString("yyyy-MM-dd"), null, null, null,
+        $"Issued {issued} notice(s){(command.Stage is { } st ? $" at the {EnumText.Words(st).ToLowerInvariant()} stage" : "")}; {skipped.Count} left pending");
     await context.SaveChangesAsync(cancellationToken);
     return Result<ConfirmPendingResult>.Success(new(issued, sms, skipped));
   }
@@ -256,6 +283,7 @@ public class NoticeHandlers(
   {
     var notice = await context.LoadNoticeAsync(command.Id, cancellationToken);
     notice.Cancel(currentUser.UserId, clock.UtcNow);
+    audit.Record("Cancelled", notice, command.Reason.Trim());
     await context.SaveChangesAsync(cancellationToken);
     return CommandResults.Updated();
   }
@@ -272,7 +300,12 @@ public class NoticeHandlers(
 
   public async Task<Result<EscalateResult>> Handle(EscalateNoticesCommand command, CancellationToken cancellationToken)
   {
+    if (context.EveryTownRefusal("prepare the notices due") is { } outside)
+      return Result<EscalateResult>.Failure(outside);
+    using var quiet = audit.Quietly();
     var prepared = await escalation.PrepareDueAsync(cancellationToken);
+    audit.Record(AuditActions.Ran, "Prepare due notices", null, clock.Today.ToString("yyyy-MM-dd"), null, null, null,
+      $"Prepared {prepared.Count} notice(s) for confirmation");
     await context.SaveChangesAsync(cancellationToken);
     return Result<EscalateResult>.Success(new(prepared.Count, prepared.Select(n => n.ToBrief()).ToList()));
   }

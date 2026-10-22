@@ -13,7 +13,8 @@ The GDA HRMS, in one service:
 
 - Port `http://localhost:5144` (launchSettings) / `5144:8080` in compose (`hrm-api`), gateway prefix `/hrm-service/`.
 - Database `ERP_DB`, schema **`hrms`**, snake_case, native Postgres enums, history in `hrms.__EFMigrationsHistory`.
-- OpenAPI at `/openapi/v1.json` (about 340 operations). Every route needs a token. There is no anonymous endpoint.
+- OpenAPI at `/openapi/v1.json` (about 345 operations). Every route needs a token except `GET /directory/holidays` (gazetted
+  holidays are public; Taxation's daily job reads them without a token).
 
 **Schema source: [`docs/gda_hrms_schema.sql`](../gda_hrms_schema.sql)**, the client's SQL.
 [`docs/gda_hrms_schema.dbml`](../gda_hrms_schema.dbml) holds the same schema for dbdiagram.io. The migration
@@ -39,21 +40,74 @@ differences, all on purpose:
 
 ## Permissions
 
-Four modules in `PermissionCatalog` (the Identity seeder reads it; the frontend's permission mirror needs the same codes):
+Seven catalogue modules (`PermissionCatalog`; the Identity seeder grants each new code to the roles that held the old one):
 
 | Module | Codes | Used for |
 | --- | --- | --- |
-| `HR` | VIEW, CREATE, EDIT, DELETE, APPROVE | employees, documents, service history, assignments, HR actions (APPROVE approves; EDIT applies an approved action), separations, performance reviews (APPROVE finalizes), tasks, employee requests (APPROVE decides), people reports. APPROVE also changes an employee's pay and next increment date |
-| `HR_SETUP` | VIEW, CREATE, EDIT, DELETE | catalogues (unit types, locations, designations, document types, recruitment methods, event types, request types, BPS names), org units, pay scales, posts, performance periods |
-| `ATTENDANCE` | VIEW, CREATE, EDIT, DELETE, APPROVE | shifts, holidays, attendance, leave types, entitlements, applications (APPROVE approves / rejects / cancels an approved leave, posts ledger rows, runs the year-end), leave report |
-| `PAYROLL` | VIEW, CREATE, EDIT, DELETE, APPROVE, POST | components, rules (APPROVE), overrides, tax and tax openings, loans (APPROVE sanctions / records repayments / waives / writes off), GP Fund, bank accounts, payroll (APPROVE approves runs, holds salaries; POST finalizes, reverses, pays, locks months, credits GPF interest), arrears, payment reconciliation, pay reports |
+| `HR` | VIEW, CREATE, EDIT, DELETE, APPROVE, EXPORT, PAY, RUN | employees, documents, service history, assignments, HR actions (APPROVE approves / returns / rejects; EDIT applies), separations (APPROVE), performance reviews (APPROVE finalizes, countersigns), tasks, requests (APPROVE decides). PAY: a pay change and the next increment date. RUN: the annual increment and pay revisions. EXPORT: HR CSVs and reports (the screens; `POST /audit/exports`) |
+| `HR_SENSITIVE` | VIEW, EDIT | VIEW: CNIC, date of birth, contacts, addresses, emergency contacts, family, pay figures, bank account numbers (see "Personal facts"). EDIT: change a CNIC or date of birth; every salary bank account write |
+| `HR_SETUP` | VIEW, CREATE, EDIT, DELETE | catalogues, org units, pay scales, posts, performance periods |
+| `ATTENDANCE` | VIEW, CREATE, EDIT, DELETE, APPROVE, EXPORT, RUN, ADJUST | shifts, holidays, attendance, leave types, entitlements, applications (APPROVE decides and cancels an approved leave). RUN: close a day, import attendance, grant the year's entitlements, close the leave year. ADJUST: a manual leave-ledger entry |
+| `PAYROLL` | VIEW, CREATE, EDIT, DELETE, APPROVE, POST, EXPORT, REVERSE, WAIVE, ADJUST | runs (APPROVE approves, holds salaries; POST finalizes, pays, locks; REVERSE reverses a run and fails / returns a payment; DELETE deletes a run or an open month), loans (CREATE enters an application; APPROVE sanctions, cancels, records repayments; WAIVE waives an installment or writes a loan off), GP Fund, tax. ADJUST: payslip adjustments, salary overrides, tax openings. EXPORT: payroll CSVs, slip print, the bank advice (`GET /payroll-runs/{id}/bank-advice` needs it) |
+| `PAYROLL_SETUP` | VIEW, CREATE, EDIT, DELETE | salary components and rules, tax years and slabs, GP Fund interest rates, loan types (reads also accept PAYROLL.VIEW) |
+| `IAM_USERS.EDIT` | | linking an employee to a sign-in account (`POST/DELETE /employees/{id}/user`) |
 
-Readers of the structure (org units, posts, pay scales, shifts) and the establishment report need any one HRM module
-(`HrmAuthorization.AnyHrmReader`). Linking an employee to a sign-in account takes `HR.EDIT` or `IAM_USERS.EDIT`.
-Catalogue, loan-type, component, shift and org-unit DELETE use the `*.DELETE` codes and are refused (409, a sentence)
-while anything uses the row. `GET /attention`, `GET /settings` and `GET /me/link` need only a signed-in token.
-Catalogues, holidays and leave types are readable by any signed-in user. `/me/*` needs only a token whose account is
-linked to an employee (the `emp` claim, else `employee.user_id`); an unlinked account gets 403.
+Readers of the structure need any one HRM module (`HrmAuthorization.AnyHrmReader`). Contacts, addresses, emergency
+contacts and family need HR.EDIT **and** HR_SENSITIVE.VIEW to change. `GET /attention`, `GET /me/link` and the directory
+need only a signed-in token. `/me/*` needs a token carrying the `emp` claim (see Self-service).
+
+## Administration rules (2026-10-21 overhaul)
+
+- **Office scope.** `ICurrentUser.OfficeScope` (org unit ids; null = every office) limits a person to the employees whose
+  post is in one of those units or below them (the post held today, else the last one held, else the first one to come;
+  never-placed employees are outside every scope). `OfficeScope` works it out once per request (`OfficeScopeBehavior`,
+  a MediatR behavior) into `EmployeeScope`, and `ApplicationDbContext` applies it as a **global query filter** on every
+  table with an `EmployeeId` (employee, contacts, family, bank accounts, pay records, documents, education, HR actions,
+  separations, reviews, shifts, attendance, leave, overrides, tax, loans, GP Fund, slips, payments, tasks, requests and
+  the leave / GPF / tax views). Post assignments, the service book and structure are not filtered (seats are counted for
+  everyone). So lists, reports, attention and loaders stop at the offices; a record outside answers 404. Bulk runs
+  (annual increment, close day, entitlements, year end, start reviews, GPF interest) cover the person's offices.
+  Whole-run payroll acts (create, calculate, review, approve, finalize, reverse, pay, months, arrears, payments) are
+  refused unless the person works on every office (`WholeOrganizationRefusalAsync`). `/me` and `/directory` run
+  unfiltered (`AllOffices()` endpoint filter); so do numbering and uniqueness checks (`EmployeeScope.Unrestricted()`).
+  A scoped person registers employees only with an appointment to a post in their offices.
+- **Personal facts.** Without HR_SENSITIVE.VIEW responses carry these as null and name them in `restricted`
+  (`Sensitive`): employee list (cnic, dateOfBirth, mobile; CNIC search is off) and record (cnic, dateOfBirth, contacts,
+  addresses, emergencyContacts, familyMembers, basicPay), pay records (basicPay), bank accounts (accountNumber, iban),
+  slips list, workings, payslip (`PayslipDto.Withheld()`), pay register rows, payments and bank advice lines (pay,
+  accountNumber, iban), and the employee History (old / new / detail of personal and pay lines). Own records through
+  `/me` are always whole. A person who cannot see CNIC / DOB sends them null on "Edit personal details" and they stay.
+- **Separation of duties** (`DutyGuard` over `IDutyRules`; every rule on unless a Super Admin switched it off in
+  Administration › Configuration; a refusal is a 400 sentence and a `Refused` line in the trail):
+  OWN_RECORD (the caller's `emp` = the target employee: pay change, next increment, overrides, tax opening / exemptions,
+  bank accounts, adjustments, hold / release, taking a slip off a run, loan sanction / repayment / waive / cancel /
+  write-off, GP Fund entries and closing, HR action approve / return / reject / apply, separation and its settlement,
+  document verify / reject, request decide, leave decide, leave-balance entry, personal details and contacts, number
+  correction, review countersign / finalize; bulk increments skip the runner's own record), HR_ACTION (drafter /
+  submitter ≠ approver), PAYROLL_APPROVE (preparer, reviewer, adjusters ≠ approver), PAYROLL_PAY (approver ≠ who
+  finalizes, prepares or records payments, marks paid), LOAN_SANCTION (who entered the application ≠ who sanctions it;
+  `employee_loan.created_by`), LEAVE_APPROVE (who keyed the application in ≠ who decides it;
+  `leave_application.created_by`). The old `Payroll:RequireSeparateApprover` / `Hrm:RequireSeparateApprover` settings are
+  gone; `GET /settings` reports the rules (`dutyRules`, and `requireSeparate*` from HR_ACTION / PAYROLL_APPROVE).
+- **Loans are two steps.** `POST /employees/{id}/loans` (PAYROLL.CREATE) enters an application (status `pending`, no
+  installments); `POST /loans/{id}/sanction` (PAYROLL.APPROVE) lays out the schedule (and pays a GP Fund advance out);
+  `cancel` turns an application down. `sanctionNow: true` does both at once only while LOAN_SANCTION is off.
+- **Audit trail** (BuildingBlock/Audit; table `hrms.audit_entry`, append-only by triggers; module "Human Resources").
+  `AuditTrailInterceptor` writes a line per record added / changed / removed (FKs as names); `HrmAuditProfile` gives the
+  kinds and hangs every employee record `Under<Employee>` (grandchildren under their loan, slip, review, GP account,
+  task: `GET /employees/{id}/history` gathers them). Skipped: slip segments / lines / loan deductions, payslips,
+  installments, tax-ledger rows. Runs save quietly and write one `Ran` line named in `HrmRuns` (payroll calculation and
+  finalization, salary payments, arrears, annual increment, pay revision, close day, attendance import, shift
+  assignment, entitlements, leave year end, reviews, GPF interest); `HrmJobSource` reports their last lines on
+  `GET /system/status`. Decisions get verbs (`HrmVerbs`). Identity and employment changes are written by `ChangeLog`
+  with the reason (their saves are quiet so the reason line is the only one). Document and education scans write
+  `Downloaded`. `GET /audit`, `GET /audit/kinds` (IAM_AUDIT.VIEW) and `POST /audit/exports` (HR / ATTENDANCE / PAYROLL
+  .EXPORT) come from `MapAuditTrail`; `/me/payslips/{id}/printed` notes one's own print. The rows of the old
+  `employee_change_log` were copied in by the `AuditTrail` migration; the table is no longer written. The seeder acts as
+  "System · Startup".
+- **Directory for Administration and Taxation.** `GET /directory/offices` → `{ offices: [{ id, code, name, parentId,
+  typeName }] }` (active units, for the scope picker). `GET /directory/holidays?from&to` (anonymous) →
+  `{ holidays: [{ date, name, holidayType }] }`: organization-wide, non-optional holidays, at most three years.
 
 ## Layout
 
@@ -85,7 +139,9 @@ Application services: `HrLookup` (batch labels: names, placements, posts, units,
 `HrActionApplier`, `PayService` (scales and pay records), `CodeIssuer` (EMP-###, POST-####), `FileUploads`,
 `WorkCalendar` (an employee's working days: shift weekdays, gazetted and local holidays), `LeaveService` (days and
 balances), `PayrollInputBuilder`, `PayrollEngine` and `PayslipBuilder` (payroll), `CurrentEmployee` (self-service),
-`HrmSettings` (the configured rules in one place), `ChangeLog` (employee_change_log rows), `HrActionChecks` with
+`HrmSettings` (the configured rules in one place), `ChangeLog` (identity changes with their reason, into the audit trail),
+`OfficeScope` / `EmployeeScope` (data scope), `Sensitive` (HR_SENSITIVE masking), `DutyGuard` (duty rules),
+`HrmRuns` / `HrmVerbs` (audit words), `HrActionChecks` with
 the domain's `HrActionRules` (what an action may do to whom), `PayrollImpactFinder` (finalized runs a backdated change
 touches).
 
@@ -99,8 +155,8 @@ touches).
   are issued as `EMP-###` when left blank.
 - **HR actions.** draft → pending → approved → applied. `HrActionRules` checks every kind against the employee's
   state and post at draft, submit and apply (`GET .../hr-actions/options` lists what is possible and why not;
-  `.../preview` gives the consequence line). Maker-checker: whoever drafted or submitted may not approve
-  (`Hrm:RequireSeparateApprover`, else the payroll switch). Reject needs remarks. An approved action dated in the
+  `.../preview` gives the consequence line). Maker-checker: whoever drafted or submitted may not approve (duty rule
+  HR_ACTION), and nobody decides an action about themselves (OWN_RECORD). Reject needs remarks. An approved action dated in the
   future waits ("takes effect on") and cannot be applied early. Applying writes everything the action means (transfer,
   promotion with pay fixation and the grade check, LWOP as an approved leave-without-pay application, suspension,
   separation kinds, reinstatement only after termination / dismissal / removal / suspension) and returns the finalized
@@ -109,7 +165,7 @@ touches).
   returns a checklist (sign-in account, assets in custody, loans, GP Fund, settlement). A settlement linked to a
   payroll slip is locked.
 - **Employee changes.** CNIC, date of birth, employment terms, the account link and pay changes need a reason and are
-  written to the append-only `employee_change_log` (`GET /employees/{id}/change-log`). Appointment needs a date of
+  written to the audit trail with it (`GET /employees/{id}/history`). Appointment needs a date of
   birth and an age of 18 to 60. A non-regular employee becomes Regular only through a Regularization action. Contract,
   ad hoc, project and deputation-in employees carry a term (`term_from / term_to`); the register's `termEndingWithinDays`
   and the bell list those ending.
@@ -139,8 +195,8 @@ touches).
 - **Payroll runs.**
   - Runs move draft → calculated → reviewed → approved → finalized → paid; each can step back one stage before
     finalization.
-  - Maker-checker: `Payroll:RequireSeparateApprover`, on by default. The approver may not be the preparer, the
-    reviewer or anyone who entered an adjustment. Approval refuses figures older than a change to the pay inputs.
+  - Maker-checker: duty rules PAYROLL_APPROVE (not the preparer, the reviewer or anyone who entered an adjustment) and
+    PAYROLL_PAY (the approver does not finalize or pay). Approval refuses figures older than a change to the pay inputs.
     Who calculated, finalized, paid and reversed (with the reason) is kept.
   - Calculation can be repeated and keeps hand-entered adjustments.
   - **Finalize** runs in one DB transaction. It writes the tax ledger, loan recoveries, GPF subscriptions and advance
@@ -169,7 +225,7 @@ touches).
 ## Attention (the bell)
 
 `GET /attention` counts only queues the caller may act on (oldest item's date where it means something). HR.APPROVE:
-`hrActions.toApprove` (not the caller's own when maker-checker is on), `requests.toDecide`, `documents.toVerify`,
+`hrActions.toApprove` (not the caller's own while HR_ACTION is on), `requests.toDecide`, `documents.toVerify`,
 `increments.overdue`, `reviews.toFinalize`. HR.EDIT: `hrActions.toApply`, `hrActions.takeEffectLater`,
 `hrActions.myDrafts` (forMe), `tasks.overdue`, `documents.expiring`, `separations.unsettled`, `retirements.past`,
 `retirements.due`, `contracts.ending`, `employees.noDateOfBirth`, `employees.unplaced`. ATTENDANCE.APPROVE: `leave.toDecide`. PAYROLL.EDIT
@@ -220,8 +276,10 @@ maps each key to a filtered screen in `features/hrm/hrm.attention.ts`; keep the 
   On this machine `dotnet ef` needs the ASP.NET runtime workaround from the assistant memory.
 - Keep `docs/gda_hrms_schema.sql` and the DBML in step with any schema change, and list new deliberate differences in
   the comment at the top of `HrmsSchemaSql` and in this file.
-- Migrations after the first: `PeopleRulesAndLeaveDecisions` (2026-10-20, raw SQL in `Data/Sql/PeopleRulesSql.cs`)
-  and `PayAuditRepaymentsAndPer` (2026-10-21, `Data/Sql/PayAuditSql.cs`). New enum labels are added there with
+- Migrations after the first: `PeopleRulesAndLeaveDecisions` (2026-10-20, raw SQL in `Data/Sql/PeopleRulesSql.cs`),
+  `PayAuditRepaymentsAndPer` (2026-10-21, `Data/Sql/PayAuditSql.cs`), `AuditTrail` (2026-10-21: `audit_entry`, the change
+  log copied in, `AuditTrailSql.Protect`) and `DutyRulesLoansAndLeave` (2026-10-22: loan status `pending`,
+  `leave_application.created_by`). New enum labels are added there with
   `ALTER TYPE ... ADD VALUE` in the C# order, not through Npgsql's annotations (which would place them
   alphabetically); a label can never be dropped. Trigger SQL goes at the end of `Up` (its table must exist) and at
   the start of `Down`.
@@ -233,15 +291,15 @@ maps each key to a filtered screen in `features/hrm/hrm.attention.ts`; keep the 
 - `Hrm`: employee number prefix `EMP` with 3 digits, post code prefix `POST` with 4 digits, retirement age 60, annual
   increment on 1 December. Rules GDA still has to confirm keep the old behaviour by default:
   `IncrementQualifyingMonths` 0, `RetireOnDayBeforeBirthday` false, `PerGoalWeight / PerKpiWeight /
-  PerCompetencyWeight` 100 / 0 / 0, `RequireSeparateApprover` unset (follows the payroll switch). `GET /settings`
-  shows the frontend what is in force.
-- `Payroll:RequireSeparateApprover`: true. Compose and `appsettings.Development.json` turn it off for one-person testing
-  (HR actions follow it unless `Hrm__RequireSeparateApprover` is set).
+  PerCompetencyWeight` 100 / 0 / 0. `GET /settings` shows the frontend what is in force, with the duty rules.
+- Maker-checker is no longer configuration: the duty rules (Identity, Administration › Configuration) decide it.
 
 ## Testing
 
-`dotnet test src/ERP.slnx` runs `src/Tests/HRM.Domain.Tests` (146 tests). The API flows are in the frontend repo:
-`node tools/e2e/hrm-api.e2e.mjs` (72 steps; it cleans up after itself and never touches the standing fixtures). `Fixture.cs` builds employees, components, rules, a
+`dotnet test src/ERP.slnx` runs `src/Tests/HRM.Domain.Tests` (149 tests). The API flows are in the frontend repo:
+`node tools/e2e/hrm-api.e2e.mjs` (77 steps; it cleans up after itself). Second-person steps (approvals, sanctions) and
+the permission, sensitive-field and office-scope checks use the permanent accounts `e2e.hrm.maker` / `e2e.hrm.checker`
+(`tools/e2e/accounts.mjs`, whose access the suite sets); self-service links `e2e.hrm.maker` to the Appraisee and unlinks it. `Fixture.cs` builds employees, components, rules, a
 tax year (FY 2025-26 salaried slabs) and loans. Add a test for every new domain rule, named after the rule, e.g.
 `Net_pay_never_goes_below_zero_the_least_important_loan_is_left_for_later`.
 

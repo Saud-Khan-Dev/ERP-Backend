@@ -98,7 +98,7 @@ public class UpdateGpFundInterestRateCommandValidator : AbstractValidator<Update
   public UpdateGpFundInterestRateCommandValidator() => RuleFor(x => x.Rate).NotNull().SetValidator(new GpFundInterestRateInputValidator());
 }
 
-public class GpFundHandlers(IApplicationDbContext context, HrLookup lookup, IClock clock) :
+public class GpFundHandlers(IApplicationDbContext context, HrLookup lookup, IClock clock, DutyGuard duty, IAuditTrail audit, OfficeScope scope) :
   IQueryHandler<GetGpFundAccountsQuery, Result<GetGpFundAccountsQueryResult>>,
   IQueryHandler<GetGpFundAccountQuery, Result<GetGpFundAccountQueryResult>>,
   ICommandHandler<OpenGpFundAccountCommand, Result<CreatedResult>>,
@@ -182,6 +182,7 @@ public class GpFundHandlers(IApplicationDbContext context, HrLookup lookup, IClo
   public async Task<Result<CreatedResult>> Handle(PostGpFundTransactionCommand command, CancellationToken cancellationToken)
   {
     var account = await LoadAccountAsync(command.AccountId, cancellationToken);
+    await duty.EnsureNotOwnRecordAsync(account.EmployeeId, "post a GP Fund entry", account, cancellationToken);
     account.EnsureOpen();
     if (command.TransactionDate > clock.Today)
       return Result<CreatedResult>.Failure("A GP Fund entry cannot be dated in the future.");
@@ -209,7 +210,9 @@ public class GpFundHandlers(IApplicationDbContext context, HrLookup lookup, IClo
   public async Task<Result<UpdatedResult>> Handle(CloseGpFundAccountCommand command, CancellationToken cancellationToken)
   {
     var account = await LoadAccountAsync(command.Id, cancellationToken);
+    await duty.EnsureNotOwnRecordAsync(account.EmployeeId, "close a GP Fund account", account, cancellationToken);
     account.Close(command.ClosedOn, await BalanceAsync(account.Id, cancellationToken));
+    audit.Record(HrmVerbs.Closed, account, $"Closed on {command.ClosedOn:yyyy-MM-dd}");
     await context.SaveChangesAsync(cancellationToken);
     return CommandResults.Updated();
   }
@@ -290,7 +293,15 @@ public class GpFundHandlers(IApplicationDbContext context, HrLookup lookup, IClo
     }
 
     if (!command.DryRun)
-      await context.SaveChangesAsync(cancellationToken);
+    {
+      using (audit.Quietly())
+      {
+        var offices = scope.IsLimited ? $" · offices: {await scope.OfficeNamesAsync(cancellationToken)}" : "";
+        audit.Record(AuditActions.Ran, HrmRuns.GpFundInterest, null, rate.FiscalYear, $"{rate.RatePercent:0.##}%",
+          detail: $"{rate.FiscalYear} at {rate.RatePercent:0.##}% · {lines.Count} account(s) credited · Rs {lines.Sum(l => l.Interest):#,##0.##} · {credited.Count} already credited{offices}");
+        await context.SaveChangesAsync(cancellationToken);
+      }
+    }
 
     return Result<PostGpFundInterestResult>.Success(new(rate.FiscalYear, rate.RatePercent, yearEnd, lines.Count, lines.Sum(l => l.Interest), credited.Count,
       command.DryRun, lines.OrderBy(l => l.EmployeeNumber).ToList()));

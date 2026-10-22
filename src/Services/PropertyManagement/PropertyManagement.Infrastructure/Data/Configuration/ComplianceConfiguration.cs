@@ -157,8 +157,8 @@ public class PropertyLitigationConfiguration : EntityConfiguration<PropertyLitig
     builder.HasOne<PropertyLease>().WithMany().HasForeignKey(x => x.RelatedLeaseId).OnDelete(DeleteBehavior.Restrict);
     builder.HasOne<PropertyLitigation>().WithMany().HasForeignKey(x => x.ParentLitigationId).OnDelete(DeleteBehavior.Restrict);
 
-    builder.HasMany(x => x.Parties).WithOne().HasForeignKey(p => p.LitigationId).OnDelete(DeleteBehavior.Restrict);
-    builder.HasMany(x => x.Hearings).WithOne().HasForeignKey(h => h.LitigationId).OnDelete(DeleteBehavior.Restrict);
+    builder.HasMany(x => x.Parties).WithOne(p => p.Litigation).HasForeignKey(p => p.LitigationId).OnDelete(DeleteBehavior.Restrict);
+    builder.HasMany(x => x.Hearings).WithOne(h => h.Litigation).HasForeignKey(h => h.LitigationId).OnDelete(DeleteBehavior.Restrict);
     builder.Navigation(x => x.Parties).UsePropertyAccessMode(PropertyAccessMode.Field);
     builder.Navigation(x => x.Hearings).UsePropertyAccessMode(PropertyAccessMode.Field);
   }

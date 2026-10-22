@@ -7,8 +7,9 @@ public class AdminActivity : Entity<ActivityId>
 {
   public DateTime OccurredAt { get; private set; }
 
-  public UserId ActorUserId { get; private set; } = default!;
-  /// The actor's username, snapshotted so the line reads even after a rename or deletion.
+  /// Null when the system itself acted (startup, a scheduled switch-off) - ActorName then reads "System · ...".
+  public UserId? ActorUserId { get; private set; }
+  /// The actor's display name, snapshotted so the line reads even after a rename or deletion.
   public string ActorName { get; private set; } = default!;
 
   public ActivityAction Action { get; private set; }
@@ -26,7 +27,7 @@ public class AdminActivity : Entity<ActivityId>
   public string? UserAgent { get; private set; }
 
   public static AdminActivity Record(
-      UserId actorUserId,
+      UserId? actorUserId,
       string actorName,
       ActivityAction action,
       ActivityTargetType targetType,
@@ -45,11 +46,13 @@ public class AdminActivity : Entity<ActivityId>
       TargetType = targetType,
       TargetId = targetId,
       TargetLabel = Clip(targetLabel, 200),
-      Detail = Clip(detail, 500),
+      Detail = Clip(detail, DetailMaxLength),
       IpAddress = ip,
       UserAgent = Clip(userAgent, 512),
       OccurredAt = now
     };
+
+  public const int DetailMaxLength = 2000;
 
   private static string? Clip(string? value, int max)
   {

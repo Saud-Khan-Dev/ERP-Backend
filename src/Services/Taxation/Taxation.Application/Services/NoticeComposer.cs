@@ -189,11 +189,14 @@ public sealed class TaxFileImporter(IApplicationDbContext context, IPropertyDire
   /// as exempt, or with its own completion-certificate uplift changes what it is charged like an override, so it needs it.
   public async Task<TaxFile> OpenAsync(Guid propertyId, TaxCategory? category, TaxFileDetails details, bool canApprove, CancellationToken cancellationToken)
   {
+    var snapshot = await property.SnapshotAsync(propertyId, cancellationToken);
+    // a property in a town the person does not work on is not theirs to open (as Property itself would not show it)
+    if (snapshot.TownId is { } scopeTown && !context.Covers(scopeTown))
+      throw new PropertyNotFoundException($"Property {propertyId} was not found.");
     var existing = await context.TaxFiles.Where(f => f.PropertyId == propertyId).Select(f => f.FileNo).FirstOrDefaultAsync(cancellationToken);
     if (existing is not null)
       throw new DomainException($"The property already has tax file {existing}.");
 
-    var snapshot = await property.SnapshotAsync(propertyId, cancellationToken);
     var today = clock.Today;
     var town = snapshot.TownId is { } townId ? await setup.CircleTownAsync(townId, today, cancellationToken) : null;
     if (town is null)

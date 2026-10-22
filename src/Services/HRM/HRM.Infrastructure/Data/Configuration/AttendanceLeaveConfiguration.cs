@@ -140,7 +140,7 @@ public class LeaveEntitlementConfiguration : EntityConfiguration<LeaveEntitlemen
 
 public class LeaveApplicationConfiguration : EntityConfiguration<LeaveApplication, LeaveApplicationId>
 {
-  protected override AuditColumns Audit => AuditColumns.CreatedAt | AuditColumns.UpdatedAt | AuditColumns.UpdatedBy;
+  protected override AuditColumns Audit => AuditColumns.All;
 
   public override void Configure(EntityTypeBuilder<LeaveApplication> builder)
   {

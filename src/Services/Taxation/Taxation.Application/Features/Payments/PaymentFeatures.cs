@@ -53,6 +53,8 @@ public class PaymentHandlers(
   Messenger messenger,
   CodeIssuer codes,
   ICurrentUser currentUser,
+  IDutyRules dutyRules,
+  IAuditTrail audit,
   IClock clock) :
   ICommandHandler<ReceivePaymentCommand, Result<ReceivePaymentResult>>,
   ICommandHandler<ReversePaymentCommand, Result<ReversePaymentResult>>,
@@ -64,7 +66,7 @@ public class PaymentHandlers(
   public async Task<Result<ReceivePaymentResult>> Handle(ReceivePaymentCommand command, CancellationToken cancellationToken)
   {
     var digits = new string((command.Psid ?? "").Where(char.IsAsciiDigit).ToArray());
-    var fileId = await context.TaxFiles.AsNoTracking().Where(f => f.Psid == digits).Select(f => f.Id).FirstOrDefaultAsync(cancellationToken)
+    var fileId = await context.ScopedFiles().AsNoTracking().Where(f => f.Psid == digits).Select(f => f.Id).FirstOrDefaultAsync(cancellationToken)
       ?? throw new TaxFileNotFoundException($"No property has the reference {command.Psid}.");
 
     await using var transaction = await context.BeginTransactionAsync(cancellationToken);
@@ -120,9 +122,13 @@ public class PaymentHandlers(
   public async Task<Result<ReversePaymentResult>> Handle(ReversePaymentCommand command, CancellationToken cancellationToken)
   {
     var id = PaymentId.Of(command.Id);
-    var fileId = await context.Payments.AsNoTracking().Where(p => p.Id == id).Select(p => new { p.TaxFileId }).FirstOrDefaultAsync(cancellationToken)
+    var fileId = await context.Payments.AsNoTracking().InScope(context).Where(p => p.Id == id)
+        .Select(p => new { p.TaxFileId, Maker = p.CreatedBy ?? p.ReceivedBy }).FirstOrDefaultAsync(cancellationToken)
       ?? throw new PaymentNotFoundException($"Payment {command.Id} was not found.");
     var actor = Guard.Actor(currentUser.UserId, "reverse a payment");
+    // a cashier does not reverse their own receipts (the person who posted it, or took the cash)
+    if (await dutyRules.SeparationRefusalAsync(DutyRules.TaxPaymentReverse, fileId.Maker, actor, "reverse a payment you posted", cancellationToken) is { } refusal)
+      return Result<ReversePaymentResult>.Failure(refusal);
 
     await using var transaction = await context.BeginTransactionAsync(cancellationToken);
     if (fileId.TaxFileId is { } locked)
@@ -132,6 +138,7 @@ public class PaymentHandlers(
       return Result<ReversePaymentResult>.Failure($"The payment was already reversed on {payment.ReversedAt:dd MMM yyyy}.");
 
     await ledger.ReverseAsync(payment, command.Reason, actor, clock.UtcNow, clock.Today, cancellationToken);
+    audit.Record("Reversed", payment, $"{Rupees.Text(payment.Amount)}: {command.Reason.Trim()}");
 
     var warnings = new List<string>();
     decimal? duesAfter = null;
@@ -157,7 +164,7 @@ public class PaymentHandlers(
 
   public async Task<Result<GetPaymentsQueryResult>> Handle(GetPaymentsQuery query, CancellationToken cancellationToken)
   {
-    var rows = context.Payments.AsNoTracking().Include(p => p.Allocations).AsQueryable();
+    var rows = context.Payments.AsNoTracking().Include(p => p.Allocations).AsQueryable().InScope(context);
     if (query.TaxFileId is { } f)
     {
       var fileId = TaxFileId.Of(f);
@@ -216,7 +223,7 @@ public class PaymentHandlers(
   public async Task<Result<GetPaymentQueryResult>> Handle(GetPaymentQuery query, CancellationToken cancellationToken)
   {
     var id = PaymentId.Of(query.Id);
-    var payment = await context.Payments.AsNoTracking().Include(p => p.Allocations).FirstOrDefaultAsync(p => p.Id == id, cancellationToken)
+    var payment = await context.Payments.AsNoTracking().Include(p => p.Allocations).AsQueryable().InScope(context).FirstOrDefaultAsync(p => p.Id == id, cancellationToken)
       ?? throw new PaymentNotFoundException($"Payment {query.Id} was not found.");
     return Result<GetPaymentQueryResult>.Success(new((await DtosAsync([payment], cancellationToken))[0]));
   }
@@ -235,7 +242,7 @@ public class PaymentHandlers(
 
   public async Task<Result<GetSmsMessagesQueryResult>> Handle(GetSmsMessagesQuery query, CancellationToken cancellationToken)
   {
-    var rows = context.SmsMessages.AsNoTracking();
+    var rows = context.SmsMessages.AsNoTracking().InScope(context);
     if (query.TaxFileId is { } f)
     {
       var fileId = TaxFileId.Of(f);

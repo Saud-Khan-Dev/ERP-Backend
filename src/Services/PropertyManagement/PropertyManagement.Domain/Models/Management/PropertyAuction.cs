@@ -264,6 +264,8 @@ public class PropertyAuction : Aggregate<AuctionId>
 public class AuctionBid : Entity<AuctionBidId>
 {
   public AuctionId AuctionId { get; private set; } = default!;
+  /// The auction it belongs to (set by EF when both are loaded; the audit trail reads its property through it).
+  public PropertyAuction? Auction { get; private set; }
   public OwnerId BidderOwnerId { get; private set; } = default!;
   public decimal BidAmount { get; private set; }
   public int? BidRank { get; private set; }

@@ -155,11 +155,17 @@ public static class AssetQueryFilter
     if (query.WarrantyTo.HasValue)
       assets = assets.Where(a => acquisitions.Any(q => q.AssetId == a.Id && q.WarrantyExpiryDate != null && q.WarrantyExpiryDate <= query.WarrantyTo.Value));
 
-    var disposals = context.AssetDisposals.AsNoTracking();
+    // disposed = the disposal was approved (a proposal waiting, or one rejected, withdrawn or cancelled, is not)
+    var disposals = context.AssetDisposals.AsNoTracking().Where(d => d.State == DisposalState.Approved);
     if (query.Disposed == DisposalFilter.Exclude)
       assets = assets.Where(a => !disposals.Any(d => d.AssetId == a.Id));
     else if (query.Disposed == DisposalFilter.Only)
       assets = assets.Where(a => disposals.Any(d => d.AssetId == a.Id));
+    else if (query.Disposed == DisposalFilter.Proposed)
+    {
+      var proposals = context.AssetDisposals.AsNoTracking().Where(d => d.State == DisposalState.Proposed);
+      assets = assets.Where(a => proposals.Any(d => d.AssetId == a.Id));
+    }
     if (query.DisposedFrom.HasValue)
       assets = assets.Where(a => disposals.Any(d => d.AssetId == a.Id && d.DisposalDate >= query.DisposedFrom.Value));
     if (query.DisposedTo.HasValue)

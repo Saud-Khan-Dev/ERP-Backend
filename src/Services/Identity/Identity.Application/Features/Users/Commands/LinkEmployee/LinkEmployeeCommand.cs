@@ -28,6 +28,8 @@ public class LinkEmployeeHandler(IApplicationDbContext context, IdentityGuard gu
     var userId = UserId.Of(command.UserId);
     var user = await context.Users.FirstOrDefaultAsync(u => u.Id == userId, cancellationToken)
       ?? throw new UserNotFoundException("This account was not found.");
+    // linking your own account to an HR record would make you that employee in self-service (payslips, CNIC, leave)
+    guard.EnsureNotSelf(userId, "link an HR record to");
     await guard.EnsureCanActOnAsync(userId, "link", cancellationToken);
 
     var code = command.EmployeeId is null || string.IsNullOrWhiteSpace(command.EmployeeCode) ? null : EmployeeCode.Of(command.EmployeeCode);

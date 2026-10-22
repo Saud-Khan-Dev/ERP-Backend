@@ -3,7 +3,7 @@ using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
-public class IdentityExceptionHandler(ILogger<IdentityExceptionHandler> logger) : IExceptionHandler
+public class IdentityExceptionHandler(ILogger<IdentityExceptionHandler> logger, IServiceScopeFactory scopes) : IExceptionHandler
 {
   public async ValueTask<bool> TryHandleAsync(HttpContext context, Exception exception, CancellationToken cancellationToken)
   {
@@ -12,6 +12,24 @@ public class IdentityExceptionHandler(ILogger<IdentityExceptionHandler> logger) 
       logger.LogWarning("Authentication failed: {Reason}, path {Path}", invalid.Reason, context.Request.Path);
     else
       logger.LogError("Error Message : {exceptionMessage}, Time of occurance {time}", exception.Message, DateTime.UtcNow);
+
+    // a refused administrative act is worth knowing about: written in its own unit of work (the refused one is dropped)
+    if (exception is AccessRefusedException refused && context.User.FindFirst(ErpClaimTypes.UserId)?.Value is { } actor && Guid.TryParse(actor, out var actorId))
+    {
+      try
+      {
+        await using var scope = scopes.CreateAsyncScope();
+        var activity = scope.ServiceProvider.GetRequiredService<IActivityRecorder>();
+        var db = scope.ServiceProvider.GetRequiredService<IApplicationDbContext>();
+        await activity.RecordAsAsync(UserId.Of(actorId), null, ActivityAction.ActRefused, ActivityTargetType.System, null,
+          $"{context.Request.Method} {context.Request.Path}", refused.Message, cancellationToken);
+        await db.SaveChangesAsync(cancellationToken);
+      }
+      catch (Exception recordError)
+      {
+        logger.LogWarning("Could not record a refused act: {Message}", recordError.Message);
+      }
+    }
 
     (string Title, string Detail, int StatusCode) details = exception switch
     {

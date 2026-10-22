@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
+/// The field-change archive (written until 2026-10-21; the audit trail records field changes since).
 public class AssetAttributeHistoryConfiguration : EntityConfiguration<AssetAttributeHistory, AssetAttributeHistoryId>
 {
   public override void Configure(EntityTypeBuilder<AssetAttributeHistory> builder)
@@ -31,7 +32,9 @@ public class AssetAttributeHistoryConfiguration : EntityConfiguration<AssetAttri
     builder.HasIndex(x => new { x.AssetId, x.ChangedAt });
     builder.HasIndex(x => x.AttributeDefinitionId);
 
-    builder.HasOne<Asset>().WithMany().HasForeignKey(x => x.AssetId).IsRequired().OnDelete(DeleteBehavior.Cascade);
-    builder.HasOne<AttributeDefinition>().WithMany().HasForeignKey(x => x.AttributeDefinitionId).IsRequired().OnDelete(DeleteBehavior.Cascade);
+    // Restrict: an asset is only ever soft-deleted, and a hard delete must never take its history with it
+    builder.HasOne<Asset>().WithMany().HasForeignKey(x => x.AssetId).IsRequired().OnDelete(DeleteBehavior.Restrict);
+    // no foreign key to the field: deleting a field must never erase what was recorded about it (the table is the
+    // read-only archive of field changes before the audit trail took over on 2026-10-21)
   }
 }

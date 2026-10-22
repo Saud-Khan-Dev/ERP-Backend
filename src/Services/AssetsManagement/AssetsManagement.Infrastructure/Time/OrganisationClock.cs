@@ -20,6 +20,7 @@ public sealed class OrganisationClock : IClock
 
   public DateOnly Today => DayOf(DateTime.UtcNow);
 
-  public DateOnly DayOf(DateTime utc) =>
-      DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utc, DateTimeKind.Utc), _zone));
+  public DateOnly DayOf(DateTime utc) => DateOnly.FromDateTime(LocalOf(utc));
+
+  public DateTime LocalOf(DateTime utc) => TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utc, DateTimeKind.Utc), _zone);
 }

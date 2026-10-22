@@ -21,6 +21,10 @@ public class SecuritySettingsConfiguration : EntityConfiguration<SecuritySetting
     builder.Property(x => x.LockoutMinutes).IsRequired();
     builder.Property(x => x.AccessTokenMinutes).IsRequired();
     builder.Property(x => x.RefreshTokenDays).IsRequired();
+    builder.Property(x => x.DormantAfterDays).IsRequired().HasDefaultValue(90);
+    builder.Property(x => x.SwitchOffDormant).IsRequired().HasDefaultValue(false);
+    builder.Property(x => x.AccessReviewMonths).IsRequired().HasDefaultValue(6);
+    builder.Property(x => x.SignInMaxDays).IsRequired().HasDefaultValue(30);
 
     builder.Ignore(x => x.PasswordPolicy);
     builder.Ignore(x => x.LockoutDuration);

@@ -21,7 +21,7 @@ public class GetAttributeDefinitionsHandler(IApplicationDbContext context, Maste
 
     var refs = await masters.Refs().Add<AttributeGroup>(rows.Select(d => d.AttributeGroupId)).LoadAsync(cancellationToken);
     var ids = rows.Select(d => d.Id).ToList();
-    var counts = await context.PropertyAttributeValues.AsNoTracking()
+    var counts = await context.PropertyAttributeValues.IgnoreQueryFilters().AsNoTracking()
         .Where(v => ids.Contains(v.AttributeDefinitionId) && v.Value != null)
         .GroupBy(v => v.AttributeDefinitionId)
         .Select(g => new { Id = g.Key, Count = g.Count() })

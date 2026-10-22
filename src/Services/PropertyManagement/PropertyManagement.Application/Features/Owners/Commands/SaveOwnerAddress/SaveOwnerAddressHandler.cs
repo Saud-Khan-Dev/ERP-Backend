@@ -4,7 +4,7 @@ public class SaveOwnerAddressHandler(IApplicationDbContext context)
 {
   public async Task<Result<SaveOwnerAddressCommandResult>> Handle(SaveOwnerAddressCommand command, CancellationToken cancellationToken)
   {
-    var owner = await context.LoadOwnerAsync(command.OwnerId, cancellationToken);
+    var owner = await context.LoadVisibleOwnerAsync(command.OwnerId, cancellationToken);
     var a = command.Address;
 
     OwnerAddressId id;
@@ -24,7 +24,7 @@ public class SaveOwnerAddressHandler(IApplicationDbContext context)
 
   public async Task<Result<SaveOwnerAddressCommandResult>> Handle(DeactivateOwnerAddressCommand command, CancellationToken cancellationToken)
   {
-    var owner = await context.LoadOwnerAsync(command.OwnerId, cancellationToken);
+    var owner = await context.LoadVisibleOwnerAsync(command.OwnerId, cancellationToken);
     owner.DeactivateAddress(OwnerAddressId.Of(command.AddressId));
 
     await context.SaveChangesAsync(cancellationToken);

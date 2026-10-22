@@ -19,7 +19,29 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
     [NumberSequence.ReceiptNo] = "receipt_no_seq"
   };
 
-  public ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : base(options) { }
+  private readonly ICurrentUser? _currentUser;
+
+  public ApplicationDbContext(DbContextOptions<ApplicationDbContext> options, ICurrentUser? currentUser = null) : base(options)
+  {
+    _currentUser = currentUser;
+  }
+
+  /// The towns the signed-in person works on (Administration › a person's scope); null = every town. Read once per
+  /// request; a background job has no person and sees every town.
+  public List<Guid>? TownScope
+  {
+    get
+    {
+      if (!_scopeRead)
+      {
+        _townScope = _currentUser?.TownScope?.ToList();
+        _scopeRead = true;
+      }
+      return _townScope;
+    }
+  }
+  private List<Guid>? _townScope;
+  private bool _scopeRead;
 
   // ---- 1. organisation ----
   public DbSet<TaxCircle> TaxCircles => Set<TaxCircle>();
@@ -71,7 +93,10 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
 
   // ---- 7. the daily job and the change history ----
   public DbSet<JobRun> JobRuns => Set<JobRun>();
+  /// The change history kept until 2026-10-21 (read-only now; its rows were copied into audit_entry).
   public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
+  /// The audit trail (BuildingBlock/Audit): append-only, written by AuditTrailInterceptor and IAuditTrail.
+  public DbSet<AuditRecord> AuditTrail => Set<AuditRecord>();
 
   public Task<IDbContextTransaction> BeginTransactionAsync(CancellationToken cancellationToken) =>
       Database.BeginTransactionAsync(cancellationToken);
@@ -105,6 +130,7 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
   protected override void OnModelCreating(ModelBuilder builder)
   {
     builder.HasDefaultSchema(Schema);
+    builder.AddAuditTrail();
     foreach (var sequence in Sequences.Values)
       builder.HasSequence<long>(sequence).StartsAt(1).IncrementsBy(1);
 

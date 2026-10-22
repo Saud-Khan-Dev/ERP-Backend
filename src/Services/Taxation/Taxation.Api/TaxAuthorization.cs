@@ -8,6 +8,10 @@ public static class TaxAuthorization
   /// Reading a clearance certificate: Taxation, and Property's officers who check one before a transfer or a plan.
   public static readonly string[] ClearanceReader = [PermissionCatalog.Tax.View, PermissionCatalog.Property.Approve];
 
-  /// Using up a clearance: Taxation's approvers, and Property's officers when the transfer or plan is approved with it.
-  public static readonly string[] ClearanceConsumer = [PermissionCatalog.Tax.Approve, PermissionCatalog.Property.Approve];
+  /// Using up a clearance: Taxation's officers who issue clearances, and Property's officers when the transfer or plan is
+  /// approved with it (the audit trail names who used it).
+  public static readonly string[] ClearanceConsumer = [PermissionCatalog.Tax.Issue, PermissionCatalog.Property.Approve];
+
+  /// Noting an export or a print in the trail (POST /audit/exports): registers, reports, notices, receipts, certificates.
+  public static readonly string[] Exporter = [PermissionCatalog.Tax.Export];
 }

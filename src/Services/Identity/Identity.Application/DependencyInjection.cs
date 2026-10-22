@@ -22,6 +22,10 @@ public static class DependencyInjection
     services.AddScoped<IdentityGuard>();
     services.AddScoped<ISecuritySettingsProvider, SecuritySettingsProvider>();
 
+    // Identity answers these from its own tables; AddErpAuthentication (called later) keeps them
+    services.AddScoped<ITokenStateChecker, DatabaseTokenStateChecker>();
+    services.AddScoped<IDutyRules, DatabaseDutyRules>();
+
     return services;
   }
 }

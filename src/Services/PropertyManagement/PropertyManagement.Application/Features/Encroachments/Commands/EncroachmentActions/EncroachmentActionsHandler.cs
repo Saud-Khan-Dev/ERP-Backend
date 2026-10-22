@@ -1,4 +1,4 @@
-public class EncroachmentActionsHandler(IApplicationDbContext context, MasterLookup masters, ICurrentUser currentUser)
+public class EncroachmentActionsHandler(IApplicationDbContext context, MasterLookup masters, ICurrentUser currentUser, IAuditTrail audit)
   : ICommandHandler<UpdateEncroachmentCommand, Result<EncroachmentActionResult>>,
     ICommandHandler<IssueEncroachmentNoticeCommand, Result<EncroachmentActionResult>>,
     ICommandHandler<ChangeEncroachmentStatusCommand, Result<EncroachmentActionResult>>,
@@ -42,6 +42,7 @@ public class EncroachmentActionsHandler(IApplicationDbContext context, MasterLoo
     encroachment.Resolve(
       await masters.GetByCodeAsync<EncroachmentStatus>(regularized ? SystemMasterCodes.Regularized : SystemMasterCodes.Resolved, cancellationToken),
       command.ResolutionDate, command.ResolutionType, command.ResolutionReferenceNo, today);
+    audit.Record(PropertyAuditActions.Resolved, encroachment, string.Join(" · ", new[] { AuditProfile.Words(command.ResolutionType.ToString()), command.ResolutionReferenceNo }.Where(x => !string.IsNullOrWhiteSpace(x))));
 
     PropertyAreaRegularization? regularization = null;
     if (command.OpenRegularization)
@@ -54,7 +55,7 @@ public class EncroachmentActionsHandler(IApplicationDbContext context, MasterLoo
         await masters.GetAsync<MeasurementUnit>(encroachment.MeasurementUnitId.Value, cancellationToken),
         encroachment.EncroachmentArea, encroachment.DetectionDate,
         new PropertyAreaRegularization.Decision(RegularizationStatus.Regularized, command.ResolutionDate, command.ResolutionReferenceNo,
-          currentUser.Username ?? currentUser.AuditName, currentUser.EmployeeId, command.ResolutionDate, null,
+          currentUser.AuditName, currentUser.EmployeeId, command.ResolutionDate, null,
           $"Regularized encroachment {encroachment.EncroachmentNo.Value}."),
         today);
 
@@ -69,6 +70,7 @@ public class EncroachmentActionsHandler(IApplicationDbContext context, MasterLoo
     var encroachment = await context.LoadEncroachmentAsync(command.Id, cancellationToken);
     await context.EnsurePropertyActiveAsync(encroachment.PropertyId, cancellationToken);
     encroachment.SetBoundary(command.Points.ToGeoPoints());
+    audit.Record(AuditActions.Changed, encroachment, field: "Encroached area boundary", newValue: $"{command.Points.Count} GPS points");
     return await SaveAsync(encroachment, null, cancellationToken);
   }
 

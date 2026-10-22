@@ -20,6 +20,7 @@ public sealed class JwtTokenService(IOptions<JwtOptions> options) : ITokenServic
       SessionId sessionId,
       IReadOnlyCollection<string> permissionCodes,
       IReadOnlyCollection<string> roleCodes,
+      IReadOnlyCollection<UserScope> scopes,
       TimeSpan lifetime)
   {
     ArgumentNullException.ThrowIfNull(user);
@@ -33,9 +34,16 @@ public sealed class JwtTokenService(IOptions<JwtOptions> options) : ITokenServic
       new(JwtRegisteredClaimNames.Sub, user.Id.Value.ToString()),
       new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
       new(ErpClaimTypes.Username, user.Username.Value),
+      new(ErpClaimTypes.DisplayName, user.DisplayName.Value),
       new(ErpClaimTypes.Email, user.Email.Value),
-      new(ErpClaimTypes.SessionId, sessionId.Value.ToString())
+      new(ErpClaimTypes.SessionId, sessionId.Value.ToString()),
+      // every service asks Identity whether this stamp is still the account's (BuildingBlock TokenState)
+      new(ErpClaimTypes.AccessStamp, user.AccessStamp.ToString(System.Globalization.CultureInfo.InvariantCulture))
     };
+
+    // where the person works; no claim of a kind = every town / every office
+    claims.AddRange(scopes.Where(s => s.Kind == ScopeKind.Town).Select(s => new Claim(ErpClaimTypes.TownScope, s.RefId.ToString())));
+    claims.AddRange(scopes.Where(s => s.Kind == ScopeKind.Office).Select(s => new Claim(ErpClaimTypes.OfficeScope, s.RefId.ToString())));
 
     if (user.EmployeeId is { } employeeId)
       claims.Add(new Claim(ErpClaimTypes.EmployeeId, employeeId.ToString()));

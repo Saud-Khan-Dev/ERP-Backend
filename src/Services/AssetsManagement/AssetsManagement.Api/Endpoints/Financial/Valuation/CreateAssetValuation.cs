@@ -15,7 +15,7 @@ public class CreateAssetValuation : ICarterModule
       var response = result.Value.Adapt<CreateAssetValuationResponse>();
       return Results.Created($"/assets/{id}/valuations/{response!.Id}", response);
     })
-      .RequirePermission(PermissionCatalog.AssetFinance.Create)
+      .RequireFinance(PermissionCatalog.AssetFinance.Create)
 
       .WithName("CreateAssetValuation")
       .Produces<CreateAssetValuationResponse>(StatusCodes.Status201Created)

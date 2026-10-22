@@ -41,9 +41,9 @@ public class AddAssetAttachment : ICarterModule
       .WithSummary("Upload Asset Attachment")
       .WithDescription("Uploads a document or photo of the asset (multipart/form-data, field 'file'). Stored under /asset-files/{asset code}/; the first photo becomes the main picture, isPrimaryImage=true makes this one the main picture.");
 
-    app.MapGet("/assets/{id}/attachments/{attachmentId}/content", async (Guid id, Guid attachmentId, ISender sender) =>
+    app.MapGet("/assets/{id}/attachments/{attachmentId}/content", async (Guid id, Guid attachmentId, bool? download, ISender sender) =>
     {
-      var result = await sender.Send(new GetAssetAttachmentContentQuery(id, attachmentId));
+      var result = await sender.Send(new GetAssetAttachmentContentQuery(id, attachmentId, download == true));
       var file = result.Value!;
       return Results.File(file.Content, file.MimeType, file.FileName);
     })
@@ -53,6 +53,6 @@ public class AddAssetAttachment : ICarterModule
       .Produces(StatusCodes.Status200OK)
       .ProducesProblem(StatusCodes.Status404NotFound)
       .WithSummary("Download Asset Attachment")
-      .WithDescription("The file itself, with its original name.");
+      .WithDescription("The file itself, with its original name. download=true (the Download button) notes in the audit trail who took the file; a thumbnail shown on the page does not.");
   }
 }

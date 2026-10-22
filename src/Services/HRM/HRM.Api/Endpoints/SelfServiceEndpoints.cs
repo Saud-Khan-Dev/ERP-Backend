@@ -9,7 +9,8 @@ public class SelfServiceEndpoints : ICarterModule
 {
   public void AddRoutes(IEndpointRouteBuilder app)
   {
-    var me = app.MapGroup("/me").WithTags("Self Service").RequireAuthorization();
+    // the person's own record: never limited by an office scope
+    var me = app.MapGroup("/me").WithTags("Self Service").RequireAuthorization().AllOffices();
 
     static async Task<Guid> Self(CurrentEmployee current, CancellationToken cancellationToken) => (await current.IdAsync(cancellationToken)).Value;
 
@@ -38,7 +39,7 @@ public class SelfServiceEndpoints : ICarterModule
         + "balances, my latest pay slip, GP Fund balance and loans.");
 
     me.MapGet("/profile", async (CurrentEmployee current, ISender sender, CancellationToken ct) =>
-        (await sender.Send(new GetEmployeeQuery(await Self(current, ct)))).ToOk())
+        (await sender.Send(new GetEmployeeQuery(await Self(current, ct), Own: true))).ToOk())
       .WithName("GetMyProfile")
       .Produces<GetEmployeeQueryResult>()
       .WithSummary("My Profile")
@@ -171,6 +172,24 @@ public class SelfServiceEndpoints : ICarterModule
       .Produces<PayslipDto>()
       .ProducesProblem(StatusCodes.Status404NotFound)
       .WithSummary("My Pay Slip");
+
+    // printing one's own slip needs no export permission, but it is kept in the trail like any print
+    me.MapPost("/payslips/{transactionId:guid}/printed", async (Guid transactionId, CurrentEmployee current, ISender sender, IAuditTrail audit, CancellationToken ct) =>
+      {
+        var self = await Self(current, ct);
+        var slip = await sender.Send(new GetPayslipQuery(transactionId, self, OnlyIssued: true));
+        if (!slip.IsSuccess)
+          return Results.BadRequest(new { slip.Message });
+        audit.Record(AuditActions.Printed, "Pay slip", transactionId, $"{slip.Value!.EmployeeNumber} {slip.Value.Period}", slip.Value.EmployeeName,
+          self, slip.Value.EmployeeNumber, "1 row · own pay slip, through the portal");
+        await audit.SaveAsync(ct);
+        return Results.NoContent();
+      })
+      .WithName("NoteMyPayslipPrinted")
+      .Produces(StatusCodes.Status204NoContent)
+      .ProducesProblem(StatusCodes.Status404NotFound)
+      .WithSummary("Note My Pay Slip Printed")
+      .WithDescription("Keeps in the audit trail that the employee printed their own issued pay slip (no permission needed beyond the portal).");
 
     me.MapGet("/loans", async (CurrentEmployee current, ISender sender, CancellationToken ct) =>
         (await sender.Send(new GetLoansQuery(QueryParsing.Page(0, 100), await Self(current, ct), null, null))).ToOk())

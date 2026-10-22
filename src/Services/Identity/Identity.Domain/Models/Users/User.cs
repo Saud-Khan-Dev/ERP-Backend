@@ -40,6 +40,11 @@ public class User : Aggregate<UserId>
   public DateTime? PasswordChangedAt { get; private set; }
   public bool MustChangePassword { get; private set; }
 
+  /// Raised whenever what this account may do changes (roles, exceptions, the access of a role it holds, where it
+  /// works, switched off, deleted, password reset, HR link). Every access token carries the stamp it was issued with,
+  /// and every service refuses a token whose stamp is no longer the account's - so a change takes effect at once.
+  public long AccessStamp { get; private set; } = 1;
+
   public DateTime? LastLoginAt { get; private set; }
   public IpAddress? LastLoginIp { get; private set; }
 
@@ -109,7 +114,11 @@ public class User : Aggregate<UserId>
 
     EmployeeId = employeeId;
     EmployeeCode = employeeId is null ? null : employeeCode;
+    AccessChanged();
   }
+
+  /// What this account may do has changed: every token issued before now stops working.
+  public void AccessChanged() => AccessStamp++;
 
   /// Throws when this account may not sign in. Called only after the password has been verified,
   /// so the caller can distinguish "wrong password" from "account disabled" in the audit log while
@@ -164,6 +173,7 @@ public class User : Aggregate<UserId>
     PasswordHash = passwordHash;
     PasswordChangedAt = now;
     MustChangePassword = mustChangePassword;
+    AccessChanged();
     // a password reset also clears a lockout: the credential that was being guessed is gone
     FailedLoginAttempts = 0;
     LastFailedLoginAt = null;
@@ -180,12 +190,14 @@ public class User : Aggregate<UserId>
   {
     EnsureNotDeleted();
     IsActive = true;
+    AccessChanged();
   }
 
   public void Deactivate()
   {
     EnsureNotDeleted();
     IsActive = false;
+    AccessChanged();
   }
 
   public void SetAuthorizedOfficer(bool isAuthorizedOfficer)
@@ -196,6 +208,7 @@ public class User : Aggregate<UserId>
       throw new DomainException("An inactive account cannot be designated an authorized officer.");
 
     IsAuthorizedOfficer = isAuthorizedOfficer;
+    AccessChanged();
   }
 
   public void Unlock()
@@ -221,6 +234,7 @@ public class User : Aggregate<UserId>
     DeletedAt = now;
     DeletedBy = deletedBy;
     IsActive = false;
+    AccessChanged();
   }
 
   /// Brings a deleted account back, switched off: an administrator reviews its roles and activates it.

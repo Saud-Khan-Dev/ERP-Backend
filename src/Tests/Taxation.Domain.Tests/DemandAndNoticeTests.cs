@@ -67,6 +67,16 @@ public class DemandAndNoticeTests
   }
 
   [Fact]
+  public void A_surcharge_and_a_notice_carry_their_demands_tax_file_so_the_files_history_and_town_scope_reach_them()
+  {
+    var file = File();
+    var demand = Issued(file, 2025);
+    var penalty = demand.ApplyYearEnd(YearEndRule(), D("2026-07-01"));
+    Assert.Equal(file.Id, penalty!.TaxFileId);
+    Assert.Equal(file.Id, Prepare(Issued(file, 2025), file).TaxFileId);
+  }
+
+  [Fact]
   public void An_in_year_surcharge_targets_defaulters_only_after_its_period()
   {
     var file = File();

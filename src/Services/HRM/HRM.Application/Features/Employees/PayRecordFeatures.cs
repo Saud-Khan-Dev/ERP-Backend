@@ -46,7 +46,7 @@ public class RecordPayChangeCommandValidator : AbstractValidator<RecordPayChange
 }
 
 public class PayRecordHandlers(IApplicationDbContext context, PayService pay, HrLookup lookup, ServiceRecordReader reader, ChangeLog log,
-  PayrollImpactFinder payroll, IClock clock) :
+  PayrollImpactFinder payroll, IClock clock, Sensitive sensitive, DutyGuard duty, IAuditTrail audit, ICurrentUser currentUser, OfficeScope scope) :
   IQueryHandler<GetPayRecordsQuery, Result<GetPayRecordsQueryResult>>,
   ICommandHandler<RecordPayChangeCommand, Result<RecordPayChangeResult>>,
   ICommandHandler<SetNextIncrementDateCommand, Result<UpdatedResult>>,
@@ -67,13 +67,15 @@ public class PayRecordHandlers(IApplicationDbContext context, PayService pay, Hr
     var grades = await lookup.GradesAsync(cancellationToken);
 
     var today = clock.Today;
+    var shows = sensitive.CanView;
+    var withheld = sensitive.Withheld(false, Sensitive.BasicPay);
     var data = records.Select(r =>
     {
       var stage = stages[r.PayScaleStageId];
       var version = versions[stage.PayScaleVersionId];
       return new PayRecordDto(r.Id.Value, stage.Id.Value, version.Id.Value, version.VersionLabel, grades[version.GradeId.Value].BpsNumber,
-        stage.StageNumber, r.BasicPay, r.LastIncrementDate, r.NextIncrementDate, r.Reason, r.OrderNumber, r.EffectiveFrom, r.EffectiveTo, r.CreatedAt,
-        r.IsIncrementOverdue(today), r.IncrementDeferredDays);
+        stage.StageNumber, shows ? r.BasicPay : null, r.LastIncrementDate, r.NextIncrementDate, r.Reason, r.OrderNumber, r.EffectiveFrom, r.EffectiveTo,
+        r.CreatedAt, r.IsIncrementOverdue(today), r.IncrementDeferredDays, withheld);
     }).ToList();
 
     return Result<GetPayRecordsQueryResult>.Success(new(data));
@@ -82,6 +84,7 @@ public class PayRecordHandlers(IApplicationDbContext context, PayService pay, Hr
   public async Task<Result<RecordPayChangeResult>> Handle(RecordPayChangeCommand command, CancellationToken cancellationToken)
   {
     var employee = await context.LoadEmployeeAsync(command.EmployeeId, cancellationToken);
+    await duty.EnsureNotOwnRecordAsync(employee.Id, "change the pay", employee, cancellationToken);
     employee.EnsureInService();
     var date = command.EffectiveFrom;
 
@@ -124,6 +127,7 @@ public class PayRecordHandlers(IApplicationDbContext context, PayService pay, Hr
       ?? throw new PayRecordNotFoundException($"Pay record {command.PayRecordId} was not found.");
     if (!record.IsOpen)
       return Result<UpdatedResult>.Failure("Only the current pay record has a next increment.");
+    await duty.EnsureNotOwnRecordAsync(record.EmployeeId, "set the next increment date", record, cancellationToken);
 
     var old = record.NextIncrementDate;
     record.SetNextIncrementDate(command.NextIncrementDate);
@@ -148,10 +152,16 @@ public class PayRecordHandlers(IApplicationDbContext context, PayService pay, Hr
     var unpaid = await UnpaidLeaveAsync(records.Select(r => r.EmployeeId), cancellationToken);
     var skipped = new List<PayRunSkip>();
     var moved = 0;
+    var ownRule = await duty.IsOnAsync(DutyRules.OwnRecord, cancellationToken);
 
     foreach (var record in records)
     {
       var employee = employees[record.EmployeeId];
+      if (ownRule && currentUser.EmployeeId == employee.Id.Value)
+      {
+        skipped.Add(new(employee.Id.Value, employee.EmployeeNumber, "Your own record: nobody decides on their own pay. Someone else runs it for you."));
+        continue;
+      }
       if (employee.HasLeftService || employee.EmploymentStatus == EmploymentStatus.Suspended || employee.ProfileStatus != RecordStatus.Active)
       {
         skipped.Add(new(employee.Id.Value, employee.EmployeeNumber, $"Not in service ({EnumText.Words(employee.EmploymentStatus)})."));
@@ -183,7 +193,7 @@ public class PayRecordHandlers(IApplicationDbContext context, PayService pay, Hr
     }
 
     if (!command.DryRun)
-      await context.SaveChangesAsync(cancellationToken);
+      await SaveRunAsync(HrmRuns.AnnualIncrement, $"Effective {date:yyyy-MM-dd}", records.Count, moved, skipped.Count, cancellationToken);
 
     return Result<PayRunResult>.Success(new(records.Count, moved, skipped, command.DryRun));
   }
@@ -215,9 +225,15 @@ public class PayRecordHandlers(IApplicationDbContext context, PayService pay, Hr
     var skipped = new List<PayRunSkip>();
     var moved = 0;
 
+    var ownRule = await duty.IsOnAsync(DutyRules.OwnRecord, cancellationToken);
     foreach (var record in records)
     {
       var employee = employees[record.EmployeeId];
+      if (ownRule && currentUser.EmployeeId == employee.Id.Value)
+      {
+        skipped.Add(new(employee.Id.Value, employee.EmployeeNumber, "Your own record: nobody decides on their own pay. Someone else runs it for you."));
+        continue;
+      }
       if (employee.HasLeftService)
       {
         skipped.Add(new(employee.Id.Value, employee.EmployeeNumber, $"Not in service ({EnumText.Words(employee.EmploymentStatus)})."));
@@ -235,9 +251,21 @@ public class PayRecordHandlers(IApplicationDbContext context, PayService pay, Hr
     }
 
     if (!command.DryRun)
-      await context.SaveChangesAsync(cancellationToken);
+      await SaveRunAsync(HrmRuns.PayRevision, $"Revised scales from {date:yyyy-MM-dd} ({revised.Count} grade{(revised.Count == 1 ? "" : "s")})",
+        records.Count, moved, skipped.Count, cancellationToken);
 
     return Result<PayRunResult>.Success(new(records.Count, moved, skipped, command.DryRun));
+  }
+
+  /// A run's pay records are saved without a line each; the run writes one line saying who ran it and what it did.
+  private async Task SaveRunAsync(string run, string what, int considered, int moved, int skipped, CancellationToken cancellationToken)
+  {
+    using (audit.Quietly())
+    {
+      var offices = scope.IsLimited ? $" · offices: {await scope.OfficeNamesAsync(cancellationToken)}" : "";
+      audit.Record(AuditActions.Ran, run, detail: $"{what} · {considered} considered · {moved} moved · {skipped} skipped{offices}");
+      await context.SaveChangesAsync(cancellationToken);
+    }
   }
 
   /// Each employee's approved leave without pay (types deducted from pay), as date ranges.

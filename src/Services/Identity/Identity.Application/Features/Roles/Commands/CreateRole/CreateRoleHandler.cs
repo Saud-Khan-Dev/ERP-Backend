@@ -37,6 +37,8 @@ public class CreateRoleHandler(IApplicationDbContext context, ICurrentUser curre
       // deciding what a role can do is the access-giving right, not the role-creating one
       guard.EnsurePermission(PermissionCatalog.Permissions.Assign, "decide what a new role can do (that needs the right to change access)");
       await guard.EnsureCanGrantAsync(permissionIds, "give the new role this access", cancellationToken);
+      var codes = await context.Permissions.AsNoTracking().Where(p => permissionIds.Contains(p.Id)).Select(p => p.Code.Value).ToListAsync(cancellationToken);
+      await ConflictCheck.EnsureAcceptedAsync(activity, codes, input.ConflictReason, ActivityTargetType.Role, role.Id.Value, role.RoleName.Value, cancellationToken);
     }
     foreach (var permissionId in permissionIds)
       await context.RolePermissions.AddAsync(

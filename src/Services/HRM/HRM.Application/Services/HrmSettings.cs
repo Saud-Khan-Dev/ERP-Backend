@@ -2,7 +2,7 @@ using Microsoft.Extensions.Options;
 
 /// The service rules in force (from configuration), read in one place. Rules GDA still has to confirm default to the
 /// behaviour the system had before they became settings.
-public class HrmSettings(IOptions<HrmOptions> hrm, IOptions<PayrollOptions> payroll)
+public class HrmSettings(IOptions<HrmOptions> hrm)
 {
   public int RetirementAge => hrm.Value.RetirementAge;
 
@@ -14,10 +14,6 @@ public class HrmSettings(IOptions<HrmOptions> hrm, IOptions<PayrollOptions> payr
 
   public int AnnualIncrementDay => hrm.Value.AnnualIncrementDay;
 
-  /// Maker-checker on HR actions: follows the payroll switch unless set on its own.
-  public bool RequireSeparateHrApprover => hrm.Value.RequireSeparateApprover ?? payroll.Value.RequireSeparateApprover;
-
-  public bool RequireSeparatePayrollApprover => payroll.Value.RequireSeparateApprover;
 
   /// The PER score weights; a set that does not total 100 falls back to goals only.
   public ScoreWeights ScoreWeights

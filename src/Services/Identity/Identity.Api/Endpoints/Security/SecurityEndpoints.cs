@@ -13,7 +13,7 @@ public class SecurityEndpoints : ICarterModule
 
       return Results.Ok(new GetLoginAttemptsResponse(result.Value!.Attempts));
     })
-      .RequirePermission(PermissionCatalog.Security.View)
+      .RequirePermission(PermissionCatalog.Audit.View)
       .WithName("GetLoginAttempts")
       .Produces<GetLoginAttemptsResponse>(StatusCodes.Status200OK)
       .WithSummary("Get Login Attempts")

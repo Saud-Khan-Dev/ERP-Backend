@@ -20,6 +20,7 @@ public class AuthEndpoints : ICarterModule
       return Results.Ok(new LoginResponse(result.Value!.Authentication));
     })
       .AllowAnonymous()
+      .RequireRateLimiting(DependencyInjection.SignInRateLimit)
       .WithName("Login")
       .Produces<LoginResponse>(StatusCodes.Status200OK)
       .ProducesProblem(StatusCodes.Status400BadRequest)
@@ -68,12 +69,22 @@ public class AuthEndpoints : ICarterModule
     // AUTHENTICATED — the caller's own account only
     // =====================================================
 
+    // every service asks this (with the caller's token) whether a token is still current; the token check itself
+    // runs before the endpoint (DatabaseTokenStateChecker), so reaching it means yes
+    app.MapGet("/auth/token-state", () => Results.Ok(new TokenStateResponse(true, null)))
+      .RequireAuthorization(AuthenticationExtensions.TemporaryPasswordAllowedPolicy)
+      .WithName("GetTokenState")
+      .Produces<TokenStateResponse>(StatusCodes.Status200OK)
+      .ProducesProblem(StatusCodes.Status401Unauthorized)
+      .WithSummary("Is This Token Current")
+      .WithDescription("200 when the sign-in is open, the account on and the token's access stamp current; 401 (with X-Token-Stale saying why) otherwise. Called by every service, cached 30 seconds.");
+
     app.MapGet("/auth/me", async (ISender sender) =>
     {
       var result = await sender.Send(new GetMeQuery());
       return Results.Ok(new MeResponse(result.Value!.User));
     })
-      .RequireAuthorization()
+      .RequireAuthorization(AuthenticationExtensions.TemporaryPasswordAllowedPolicy)
       .WithName("GetMe")
       .Produces<MeResponse>(StatusCodes.Status200OK)
       .ProducesProblem(StatusCodes.Status401Unauthorized)
@@ -89,7 +100,7 @@ public class AuthEndpoints : ICarterModule
 
       return Results.Ok(result.Value.Adapt<ChangePasswordResponse>());
     })
-      .RequireAuthorization()
+      .RequireAuthorization(AuthenticationExtensions.TemporaryPasswordAllowedPolicy)
       .WithName("ChangePassword")
       .Produces<ChangePasswordResponse>(StatusCodes.Status200OK)
       .ProducesProblem(StatusCodes.Status400BadRequest)

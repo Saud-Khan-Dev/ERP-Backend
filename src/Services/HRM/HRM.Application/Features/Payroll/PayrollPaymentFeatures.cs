@@ -25,9 +25,11 @@ public enum PaymentAction
 /// Fail: the bank refused a pending payment. Return: a processed payment came back.
 public sealed record ChangePaymentStatusCommand(Guid Id, PaymentAction Action, string? PaymentReference) : ICommand<Result<UpdatedResult>>;
 
-public sealed record BankAdviceLine(string EmployeeNumber, string EmployeeName, string? AccountNumber, string? Iban, string? BranchName, decimal Amount, PaymentStatus Status);
+public sealed record BankAdviceLine(string EmployeeNumber, string EmployeeName, string? AccountNumber, string? Iban, string? BranchName, decimal? Amount, PaymentStatus Status);
 public sealed record BankAdviceBank(string BankName, int Count, decimal Amount, IReadOnlyList<BankAdviceLine> Lines);
-public sealed record BankAdviceResult(Guid RunId, string Period, PayrollRunType RunType, int Count, decimal Amount, IReadOnlyList<BankAdviceBank> Banks);
+/// Restricted: what each line withholds from this caller (no HR_SENSITIVE.VIEW): "pay", "accountNumber", "iban"; the bank totals stay.
+public sealed record BankAdviceResult(Guid RunId, string Period, PayrollRunType RunType, int Count, decimal Amount, IReadOnlyList<BankAdviceBank> Banks,
+  IReadOnlyList<string>? Restricted = null);
 
 /// The letter to the bank: the run's pending and processed bank transfers, bank by bank (cheques and cash are not in it).
 public sealed record GetBankAdviceQuery(Guid RunId) : IQuery<Result<BankAdviceResult>>;
@@ -59,7 +61,7 @@ public class ProcessPaymentsCommandValidator : AbstractValidator<ProcessPayments
   public ProcessPaymentsCommandValidator() => RuleFor(x => x.PaymentReference).NotEmpty().MaximumLength(100);
 }
 
-public class PayrollPaymentHandlers(IApplicationDbContext context, HrLookup lookup, IClock clock) :
+public class PayrollPaymentHandlers(IApplicationDbContext context, HrLookup lookup, IClock clock, OfficeScope scope, DutyGuard duty, Sensitive sensitive, IAuditTrail audit) :
   ICommandHandler<GeneratePaymentsCommand, Result<GeneratePaymentsResult>>,
   IQueryHandler<GetPaymentsQuery, Result<GetPaymentsQueryResult>>,
   ICommandHandler<ProcessPaymentsCommand, Result<ProcessPaymentsResult>>,
@@ -69,7 +71,10 @@ public class PayrollPaymentHandlers(IApplicationDbContext context, HrLookup look
 {
   public async Task<Result<GeneratePaymentsResult>> Handle(GeneratePaymentsCommand command, CancellationToken cancellationToken)
   {
+    if (await scope.WholeOrganizationRefusalAsync("prepare a payroll run's salary payments", cancellationToken) is { } refusal)
+      return Result<GeneratePaymentsResult>.Failure(refusal);
     var run = await context.LoadPayrollRunAsync(command.RunId, cancellationToken);
+    await duty.EnsureSeparateAsync(DutyRules.PayrollPay, run.ApprovedBy, "pay out a payroll run you approved", run, cancellationToken);
     if (run.Status is not (PayrollRunStatus.Finalized or PayrollRunStatus.Paid))
       return Result<GeneratePaymentsResult>.Failure($"The run is {EnumText.Words(run.Status)}; salaries are paid only from a finalized run.");
 
@@ -100,15 +105,20 @@ public class PayrollPaymentHandlers(IApplicationDbContext context, HrLookup look
       created.Add(payment);
     }
 
-    await context.SaveChangesAsync(cancellationToken);
     var amount = slips.Where(s => created.Any(p => p.PayrollTransactionId == s.Id)).Sum(s => s.NetPayable);
+    using (audit.Quietly())
+    {
+      audit.Record(AuditActions.Ran, HrmRuns.SalaryPayments, run.Id.Value, null, run.RunLabel ?? EnumText.Label(run.RunType), run.Id.Value,
+        detail: $"Prepared {created.Count} payment(s) by {EnumText.Words(command.PaymentMethod)} · Rs {amount:#,##0} · {problems.Count} without an account");
+      await context.SaveChangesAsync(cancellationToken);
+    }
     return Result<GeneratePaymentsResult>.Success(new(created.Count, amount, problems));
   }
 
   public async Task<Result<GetPaymentsQueryResult>> Handle(GetPaymentsQuery query, CancellationToken cancellationToken)
   {
     var rows = await PaymentsOfAsync(PayrollRunId.Of(query.RunId), query.Status is { } status ? [status] : null, cancellationToken);
-    return Result<GetPaymentsQueryResult>.Success(new(rows));
+    return Result<GetPaymentsQueryResult>.Success(new(sensitive.CanView ? rows : rows.Select(Withheld).ToList()));
   }
 
   public async Task<Result<ProcessPaymentsResult>> Handle(ProcessPaymentsCommand command, CancellationToken cancellationToken)
@@ -116,6 +126,8 @@ public class PayrollPaymentHandlers(IApplicationDbContext context, HrLookup look
     var runId = PayrollRunId.Of(command.RunId);
     if (command.PaymentDate > clock.Today)
       return Result<ProcessPaymentsResult>.Failure("A payment cannot be dated in the future.");
+    var run = await context.LoadPayrollRunAsync(command.RunId, cancellationToken);
+    await duty.EnsureSeparateAsync(DutyRules.PayrollPay, run.ApprovedBy, "record payments of a payroll run you approved", run, cancellationToken);
 
     var payments = context.Payments.Where(p => p.PaymentStatus == PaymentStatus.Pending
       && context.PayrollTransactions.Any(t => t.Id == p.PayrollTransactionId && t.PayrollRunId == runId));
@@ -129,12 +141,16 @@ public class PayrollPaymentHandlers(IApplicationDbContext context, HrLookup look
     if (list.Count == 0)
       return Result<ProcessPaymentsResult>.Failure("There are no pending payments to mark processed.");
 
-    foreach (var payment in list)
-      payment.Process(command.PaymentDate, command.PaymentReference);
-    await context.SaveChangesAsync(cancellationToken);
-
     var slipIds = list.Select(p => p.PayrollTransactionId).ToList();
     var amount = await context.PayrollTransactions.Where(t => slipIds.Contains(t.Id)).SumAsync(t => t.NetPayable, cancellationToken);
+    using (audit.Quietly())
+    {
+      foreach (var payment in list)
+        payment.Process(command.PaymentDate, command.PaymentReference);
+      audit.Record(AuditActions.Ran, HrmRuns.SalaryPayments, run.Id.Value, command.PaymentReference, run.RunLabel ?? EnumText.Label(run.RunType), run.Id.Value,
+        detail: $"Marked {list.Count} payment(s) processed on {command.PaymentDate:yyyy-MM-dd}, bank reference {command.PaymentReference} · Rs {amount:#,##0}");
+      await context.SaveChangesAsync(cancellationToken);
+    }
     return Result<ProcessPaymentsResult>.Success(new(list.Count, amount));
   }
 
@@ -149,6 +165,7 @@ public class PayrollPaymentHandlers(IApplicationDbContext context, HrLookup look
     else
       payment.MarkReturned(command.PaymentReference);
 
+    audit.Record(command.Action == PaymentAction.Fail ? HrmVerbs.Failed : HrmVerbs.Returned, payment, command.PaymentReference);
     await context.SaveChangesAsync(cancellationToken);
     return CommandResults.Updated();
   }
@@ -160,10 +177,14 @@ public class PayrollPaymentHandlers(IApplicationDbContext context, HrLookup look
     var payments = (await PaymentsOfAsync(run.Id, [PaymentStatus.Pending, PaymentStatus.Processed], cancellationToken))
       .Where(p => p.PaymentMethod == PaymentMethod.BankTransfer).ToList();
 
-    var banks = payments.GroupBy(p => p.BankName ?? "(no bank)").OrderBy(g => g.Key).Select(g => new BankAdviceBank(g.Key, g.Count(), g.Sum(p => p.Amount),
-      g.OrderBy(p => p.EmployeeNumber).Select(p => new BankAdviceLine(p.EmployeeNumber, p.EmployeeName, p.AccountNumber, p.Iban, p.BranchName, p.Amount, p.PaymentStatus)).ToList()))
+    var shows = sensitive.CanView;
+    var banks = payments.GroupBy(p => p.BankName ?? "(no bank)").OrderBy(g => g.Key).Select(g => new BankAdviceBank(g.Key, g.Count(), g.Sum(p => p.Amount ?? 0),
+      g.OrderBy(p => p.EmployeeNumber).Select(p => shows
+        ? new BankAdviceLine(p.EmployeeNumber, p.EmployeeName, p.AccountNumber, p.Iban, p.BranchName, p.Amount, p.PaymentStatus)
+        : new BankAdviceLine(p.EmployeeNumber, p.EmployeeName, null, null, p.BranchName, null, p.PaymentStatus)).ToList()))
       .ToList();
-    return Result<BankAdviceResult>.Success(new(run.Id.Value, period.Label, run.RunType, payments.Count, payments.Sum(p => p.Amount), banks));
+    return Result<BankAdviceResult>.Success(new(run.Id.Value, period.Label, run.RunType, payments.Count, payments.Sum(p => p.Amount ?? 0), banks,
+      shows ? null : [Sensitive.Pay, Sensitive.AccountNumber, Sensitive.Iban]));
   }
 
   public async Task<Result<PaymentReconciliationResult>> Handle(GetPaymentReconciliationQuery query, CancellationToken cancellationToken)
@@ -193,6 +214,10 @@ public class PayrollPaymentHandlers(IApplicationDbContext context, HrLookup look
       unpaid.Count(s => !withAccount.Contains(s.EmployeeId))));
   }
 
+  /// A payment as someone who may not see pay and bank accounts reads it.
+  private static PaymentDto Withheld(PaymentDto p) =>
+      p with { Amount = null, AccountNumber = null, Iban = null, Restricted = [Sensitive.Pay, Sensitive.AccountNumber, Sensitive.Iban] };
+
   private async Task<List<PaymentDto>> PaymentsOfAsync(PayrollRunId runId, IReadOnlyCollection<PaymentStatus>? statuses, CancellationToken cancellationToken)
   {
     var rows = await (
@@ -205,12 +230,14 @@ public class PayrollPaymentHandlers(IApplicationDbContext context, HrLookup look
       rows = rows.Where(r => statuses.Contains(r.Payment.PaymentStatus)).ToList();
 
     var people = await lookup.EmployeesAsync(rows.Select(r => (EmployeeId?)r.Payment.EmployeeId), cancellationToken);
-    return rows.Select(r =>
+    var list = rows.Select(r =>
     {
       var p = r.Payment;
       var person = people.GetValueOrDefault(p.EmployeeId.Value);
       return new PaymentDto(p.Id.Value, p.PayrollTransactionId.Value, p.EmployeeId.Value, person?.EmployeeNumber ?? "", person?.FullName ?? "", r.NetPayable,
-        p.BankNameSnapshot, p.BranchNameSnapshot, p.AccountNumberSnapshot, p.IbanSnapshot, p.PaymentMethod, p.PaymentStatus, p.PaymentDate, p.PaymentReference, p.CreatedAt);
+        p.BankNameSnapshot, p.BranchNameSnapshot, p.AccountNumberSnapshot, p.IbanSnapshot, p.PaymentMethod, p.PaymentStatus, p.PaymentDate, p.PaymentReference,
+        p.CreatedAt);
     }).OrderBy(p => p.EmployeeNumber).ThenByDescending(p => p.CreatedAt).ToList();
+    return list;
   }
 }

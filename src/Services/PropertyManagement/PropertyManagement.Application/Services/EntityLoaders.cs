@@ -20,6 +20,14 @@ public static class EntityLoaders
       ?? throw new OwnerNotFoundException($"Owner {id} was not found.");
   }
 
+  /// The owner as their own record (the owner screens): 404 when they are outside the caller's towns (OwnerScope).
+  /// A party to an act (a lessee, a buyer) is loaded with LoadOwnerAsync, which any town may use.
+  public static async Task<PropertyOwner> LoadVisibleOwnerAsync(this IApplicationDbContext context, Guid id, CancellationToken cancellationToken)
+  {
+    await context.EnsureOwnerVisibleAsync(OwnerId.Of(id), cancellationToken);
+    return await context.LoadOwnerAsync(id, cancellationToken);
+  }
+
   public static async Task<PropertyOwnership> LoadOwnershipAsync(this IApplicationDbContext context, Guid id, CancellationToken cancellationToken)
   {
     var ownershipId = OwnershipId.Of(id);
@@ -51,8 +59,15 @@ public static class EntityLoaders
   public static async Task<PropertyDocument> LoadDocumentAsync(this IApplicationDbContext context, Guid id, CancellationToken cancellationToken)
   {
     var documentId = DocumentId.Of(id);
-    return await context.Documents.FirstOrDefaultAsync(d => d.Id == documentId, cancellationToken)
+    var document = await context.Documents.FirstOrDefaultAsync(d => d.Id == documentId, cancellationToken)
       ?? throw new DocumentNotFoundException($"Document {id} was not found.");
+
+    // a property's paper follows its property's town (query filter); an owner's paper follows its owner
+    if (document.IsOwnerDocument && context.TownScope is not null
+        && !await context.VisibleOwners(context.Owners.AsNoTracking()).AnyAsync(o => o.Id == OwnerId.Of(document.EntityId), cancellationToken))
+      throw new DocumentNotFoundException($"Document {id} was not found.");
+
+    return document;
   }
 
   public static async Task<AttributeDefinition> LoadAttributeDefinitionAsync(this IApplicationDbContext context, Guid id, CancellationToken cancellationToken)

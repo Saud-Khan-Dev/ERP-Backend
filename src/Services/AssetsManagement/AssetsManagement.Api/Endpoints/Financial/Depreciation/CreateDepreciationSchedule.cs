@@ -15,7 +15,7 @@ public class CreateDepreciationSchedule : ICarterModule
       var response = result.Value.Adapt<CreateDepreciationScheduleResponse>();
       return Results.Created($"/depreciation-schedules/{response!.Id}", response);
     })
-      .RequirePermission(PermissionCatalog.AssetFinance.Create)
+      .RequireFinance(PermissionCatalog.AssetFinance.Create)
 
       .WithName("CreateDepreciationSchedule")
       .Produces<CreateDepreciationScheduleResponse>(StatusCodes.Status201Created)

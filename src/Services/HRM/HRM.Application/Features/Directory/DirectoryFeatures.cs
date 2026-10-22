@@ -34,6 +34,33 @@ public sealed record GetDirectoryOrgUnitsQuery : IQuery<Result<GetDirectoryOrgUn
 
 public sealed record GetPostHolderQuery(Guid PostId, DateOnly? On) : IQuery<Result<DirectoryPostHolderDto>>;
 
+/// One office (organization unit) as Administration's "works on" picker shows it.
+public sealed record DirectoryOfficeDto(Guid Id, string Code, string Name, Guid? ParentId, string? TypeName);
+
+public sealed record GetDirectoryOfficesQueryResult(IReadOnlyList<DirectoryOfficeDto> Offices);
+
+/// The active units of the structure today, for the data-scope picker in Administration (a person limited to an office
+/// works on it and every unit below it).
+public sealed record GetDirectoryOfficesQuery : IQuery<Result<GetDirectoryOfficesQueryResult>>;
+
+/// A gazetted holiday as the rest of the ERP needs it (counting working days for notice periods).
+public sealed record PublicHolidayDto(DateOnly Date, string Name, HolidayType HolidayType);
+
+public sealed record GetPublicHolidaysQueryResult(IReadOnlyList<PublicHolidayDto> Holidays);
+
+/// The gazetted holidays (organization-wide, not optional) between two dates - public facts, read without a token by
+/// Taxation's daily job.
+public sealed record GetPublicHolidaysQuery(DateOnly From, DateOnly To) : IQuery<Result<GetPublicHolidaysQueryResult>>;
+
+public class GetPublicHolidaysQueryValidator : AbstractValidator<GetPublicHolidaysQuery>
+{
+  public GetPublicHolidaysQueryValidator()
+  {
+    RuleFor(x => x.To).GreaterThanOrEqualTo(x => x.From).WithMessage("'to' must not be before 'from'.");
+    RuleFor(x => x).Must(x => x.To.DayNumber - x.From.DayNumber <= 3 * 366).WithMessage("Ask for at most three years at a time.");
+  }
+}
+
 public class GetDirectoryEmployeesQueryValidator : AbstractValidator<GetDirectoryEmployeesQuery>
 {
   public GetDirectoryEmployeesQueryValidator()
@@ -49,7 +76,9 @@ public class GetDirectoryEmployeesQueryValidator : AbstractValidator<GetDirector
 public class DirectoryHandlers(IApplicationDbContext context, HrLookup lookup, IClock clock) :
   IQueryHandler<GetDirectoryEmployeesQuery, Result<GetDirectoryEmployeesQueryResult>>,
   IQueryHandler<GetDirectoryOrgUnitsQuery, Result<GetDirectoryOrgUnitsQueryResult>>,
-  IQueryHandler<GetPostHolderQuery, Result<DirectoryPostHolderDto>>
+  IQueryHandler<GetPostHolderQuery, Result<DirectoryPostHolderDto>>,
+  IQueryHandler<GetDirectoryOfficesQuery, Result<GetDirectoryOfficesQueryResult>>,
+  IQueryHandler<GetPublicHolidaysQuery, Result<GetPublicHolidaysQueryResult>>
 {
   private static readonly EmploymentStatus[] InServiceStatuses =
     [EmploymentStatus.Active, EmploymentStatus.OnLeave, EmploymentStatus.Suspended, EmploymentStatus.DeputedOut];
@@ -120,6 +149,33 @@ public class DirectoryHandlers(IApplicationDbContext context, HrLookup lookup, I
       holder = ToDto(employee, placement);
     }
     return Result<DirectoryPostHolderDto>.Success(new DirectoryPostHolderDto(post.PostId, post.PostCode, post.Designation, holder));
+  }
+
+  public async Task<Result<GetDirectoryOfficesQueryResult>> Handle(GetDirectoryOfficesQuery query, CancellationToken cancellationToken)
+  {
+    var today = clock.Today;
+    var versions = await context.OrganizationUnitVersions.AsNoTracking()
+      .Where(v => v.Status == RecordStatus.Active && v.EffectiveFrom <= today && (v.EffectiveTo == null || v.EffectiveTo >= today))
+      .ToListAsync(cancellationToken);
+    var unitIds = versions.Select(v => v.OrgUnitId).Distinct().ToList();
+    var codes = await context.OrganizationUnits.AsNoTracking().Where(u => unitIds.Contains(u.Id)).ToDictionaryAsync(u => u.Id, u => u.Code, cancellationToken);
+    var types = await context.OrganizationUnitTypes.AsNoTracking().ToDictionaryAsync(t => t.Id, t => t.Name, cancellationToken);
+
+    var offices = versions
+      .Select(v => new DirectoryOfficeDto(v.OrgUnitId.Value, codes.GetValueOrDefault(v.OrgUnitId) ?? "", v.Name, v.ParentUnitId?.Value,
+        types.GetValueOrDefault(v.UnitTypeId)))
+      .OrderBy(o => o.Name).ToList();
+    return Result<GetDirectoryOfficesQueryResult>.Success(new(offices));
+  }
+
+  public async Task<Result<GetPublicHolidaysQueryResult>> Handle(GetPublicHolidaysQuery query, CancellationToken cancellationToken)
+  {
+    var rows = await context.Holidays.AsNoTracking()
+      .Where(h => h.HolidayDate >= query.From && h.HolidayDate <= query.To && h.LocationId == null && h.HolidayType != HolidayType.Optional)
+      .OrderBy(h => h.HolidayDate)
+      .Select(h => new PublicHolidayDto(h.HolidayDate, h.Name, h.HolidayType))
+      .ToListAsync(cancellationToken);
+    return Result<GetPublicHolidaysQueryResult>.Success(new(rows));
   }
 
   private static DirectoryEmployeeDto ToDto(Employee e, Placement? placement) => new(

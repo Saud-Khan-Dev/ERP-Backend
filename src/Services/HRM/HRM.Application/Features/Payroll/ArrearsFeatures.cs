@@ -23,11 +23,13 @@ public class WorkOutArrearsCommandValidator : AbstractValidator<WorkOutArrearsCo
   }
 }
 
-public class ArrearsHandlers(IApplicationDbContext context, PayrollEngine engine, PayrollInputBuilder inputs, HrLookup lookup) :
+public class ArrearsHandlers(IApplicationDbContext context, PayrollEngine engine, PayrollInputBuilder inputs, HrLookup lookup, OfficeScope scope, IAuditTrail audit) :
   ICommandHandler<WorkOutArrearsCommand, Result<WorkOutArrearsResult>>
 {
   public async Task<Result<WorkOutArrearsResult>> Handle(WorkOutArrearsCommand command, CancellationToken cancellationToken)
   {
+    if (await scope.WholeOrganizationRefusalAsync("work out arrears for a payroll run", cancellationToken) is { } refusal)
+      return Result<WorkOutArrearsResult>.Failure(refusal);
     var run = await context.LoadPayrollRunAsync(command.RunId, cancellationToken);
     if (run.RunType is not (PayrollRunType.Arrears or PayrollRunType.Regular or PayrollRunType.Supplementary))
       return Result<WorkOutArrearsResult>.Failure("Arrears and recoveries go on an arrears run, or on this month's regular or supplementary run.");
@@ -114,6 +116,7 @@ public class ArrearsHandlers(IApplicationDbContext context, PayrollEngine engine
 
     if (!command.DryRun)
     {
+      using var quiet = audit.Quietly();
       // replace what an earlier working-out of the same month left on this run
       var slips = await engine.SlipsAsync(run.Id, cancellationToken);
       foreach (var slip in slips)
@@ -136,6 +139,9 @@ public class ArrearsHandlers(IApplicationDbContext context, PayrollEngine engine
       var calculate = await context.Employees.AsNoTracking().Where(e => touched.Contains(e.Id)).ToListAsync(cancellationToken);
       foreach (var problem in await engine.CalculateAsync(run, period, slips, calculate, cancellationToken))
         lines.Add(new(Guid.Empty, "", "", 0, 0, 0, "", problem));
+      audit.Record(AuditActions.Ran, HrmRuns.Arrears, run.Id.Value, period.Label, run.RunLabel ?? EnumText.Label(run.RunType), run.Id.Value,
+        detail: $"For {source.Label} · {differences.Count} employee(s) · arrears Rs {differences.Values.Where(d => d.Amount > 0).Sum(d => d.Amount):#,##0}"
+          + $" · recoveries Rs {differences.Values.Where(d => d.Amount < 0).Sum(d => d.Amount):#,##0}");
       await context.SaveChangesAsync(cancellationToken);
     }
 

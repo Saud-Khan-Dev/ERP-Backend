@@ -33,7 +33,9 @@ public sealed class DatabaseInitializer(ApplicationDbContext context, HrmSeeder 
       }
     }
 
-    await seeder.SeedAsync(cancellationToken);
+    // what the seeder adds is the system's own work, never a person's
+    using (AuditScope.ActingAs("Startup"))
+      await seeder.SeedAsync(cancellationToken);
   }
 
   /// Waits until the server answers. A database that does not exist yet is fine when migrations run: migrating

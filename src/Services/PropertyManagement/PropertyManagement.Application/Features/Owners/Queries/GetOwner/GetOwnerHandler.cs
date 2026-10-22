@@ -3,7 +3,7 @@ public class GetOwnerHandler(IApplicationDbContext context, MasterLookup masters
 {
   public async Task<Result<GetOwnerQueryResult>> Handle(GetOwnerQuery query, CancellationToken cancellationToken)
   {
-    var owner = await context.LoadOwnerAsync(query.Id, cancellationToken);
+    var owner = await context.LoadVisibleOwnerAsync(query.Id, cancellationToken);
 
     var refs = await masters.Refs()
         .Add<OwnerType>(owner.OwnerTypeId)

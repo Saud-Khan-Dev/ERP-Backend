@@ -170,7 +170,7 @@ public class UpdateSalaryOverrideCommandValidator : AbstractValidator<UpdateSala
   public UpdateSalaryOverrideCommandValidator() => RuleFor(x => x.Override).NotNull().SetValidator(new SalaryOverrideInputValidator());
 }
 
-public class SalaryHandlers(IApplicationDbContext context, HrLookup lookup, ICurrentUser currentUser, IClock clock) :
+public class SalaryHandlers(IApplicationDbContext context, HrLookup lookup, ICurrentUser currentUser, IClock clock, DutyGuard duty) :
   IQueryHandler<GetSalaryComponentsQuery, Result<GetSalaryComponentsQueryResult>>,
   ICommandHandler<CreateSalaryComponentCommand, Result<CreatedResult>>,
   ICommandHandler<UpdateSalaryComponentCommand, Result<UpdatedResult>>,
@@ -365,6 +365,7 @@ public class SalaryHandlers(IApplicationDbContext context, HrLookup lookup, ICur
   public async Task<Result<CreatedResult>> Handle(CreateSalaryOverrideCommand command, CancellationToken cancellationToken)
   {
     var employee = await context.LoadEmployeeAsync(command.EmployeeId, cancellationToken);
+    await duty.EnsureNotOwnRecordAsync(employee.Id, "override a salary component", employee, cancellationToken);
     employee.EnsureInService();
     var component = await context.LoadComponentAsync(command.ComponentId, cancellationToken);
     PostId? postId = null;
@@ -383,6 +384,7 @@ public class SalaryHandlers(IApplicationDbContext context, HrLookup lookup, ICur
   public async Task<Result<UpdatedResult>> Handle(UpdateSalaryOverrideCommand command, CancellationToken cancellationToken)
   {
     var item = await LoadOverrideAsync(command.Id, cancellationToken);
+    await duty.EnsureNotOwnRecordAsync(item.EmployeeId, "change a salary override", item, cancellationToken);
     if (await IsOverrideSettledAsync(item, cancellationToken))
       return Result<UpdatedResult>.Failure("The override is on approved or finalized pay slips; end it and add a new one from the date the amount changes.");
 
@@ -395,6 +397,7 @@ public class SalaryHandlers(IApplicationDbContext context, HrLookup lookup, ICur
   public async Task<Result<UpdatedResult>> Handle(EndSalaryOverrideCommand command, CancellationToken cancellationToken)
   {
     var item = await LoadOverrideAsync(command.Id, cancellationToken);
+    await duty.EnsureNotOwnRecordAsync(item.EmployeeId, "change a salary override", item, cancellationToken);
     item.EndOn(command.LastDay);
     await context.SaveChangesAsync(cancellationToken);
     return CommandResults.Updated();
@@ -403,6 +406,7 @@ public class SalaryHandlers(IApplicationDbContext context, HrLookup lookup, ICur
   public async Task<Result<UpdatedResult>> Handle(DeleteSalaryOverrideCommand command, CancellationToken cancellationToken)
   {
     var item = await LoadOverrideAsync(command.Id, cancellationToken);
+    await duty.EnsureNotOwnRecordAsync(item.EmployeeId, "change a salary override", item, cancellationToken);
     if (await IsOverrideSettledAsync(item, cancellationToken))
       return Result<UpdatedResult>.Failure("The override is on approved or finalized pay slips; end it instead.");
 

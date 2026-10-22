@@ -189,8 +189,11 @@ public class AssetDepreciationSchedule : Aggregate<AssetDepreciationScheduleId>
     return due.Count;
   }
 
-  public void ReverseEntry(AssetDepreciationEntryId entryId, ActorRef reversedBy, DateTime reversedAt) =>
-      FindEntry(entryId).Reverse(reversedBy, reversedAt);
+  public void ReverseEntry(AssetDepreciationEntryId entryId, ActorRef reversedBy, DateTime reversedAt, string? reason = null) =>
+      FindEntry(entryId).Reverse(reversedBy, reversedAt, reason);
+
+  /// The month (posted or not) - for a check before acting on it.
+  public AssetDepreciationEntry Entry(AssetDepreciationEntryId entryId) => FindEntry(entryId);
 
   public void RemoveEntry(AssetDepreciationEntryId entryId)
   {

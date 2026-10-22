@@ -1,11 +1,21 @@
 using Microsoft.EntityFrameworkCore;
 
-public class GetOwnersHandler(IApplicationDbContext context, MasterLookup masters)
+public class GetOwnersHandler(IApplicationDbContext context, MasterLookup masters, ICurrentUser currentUser)
   : IQueryHandler<GetOwnersQuery, Result<GetOwnersQueryResult>>
 {
   public async Task<Result<GetOwnersQueryResult>> Handle(GetOwnersQuery query, CancellationToken cancellationToken)
   {
     var owners = context.Owners.AsNoTracking();
+
+    // an exact CNIC / NTN lookup (the duplicate check before registering someone, and the picker's "Use OWN-...") searches
+    // every town, so a person holding land elsewhere is found and used rather than registered twice; anything else lists
+    // the owners of the caller's towns (OwnerScope)
+    var exactLookup = Cnic.Normalize(query.Cnic) is not null || Ntn.Normalize(query.Ntn) is not null;
+    if (!exactLookup)
+      owners = context.VisibleOwners(owners);
+
+    if (query.Role is OwnerRole.Encroacher or OwnerRole.Litigant or OwnerRole.Appellant && !currentUser.HasPermission(PermissionCatalog.PropertyLegal.View))
+      throw new PermissionRequiredException("Encroachers, litigants and appellants are legal matters; they need Legal: view (PROPERTY_LEGAL.VIEW).");
 
     // a current holding: an active or disputed share on a property still on the register
     var activeProperties = context.Properties.AsNoTracking().Where(p => p.IsActive).Select(p => p.Id);

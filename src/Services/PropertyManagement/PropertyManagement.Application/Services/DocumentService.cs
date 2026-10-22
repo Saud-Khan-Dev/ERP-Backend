@@ -30,6 +30,7 @@ public class DocumentService(
   {
     if (entityType == DocumentEntityType.Owner)
       throw new DomainException("An owner's paper is filed on the owner (Owners > Documents), not on a property.");
+    EnsureMayFileOn(entityType);
 
     var folder = await PropertyFolderAsync(propertyId, cancellationToken);
     var id = entityType == DocumentEntityType.Property ? propertyId.Value : entityId ?? Guid.Empty;
@@ -64,8 +65,11 @@ public class DocumentService(
   }
 
   /// An owner's own paper: the owner must exist and be active.
-  public async Task<Target> OwnerTargetAsync(OwnerId ownerId, CancellationToken cancellationToken) =>
-      new(null, DocumentEntityType.Owner, ownerId.Value, await OwnerFolderAsync(ownerId, cancellationToken));
+  public async Task<Target> OwnerTargetAsync(OwnerId ownerId, CancellationToken cancellationToken)
+  {
+    await context.EnsureOwnerVisibleAsync(ownerId, cancellationToken);
+    return new(null, DocumentEntityType.Owner, ownerId.Value, await OwnerFolderAsync(ownerId, cancellationToken));
+  }
 
   public async Task<PropertyDocument> CreateAsync(
       Target target,
@@ -127,8 +131,32 @@ public class DocumentService(
     owner.RefreshCnicDocument(documents, cnicCopy);
   }
 
-  /// Confidential documents are only listed or served to callers who may edit property records.
-  public bool CanSeeConfidential() => currentUser.HasPermission(PermissionCatalog.Property.Edit);
+  /// The records whose papers are legal matters: a paper filed on an encroachment, a court case or an appeal.
+  public static readonly DocumentEntityType[] LegalRecordKinds = [DocumentEntityType.Encroachment, DocumentEntityType.Litigation, DocumentEntityType.Appeal];
+
+  /// Confidential papers and papers filed on a legal record are listed and served only to callers who may see legal
+  /// matters (PROPERTY_LEGAL.VIEW); everyone else sees how many were held back ("Restricted").
+  public bool CanSeeConfidential() => currentUser.HasPermission(PermissionCatalog.PropertyLegal.View);
+
+  /// Whether the caller may see this paper at all (see CanSeeConfidential).
+  public bool MaySee(PropertyDocument document) =>
+      CanSeeConfidential() || (!document.IsConfidential && !LegalRecordKinds.Contains(document.EntityType));
+
+  /// Refuses (403) a paper the caller may not see: reading, downloading or changing it.
+  public void EnsureMaySee(PropertyDocument document)
+  {
+    if (!MaySee(document))
+      throw new PermissionRequiredException(document.IsConfidential
+        ? "This paper is confidential; it needs Legal: view (PROPERTY_LEGAL.VIEW)."
+        : "This paper is filed on a legal record; it needs Legal: view (PROPERTY_LEGAL.VIEW).");
+  }
+
+  /// Filing a paper on an encroachment, case or appeal is legal work (PROPERTY_LEGAL.EDIT, 403 otherwise).
+  public void EnsureMayFileOn(DocumentEntityType entityType)
+  {
+    if (LegalRecordKinds.Contains(entityType) && !currentUser.HasPermission(PermissionCatalog.PropertyLegal.Edit))
+      throw new PermissionRequiredException("Filing a paper on an encroachment, court case or appeal needs Legal: edit (PROPERTY_LEGAL.EDIT).");
+  }
 
   private async Task<PropertyDocument.StoredFile> StoreAsync(string rootFolder, DocumentType documentType, Upload upload, CancellationToken cancellationToken)
   {

@@ -26,6 +26,7 @@ public class AssetDepreciationEntryConfiguration : EntityConfiguration<AssetDepr
     builder.Property(x => x.ReversedAt).IsRequired(false);
     builder.Property(x => x.ReversedBy).IsRequired(false);
     builder.Property(x => x.ReversedByName).HasMaxLength(100).IsRequired(false);
+    builder.Property(x => x.ReversalReason).HasMaxLength(500).IsRequired(false);
 
     builder.Ignore(x => x.IsReversed);
     builder.Ignore(x => x.LastDay);

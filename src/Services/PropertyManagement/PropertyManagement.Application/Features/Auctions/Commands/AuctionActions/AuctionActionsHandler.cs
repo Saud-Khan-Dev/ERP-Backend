@@ -1,6 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 
-public class AuctionActionsHandler(IApplicationDbContext context, MasterLookup masters, CodeGenerator codes)
+public class AuctionActionsHandler(IApplicationDbContext context, MasterLookup masters, CodeGenerator codes, IAuditTrail audit)
   : ICommandHandler<UpdateAuctionCommand, Result<AuctionActionResult>>,
     ICommandHandler<ChangeAuctionStatusCommand, Result<AuctionActionResult>>,
     ICommandHandler<RecordBidCommand, Result<RecordBidCommandResult>>,
@@ -47,6 +47,7 @@ public class AuctionActionsHandler(IApplicationDbContext context, MasterLookup m
       await masters.GetByCodeAsync<AuctionStatus>(SystemMasterCodes.Awarded, cancellationToken),
       command.WinningBidId is { } bidId ? AuctionBidId.Of(bidId) : null,
       bidder, command.WinningBidAmount, command.AwardDate, command.AwardReferenceNo, PropertyWriteGuard.Today());
+    audit.Record(PropertyAuditActions.Awarded, auction, string.Join(" · ", new[] { bidder is null ? null : $"to {bidder.OwnerName.Value} ({bidder.OwnerCode.Value})", command.WinningBidAmount is { } amount ? $"Rs {amount:N0}" : null, command.AwardReferenceNo }.Where(x => x is not null)));
 
     return await SaveAsync(auction, cancellationToken);
   }

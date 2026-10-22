@@ -36,14 +36,16 @@ public sealed record PayrollTransactionSummaryDto(
   string EmployeeNumber,
   string EmployeeName,
   decimal? DaysPayable,
-  decimal GrossPay,
-  decimal TotalDeductions,
-  decimal NetPayable,
+  decimal? GrossPay,
+  decimal? TotalDeductions,
+  decimal? NetPayable,
   PayrollTransactionStatus Status,
   PaymentStatus? PaymentStatus,
-  string? Remarks);
+  string? Remarks,
+  /// "pay" when the figures are withheld (no HR_SENSITIVE.VIEW) - shown as "Restricted".
+  IReadOnlyList<string>? Restricted = null);
 
-public sealed record PayrollSegmentDto(Guid Id, Guid PostId, string? PostCode, Guid GradeId, int? Bps, Guid? PayScaleStageId, decimal BasicPay, DateOnly PeriodFrom, DateOnly PeriodTo, decimal Days);
+public sealed record PayrollSegmentDto(Guid Id, Guid PostId, string? PostCode, Guid GradeId, int? Bps, Guid? PayScaleStageId, decimal? BasicPay, DateOnly PeriodFrom, DateOnly PeriodTo, decimal Days);
 
 public sealed record PayrollLineDto(
   Guid Id,
@@ -71,7 +73,9 @@ public sealed record PayrollTransactionDto(
   IReadOnlyList<PayrollSegmentDto> Segments,
   IReadOnlyList<PayrollLineDto> Lines,
   IReadOnlyList<PayrollLoanDeductionDto> LoanDeductions,
-  IReadOnlyList<PayrollAdjustmentDto> Adjustments);
+  IReadOnlyList<PayrollAdjustmentDto> Adjustments,
+  /// "pay" when the workings are withheld (no HR_SENSITIVE.VIEW): lines, deductions and adjustments are empty.
+  IReadOnlyList<string>? Restricted = null);
 
 public sealed record PaymentDto(
   Guid Id,
@@ -79,7 +83,7 @@ public sealed record PaymentDto(
   Guid EmployeeId,
   string EmployeeNumber,
   string EmployeeName,
-  decimal Amount,
+  decimal? Amount,
   string? BankName,
   string? BranchName,
   string? AccountNumber,
@@ -88,7 +92,9 @@ public sealed record PaymentDto(
   PaymentStatus PaymentStatus,
   DateOnly? PaymentDate,
   string? PaymentReference,
-  DateTime? CreatedAt);
+  DateTime? CreatedAt,
+  /// "pay", "accountNumber", "iban" when withheld (no HR_SENSITIVE.VIEW).
+  IReadOnlyList<string>? Restricted = null);
 
 // ---- pay slip (the frozen snapshot of a finalized slip, or a preview before that) ----
 
@@ -107,7 +113,7 @@ public sealed record PayslipDto(
   Guid EmployeeId,
   string EmployeeNumber,
   string EmployeeName,
-  string Cnic,
+  string? Cnic,
   string? PostCode,
   string? Designation,
   int? Bps,
@@ -117,9 +123,9 @@ public sealed record PayslipDto(
   int DaysInPeriod,
   IReadOnlyList<PayslipLineDto> Earnings,
   IReadOnlyList<PayslipLineDto> Deductions,
-  decimal GrossPay,
-  decimal TotalDeductions,
-  decimal NetPayable,
+  decimal? GrossPay,
+  decimal? TotalDeductions,
+  decimal? NetPayable,
   IReadOnlyList<PayslipLoanDto> Loans,
   decimal? GpFundBalance,
   string? TaxYear,
@@ -132,4 +138,15 @@ public sealed record PayslipDto(
   bool IsFinal,
   DateTime? IssuedAt,
   /// The run's status now (a payslip of a reversed run no longer stands); filled when the payslip is read.
-  PayrollRunStatus? RunStatus = null);
+  PayrollRunStatus? RunStatus = null,
+  /// What was withheld from this caller (someone else's slip without HR_SENSITIVE.VIEW): "cnic", "pay", "accountNumber", "iban".
+  IReadOnlyList<string>? Restricted = null)
+{
+  /// The slip as someone who may not see pay figures reads it: who, which run, which post - no money, no CNIC, no account.
+  public PayslipDto Withheld() => this with
+  {
+    Cnic = null, Earnings = [], Deductions = [], GrossPay = null, TotalDeductions = null, NetPayable = null, Loans = [], GpFundBalance = null,
+    TaxableIncomeYtd = null, TaxWithheldYtd = null, AccountNumber = null, Iban = null,
+    Restricted = [Sensitive.Cnic, Sensitive.Pay, Sensitive.AccountNumber, Sensitive.Iban]
+  };
+}

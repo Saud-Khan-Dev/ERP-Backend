@@ -10,6 +10,8 @@ public class CreatePropertyHandler(IApplicationDbContext context, MasterLookup m
     var attributeInputs = command.Attributes ?? Array.Empty<AttributeValueInput>();
 
     var set = await PropertyMasters.LoadAsync(masters, input, cancellationToken);
+    // registered only in a town the person works on (their town scope)
+    context.EnsureTownInScope(set.Town.Id, set.Town.Name.Value);
     var status = await masters.GetAsync<PropertyStatus>(command.PropertyStatusId, cancellationToken);
 
     // ---- the parts are checked before anything is created; nothing is saved until the single SaveChanges ----

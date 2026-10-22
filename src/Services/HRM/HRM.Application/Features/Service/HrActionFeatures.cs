@@ -234,7 +234,9 @@ public class HrActionHandlers(
   HrmSettings settings,
   HrLookup lookup,
   ICurrentUser currentUser,
-  IClock clock) :
+  IClock clock,
+  DutyGuard duty,
+  IAuditTrail audit) :
   IQueryHandler<GetHrActionsQuery, Result<GetHrActionsQueryResult>>,
   IQueryHandler<GetHrActionQuery, Result<GetHrActionQueryResult>>,
   IQueryHandler<GetHrActionOptionsQuery, Result<HrActionOptionsDto>>,
@@ -286,7 +288,7 @@ public class HrActionHandlers(
         break;
       case HrActionView.ToApprove:
         actions = actions.Where(a => a.Status == HrActionStatus.Pending);
-        if (settings.RequireSeparateHrApprover)
+        if (await duty.IsOnAsync(DutyRules.HrAction, cancellationToken))
           actions = actions.Where(a => a.CreatedBy != me && a.SubmittedBy != me);
         break;
       case HrActionView.ToApply:
@@ -353,7 +355,7 @@ public class HrActionHandlers(
     var lienCode = lien?.OldPostId is { } lienPost ? (await lookup.PostCodesAsync([lienPost], cancellationToken)).GetValueOrDefault(lienPost.Value) : null;
 
     return Result<HrActionOptionsDto>.Success(new(employee.Id.Value, date, employee.EmploymentStatus, employee.EmploymentType, current,
-      await CurrentPayAsync(employee.Id, date, cancellationToken), lien?.OldPostId?.Value, lienCode, settings.RequireSeparateHrApprover, options, custom));
+      await CurrentPayAsync(employee.Id, date, cancellationToken), lien?.OldPostId?.Value, lienCode, await duty.IsOnAsync(DutyRules.HrAction, cancellationToken), options, custom));
   }
 
   public async Task<Result<IReadOnlyList<HrActionPostDto>>> Handle(GetHrActionPostsQuery query, CancellationToken cancellationToken)
@@ -565,27 +567,40 @@ public class HrActionHandlers(
   {
     var action = await context.LoadHrActionAsync(command.Id, cancellationToken);
     var now = clock.UtcNow;
+    string verb;
     switch (command.Step)
     {
       case HrActionStep.Submit:
         await EnsureStillAllowedAsync(action, cancellationToken);
         action.Submit(currentUser.UserId, now);
+        verb = HrmVerbs.Submitted;
         break;
       case HrActionStep.Return:
+        await duty.EnsureNotOwnRecordAsync(action.EmployeeId, "decide an HR action", action, cancellationToken);
         action.ReturnToDraft(currentUser.UserId, now, command.Remarks);
+        verb = HrmVerbs.Returned;
         break;
       case HrActionStep.Approve:
+        await duty.EnsureNotOwnRecordAsync(action.EmployeeId, "approve an HR action", action, cancellationToken);
+        // maker-checker (HR_ACTION): not who drafted or submitted it
+        await duty.EnsureSeparateAsync(DutyRules.HrAction, action.CreatedBy, "approve an HR action you drafted", action, cancellationToken);
+        await duty.EnsureSeparateAsync(DutyRules.HrAction, action.SubmittedBy, "approve an HR action you submitted", action, cancellationToken);
         await EnsureStillAllowedAsync(action, cancellationToken);
-        action.Approve(currentUser.UserId, now, command.ApprovalRequestId, settings.RequireSeparateHrApprover);
+        action.Approve(currentUser.UserId, now, command.ApprovalRequestId, requireSeparateApprover: false);
+        verb = HrmVerbs.Approved;
         break;
       case HrActionStep.Reject:
+        await duty.EnsureNotOwnRecordAsync(action.EmployeeId, "decide an HR action", action, cancellationToken);
         action.Reject(currentUser.UserId, now, command.Remarks);
+        verb = HrmVerbs.Rejected;
         break;
-      case HrActionStep.Cancel:
+      default:
         action.Cancel(currentUser.UserId, now, command.Remarks);
+        verb = HrmVerbs.Cancelled;
         break;
     }
 
+    audit.Record(verb, action, string.IsNullOrWhiteSpace(command.Remarks) ? null : $"Remarks: {command.Remarks.Trim()}");
     await context.SaveChangesAsync(cancellationToken);
     return CommandResults.Updated();
   }
@@ -593,7 +608,9 @@ public class HrActionHandlers(
   public async Task<Result<ApplyHrActionResult>> Handle(ApplyHrActionCommand command, CancellationToken cancellationToken)
   {
     var action = await context.LoadHrActionAsync(command.Id, cancellationToken);
+    await duty.EnsureNotOwnRecordAsync(action.EmployeeId, "apply an HR action", action, cancellationToken);
     var applied = await applier.ApplyAsync(action, command.Input, cancellationToken);
+    audit.Record(HrmVerbs.Applied, action, $"{EnumText.Label(action.ActionType)} from {action.EffectiveDate:yyyy-MM-dd}");
     await context.SaveChangesAsync(cancellationToken);
     return Result<ApplyHrActionResult>.Success(new(applied.History.Id.Value, applied.Checklist, applied.PayrollImpact));
   }

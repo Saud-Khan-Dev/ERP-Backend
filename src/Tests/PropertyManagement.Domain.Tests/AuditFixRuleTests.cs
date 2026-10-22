@@ -73,25 +73,49 @@ public class MakerCheckerRuleTests
     return (transfer, record);
   }
 
-  [Fact]
-  public void The_person_who_started_a_transfer_cannot_approve_it()
-  {
-    var clerk = Guid.NewGuid();
-    var (transfer, record) = Pending(clerk);
+  // Whether the person who started a transfer may approve it is the PROPERTY_TRANSFER separation-of-duties rule, which
+  // Administration switches and the approve handler checks (IDutyRules); the domain no longer fixes it.
 
-    Assert.Equal("You started TRF-00051, so another officer with the approval right must approve it: one person cannot both start and approve a transfer.",
-      Message(() => transfer.Approve(new Approver(clerk, null, "clerk1"), Today, null, null, "clerk1", record, Owned)));
+  [Fact]
+  public void A_past_transfer_entered_for_a_second_officer_waits_with_the_approval_read_off_the_paper()
+  {
+    var (property, _) = NewPlot();
+    PropertyOwner b = Owner("B"), d = Owner("D");
+    var ownB = Own(property, b, 100);
+    var record = Record(property, new[] { ownB }, new[] { b, d });
+
+    var transfer = PropertyTransfer.RecordForApproval(TransferId.New(), BusinessCode.Of("TRF-00060"), Sale, D("2021-05-01"), "MUT-7", null, null, null,
+      new[] { Gives(b, 100), Gets(d, 100) }, D("2021-05-03"), "DG/12", "CLR-00009", record);
+
     Assert.Equal(TransferStatus.Initiated, transfer.TransferStatus);
+    Assert.True(transfer.IsRecordedPast);
+    Assert.Equal((D("2021-05-03"), "DG/12", "CLR-00009"), (transfer.ApprovalDate, transfer.ApprovalOrderRef, transfer.NoDuesCertificateNo));
+    Assert.Null(ownB.EffectiveTo);
+    Assert.Null(transfer.ApprovedByUserId);
+
+    // the second officer approves it as recorded: ownership moves then
+    var change = transfer.Approve(new Approver(Guid.NewGuid(), null, "director.estate"), transfer.ApprovalDate!.Value, transfer.ApprovalOrderRef,
+      transfer.NoDuesCertificateNo, "director.estate", record, Owned);
+    Assert.Equal(TransferStatus.Completed, transfer.TransferStatus);
+    Assert.False(transfer.IsRecordedPast);
+    Assert.Equal(D("2021-05-01"), ownB.EffectiveTo);
+    Assert.Single(change.Opened);
   }
 
   [Fact]
-  public void With_a_separate_approver_not_required_the_initiator_may_approve()
+  public void A_past_transfer_for_approval_is_never_future_dated_and_its_approval_date_follows_the_transfer()
   {
-    var clerk = Guid.NewGuid();
-    var (transfer, record) = Pending(clerk);
+    var (property, _) = NewPlot();
+    PropertyOwner b = Owner("B"), d = Owner("D");
+    var record = Record(property, new[] { Own(property, b, 100) }, new[] { b, d });
 
-    transfer.Approve(new Approver(clerk, null, "clerk1"), Today, null, null, "clerk1", record, Owned, requireSeparateApprover: false);
-    Assert.Equal(TransferStatus.Completed, transfer.TransferStatus);
+    PropertyTransfer Record_(string date, string? approved) => PropertyTransfer.RecordForApproval(TransferId.New(), BusinessCode.Of("TRF-00061"), Sale,
+      D(date), null, null, null, null, new[] { Gives(b, 100), Gets(d, 100) }, approved is null ? null : D(approved), null, null, record);
+
+    Assert.Contains("cannot be dated in the future", Message(() => Record_("2026-10-14", null)));
+    Assert.Contains("before its transfer date", Message(() => Record_("2026-05-01", "2026-04-30")));
+    Assert.Contains("cannot be in the future", Message(() => Record_("2026-05-01", "2026-10-14")));
+    Assert.Equal(D("2026-05-01"), Record_("2026-05-01", null).ApprovalDate);
   }
 
   [Fact]

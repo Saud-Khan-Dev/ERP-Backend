@@ -6,6 +6,7 @@ public class UploadDocumentVersionHandler(IApplicationDbContext context, Documen
   public async Task<Result<UploadDocumentVersionCommandResult>> Handle(UploadDocumentVersionCommand command, CancellationToken cancellationToken)
   {
     var current = await context.LoadDocumentAsync(command.DocumentId, cancellationToken);
+    documents.EnsureMaySee(current);
 
     if (await context.Documents.AnyAsync(d => d.SupersedesDocumentId == current.Id, cancellationToken))
       return Result<UploadDocumentVersionCommandResult>.Failure(

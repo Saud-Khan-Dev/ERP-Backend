@@ -36,6 +36,11 @@ public static class DependencyInjection
 
     app.MapCarter();
 
+    // the shared audit trail for Administration (GET /audit, IAM_AUDIT.VIEW) and the line a screen writes when it
+    // exports or prints (POST /audit/exports, ASSETS.EXPORT); the service's health and its depreciation runs
+    app.MapAuditTrail<ApplicationDbContext>(PermissionCatalog.Assets.Export);
+    app.MapSystemStatus<ApplicationDbContext>(AssetAuditKinds.Module);
+
     // the API description is for developers (npm run sync:types) - not served outside Development
     if (app.Environment.IsDevelopment())
       app.MapOpenApi();

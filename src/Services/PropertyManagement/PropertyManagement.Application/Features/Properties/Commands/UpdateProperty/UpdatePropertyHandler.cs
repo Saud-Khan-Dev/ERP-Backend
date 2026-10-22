@@ -7,6 +7,9 @@ public class UpdatePropertyHandler(IApplicationDbContext context, MasterLookup m
     var input = command.Property;
     var set = await PropertyMasters.LoadAsync(masters, input, cancellationToken);
     var townChanged = set.Town.Id != property.TownId;
+    // a property is moved only into a town the person works on
+    if (townChanged)
+      context.EnsureTownInScope(set.Town.Id, set.Town.Name.Value);
 
     // the classification decides whether the plot can be allotted: it must not cross an allotment being made
     context.Touch(property);

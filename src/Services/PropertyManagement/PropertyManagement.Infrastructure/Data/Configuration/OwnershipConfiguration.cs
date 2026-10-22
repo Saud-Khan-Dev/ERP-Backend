@@ -76,7 +76,7 @@ public class PropertyTransferConfiguration : EntityConfiguration<PropertyTransfe
     builder.HasOne<Property>().WithMany().HasForeignKey(x => x.PropertyId).OnDelete(DeleteBehavior.Restrict);
     builder.HasOne<TransferType>().WithMany().HasForeignKey(x => x.TransferTypeId).OnDelete(DeleteBehavior.Restrict);
 
-    builder.HasMany(x => x.Parties).WithOne().HasForeignKey(p => p.PropertyTransferId).OnDelete(DeleteBehavior.Restrict);
+    builder.HasMany(x => x.Parties).WithOne(p => p.Transfer).HasForeignKey(p => p.PropertyTransferId).OnDelete(DeleteBehavior.Restrict);
     builder.Navigation(x => x.Parties).UsePropertyAccessMode(PropertyAccessMode.Field);
   }
 }

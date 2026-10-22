@@ -7,7 +7,12 @@ public class EmployeeHandlers(
   FileUploads files,
   ChangeLog log,
   ICurrentUser currentUser,
-  IClock clock) :
+  IClock clock,
+  IAuditTrail audit,
+  OfficeScope scope,
+  EmployeeScope employeeScope,
+  Sensitive sensitive,
+  DutyGuard duty) :
   ICommandHandler<RegisterEmployeeCommand, Result<RegisterEmployeeCommandResult>>,
   ICommandHandler<UpdatePersonalDetailsCommand, Result<UpdatedResult>>,
   ICommandHandler<ChangeEmploymentCommand, Result<UpdatedResult>>,
@@ -15,12 +20,28 @@ public class EmployeeHandlers(
   ICommandHandler<SetEmployeeTermCommand, Result<UpdatedResult>>,
   ICommandHandler<LinkEmployeeUserCommand, Result<UpdatedResult>>,
   ICommandHandler<SetEmployeeProfileStatusCommand, Result<UpdatedResult>>,
-  ICommandHandler<UploadEmployeePhotoCommand, Result<UpdatedResult>>,
-  IQueryHandler<GetEmployeeChangeLogQuery, Result<GetEmployeeChangeLogQueryResult>>
+  ICommandHandler<UploadEmployeePhotoCommand, Result<UpdatedResult>>
 {
   public async Task<Result<RegisterEmployeeCommandResult>> Handle(RegisterEmployeeCommand command, CancellationToken cancellationToken)
   {
     var today = clock.Today;
+
+    // a person limited to some offices registers people into them: the appointment decides where the employee counts
+    if (scope.IsLimited)
+    {
+      if (command.Appointment is not { } placement)
+        return Result<RegisterEmployeeCommandResult>.Failure(
+          $"Your access is limited to {await scope.OfficeNamesAsync(cancellationToken)}: register the employee with an appointment to a post there.");
+      var unit = await context.PostVersions.AsNoTracking()
+        .Where(v => v.PostId == PostId.Of(placement.PostId) && v.EffectiveFrom <= placement.EffectiveFrom && (v.EffectiveTo == null || v.EffectiveTo >= placement.EffectiveFrom))
+        .Select(v => v.OrgUnitId).FirstOrDefaultAsync(cancellationToken);
+      if (unit is null || !await scope.CoversUnitAsync(unit, cancellationToken))
+        return Result<RegisterEmployeeCommandResult>.Failure(
+          $"The post is outside the offices you work on ({await scope.OfficeNamesAsync(cancellationToken)}). Choose a post there.");
+    }
+
+    // numbers and CNICs are unique across the whole organization, whatever the person may see
+    using var everyone = employeeScope.Unrestricted();
     var number = string.IsNullOrWhiteSpace(command.EmployeeNumber)
       ? await codes.NextEmployeeNumberAsync(cancellationToken)
       : Employee.NormalizeNumber(command.EmployeeNumber);
@@ -72,25 +93,43 @@ public class EmployeeHandlers(
   public async Task<Result<UpdatedResult>> Handle(UpdatePersonalDetailsCommand command, CancellationToken cancellationToken)
   {
     var employee = await context.LoadEmployeeAsync(command.Id, cancellationToken);
+    await duty.EnsureNotOwnRecordAsync(employee.Id, "change the personal details", employee, cancellationToken);
+
     var before = new PersonalDetails(employee.FirstName, employee.MiddleName, employee.LastName, employee.Cnic, employee.DateOfBirth, employee.Gender,
       employee.Nationality, employee.MaritalStatus, employee.BloodGroup);
-    employee.UpdatePersonalDetails(command.Personal.ToDetails(), clock.Today);
+
+    // someone who may not see the CNIC and date of birth sends them empty: they stay as they are
+    var input = command.Personal;
+    if (!sensitive.CanView)
+      input = input with { Cnic = string.IsNullOrWhiteSpace(input.Cnic) ? employee.Cnic : input.Cnic, DateOfBirth = input.DateOfBirth ?? employee.DateOfBirth };
+    if (string.IsNullOrWhiteSpace(input.Cnic))
+      return Result<UpdatedResult>.Failure("Enter the CNIC.");
+
+    var proposed = input.ToDetails();
+    var identityChanges = Cnic.Normalize(proposed.Cnic) != employee.Cnic || proposed.DateOfBirth != employee.DateOfBirth;
+    if (identityChanges && !sensitive.CanEdit)
+      return Result<UpdatedResult>.Failure("Changing a CNIC or a date of birth needs the permission \"Change CNIC, date of birth and salary bank accounts\" (HR_SENSITIVE.EDIT).");
+
+    employee.UpdatePersonalDetails(proposed, clock.Today);
     var after = new PersonalDetails(employee.FirstName, employee.MiddleName, employee.LastName, employee.Cnic, employee.DateOfBirth, employee.Gender,
       employee.Nationality, employee.MaritalStatus, employee.BloodGroup);
 
-    if (await context.Employees.AnyAsync(e => e.Id != employee.Id && e.Cnic == employee.Cnic, cancellationToken))
-      return Result<UpdatedResult>.Failure($"Another employee is registered with CNIC {employee.Cnic}.");
+    using (employeeScope.Unrestricted())
+    {
+      if (await context.Employees.AnyAsync(e => e.Id != employee.Id && e.Cnic == employee.Cnic, cancellationToken))
+        return Result<UpdatedResult>.Failure($"Another employee is registered with CNIC {employee.Cnic}.");
+    }
 
     var changes = EmployeeChangeLogEntry.Diff(before, after);
-    var reason = string.IsNullOrWhiteSpace(command.Personal.ChangeReason) ? null : command.Personal.ChangeReason.Trim();
+    var reason = string.IsNullOrWhiteSpace(input.ChangeReason) ? null : input.ChangeReason.Trim();
     var needsReason = changes.Where(c => EmployeeFields.NeedReason.Contains(c.Field)).Select(c => c.Field).ToList();
     if (reason is null && needsReason.Count > 0)
-      return Result<UpdatedResult>.Failure($"Say why the {(needsReason[0] == EmployeeFields.Cnic ? "CNIC" : "date of birth")} is corrected; the change is kept in the employee's change log.");
+      return Result<UpdatedResult>.Failure($"Say why the {(needsReason[0] == EmployeeFields.Cnic ? "CNIC" : "date of birth")} is corrected; the reason is kept in the employee's history.");
 
     foreach (var (name, oldValue, newValue) in changes)
       log.Add(employee.Id, name, oldValue, newValue, reason);
 
-    await context.SaveChangesAsync(cancellationToken);
+    await SaveWithReasonsAsync(cancellationToken);
     return CommandResults.Updated();
   }
 
@@ -98,25 +137,31 @@ public class EmployeeHandlers(
   {
     var employee = await context.LoadEmployeeAsync(command.Id, cancellationToken);
     var (oldType, oldMethod) = (employee.EmploymentType, employee.EmploymentMethod);
+    var oldProject = employee.ProjectId;
     employee.CorrectEmployment(command.EmploymentType, command.EmploymentMethod, command.ProjectId);
     log.Add(employee.Id, EmployeeFields.EmploymentType, EnumText.Label(oldType), EnumText.Label(employee.EmploymentType), command.Reason);
     log.Add(employee.Id, EmployeeFields.EmploymentMethod, EmployeeChangeLogEntry.Words(oldMethod), EmployeeChangeLogEntry.Words(employee.EmploymentMethod), command.Reason);
-    await context.SaveChangesAsync(cancellationToken);
+    log.Add(employee.Id, "Project", oldProject?.ToString(), employee.ProjectId?.ToString(), command.Reason);
+    await SaveWithReasonsAsync(cancellationToken);
     return CommandResults.Updated();
   }
 
   public async Task<Result<UpdatedResult>> Handle(CorrectEmployeeNumberCommand command, CancellationToken cancellationToken)
   {
     var employee = await context.LoadEmployeeAsync(command.Id, cancellationToken);
+    await duty.EnsureNotOwnRecordAsync(employee.Id, "correct the employee number", employee, cancellationToken);
     var number = Employee.NormalizeNumber(command.EmployeeNumber);
 
-    if (await context.Employees.AnyAsync(e => e.Id != employee.Id && e.EmployeeNumber == number, cancellationToken))
-      return Result<UpdatedResult>.Failure($"Employee number {number} is already in use.");
+    using (employeeScope.Unrestricted())
+    {
+      if (await context.Employees.AnyAsync(e => e.Id != employee.Id && e.EmployeeNumber == number, cancellationToken))
+        return Result<UpdatedResult>.Failure($"Employee number {number} is already in use.");
+    }
 
     var old = employee.EmployeeNumber;
     employee.CorrectEmployeeNumber(number);
     log.Add(employee.Id, EmployeeFields.EmployeeNumber, old, employee.EmployeeNumber, command.Reason);
-    await context.SaveChangesAsync(cancellationToken);
+    await SaveWithReasonsAsync(cancellationToken);
     return CommandResults.Updated();
   }
 
@@ -128,7 +173,7 @@ public class EmployeeHandlers(
     employee.SetTerm(command.TermFrom, command.TermTo, command.LendingDepartment);
     log.Add(employee.Id, EmployeeFields.Term, oldTerm, Term(employee.TermFrom, employee.TermTo), command.Reason);
     log.Add(employee.Id, EmployeeFields.ParentDepartment, oldDepartment, employee.LendingDepartment, command.Reason);
-    await context.SaveChangesAsync(cancellationToken);
+    await SaveWithReasonsAsync(cancellationToken);
     return CommandResults.Updated();
   }
 
@@ -139,8 +184,14 @@ public class EmployeeHandlers(
 
     if (command.UserId is { } userId)
     {
-      if (await context.Employees.AnyAsync(e => e.Id != employee.Id && e.UserId == userId, cancellationToken))
-        return Result<UpdatedResult>.Failure("This sign-in account is already linked to another employee. Unlink it there first.");
+      // linking an account opens that person's portal (/me) to it: never your own account, never one linked elsewhere
+      if (userId == currentUser.UserId)
+        return Result<UpdatedResult>.Failure("You cannot link your own sign-in account to an employee record. Ask another administrator.");
+      using (employeeScope.Unrestricted())
+      {
+        if (await context.Employees.AnyAsync(e => e.Id != employee.Id && e.UserId == userId, cancellationToken))
+          return Result<UpdatedResult>.Failure("This sign-in account is already linked to another employee. Unlink it there first.");
+      }
       employee.LinkUser(userId);
     }
     else
@@ -149,7 +200,7 @@ public class EmployeeHandlers(
     }
 
     log.Add(employee.Id, EmployeeFields.SigninAccount, old?.ToString(), employee.UserId?.ToString(), command.UserId is null ? "Unlinked" : "Linked");
-    await context.SaveChangesAsync(cancellationToken);
+    await SaveWithReasonsAsync(cancellationToken);
     return CommandResults.Updated();
   }
 
@@ -168,7 +219,7 @@ public class EmployeeHandlers(
     var old = employee.ProfileStatus;
     employee.SetProfileStatus(command.Status);
     log.Add(employee.Id, EmployeeFields.Profile, EnumText.Label(old), EnumText.Label(employee.ProfileStatus));
-    await context.SaveChangesAsync(cancellationToken);
+    await SaveWithReasonsAsync(cancellationToken);
     return CommandResults.Updated();
   }
 
@@ -183,16 +234,12 @@ public class EmployeeHandlers(
     return CommandResults.Updated();
   }
 
-  public async Task<Result<GetEmployeeChangeLogQueryResult>> Handle(GetEmployeeChangeLogQuery query, CancellationToken cancellationToken)
+  /// Saves an identity or employment change: the change log writes one line per fact with its reason, so the automatic
+  /// lines (which have no reason) are left out of this save.
+  private async Task SaveWithReasonsAsync(CancellationToken cancellationToken)
   {
-    var employeeId = EmployeeId.Of(query.Id);
-    if (!await context.Employees.AnyAsync(e => e.Id == employeeId, cancellationToken))
-      throw new EmployeeNotFoundException($"Employee {query.Id} was not found.");
-
-    var rows = await context.ChangeLog.AsNoTracking().Where(c => c.EmployeeId == employeeId)
-      .OrderByDescending(c => c.ChangedAt).Take(500).ToListAsync(cancellationToken);
-    return Result<GetEmployeeChangeLogQueryResult>.Success(new(rows.Select(c =>
-      new EmployeeChangeDto(c.Id.Value, c.Field, c.OldValue, c.NewValue, c.Reason, c.ChangedBy, c.ChangedByName, c.ChangedAt)).ToList()));
+    using (audit.Quietly())
+      await context.SaveChangesAsync(cancellationToken);
   }
 
   /// The number, CNIC and login each belong to one employee.

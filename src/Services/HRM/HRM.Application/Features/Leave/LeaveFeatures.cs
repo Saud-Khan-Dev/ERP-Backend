@@ -178,7 +178,7 @@ public class ChangeLeaveApplicationCommandValidator : AbstractValidator<ChangeLe
   public ChangeLeaveApplicationCommandValidator() => RuleFor(x => x.Leave).NotNull().SetValidator(new LeaveApplicationInputValidator());
 }
 
-public class LeaveHandlers(IApplicationDbContext context, LeaveService leave, HrLookup lookup, CurrentEmployee me, ICurrentUser currentUser, IClock clock) :
+public class LeaveHandlers(IApplicationDbContext context, LeaveService leave, HrLookup lookup, ICurrentUser currentUser, IClock clock, DutyGuard duty, IAuditTrail audit, OfficeScope scope) :
   IQueryHandler<GetLeaveTypesQuery, Result<GetLeaveTypesQueryResult>>,
   ICommandHandler<CreateLeaveTypeCommand, Result<CreatedResult>>,
   ICommandHandler<UpdateLeaveTypeCommand, Result<UpdatedResult>>,
@@ -329,7 +329,13 @@ public class LeaveHandlers(IApplicationDbContext context, LeaveService leave, Hr
       granted++;
     }
 
-    await context.SaveChangesAsync(cancellationToken);
+    using (audit.Quietly())
+    {
+      var where = scope.IsLimited ? $" · offices: {await scope.OfficeNamesAsync(cancellationToken)}" : "";
+      audit.Record(AuditActions.Ran, HrmRuns.LeaveEntitlements, type.Id.Value, command.Year.ToString(), type.Name,
+        detail: $"{type.Name} {command.Year}: {days:0.##} day(s) each · {granted} granted · {ids.Count - granted} already had them{where}");
+      await context.SaveChangesAsync(cancellationToken);
+    }
     return Result<GrantEntitlementsResult>.Success(new(granted, ids.Count - granted));
   }
 
@@ -375,6 +381,7 @@ public class LeaveHandlers(IApplicationDbContext context, LeaveService leave, Hr
   public async Task<Result<CreatedResult>> Handle(PostLeaveLedgerEntryCommand command, CancellationToken cancellationToken)
   {
     var employee = await context.LoadEmployeeAsync(command.EmployeeId, cancellationToken);
+    await duty.EnsureNotOwnRecordAsync(employee.Id, "correct the leave balance", employee, cancellationToken);
     var type = await context.LoadLeaveTypeAsync(command.LeaveTypeId, cancellationToken);
     var date = command.TransactionDate ?? clock.Today;
 
@@ -467,7 +474,15 @@ public class LeaveHandlers(IApplicationDbContext context, LeaveService leave, Hr
     }
 
     if (!command.DryRun)
-      await context.SaveChangesAsync(cancellationToken);
+    {
+      using (audit.Quietly())
+      {
+        var where = scope.IsLimited ? $" · offices: {await scope.OfficeNamesAsync(cancellationToken)}" : "";
+        audit.Record(AuditActions.Ran, HrmRuns.LeaveYearEnd, null, year.ToString(),
+          detail: $"{year} closed · {carried} balance(s) carried ({daysCarried:0.##} days) · {lapsed} lapsed ({daysLapsed:0.##} days){where}");
+        await context.SaveChangesAsync(cancellationToken);
+      }
+    }
 
     return Result<LeaveYearEndResult>.Success(new(year, carried, lapsed, daysCarried, daysLapsed, command.DryRun, pending));
   }
@@ -558,6 +573,12 @@ public class LeaveHandlers(IApplicationDbContext context, LeaveService leave, Hr
     EnsureOwn(application, command.OnlyForEmployee);
     var today = clock.Today;
     var now = clock.UtcNow;
+    if (command.Decision != LeaveDecision.Cancel)
+    {
+      // nobody decides their own leave (OWN_RECORD); leave a clerk entered is decided by someone else (LEAVE_APPROVE)
+      await duty.EnsureNotOwnRecordAsync(application.EmployeeId, "decide leave", application, cancellationToken);
+      await duty.EnsureSeparateAsync(DutyRules.LeaveApprove, application.CreatedBy, "decide leave you entered", application, cancellationToken);
+    }
 
     switch (command.Decision)
     {
@@ -568,8 +589,10 @@ public class LeaveHandlers(IApplicationDbContext context, LeaveService leave, Hr
         var counted = await leave.CountAsync(application.EmployeeId, application.StartDate, application.EndDate, cancellationToken);
         var days = LeaveDayCounter.Split(application.Days, counted, application.StartDate);
         await leave.EnsureAvailableAsync(application.EmployeeId, type, days, application.Id, cancellationToken);
-        foreach (var entry in application.Approve(currentUser.UserId, await me.TryIdAsync(cancellationToken), now, days))
+        // the own-record check is the duty rule's (above): the domain is not asked again
+        foreach (var entry in application.Approve(currentUser.UserId, null, now, days))
           context.LeaveLedger.Add(entry);
+        audit.Record(HrmVerbs.Approved, application, $"{application.Days:0.##} day(s) {application.StartDate:yyyy-MM-dd} to {application.EndDate:yyyy-MM-dd}");
 
         // days already closed as absent become leave
         foreach (var record in await ClosedDaysAsync(application, AttendanceStatus.Absent, cancellationToken))
@@ -578,7 +601,8 @@ public class LeaveHandlers(IApplicationDbContext context, LeaveService leave, Hr
       }
 
       case LeaveDecision.Reject:
-        application.Reject(currentUser.UserId, await me.TryIdAsync(cancellationToken), now, command.Reason);
+        application.Reject(currentUser.UserId, null, now, command.Reason);
+        audit.Record(HrmVerbs.Rejected, application, $"Reason: {command.Reason}");
         break;
 
       case LeaveDecision.Cancel:
@@ -599,6 +623,7 @@ public class LeaveHandlers(IApplicationDbContext context, LeaveService leave, Hr
         var usage = await context.LeaveLedger.Where(l => l.LeaveApplicationId == application.Id).ToListAsync(cancellationToken);
         foreach (var entry in application.Cancel(usage, currentUser.UserId, now, reason))
           context.LeaveLedger.Add(entry);
+        audit.Record(HrmVerbs.Cancelled, application, reason is null ? null : $"Reason: {reason}");
 
         // days already closed as leave become absences again
         if (wasApproved)
@@ -636,6 +661,6 @@ public class LeaveHandlers(IApplicationDbContext context, LeaveService leave, Hr
     return rows.Select(a => new LeaveApplicationDto(a.Id.Value, a.EmployeeId.Value, people.GetValueOrDefault(a.EmployeeId.Value)?.EmployeeNumber ?? "",
       people.GetValueOrDefault(a.EmployeeId.Value)?.FullName ?? "", a.LeaveTypeId.Value, types.GetValueOrDefault(a.LeaveTypeId), a.StartDate, a.EndDate,
       a.Days, a.Status, a.AppliedDate, a.ApprovedBy, a.ApprovalDate, a.Reason, a.CreatedAt, a.UpdatedBy, a.DecidedBy, a.DecidedAt, a.DecisionReason,
-      a.HrActionId?.Value)).ToList();
+      a.HrActionId?.Value, CreatedBy: a.CreatedBy)).ToList();
   }
 }

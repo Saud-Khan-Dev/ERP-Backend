@@ -10,6 +10,7 @@ public static class DependencyInjection
     services.AddMediatR(cfg =>
     {
       cfg.RegisterServicesFromAssemblies(Assembly.GetExecutingAssembly());
+      cfg.AddOpenBehavior(typeof(OfficeScopeBehavior<,>));
       cfg.AddOpenBehavior(typeof(ValidationBehavior<,>));
       cfg.AddOpenBehavior(typeof(LoggingBehaviors<,>));
     });
@@ -18,12 +19,15 @@ public static class DependencyInjection
 
     services.Configure<DocumentOptions>(configuration.GetSection(DocumentOptions.SectionName));
     services.Configure<HrmOptions>(configuration.GetSection(HrmOptions.SectionName));
-    services.Configure<PayrollOptions>(configuration.GetSection(PayrollOptions.SectionName));
 
     services.AddSingleton(TimeProvider.System);
     services.AddSingleton<IClock, PakistanClock>();
 
     services.AddScoped<HrmSettings>();
+    services.AddScoped<EmployeeScope>();
+    services.AddScoped<OfficeScope>();
+    services.AddScoped<Sensitive>();
+    services.AddScoped<DutyGuard>();
     services.AddScoped<ChangeLog>();
     services.AddScoped<PayrollImpactFinder>();
     services.AddScoped<HrActionChecks>();

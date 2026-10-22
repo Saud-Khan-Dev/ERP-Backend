@@ -1,4 +1,4 @@
-public class OutsourcingActionsHandler(IApplicationDbContext context, MasterLookup masters, CodeGenerator codes)
+public class OutsourcingActionsHandler(IApplicationDbContext context, MasterLookup masters, CodeGenerator codes, IAuditTrail audit)
   : ICommandHandler<UpdateOutsourcingCommand, Result<OutsourcingActionResult>>,
     ICommandHandler<ChangeContractStatusCommand, Result<OutsourcingActionResult>>,
     ICommandHandler<ActivateOutsourcingCommand, Result<OutsourcingActionResult>>,
@@ -50,6 +50,7 @@ public class OutsourcingActionsHandler(IApplicationDbContext context, MasterLook
     await context.EnsurePropertyActiveAsync(contract.PropertyId, cancellationToken);
     contract.Terminate(await Current(contract, cancellationToken), await Status(SystemMasterCodes.Terminated, cancellationToken),
       command.TerminationDate, command.Reason, PropertyWriteGuard.Today());
+    audit.Record(PropertyAuditActions.Terminated, contract, command.Reason);
     return await SaveAsync(contract, cancellationToken);
   }
 

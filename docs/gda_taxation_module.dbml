@@ -556,6 +556,7 @@ Table taxation.notice {
   shows_table               boolean [not null, default: true, note: 'the table of particulars is printed; without it the amount payable prints on one line. At least one of the two is true']
   particulars               jsonb [not null, note: 'the table as printed, per row: particular, arrears, current, received, payable, and the grand total; kept so a reprint is identical']
   demand_id                 uuid [not null]
+  tax_file_id               uuid [not null, note: 'the demand\'s file (2026-10-21: the file\'s History and the town scope reach the notice directly)']
   stage                     varchar(15) [not null, note: 'FIRST, SECOND, FINAL, SHOW_CAUSE, SURCHARGE']
   origin                    varchar(10) [not null, default: 'CYCLE', note: 'CYCLE (demand run, escalation, surcharge run) / MANUAL (created by hand for one property)']
   pay_via                   varchar(10) [not null, default: 'BOTH', note: 'ONELINK (1Link / 1Bill bill block), QR (payment QR code), BOTH; default from tax_setting PAY_VIA_DEFAULT']
@@ -632,6 +633,7 @@ Table taxation.penalty_run {
 Table taxation.penalty {
   id           uuid [pk]
   demand_id    uuid [not null]
+  tax_file_id  uuid [not null, note: 'the demand\'s file (2026-10-21, as on notice)']
   rule_id      uuid [note: 'the penalty_rule applied']
   run_id       uuid [note: 'the penalty_run that produced it (NULL for S28A fines)']
   kind         varchar(15) [not null, note: 'INTRA_YEAR, YEAR_END, S28A_FINE (DAY45 withdrawn by the 12 Oct recording)']
@@ -844,6 +846,7 @@ Table taxation.litigation_hold {
 Table taxation.agreement_step_revision {
   id                   uuid [pk]
   schedule_id          uuid [not null]
+  tax_file_id          uuid [not null, note: 'the agreement\'s file (2026-10-21, as on notice)']
   effective_from       date [not null]
   step_pct             decimal(6,2) [not null]
   step_interval_years  int [not null]
@@ -965,7 +968,37 @@ Table taxation.audit_log {
     at
     tax_file_id
   }
-  Note: 'Written by AuditLogInterceptor in the same save: the configuration and the decisions on files and money, with the changed values before and after. Bulk run output carries its own who and when.'
+  Note: 'READ-ONLY since 2026-10-21 (a trigger refuses every write): the change history kept until then. Its rows were copied into audit_entry by the AuditTrail migration. Kept, never dropped.'
+}
+
+Table taxation.audit_entry {
+  id           uuid [pk]
+  at           timestamptz [not null]
+  module       varchar(60) [not null, note: 'Taxation']
+  actor_id     uuid [note: 'LOGICAL -> auth.users; NULL = the system ("System · Daily job", "System · Start-up seed")']
+  actor_name   varchar(200) [not null, note: 'the display name at the time']
+  action       varchar(40) [not null, note: 'Added, Changed, Removed, Exported, Printed, Ran, or a decision: Approved, Cancelled, Reversed, Waived, Issued, Revoked, Used, Recategorised, Exempted, Closed, Reopened, Corrected, Taken back']
+  record_kind  varchar(100) [not null, note: 'in words: Tax file, Payment, Notice, Demand run ...']
+  record_id    uuid
+  record_code  varchar(100)
+  record_label varchar(300)
+  parent_id    uuid [note: 'the record it hangs under: the tax file (every child), the rate set, the circle, the notice table']
+  parent_code  varchar(100)
+  field        varchar(150)
+  old_value    varchar(4000)
+  new_value    varchar(4000)
+  detail       text [note: 'facts of an added / removed record; the reason or summary of a decision or a run']
+  ip_address   varchar(64)
+  device       varchar(300)
+  request_id   varchar(100)
+  indexes {
+    at
+    (parent_id, at)
+    (record_id, at)
+    (actor_id, at)
+    (record_kind, at)
+  }
+  Note: 'The audit trail (BuildingBlock/Audit, 2026-10-21): written by AuditTrailInterceptor in the same save and by IAuditTrail; append-only (triggers refuse UPDATE, DELETE, TRUNCATE). Not written line by line: demand_line, payment_allocation, psid_sync, sms_message, job_run - a run writes one Ran line.'
 }
 
 Table taxation.job_run {

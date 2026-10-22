@@ -2,9 +2,9 @@ using Microsoft.EntityFrameworkCore;
 
 /// Sign-in.
 ///
-/// Order matters: the password is verified *before* the account state is checked, so that a locked
-/// or disabled account cannot be used to discover which usernames exist - and an unknown username is checked against a
-/// dummy hash, so it takes as long as a known one. Every outcome — including "no such user" — is written to
+/// A locked account answers "locked" before the password is looked at, and a switched-off or deleted one answers like a
+/// wrong password - so no answer ever tells a guesser that the password was right. An unknown username is checked
+/// against a dummy hash, so it takes as long as a known one. Every outcome — including "no such user" — is written to
 /// login_attempt with its specific reason.
 ///
 /// An account still holding a temporary password gets a token with no permissions and no roles (claim `pwd`): it opens
@@ -32,32 +32,31 @@ public class LoginHandler(
       await FailAsync(null, attempted, "Unknown username", ip, command.UserAgent, now, cancellationToken);
     }
 
-    var verification = passwordHasher.Verify(user!.PasswordHash.Value, command.Password);
+    // A locked, switched-off or deleted account answers the same whatever password is typed: the password is not even
+    // checked, so guessing cannot go on behind a lock (a right password used to answer differently from a wrong one).
+    if (user!.IsLockedOut(now))
+    {
+      passwordHasher.Verify(DummyHash(), command.Password ?? string.Empty);
+      await RecordAttemptAsync(LoginAttempt.Failure(user.Id, attempted, "Account locked", ip, command.UserAgent, now), cancellationToken);
+      throw new AccountUnavailableException($"This account is locked until {user.LockedUntil:u}. Contact your administrator.");
+    }
+    if (user.IsDeleted || !user.IsActive)
+    {
+      passwordHasher.Verify(DummyHash(), command.Password ?? string.Empty);
+      await FailAsync(user.Id, attempted, user.IsDeleted ? "Account deleted" : "Account switched off", ip, command.UserAgent, now, cancellationToken);
+    }
+
+    var verification = passwordHasher.Verify(user.PasswordHash.Value, command.Password);
 
     if (verification == PasswordVerificationOutcome.Failed)
     {
-      var lockedOutNow = !user.IsLockedOut(now)
-          && user.RegisterFailedLogin(security.MaxFailedLoginAttempts, security.LockoutDuration, now);
+      var lockedOutNow = user.RegisterFailedLogin(security.MaxFailedLoginAttempts, security.LockoutDuration, now);
 
       await FailAsync(
         user.Id,
         attempted,
         lockedOutNow ? "Wrong password — account locked" : "Wrong password",
         ip, command.UserAgent, now, cancellationToken);
-    }
-
-    // password is right; now decide whether this account may sign in at all
-    try
-    {
-      user.EnsureCanSignIn(now);
-    }
-    catch (AccountUnavailableException)
-    {
-      var reason = user.IsDeleted ? "Account deleted" : !user.IsActive ? "Account deactivated" : "Account locked";
-      await RecordAttemptAsync(
-        LoginAttempt.Failure(user.Id, attempted, reason, ip, command.UserAgent, now),
-        cancellationToken);
-      throw;
     }
 
     // correct password stored with outdated hashing parameters — upgrade it silently
@@ -72,10 +71,12 @@ public class LoginHandler(
     var session = Session.Create(sessionId, user.Id, refresh.Hash, ip, command.UserAgent, now, refresh.ExpiresAt);
 
     // a temporary password opens nothing but the change-password screen
+    var scopes = await context.UserScopes.AsNoTracking().Where(s => s.UserId == user.Id).ToListAsync(cancellationToken);
     var access = tokenService.CreateAccessToken(
       user, sessionId,
       user.MustChangePassword ? [] : resolved.PermissionCodes.ToArray(),
       user.MustChangePassword ? [] : resolved.RoleCodes.ToArray(),
+      scopes,
       security.AccessTokenLifetime);
 
     // sessions that ended long ago are only clutter (every refresh rotates one): keep a month of them

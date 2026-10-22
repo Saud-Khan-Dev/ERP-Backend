@@ -8,9 +8,13 @@ using Microsoft.EntityFrameworkCore;
 /// - `users.temporary-password`  active accounts still holding the password an administrator gave (IAM_USERS.EDIT)
 /// - `signins.failed`            failed sign-ins in the last 24 hours (IAM_SECURITY.VIEW)
 /// - `roles.ending`              people whose temporary role ends within 7 days (IAM_USERS.ASSIGN), `nextDue` the first
+/// - `users.dormant`             active accounts unused for the dormant period (IAM_USERS.DISABLE switches them off)
+/// - `users.conflicts`           accounts holding two duties that should be kept apart (IAM_USERS.ASSIGN)
+/// - `access-review.due`         accounts still to decide in the open review, or 1 when a review is due (IAM_USERS.ASSIGN)
+/// - `rules.off`                 separation-of-duty rules switched off (IAM_SECURITY.VIEW)
 public sealed record GetAttentionQuery : IQuery<Result<AttentionDto>>;
 
-public class GetAttentionHandler(IApplicationDbContext context, ICurrentUser currentUser) : IQueryHandler<GetAttentionQuery, Result<AttentionDto>>
+public class GetAttentionHandler(IApplicationDbContext context, ICurrentUser currentUser, ISecuritySettingsProvider settingsProvider) : IQueryHandler<GetAttentionQuery, Result<AttentionDto>>
 {
   public async Task<Result<AttentionDto>> Handle(GetAttentionQuery query, CancellationToken cancellationToken)
   {
@@ -51,6 +55,29 @@ public class GetAttentionHandler(IApplicationDbContext context, ICurrentUser cur
       var oldest = await failed.MinAsync(a => (DateTime?)a.AttemptedAt, cancellationToken);
       items.Add(new AttentionItemDto("signins.failed", await failed.CountAsync(cancellationToken), Utc(oldest)));
     }
+
+    var settings = await settingsProvider.GetAsync(cancellationToken);
+    if (currentUser.HasPermission(PermissionCatalog.Users.Disable))
+    {
+      var before = now.AddDays(-settings.DormantAfterDays);
+      var dormant = users.Where(u => u.IsActive && (u.LastLoginAt ?? u.CreatedAt ?? now) < before);
+      items.Add(new AttentionItemDto("users.dormant", await dormant.CountAsync(cancellationToken)));
+    }
+
+    if (currentUser.HasPermission(PermissionCatalog.Users.Assign))
+    {
+      var map = await AccessMap.BuildAsync(context, cancellationToken);
+      var conflicts = map.Accounts.Values.Count(a => a.User.IsActive && !map.IsSuperAdmin(a) && AccessMap.ConflictsIn(a.Permissions.Keys).Count > 0);
+      items.Add(new AttentionItemDto("users.conflicts", conflicts));
+
+      var review = await AccessReviewState.OfAsync(context, settings, now, cancellationToken);
+      var waiting = review.OpenReviewId is not null ? Math.Max(0, review.ToDecide - review.Decided) : review.Overdue ? 1 : 0;
+      items.Add(new AttentionItemDto("access-review.due", waiting,
+        review.OpenSince is { } since ? new DateTimeOffset(DateTime.SpecifyKind(since, DateTimeKind.Utc)) : null, NextDue: review.DueOn));
+    }
+
+    if (currentUser.HasPermission(PermissionCatalog.Security.View))
+      items.Add(new AttentionItemDto("rules.off", await context.DutyRuleSwitches.AsNoTracking().CountAsync(r => !r.IsOn, cancellationToken)));
 
     return Result<AttentionDto>.Success(new AttentionDto(DateTimeOffset.UtcNow, items));
   }

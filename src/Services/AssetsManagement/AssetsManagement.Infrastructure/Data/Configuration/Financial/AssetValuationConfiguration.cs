@@ -31,7 +31,8 @@ public class AssetValuationConfiguration : EntityConfiguration<AssetValuation, A
     builder.HasIndex(x => x.ValuationDate);
     builder.HasIndex(x => new { x.AssetId, x.ValuationDate }).IsUnique();
 
-    builder.HasOne<Asset>().WithMany().HasForeignKey(x => x.AssetId).IsRequired().OnDelete(DeleteBehavior.Cascade);
+    // Restrict: an asset is only ever soft-deleted, and a hard delete must never take its history with it
+    builder.HasOne<Asset>().WithMany().HasForeignKey(x => x.AssetId).IsRequired().OnDelete(DeleteBehavior.Restrict);
     builder.HasOne<CurrencyLookup>().WithMany().HasForeignKey(x => x.CurrencyCode).IsRequired().OnDelete(DeleteBehavior.Restrict);
   }
 }

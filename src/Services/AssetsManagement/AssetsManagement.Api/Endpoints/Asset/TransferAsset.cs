@@ -28,7 +28,7 @@ public class TransferAsset : ICarterModule
       var response = result.Value.Adapt<TransferAssetResponse>();
       return Results.Created($"/assets/{id}/assignments", response);
     })
-      .RequirePermission(PermissionCatalog.Assets.Edit)
+      .RequirePermission(PermissionCatalog.Assets.Assign)
 
       .WithName("TransferAsset")
       .Produces<TransferAssetResponse>(StatusCodes.Status201Created)

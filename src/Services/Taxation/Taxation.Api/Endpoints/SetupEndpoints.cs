@@ -184,6 +184,13 @@ public class SetupEndpoints : ICarterModule
       .WithName("GetRateSet").Produces<GetRateSetQueryResult>().ProducesProblem(StatusCodes.Status404NotFound)
       .WithSummary("Get Rate Set").WithDescription("Its locality factors by town, category and component, and the rates of every head.");
 
+    sets.MapGet("/{id:guid}/history", async (Guid id, HttpRequest request, ISender sender) =>
+        (await sender.Send(new GetRateSetHistoryQuery(id, AuditQueries.FilterFrom(request)))).ToOk())
+      .RequireAnyPermission(TaxAuthorization.AnyTaxReader)
+      .WithName("GetRateSetHistory").Produces<AuditResponse>().ProducesProblem(StatusCodes.Status404NotFound)
+      .WithSummary("Rate Set History")
+      .WithDescription("The audit trail of the rate set, its locality factors and its head rates: who drafted, changed and approved what, newest first.");
+
     sets.MapPost("/", async (CreateRateSetRequest r, ISender sender) => (await sender.Send(new CreateRateSetCommand(r.RateSet, r.CopyFromId))).ToCreated(c => $"/rate-sets/{c.Id}"))
       .RequirePermission(PermissionCatalog.TaxSetup.Create)
       .WithName("CreateRateSet").Produces<CreatedResult>(StatusCodes.Status201Created).ProducesProblem(StatusCodes.Status400BadRequest)
@@ -230,7 +237,8 @@ public class SetupEndpoints : ICarterModule
       .RequirePermission(PermissionCatalog.TaxSetup.Approve)
       .WithName("ApproveRateSet").Produces<UpdatedResult>().ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Approve Rate Set")
-      .WithDescription("Needs rates for every active configured regular head and locality factors for every town in a circle. The set it replaces ends the day before.");
+      .WithDescription("Needs rates for every active configured regular head and locality factors for every town in a circle. The set it replaces ends the day before. "
+        + "While the duty rule TAX_RATE_SET is on, nobody who drafted any part of the set (the set, its factors, its rates) approves it.");
 
     // ---- settings ----
 

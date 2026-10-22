@@ -1,4 +1,4 @@
-public class LitigationActionsHandler(IApplicationDbContext context, MasterLookup masters, ICurrentUser currentUser)
+public class LitigationActionsHandler(IApplicationDbContext context, MasterLookup masters, ICurrentUser currentUser, IAuditTrail audit)
   : ICommandHandler<UpdateLitigationCommand, Result<LitigationActionResult>>,
     ICommandHandler<AddLitigationPartyCommand, Result<LitigationActionResult>>,
     ICommandHandler<RecordHearingCommand, Result<LitigationActionResult>>,
@@ -52,6 +52,7 @@ public class LitigationActionsHandler(IApplicationDbContext context, MasterLooku
     litigation.Decide(await Current(litigation, cancellationToken),
       await masters.GetByCodeAsync<LitigationStatus>(SystemMasterCodes.Decided, cancellationToken), command.DecisionDate, command.DecisionOutcome,
       command.DecisionResult, today);
+    audit.Record(PropertyAuditActions.Decided, litigation, string.Join(" · ", new[] { command.DecisionResult is { } result ? AuditProfile.Words(result.ToString()) : null, command.DecisionOutcome }.Where(x => !string.IsNullOrWhiteSpace(x))));
 
     var effects = new List<string>();
     if (command.ResolveRelatedEncroachment && litigation.RelatedEncroachmentId is { } encroachmentId)

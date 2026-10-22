@@ -18,7 +18,8 @@ public class GetAssetsHandler(IApplicationDbContext context, IAttributeSchemaSer
     // purchase, disposal, loan and status facts of the page, for the register's columns
     var pageIds = page.Select(a => a.Id).ToList();
     var pageAcquisitions = await context.AssetAcquisitions.AsNoTracking().Where(q => pageIds.Contains(q.AssetId)).ToDictionaryAsync(q => q.AssetId, cancellationToken);
-    var pageDisposals = await context.AssetDisposals.AsNoTracking().Where(d => pageIds.Contains(d.AssetId)).ToDictionaryAsync(d => d.AssetId, cancellationToken);
+    var pageDisposals = await context.AssetDisposals.AsNoTracking().Where(d => pageIds.Contains(d.AssetId) && d.State == DisposalState.Approved)
+      .ToDictionaryAsync(d => d.AssetId, cancellationToken);
     var openLoans = (await context.AssetAssignments.AsNoTracking()
         .Where(x => pageIds.Contains(x.AssetId) && x.ExpectedReturnDate != null && x.ActualReturnDate == null)
         .ToListAsync(cancellationToken))

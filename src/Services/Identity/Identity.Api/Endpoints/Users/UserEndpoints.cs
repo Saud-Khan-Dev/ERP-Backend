@@ -57,7 +57,7 @@ public class UserEndpoints : ICarterModule
       var result = await sender.Send(new GetUserQuery(id, includeDeleted ?? false));
 
       return Results.Ok(new GetUserResponse(
-        result.Value!.User, result.Value.Roles, result.Value.Overrides, result.Value.EffectivePermissions));
+        result.Value!.User, result.Value.Roles, result.Value.Overrides, result.Value.EffectivePermissions, result.Value.Scope));
     })
       .RequirePermission(PermissionCatalog.Users.View)
       .WithName("GetUser")
@@ -88,7 +88,7 @@ public class UserEndpoints : ICarterModule
       var result = await sender.Send(new SetUserActivationCommand(id, true));
       return Results.Ok(result.Value.Adapt<SetUserActivationResponse>());
     })
-      .RequirePermission(PermissionCatalog.Users.Edit)
+      .RequirePermission(PermissionCatalog.Users.Disable)
       .WithName("ActivateUser")
       .Produces<SetUserActivationResponse>(StatusCodes.Status200OK)
       .ProducesProblem(StatusCodes.Status404NotFound)
@@ -100,7 +100,7 @@ public class UserEndpoints : ICarterModule
       var result = await sender.Send(new SetUserActivationCommand(id, false));
       return Results.Ok(result.Value.Adapt<SetUserActivationResponse>());
     })
-      .RequirePermission(PermissionCatalog.Users.Edit)
+      .RequirePermission(PermissionCatalog.Users.Disable)
       .WithName("DeactivateUser")
       .Produces<SetUserActivationResponse>(StatusCodes.Status200OK)
       .ProducesProblem(StatusCodes.Status400BadRequest)
@@ -126,7 +126,7 @@ public class UserEndpoints : ICarterModule
       var result = await sender.Send(new UnlockUserCommand(id));
       return Results.Ok(result.Value.Adapt<UnlockUserResponse>());
     })
-      .RequirePermission(PermissionCatalog.Users.Edit)
+      .RequirePermission(PermissionCatalog.Users.Disable)
       .WithName("UnlockUser")
       .Produces<UnlockUserResponse>(StatusCodes.Status200OK)
       .ProducesProblem(StatusCodes.Status404NotFound)
@@ -138,7 +138,7 @@ public class UserEndpoints : ICarterModule
       var result = await sender.Send(new ResetUserPasswordCommand(id, request?.NewPassword));
       return Results.Ok(new ResetPasswordResponse(result.Value!.GeneratedPassword));
     })
-      .RequirePermission(PermissionCatalog.Users.Edit)
+      .RequirePermission(PermissionCatalog.Users.Reset)
       .WithName("ResetUserPassword")
       .Produces<ResetPasswordResponse>(StatusCodes.Status200OK)
       .ProducesProblem(StatusCodes.Status400BadRequest)
@@ -206,7 +206,7 @@ public class UserEndpoints : ICarterModule
 
     app.MapPut("/users/{id}/roles", async (Guid id, SetUserRolesRequest request, ISender sender) =>
     {
-      var result = await sender.Send(new SetUserRolesCommand(id, request.Roles ?? []));
+      var result = await sender.Send(new SetUserRolesCommand(id, request.Roles ?? [], request.ConflictReason));
 
       if (!result.IsSuccess)
         return Results.BadRequest(new { Message = result.Message });
@@ -220,6 +220,19 @@ public class UserEndpoints : ICarterModule
       .ProducesProblem(StatusCodes.Status404NotFound)
       .WithSummary("Change Roles")
       .WithDescription("Sets the exact roles a person holds (a role newly given may end on a date): kept roles are untouched, new ones given, missing ones taken away - one act, one activity line. The same guard rails as giving one role: not on your own account, only a Super Admin acts on a Super Admin or gives that role, nobody gives access they do not hold, and the last Super Admin keeps the role.");
+
+    app.MapPut("/users/{id}/scope", async (Guid id, SetUserScopeRequest request, ISender sender) =>
+    {
+      var result = await sender.Send(new SetUserScopeCommand(id, request.Towns ?? [], request.Offices ?? []));
+      return result.IsSuccess ? Results.Ok(new UserScopeResponse(result.Value!)) : Results.BadRequest(new { Message = result.Message });
+    })
+      .RequirePermission(PermissionCatalog.Users.Assign)
+      .WithName("SetUserScope")
+      .Produces<UserScopeResponse>(StatusCodes.Status200OK)
+      .ProducesProblem(StatusCodes.Status400BadRequest)
+      .ProducesProblem(StatusCodes.Status404NotFound)
+      .WithSummary("Set Where A Person Works")
+      .WithDescription("The towns (Property and Taxation records) and HRM offices (with their sub-units) the person may see and act on; an empty list means all. Not your own account, not an account that can do more than you. Takes effect at once (the person's tokens are re-issued).");
 
     app.MapPut("/users/{id}/employee-link", async (Guid id, EmployeeLinkRequest request, ISender sender) =>
     {
@@ -273,7 +286,7 @@ public class UserEndpoints : ICarterModule
 
       return Results.Ok(result.Value.Adapt<SetOverrideResponse>());
     })
-      .RequirePermission(PermissionCatalog.Permissions.Assign)
+      .RequirePermission(PermissionCatalog.Permissions.Override)
       .WithName("SetUserPermissionOverride")
       .Produces<SetOverrideResponse>(StatusCodes.Status200OK)
       .ProducesProblem(StatusCodes.Status400BadRequest)
@@ -286,7 +299,7 @@ public class UserEndpoints : ICarterModule
       var result = await sender.Send(new RemovePermissionOverrideCommand(id, permissionId));
       return Results.Ok(result.Value.Adapt<RemoveOverrideResponse>());
     })
-      .RequirePermission(PermissionCatalog.Permissions.Assign)
+      .RequirePermission(PermissionCatalog.Permissions.Override)
       .WithName("RemoveUserPermissionOverride")
       .Produces<RemoveOverrideResponse>(StatusCodes.Status200OK)
       .ProducesProblem(StatusCodes.Status404NotFound)
@@ -305,7 +318,8 @@ public sealed record GetUserResponse(
   UserDto User,
   IReadOnlyList<UserRoleDto> Roles,
   IReadOnlyList<UserPermissionOverrideDto> Overrides,
-  IReadOnlyList<string> EffectivePermissions);
+  IReadOnlyList<string> EffectivePermissions,
+  UserScopeDto Scope);
 
 public sealed record UpdateUserRequest(UpdateUserInput User);
 public sealed record UpdateUserResponse(bool IsSuccess);
@@ -323,7 +337,7 @@ public sealed record UserSessionsResponse(IReadOnlyList<SessionDto> Sessions);
 public sealed record DeleteUserResponse(bool IsSuccess);
 
 public sealed record AssignRoleRequest(Guid RoleId, DateTime? ExpiresAt = null);
-public sealed record SetUserRolesRequest(IReadOnlyList<RoleGrantInput>? Roles);
+public sealed record SetUserRolesRequest(IReadOnlyList<RoleGrantInput>? Roles, string? ConflictReason = null);
 public sealed record SetUserRolesResponse(int Added, int Removed);
 public sealed record EmployeeLinkRequest(Guid? EmployeeId, string? EmployeeCode);
 public sealed record EmployeeLinkResponse(Guid? EmployeeId, string? EmployeeCode);
@@ -334,3 +348,6 @@ public sealed record RemoveRoleResponse(bool IsSuccess);
 public sealed record SetOverrideRequest(Guid PermissionId, OverrideEffect Effect, DateTime? ExpiresAt = null, string? Reason = null);
 public sealed record SetOverrideResponse(bool IsSuccess);
 public sealed record RemoveOverrideResponse(bool IsSuccess);
+
+public sealed record SetUserScopeRequest(IReadOnlyList<ScopePlaceDto>? Towns, IReadOnlyList<ScopePlaceDto>? Offices);
+public sealed record UserScopeResponse(UserScopeDto Scope);

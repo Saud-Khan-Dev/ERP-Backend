@@ -23,7 +23,7 @@ public class PayStructureEndpoints : ICarterModule
 
     components.MapGet("/", async (bool? includeInactive, string? componentType, ISender sender) =>
         (await sender.Send(new GetSalaryComponentsQuery(includeInactive ?? false, QueryParsing.ParseEnum<ComponentType>(componentType, "componentType")))).ToOk())
-      .RequireAnyPermission(PermissionCatalog.Payroll.View, PermissionCatalog.HrSetup.View)
+      .RequireAnyPermission(PermissionCatalog.Payroll.View, PermissionCatalog.PayrollSetup.View, PermissionCatalog.HrSetup.View)
       .WithName("GetSalaryComponents")
       .Produces<GetSalaryComponentsQueryResult>()
       .ProducesProblem(StatusCodes.Status400BadRequest)
@@ -33,7 +33,7 @@ public class PayStructureEndpoints : ICarterModule
     components.MapPost("/", async (CreateSalaryComponentRequest r, ISender sender) =>
         (await sender.Send(new CreateSalaryComponentCommand(r.ComponentCode, new SalaryComponentInput(r.ComponentName, r.ComponentType, r.IsTaxable))))
           .ToCreated(c => $"/salary-components/{c.Id}"))
-      .RequirePermission(PermissionCatalog.Payroll.Create)
+      .RequirePermission(PermissionCatalog.PayrollSetup.Create)
       .WithName("CreateSalaryComponent")
       .Produces<CreatedResult>(StatusCodes.Status201Created)
       .ProducesProblem(StatusCodes.Status400BadRequest)
@@ -42,7 +42,7 @@ public class PayStructureEndpoints : ICarterModule
 
     components.MapPut("/{id:guid}", async (Guid id, SalaryComponentInput component, ISender sender) =>
         (await sender.Send(new UpdateSalaryComponentCommand(id, component))).ToOk())
-      .RequirePermission(PermissionCatalog.Payroll.Edit)
+      .RequirePermission(PermissionCatalog.PayrollSetup.Edit)
       .WithName("UpdateSalaryComponent")
       .Produces<UpdatedResult>()
       .ProducesProblem(StatusCodes.Status400BadRequest)
@@ -53,7 +53,7 @@ public class PayStructureEndpoints : ICarterModule
     foreach (var (route, active) in new[] { ("activate", true), ("deactivate", false) })
     {
       components.MapPost($"/{{id:guid}}/{route}", async (Guid id, ISender sender) => (await sender.Send(new SetSalaryComponentActivationCommand(id, active))).ToOk())
-        .RequirePermission(PermissionCatalog.Payroll.Edit)
+        .RequirePermission(PermissionCatalog.PayrollSetup.Edit)
         .WithName(active ? "ActivateSalaryComponent" : "DeactivateSalaryComponent")
         .Produces<UpdatedResult>()
         .ProducesProblem(StatusCodes.Status400BadRequest)
@@ -67,14 +67,14 @@ public class PayStructureEndpoints : ICarterModule
 
     rules.MapGet("/", async (Guid? componentId, DateOnly? inForceOn, bool? includeInactive, ISender sender) =>
         (await sender.Send(new GetSalaryRulesQuery(componentId, inForceOn, includeInactive ?? false))).ToOk())
-      .RequirePermission(PermissionCatalog.Payroll.View)
+      .RequireAnyPermission(PermissionCatalog.Payroll.View, PermissionCatalog.PayrollSetup.View)
       .WithName("GetSalaryRules")
       .Produces<GetSalaryRulesQueryResult>()
       .WithSummary("Get Salary Rules")
       .WithDescription("By component, then priority. inForceOn: only rules in force on that date. isUsed: on approved or finalized pay slips.");
 
     rules.MapGet("/{id:guid}", async (Guid id, ISender sender) => (await sender.Send(new GetSalaryRuleQuery(id))).ToOk())
-      .RequirePermission(PermissionCatalog.Payroll.View)
+      .RequireAnyPermission(PermissionCatalog.Payroll.View, PermissionCatalog.PayrollSetup.View)
       .WithName("GetSalaryRule")
       .Produces<GetSalaryRuleQueryResult>()
       .ProducesProblem(StatusCodes.Status404NotFound)
@@ -82,7 +82,7 @@ public class PayStructureEndpoints : ICarterModule
 
     app.MapPost("/salary-components/{id:guid}/rules", async (Guid id, SalaryRuleInput rule, ISender sender) =>
         (await sender.Send(new CreateSalaryRuleCommand(id, rule))).ToCreated(r => $"/salary-rules/{r.Id}"))
-      .RequirePermission(PermissionCatalog.Payroll.Approve)
+      .RequirePermission(PermissionCatalog.PayrollSetup.Create)
       .WithTags("Salary Rules")
       .WithName("CreateSalaryRule")
       .Produces<CreatedResult>(StatusCodes.Status201Created)
@@ -97,7 +97,7 @@ public class PayStructureEndpoints : ICarterModule
         + "The lowest priority number wins, then the most specific scope, then the latest start.");
 
     rules.MapPut("/{id:guid}", async (Guid id, SalaryRuleInput rule, ISender sender) => (await sender.Send(new UpdateSalaryRuleCommand(id, rule))).ToOk())
-      .RequirePermission(PermissionCatalog.Payroll.Approve)
+      .RequirePermission(PermissionCatalog.PayrollSetup.Edit)
       .WithName("UpdateSalaryRule")
       .Produces<UpdatedResult>()
       .ProducesProblem(StatusCodes.Status400BadRequest)
@@ -107,7 +107,7 @@ public class PayStructureEndpoints : ICarterModule
 
     rules.MapPost("/{id:guid}/revise", async (Guid id, SalaryRuleInput rule, ISender sender) =>
         (await sender.Send(new ReviseSalaryRuleCommand(id, rule))).ToCreated(r => $"/salary-rules/{r.Id}"))
-      .RequirePermission(PermissionCatalog.Payroll.Approve)
+      .RequirePermission(PermissionCatalog.PayrollSetup.Create)
       .WithName("ReviseSalaryRule")
       .Produces<CreatedResult>(StatusCodes.Status201Created)
       .ProducesProblem(StatusCodes.Status400BadRequest)
@@ -117,7 +117,7 @@ public class PayStructureEndpoints : ICarterModule
 
     rules.MapPost("/{id:guid}/close", async (Guid id, CloseRuleRequest request, ISender sender) =>
         (await sender.Send(new CloseSalaryRuleCommand(id, request.LastDay))).ToOk())
-      .RequirePermission(PermissionCatalog.Payroll.Approve)
+      .RequirePermission(PermissionCatalog.PayrollSetup.Edit)
       .WithName("CloseSalaryRule")
       .Produces<UpdatedResult>()
       .ProducesProblem(StatusCodes.Status400BadRequest)
@@ -126,7 +126,7 @@ public class PayStructureEndpoints : ICarterModule
     foreach (var (route, active) in new[] { ("activate", true), ("deactivate", false) })
     {
       rules.MapPost($"/{{id:guid}}/{route}", async (Guid id, ISender sender) => (await sender.Send(new SetSalaryRuleStatusCommand(id, active))).ToOk())
-        .RequirePermission(PermissionCatalog.Payroll.Approve)
+        .RequirePermission(PermissionCatalog.PayrollSetup.Edit)
         .WithName(active ? "ActivateSalaryRule" : "DeactivateSalaryRule")
         .Produces<UpdatedResult>()
         .ProducesProblem(StatusCodes.Status404NotFound)
@@ -135,7 +135,7 @@ public class PayStructureEndpoints : ICarterModule
 
     app.MapPost("/salary-components/{id:guid}/rules/try", async (Guid id, TryRuleRequest request, ISender sender) =>
         (await sender.Send(new TrySalaryRuleQuery(id, request.Rule, request.Figures))).ToOk())
-      .RequirePermission(PermissionCatalog.Payroll.View)
+      .RequireAnyPermission(PermissionCatalog.Payroll.View, PermissionCatalog.PayrollSetup.View)
       .WithTags("Salary Rules")
       .WithName("TrySalaryRule")
       .Produces<TrySalaryRuleResult>()
@@ -156,7 +156,7 @@ public class PayStructureEndpoints : ICarterModule
     app.MapPost("/employees/{id:guid}/salary-overrides", async (Guid id, CreateSalaryOverrideRequest r, ISender sender) =>
         (await sender.Send(new CreateSalaryOverrideCommand(id, r.ComponentId, r.PostId,
           new SalaryOverrideInput(r.OverrideFixedAmount, r.OverridePercentage, r.EffectiveFrom, r.EffectiveTo, r.Remarks)))).ToOk())
-      .RequirePermission(PermissionCatalog.Payroll.Create)
+      .RequirePermission(PermissionCatalog.Payroll.Adjust)
       .WithTags("Salary Overrides")
       .WithName("CreateSalaryOverride")
       .Produces<CreatedResult>()
@@ -168,7 +168,7 @@ public class PayStructureEndpoints : ICarterModule
     var overrides = app.MapGroup("/salary-overrides").WithTags("Salary Overrides");
 
     overrides.MapPut("/{id:guid}", async (Guid id, SalaryOverrideInput item, ISender sender) => (await sender.Send(new UpdateSalaryOverrideCommand(id, item))).ToOk())
-      .RequirePermission(PermissionCatalog.Payroll.Edit)
+      .RequirePermission(PermissionCatalog.Payroll.Adjust)
       .WithName("UpdateSalaryOverride")
       .Produces<UpdatedResult>()
       .ProducesProblem(StatusCodes.Status400BadRequest)
@@ -178,7 +178,7 @@ public class PayStructureEndpoints : ICarterModule
 
     overrides.MapPost("/{id:guid}/end", async (Guid id, EndOverrideRequest request, ISender sender) =>
         (await sender.Send(new EndSalaryOverrideCommand(id, request.LastDay))).ToOk())
-      .RequirePermission(PermissionCatalog.Payroll.Edit)
+      .RequirePermission(PermissionCatalog.Payroll.Adjust)
       .WithName("EndSalaryOverride")
       .Produces<UpdatedResult>()
       .ProducesProblem(StatusCodes.Status400BadRequest)
@@ -198,14 +198,14 @@ public class PayStructureEndpoints : ICarterModule
     var tax = app.MapGroup("/tax-years").WithTags("Income Tax");
 
     tax.MapGet("/", async (bool? includeInactive, ISender sender) => (await sender.Send(new GetTaxYearsQuery(includeInactive ?? false))).ToOk())
-      .RequirePermission(PermissionCatalog.Payroll.View)
+      .RequireAnyPermission(PermissionCatalog.Payroll.View, PermissionCatalog.PayrollSetup.View)
       .WithName("GetTaxYears")
       .Produces<GetTaxYearsQueryResult>()
       .WithSummary("Get Tax Years")
       .WithDescription("Newest first, with their slabs.");
 
     tax.MapGet("/{id:guid}", async (Guid id, ISender sender) => (await sender.Send(new GetTaxYearQuery(id))).ToOk())
-      .RequirePermission(PermissionCatalog.Payroll.View)
+      .RequireAnyPermission(PermissionCatalog.Payroll.View, PermissionCatalog.PayrollSetup.View)
       .WithName("GetTaxYear")
       .Produces<GetTaxYearQueryResult>()
       .ProducesProblem(StatusCodes.Status404NotFound)
@@ -213,7 +213,7 @@ public class PayStructureEndpoints : ICarterModule
 
     tax.MapPost("/", async (CreateTaxYearRequest r, ISender sender) =>
         (await sender.Send(new CreateTaxYearCommand(r.YearLabel, r.StartDate, r.EndDate, r.Slabs))).ToCreated(c => $"/tax-years/{c.Id}"))
-      .RequirePermission(PermissionCatalog.Payroll.Approve)
+      .RequirePermission(PermissionCatalog.PayrollSetup.Create)
       .WithName("CreateTaxYear")
       .Produces<CreatedResult>(StatusCodes.Status201Created)
       .ProducesProblem(StatusCodes.Status400BadRequest)
@@ -224,7 +224,7 @@ public class PayStructureEndpoints : ICarterModule
 
     tax.MapPut("/{id:guid}", async (Guid id, UpdateTaxYearRequest r, ISender sender) =>
         (await sender.Send(new UpdateTaxYearCommand(id, r.YearLabel, r.StartDate, r.EndDate))).ToOk())
-      .RequirePermission(PermissionCatalog.Payroll.Approve)
+      .RequirePermission(PermissionCatalog.PayrollSetup.Edit)
       .WithName("UpdateTaxYear")
       .Produces<UpdatedResult>()
       .ProducesProblem(StatusCodes.Status400BadRequest)
@@ -234,7 +234,7 @@ public class PayStructureEndpoints : ICarterModule
 
     tax.MapPut("/{id:guid}/slabs", async (Guid id, TaxSlabsRequest request, ISender sender) =>
         (await sender.Send(new ReplaceTaxSlabsCommand(id, request.Slabs))).ToOk())
-      .RequirePermission(PermissionCatalog.Payroll.Approve)
+      .RequirePermission(PermissionCatalog.PayrollSetup.Edit)
       .WithName("ReplaceTaxSlabs")
       .Produces<UpdatedResult>()
       .ProducesProblem(StatusCodes.Status400BadRequest)
@@ -245,7 +245,7 @@ public class PayStructureEndpoints : ICarterModule
     foreach (var (route, active) in new[] { ("activate", true), ("deactivate", false) })
     {
       tax.MapPost($"/{{id:guid}}/{route}", async (Guid id, ISender sender) => (await sender.Send(new SetTaxYearStatusCommand(id, active))).ToOk())
-        .RequirePermission(PermissionCatalog.Payroll.Approve)
+        .RequirePermission(PermissionCatalog.PayrollSetup.Edit)
         .WithName(active ? "ActivateTaxYear" : "DeactivateTaxYear")
         .Produces<UpdatedResult>()
         .ProducesProblem(StatusCodes.Status404NotFound)
@@ -254,7 +254,7 @@ public class PayStructureEndpoints : ICarterModule
 
     app.MapGet("/tax/calculate", async (decimal annualTaxableIncome, Guid? taxYearId, ISender sender) =>
         (await sender.Send(new CalculateTaxQuery(taxYearId, annualTaxableIncome))).ToOk())
-      .RequirePermission(PermissionCatalog.Payroll.View)
+      .RequireAnyPermission(PermissionCatalog.Payroll.View, PermissionCatalog.PayrollSetup.View)
       .WithTags("Income Tax")
       .WithName("CalculateTax")
       .Produces<TaxCalculationResult>()
@@ -274,7 +274,7 @@ public class PayStructureEndpoints : ICarterModule
 
     app.MapPut("/employees/{id:guid}/tax-opening", async (Guid id, TaxOpeningRequest r, ISender sender) =>
         (await sender.Send(new SetTaxOpeningCommand(id, r.TaxYearId, r.TaxableIncome, r.TaxWithheld, r.Remarks))).ToOk())
-      .RequirePermission(PermissionCatalog.Payroll.Edit)
+      .RequirePermission(PermissionCatalog.Payroll.Adjust)
       .WithTags("Income Tax")
       .WithName("SetTaxOpening")
       .Produces<UpdatedResult>()
@@ -285,7 +285,7 @@ public class PayStructureEndpoints : ICarterModule
 
     app.MapDelete("/employees/{id:guid}/tax-opening", async (Guid id, Guid taxYearId, ISender sender) =>
         (await sender.Send(new DeleteTaxOpeningCommand(id, taxYearId))).ToOk())
-      .RequirePermission(PermissionCatalog.Payroll.Edit)
+      .RequirePermission(PermissionCatalog.Payroll.Adjust)
       .WithTags("Income Tax")
       .WithName("DeleteTaxOpening")
       .Produces<UpdatedResult>()

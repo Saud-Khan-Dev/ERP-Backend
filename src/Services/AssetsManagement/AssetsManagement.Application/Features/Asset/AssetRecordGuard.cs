@@ -10,7 +10,7 @@ public static class AssetRecordGuard
     if (asset.IsDeleted)
       return "This asset has been deleted.";
 
-    if (await context.AssetDisposals.AsNoTracking().AnyAsync(d => d.AssetId == asset.Id, cancellationToken))
+    if (await context.AssetDisposals.AsNoTracking().AnyAsync(d => d.AssetId == asset.Id && d.State == DisposalState.Approved, cancellationToken))
       return "This asset has been disposed of. Its record is closed and cannot change any more.";
 
     var status = await context.AssetStatuses.AsNoTracking().FirstOrDefaultAsync(s => s.Id == asset.StatusId, cancellationToken);
@@ -35,11 +35,12 @@ public static class AssetRecordGuard
   }
 
   /// The asset a schedule belongs to, which must be open.
-  public static async Task EnsureScheduleAssetOpenAsync(IApplicationDbContext context, AssetId assetId, CancellationToken cancellationToken)
+  public static async Task<Asset> EnsureScheduleAssetOpenAsync(IApplicationDbContext context, AssetId assetId, CancellationToken cancellationToken)
   {
     var asset = await context.Assets.AsNoTracking().FirstOrDefaultAsync(a => a.Id == assetId, cancellationToken)
       ?? throw new AssetNotFoundException("The asset of this schedule was not found. It may have been deleted.");
     await EnsureOpenAsync(context, asset, cancellationToken);
+    return asset;
   }
 }
 
@@ -115,6 +116,13 @@ public static class FinanceRights
   public static void Require(ICurrentUser user, string permission, string sentence)
   {
     if (!user.HasPermission(permission))
+      throw new AccessDeniedException(sentence);
+  }
+
+  /// Any of the permissions, or a 403 with the sentence.
+  public static void RequireAny(ICurrentUser user, string sentence, params string[] permissions)
+  {
+    if (!permissions.Any(user.HasPermission))
       throw new AccessDeniedException(sentence);
   }
 }
