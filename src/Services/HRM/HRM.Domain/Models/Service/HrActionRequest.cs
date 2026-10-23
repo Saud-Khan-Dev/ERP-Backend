@@ -13,7 +13,7 @@ public sealed record HrActionDetails(
   DateOnly? EndDate = null,
   ServiceEventTypeId? EventTypeId = null,
   string? ExternalReferenceOrg = null,
-  EmploymentMethod? EmploymentMethod = null,
+  EmploymentMethodId? EmploymentMethodId = null,
   RecruitmentMethodId? RecruitmentMethodId = null,
   int? StageNumber = null,
   decimal? BasicPay = null,
@@ -43,7 +43,7 @@ public class HrActionRequest : Aggregate<HrActionRequestId>
   public ServiceEventTypeId? EventTypeId { get; private set; }
   /// The other department of a deputation in / out.
   public string? ExternalReferenceOrg { get; private set; }
-  public EmploymentMethod? EmploymentMethod { get; private set; }
+  public EmploymentMethodId? EmploymentMethodId { get; private set; }
   public RecruitmentMethodId? RecruitmentMethodId { get; private set; }
   /// The pay to start on (appointment): a stage of the post's scale, or a basic pay different from the stage's.
   public int? StageNumber { get; private set; }
@@ -67,7 +67,7 @@ public class HrActionRequest : Aggregate<HrActionRequestId>
   public LeaveApplicationId? LeaveApplicationId { get; private set; }
 
   public HrActionDetails Details => new(ActionType, NewPostId, NewGradeId, NewOrgUnitId, EffectiveDate, OrderNumber, Reason,
-    SupportingDocumentId, EndDate, EventTypeId, ExternalReferenceOrg, EmploymentMethod, RecruitmentMethodId, StageNumber, BasicPay, NoticePeriodDays);
+    SupportingDocumentId, EndDate, EventTypeId, ExternalReferenceOrg, EmploymentMethodId, RecruitmentMethodId, StageNumber, BasicPay, NoticePeriodDays);
 
   public bool IsOpen => Status is HrActionStatus.Draft or HrActionStatus.Pending or HrActionStatus.Approved;
 
@@ -233,7 +233,7 @@ public class HrActionRequest : Aggregate<HrActionRequestId>
     SupportingDocumentId = details.SupportingDocumentId;
     EventTypeId = details.EventTypeId;
     ExternalReferenceOrg = Guard.Text(details.ExternalReferenceOrg, 200, "Other department");
-    EmploymentMethod = details.EmploymentMethod;
+    EmploymentMethodId = details.EmploymentMethodId;
     RecruitmentMethodId = details.RecruitmentMethodId;
     StageNumber = Guard.Between(details.StageNumber, 0, 100, "Stage");
     BasicPay = Guard.Money(details.BasicPay, "Basic pay");

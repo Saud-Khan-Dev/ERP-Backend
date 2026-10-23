@@ -58,6 +58,7 @@ public class PayslipBuilder(IApplicationDbContext context, HrLookup lookup)
       .Where(a => employeeIds.Contains(a.EmployeeId) && a.IsPrimary && a.Status == RecordStatus.Active)
       .ToDictionaryAsync(a => a.EmployeeId, cancellationToken);
 
+    var adjustmentTypes = await context.AdjustmentTypes.AsNoTracking().ToDictionaryAsync(t => t.Id, t => t.Name, cancellationToken);
     var result = new Dictionary<PayrollTransactionId, PayslipDto>();
     foreach (var slip in slips)
     {
@@ -72,7 +73,7 @@ public class PayslipBuilder(IApplicationDbContext context, HrLookup lookup)
         employee.Id.Value, employee.EmployeeNumber, employee.DisplayName, employee.Cnic,
         post?.PostCode, post?.Designation, post?.Bps, segment?.PayScaleStageId is { } stage ? stages.GetValueOrDefault(stage) : null, post?.OrgUnit,
         slip.DaysPayable, period.Days,
-        Earnings(slip, components), Deductions(slip, components),
+        Earnings(slip, components, adjustmentTypes), Deductions(slip, components, adjustmentTypes),
         slip.GrossPay, slip.TotalDeductions, slip.NetPayable,
         Loans(slip, loans, loanTypes),
         gpf.TryGetValue(slip.EmployeeId, out var fund) ? fund : null,
@@ -83,7 +84,7 @@ public class PayslipBuilder(IApplicationDbContext context, HrLookup lookup)
     return result;
   }
 
-  private static List<PayslipLineDto> Earnings(PayrollTransaction slip, Dictionary<SalaryComponentId, SalaryComponent> components)
+  private static List<PayslipLineDto> Earnings(PayrollTransaction slip, Dictionary<SalaryComponentId, SalaryComponent> components, Dictionary<AdjustmentTypeId, string> adjustmentTypes)
   {
     var lines = slip.Lines.Where(l => l.ComponentType == ComponentType.Earning)
       .GroupBy(l => l.SalaryComponentId)
@@ -92,11 +93,11 @@ public class PayslipBuilder(IApplicationDbContext context, HrLookup lookup)
       .ToList();
 
     lines.AddRange(slip.Adjustments.Where(a => a.Amount > 0)
-      .Select(a => new PayslipLineDto("ADJ", EnumText.Label(a.AdjustmentType), a.Amount, a.Reason)));
+      .Select(a => new PayslipLineDto("ADJ", adjustmentTypes.GetValueOrDefault(a.AdjustmentTypeId, "Adjustment"), a.Amount, a.Reason)));
     return lines;
   }
 
-  private static List<PayslipLineDto> Deductions(PayrollTransaction slip, Dictionary<SalaryComponentId, SalaryComponent> components)
+  private static List<PayslipLineDto> Deductions(PayrollTransaction slip, Dictionary<SalaryComponentId, SalaryComponent> components, Dictionary<AdjustmentTypeId, string> adjustmentTypes)
   {
     static int Order(ComponentSource source) => source switch
     {
@@ -112,7 +113,7 @@ public class PayslipBuilder(IApplicationDbContext context, HrLookup lookup)
       .ToList();
 
     lines.AddRange(slip.Adjustments.Where(a => a.Amount < 0)
-      .Select(a => new PayslipLineDto("ADJ", EnumText.Label(a.AdjustmentType), -a.Amount, a.Reason)));
+      .Select(a => new PayslipLineDto("ADJ", adjustmentTypes.GetValueOrDefault(a.AdjustmentTypeId, "Adjustment"), -a.Amount, a.Reason)));
     return lines;
   }
 

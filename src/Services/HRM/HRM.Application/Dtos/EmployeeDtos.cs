@@ -17,8 +17,11 @@ public sealed record EmployeeListItemDto(
   string? Cnic,
   Gender? Gender,
   DateOnly? DateOfBirth,
-  EmploymentType EmploymentType,
-  EmploymentMethod? EmploymentMethod,
+  Guid EmploymentTypeId,
+  string EmploymentType,
+  EmploymentBasis EmploymentBasis,
+  Guid? EmploymentMethodId,
+  string? EmploymentMethod,
   EmploymentStatus EmploymentStatus,
   RecordStatus ProfileStatus,
   Guid? UserId,
@@ -37,7 +40,7 @@ public sealed record EmployeeAddressDto(Guid Id, AddressType AddressType, string
 
 public sealed record EmergencyContactDto(Guid Id, string Name, string? Relation, string? Phone);
 
-public sealed record FamilyMemberDto(Guid Id, string? Relation, string? Name, DateOnly? DateOfBirth, string? Cnic, string? Occupation);
+public sealed record FamilyMemberDto(Guid Id, Guid? RelationId, string? Relation, string? Name, DateOnly? DateOfBirth, string? Cnic, string? Occupation);
 
 /// The pay the employee draws now: stage and basic pay, with the scale and grade they sit in. IncrementOverdue: the
 /// next increment date has passed and the increment was not given; IncrementDeferredDays: put back by leave without pay.
@@ -57,8 +60,11 @@ public sealed record EmployeeDto(
   string? Nationality,
   MaritalStatus? MaritalStatus,
   string? BloodGroup,
-  EmploymentType EmploymentType,
-  EmploymentMethod? EmploymentMethod,
+  Guid EmploymentTypeId,
+  string EmploymentType,
+  EmploymentBasis EmploymentBasis,
+  Guid? EmploymentMethodId,
+  string? EmploymentMethod,
   Guid? ProjectId,
   EmploymentStatus EmploymentStatus,
   RecordStatus ProfileStatus,
@@ -164,7 +170,8 @@ public sealed record EmployeeDocumentDto(
 public sealed record EducationDto(
   Guid Id,
   Guid EmployeeId,
-  QualificationLevel QualificationLevel,
+  Guid QualificationLevelId,
+  string? QualificationLevel,
   string DegreeTitle,
   string InstitutionName,
   string? BoardOrUniversity,
@@ -185,13 +192,14 @@ public static class EmployeeMappings
 
   public static EmergencyContactDto ToDto(this EmployeeEmergencyContact x) => new(x.Id.Value, x.Name, x.Relation, x.Phone);
 
-  public static FamilyMemberDto ToDto(this EmployeeFamilyMember x) => new(x.Id.Value, x.Relation, x.Name, x.DateOfBirth, x.Cnic, x.Occupation);
+  public static FamilyMemberDto ToDto(this EmployeeFamilyMember x, IReadOnlyDictionary<FamilyRelationId, string> relations) =>
+      new(x.Id.Value, x.RelationId?.Value, x.RelationId is null ? null : relations.GetValueOrDefault(x.RelationId), x.Name, x.DateOfBirth, x.Cnic, x.Occupation);
 
   public static EmployeeDocumentDto ToDto(this EmployeeDocument x, string? typeName, DateOnly today) => new(
     x.Id.Value, x.EmployeeId.Value, x.DocumentTypeId.Value, typeName, x.DocumentNumber, x.IssueDate, x.ExpiryDate, x.IsExpiredOn(today),
     x.VerificationStatus, x.VerifiedBy, x.VerificationDate, x.CreatedAt);
 
-  public static EducationDto ToDto(this EmployeeEducation x) => new(
-    x.Id.Value, x.EmployeeId.Value, x.QualificationLevel, x.DegreeTitle, x.InstitutionName, x.BoardOrUniversity, x.PassingYear,
+  public static EducationDto ToDto(this EmployeeEducation x, IReadOnlyDictionary<QualificationLevelId, string> levels) => new(
+    x.Id.Value, x.EmployeeId.Value, x.QualificationLevelId.Value, levels.GetValueOrDefault(x.QualificationLevelId), x.DegreeTitle, x.InstitutionName, x.BoardOrUniversity, x.PassingYear,
     x.GradeOrCgpa, x.IsHighestQualification, x.FileReference is not null, x.CreatedAt);
 }

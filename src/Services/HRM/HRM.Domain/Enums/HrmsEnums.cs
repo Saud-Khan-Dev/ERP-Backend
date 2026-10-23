@@ -11,12 +11,11 @@ public enum MaritalStatus { Single, Married, Divorced, Widowed }
 /// repatriated to the parent department) instead of collapsing them into Terminated.
 public enum EmploymentStatus { Active, OnLeave, Suspended, DeputedOut, Retired, Resigned, Terminated, Deceased, Dismissed, Removed, ContractEnded, Repatriated }
 
-/// Regular = permanent (see EmploymentMethod); DeputationIn = permanent employee of another department serving here;
-/// Contract = contingent; ProjectBased; Adhoc; DailyWage.
-public enum EmploymentType { Regular, Contract, ProjectBased, DeputationIn, Adhoc, DailyWage }
+/// The rules an employment type follows (HR names the types in Configuration): Regular = permanent, with an employment
+/// method, retires; FixedTerm = engaged for a term (contract, contingent, ad hoc, daily wage); Deputation = a permanent
+/// employee of another department serving here for a term; Project = paid from a development project for a term.
+public enum EmploymentBasis { Regular, FixedTerm, Deputation, Project }
 
-/// Only for Regular employees: a scheduled (sanctioned-seat) post or a GDA personal post.
-public enum EmploymentMethod { ScheduledSeat, GdaPersonal }
 
 /// What is stored on a post version. Occupancy (vacant / partially filled / filled) is derived, never stored.
 public enum PostLifecycle { Sanctioned, Frozen, Abolished }
@@ -41,8 +40,6 @@ public enum PayrollPeriodStatus { Open, Closed, Locked }
 
 public enum PayrollTransactionStatus { Calculated, Held, Released }
 
-/// Signed amount on the adjustment row: positive raises net pay, negative lowers it.
-public enum AdjustmentType { Arrears, Recovery, Bonus, Correction, Other }
 
 public enum PaymentStatus { Pending, Processed, Failed, Returned }
 
@@ -62,8 +59,6 @@ public enum ContactType { Mobile, Phone, Email, Whatsapp, Other }
 
 public enum AddressType { Permanent, Current, Mailing, Other }
 
-/// Diploma = DAE and other diplomas after matric. Other stays in the database type but is never offered.
-public enum QualificationLevel { Primary, Middle, Matric, Intermediate, Diploma, Bachelors, Masters, Mphil, Phd, Other }
 
 /// Other stays in the database type for old rows but a new separation must name its real kind.
 public enum SeparationType { Retirement, Resignation, Termination, Dismissal, Death, EndOfContract, DeputationEnd, Other, CompulsoryRetirement, PrematureRetirement, RemovalFromService }

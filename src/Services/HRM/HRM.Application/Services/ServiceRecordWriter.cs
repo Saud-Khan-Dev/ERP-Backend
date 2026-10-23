@@ -60,6 +60,9 @@ public class ServiceRecordWriter(IApplicationDbContext context, ServiceRecordRea
     var post = await context.LoadPostAsync(spec.PostId.Value, cancellationToken);
     var version = post.VersionOn(date)
       ?? throw new DomainException($"Post {post.PostCode} does not exist on {date:yyyy-MM-dd}.");
+    var postBasis = await context.EmploymentTypes.AsNoTracking().Where(t => t.Id == version.EmploymentTypeId).Select(t => t.Basis).FirstAsync(cancellationToken);
+    if (PostKinds.Problem(employee.DisplayName, employee.EmploymentBasis, post.PostCode, postBasis) is { } kindProblem)
+      throw new DomainException(kindProblem);
 
     var eventType = await context.LoadEventTypeAsync(spec.EventName, cancellationToken);
     var history = EmployeeServiceHistory.Record(ServiceHistoryId.New(), employee.Id, eventType, date,

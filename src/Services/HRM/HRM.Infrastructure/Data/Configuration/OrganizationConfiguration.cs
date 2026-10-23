@@ -81,6 +81,79 @@ public class OrganizationUnitVersionConfiguration : EntityConfiguration<Organiza
   }
 }
 
+public class QualificationLevelConfiguration : EntityConfiguration<QualificationLevel, QualificationLevelId>
+{
+  protected override AuditColumns Audit => AuditColumns.None;
+
+  public override void Configure(EntityTypeBuilder<QualificationLevel> builder)
+  {
+    base.Configure(builder);
+    builder.ToTable("qualification_level", t => t.HasCheckConstraint("qualification_level_rank_check", "rank BETWEEN 1 AND 99"));
+    builder.Property(x => x.Name).IsRequired();
+    builder.Property(x => x.IsActive).HasDefaultValue(true);
+    builder.HasIndex(x => x.Name).IsUnique().HasDatabaseName("qualification_level_name_key");
+  }
+}
+
+public class FamilyRelationConfiguration : EntityConfiguration<FamilyRelation, FamilyRelationId>
+{
+  protected override AuditColumns Audit => AuditColumns.None;
+
+  public override void Configure(EntityTypeBuilder<FamilyRelation> builder)
+  {
+    base.Configure(builder);
+    builder.ToTable("family_relation");
+    builder.Property(x => x.Name).IsRequired();
+    builder.Property(x => x.IsActive).HasDefaultValue(true);
+    builder.HasIndex(x => x.Name).IsUnique().HasDatabaseName("family_relation_name_key");
+  }
+}
+
+public class EmploymentMethodConfiguration : EntityConfiguration<EmploymentMethod, EmploymentMethodId>
+{
+  protected override AuditColumns Audit => AuditColumns.None;
+
+  public override void Configure(EntityTypeBuilder<EmploymentMethod> builder)
+  {
+    base.Configure(builder);
+    builder.ToTable("employment_method");
+    builder.Property(x => x.Name).IsRequired();
+    builder.Property(x => x.IsActive).HasDefaultValue(true);
+    builder.HasIndex(x => x.Name).IsUnique().HasDatabaseName("employment_method_name_key");
+  }
+}
+
+public class AdjustmentTypeConfiguration : EntityConfiguration<AdjustmentType, AdjustmentTypeId>
+{
+  protected override AuditColumns Audit => AuditColumns.None;
+
+  public override void Configure(EntityTypeBuilder<AdjustmentType> builder)
+  {
+    base.Configure(builder);
+    builder.ToTable("adjustment_type");
+    builder.Property(x => x.Name).IsRequired();
+    builder.Property(x => x.IsActive).HasDefaultValue(true);
+    builder.Ignore(x => x.IsSystem);
+    builder.HasIndex(x => x.Name).IsUnique().HasDatabaseName("adjustment_type_name_key");
+  }
+}
+
+public class EmploymentTypeConfiguration : EntityConfiguration<EmploymentType, EmploymentTypeId>
+{
+  protected override AuditColumns Audit => AuditColumns.None;
+
+  public override void Configure(EntityTypeBuilder<EmploymentType> builder)
+  {
+    base.Configure(builder);
+    builder.ToTable("employment_type");
+
+    builder.Property(x => x.Name).IsRequired();
+    builder.Property(x => x.IsActive).HasDefaultValue(true);
+
+    builder.HasIndex(x => x.Name).IsUnique().HasDatabaseName("employment_type_name_key");
+  }
+}
+
 public class DesignationConfiguration : EntityConfiguration<Designation, DesignationId>
 {
   protected override AuditColumns Audit => AuditColumns.None;
@@ -190,7 +263,6 @@ public class PostVersionConfiguration : EntityConfiguration<PostVersion, PostVer
       t.HasCheckConstraint("ck_pv_self", "reporting_post_id IS NULL OR reporting_post_id <> post_id");
     });
 
-    builder.Property(x => x.EmploymentType).HasDefaultValue(EmploymentType.Regular);
     builder.Property(x => x.SanctionedCount).HasDefaultValue(1);
     builder.Property(x => x.LifecycleStatus).HasDefaultValue(PostLifecycle.Sanctioned);
 
@@ -199,8 +271,10 @@ public class PostVersionConfiguration : EntityConfiguration<PostVersion, PostVer
     builder.HasOne<OrganizationUnit>().WithMany().HasForeignKey(x => x.OrgUnitId).OnDelete(DeleteBehavior.NoAction);
     builder.HasOne<Post>().WithMany().HasForeignKey(x => x.ReportingPostId).OnDelete(DeleteBehavior.NoAction);
     builder.HasOne<Location>().WithMany().HasForeignKey(x => x.LocationId).OnDelete(DeleteBehavior.NoAction);
+    builder.HasOne<EmploymentType>().WithMany().HasForeignKey(x => x.EmploymentTypeId).OnDelete(DeleteBehavior.NoAction);
 
     builder.HasIndex(x => x.DesignationId).HasDatabaseName("idx_post_version_designation_id");
+    builder.HasIndex(x => x.EmploymentTypeId).HasDatabaseName("idx_post_version_employment_type_id");
     builder.HasIndex(x => x.GradeId).HasDatabaseName("idx_post_version_grade_id");
     builder.HasIndex(x => x.LocationId).HasDatabaseName("idx_post_version_location_id");
     builder.HasIndex(x => x.OrgUnitId).HasDatabaseName("idx_pv_org_unit");

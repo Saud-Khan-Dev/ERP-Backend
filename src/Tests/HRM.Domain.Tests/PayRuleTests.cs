@@ -155,8 +155,8 @@ public class PayRuleTests
     var division = OrganizationUnitId.New();
     var rule = RuleFor(Component("WING_ALW"), Rule(fixedAmount: 1_000) with { ApplicableOrgUnitId = wing });
 
-    Assert.True(rule.Matches(new RuleScope(17, DesignationId.New(), division, EmploymentType.Regular, D("2026-10-01"), [division, wing])));
-    Assert.False(rule.Matches(new RuleScope(17, DesignationId.New(), division, EmploymentType.Regular, D("2026-10-01"), [division])));
+    Assert.True(rule.Matches(new RuleScope(17, DesignationId.New(), division, EmploymentTypeId.New(), D("2026-10-01"), [division, wing])));
+    Assert.False(rule.Matches(new RuleScope(17, DesignationId.New(), division, EmploymentTypeId.New(), D("2026-10-01"), [division])));
   }
 }
 

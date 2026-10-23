@@ -258,7 +258,7 @@ public class PayrollComponentDetail : Entity<PayrollComponentLineId>
 public class PayrollAdjustment : Entity<PayrollAdjustmentId>
 {
   public PayrollTransactionId PayrollTransactionId { get; private set; } = default!;
-  public AdjustmentType AdjustmentType { get; private set; }
+  public AdjustmentTypeId AdjustmentTypeId { get; private set; } = default!;
   public decimal Amount { get; private set; }
   public string? Reason { get; private set; }
 
@@ -267,16 +267,13 @@ public class PayrollAdjustment : Entity<PayrollAdjustmentId>
     amount = decimal.Round(amount, 2, MidpointRounding.AwayFromZero);
     if (amount == 0)
       throw new DomainException("An adjustment of zero changes nothing.");
-    if (type == AdjustmentType.Recovery && amount > 0)
-      throw new DomainException("A recovery lowers net pay: enter it as a negative amount.");
-    if ((type is AdjustmentType.Arrears or AdjustmentType.Bonus) && amount < 0)
-      throw new DomainException($"{EnumText.Words(type)} raises net pay: enter it as a positive amount.");
+    type.EnsureFits(amount);
 
     return new PayrollAdjustment
     {
       Id = PayrollAdjustmentId.New(),
       PayrollTransactionId = transactionId,
-      AdjustmentType = type,
+      AdjustmentTypeId = type.Id,
       Amount = amount,
       Reason = Guard.RequiredText(reason, 2000, "Reason")
     };

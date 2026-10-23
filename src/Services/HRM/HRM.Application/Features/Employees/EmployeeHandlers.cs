@@ -46,7 +46,11 @@ public class EmployeeHandlers(
       ? await codes.NextEmployeeNumberAsync(cancellationToken)
       : Employee.NormalizeNumber(command.EmployeeNumber);
 
-    var employee = Employee.Create(EmployeeId.New(), number, command.Personal.ToDetails(), command.EmploymentType, command.EmploymentMethod, command.ProjectId, today);
+    var employmentType = await context.LoadEmploymentTypeAsync(command.EmploymentTypeId, cancellationToken);
+    var employmentMethod = await context.MethodAsync(command.EmploymentMethodId, cancellationToken);
+    foreach (var member in command.FamilyMembers ?? [])
+      await context.EnsureRelationAsync(member.RelationId, cancellationToken);
+    var employee = Employee.Create(EmployeeId.New(), number, command.Personal.ToDetails(), employmentType, employmentMethod, command.ProjectId, today);
 
     if (await Clash(employee, command.UserId, cancellationToken) is { } clash)
       return Result<RegisterEmployeeCommandResult>.Failure(clash);
@@ -81,7 +85,7 @@ public class EmployeeHandlers(
 
       await writer.AppointAsync(employee, new AppointmentSpec(
         PostId.Of(appointment.PostId), appointment.EffectiveFrom,
-        employee.EmploymentType == EmploymentType.DeputationIn ? ServiceEventNames.DeputationIn : ServiceEventNames.Appointment,
+        employee.EmploymentBasis == EmploymentBasis.Deputation ? ServiceEventNames.DeputationIn : ServiceEventNames.Appointment,
         appointment.OrderNumber, methodId, appointment.StageNumber, appointment.BasicPay, null,
         appointment.ExternalReferenceOrg ?? employee.LendingDepartment, null, appointment.Remarks, currentUser.UserId), cancellationToken);
     }
@@ -136,11 +140,16 @@ public class EmployeeHandlers(
   public async Task<Result<UpdatedResult>> Handle(ChangeEmploymentCommand command, CancellationToken cancellationToken)
   {
     var employee = await context.LoadEmployeeAsync(command.Id, cancellationToken);
-    var (oldType, oldMethod) = (employee.EmploymentType, employee.EmploymentMethod);
+    await duty.EnsureNotOwnRecordAsync(employee.Id, "correct the employment terms", employee, cancellationToken);
+    var (oldTypeId, oldMethod) = (employee.EmploymentTypeId, employee.EmploymentMethodId);
     var oldProject = employee.ProjectId;
-    employee.CorrectEmployment(command.EmploymentType, command.EmploymentMethod, command.ProjectId);
-    log.Add(employee.Id, EmployeeFields.EmploymentType, EnumText.Label(oldType), EnumText.Label(employee.EmploymentType), command.Reason);
-    log.Add(employee.Id, EmployeeFields.EmploymentMethod, EmployeeChangeLogEntry.Words(oldMethod), EmployeeChangeLogEntry.Words(employee.EmploymentMethod), command.Reason);
+    var oldType = await context.LoadEmploymentTypeAsync(oldTypeId.Value, cancellationToken);
+    var newType = await context.LoadEmploymentTypeAsync(command.EmploymentTypeId, cancellationToken);
+    employee.CorrectEmployment(newType, await context.MethodAsync(command.EmploymentMethodId, cancellationToken, oldMethod), command.ProjectId);
+    log.Add(employee.Id, EmployeeFields.EmploymentType, oldType.Name, newType.Name, command.Reason);
+    var methods = await context.EmploymentMethods.AsNoTracking().ToDictionaryAsync(m => m.Id, m => m.Name, cancellationToken);
+    log.Add(employee.Id, EmployeeFields.EmploymentMethod, oldMethod is null ? null : methods.GetValueOrDefault(oldMethod),
+      employee.EmploymentMethodId is null ? null : methods.GetValueOrDefault(employee.EmploymentMethodId), command.Reason);
     log.Add(employee.Id, "Project", oldProject?.ToString(), employee.ProjectId?.ToString(), command.Reason);
     await SaveWithReasonsAsync(cancellationToken);
     return CommandResults.Updated();
@@ -168,6 +177,7 @@ public class EmployeeHandlers(
   public async Task<Result<UpdatedResult>> Handle(SetEmployeeTermCommand command, CancellationToken cancellationToken)
   {
     var employee = await context.LoadEmployeeAsync(command.Id, cancellationToken);
+    await duty.EnsureNotOwnRecordAsync(employee.Id, "set or extend the term", employee, cancellationToken);
     string? Term(DateOnly? from, DateOnly? to) => from is null && to is null ? null : $"{EmployeeChangeLogEntry.Day(from) ?? "…"} to {EmployeeChangeLogEntry.Day(to) ?? "open"}";
     var (oldTerm, oldDepartment) = (Term(employee.TermFrom, employee.TermTo), employee.LendingDepartment);
     employee.SetTerm(command.TermFrom, command.TermTo, command.LendingDepartment);
@@ -180,6 +190,7 @@ public class EmployeeHandlers(
   public async Task<Result<UpdatedResult>> Handle(LinkEmployeeUserCommand command, CancellationToken cancellationToken)
   {
     var employee = await context.LoadEmployeeAsync(command.Id, cancellationToken);
+    await duty.EnsureNotOwnRecordAsync(employee.Id, "link or unlink the portal account", employee, cancellationToken);
     var old = employee.UserId;
 
     if (command.UserId is { } userId)
@@ -207,6 +218,7 @@ public class EmployeeHandlers(
   public async Task<Result<UpdatedResult>> Handle(SetEmployeeProfileStatusCommand command, CancellationToken cancellationToken)
   {
     var employee = await context.LoadEmployeeAsync(command.Id, cancellationToken);
+    await duty.EnsureNotOwnRecordAsync(employee.Id, "switch the profile off or on", employee, cancellationToken);
 
     if (command.Status == RecordStatus.Inactive && !employee.HasLeftService)
     {

@@ -145,9 +145,9 @@ public class OrganizationEndpoints : ICarterModule
     var posts = app.MapGroup("/posts").WithTags("Posts");
 
     posts.MapGet("/", async (int? pageIndex, int? pageSize, DateOnly? asOf, Guid? orgUnitId, bool? includeSubUnits, Guid? designationId, Guid? gradeId,
-        string? status, string? employmentType, string? search, string? sortBy, string? sortDir, ISender sender) =>
+        string? status, Guid? employmentTypeId, string? search, string? sortBy, string? sortDir, ISender sender) =>
         (await sender.Send(new GetPostsQuery(QueryParsing.Page(pageIndex, pageSize), asOf, orgUnitId, includeSubUnits ?? true, designationId, gradeId,
-          QueryParsing.ParseEnum<PositionStatus>(status, "status"), QueryParsing.ParseEnum<EmploymentType>(employmentType, "employmentType"),
+          QueryParsing.ParseEnum<PositionStatus>(status, "status"), employmentTypeId,
           search, QueryParsing.ParseEnum<PostSort>(sortBy, "sortBy") ?? PostSort.Code, QueryParsing.ParseDescending(sortDir) ?? false))).ToOk())
       .RequireAnyPermission(HrmAuthorization.AnyHrmReader)
       .WithName("GetPosts")

@@ -66,7 +66,7 @@ public sealed record PayrollLineDto(
 
 public sealed record PayrollLoanDeductionDto(Guid Id, Guid EmployeeLoanId, Guid InstallmentId, decimal InstallmentAmount);
 
-public sealed record PayrollAdjustmentDto(Guid Id, AdjustmentType AdjustmentType, decimal Amount, string? Reason, Guid? CreatedBy, DateTime? CreatedAt);
+public sealed record PayrollAdjustmentDto(Guid Id, Guid AdjustmentTypeId, string? AdjustmentType, decimal Amount, string? Reason, Guid? CreatedBy, DateTime? CreatedAt);
 
 public sealed record PayrollTransactionDto(
   PayrollTransactionSummaryDto Transaction,

@@ -141,7 +141,8 @@ public class ReportHandlers(IApplicationDbContext context, HrLookup lookup, IClo
 
     var employeeIds = placements.Keys.Select(EmployeeId.Of).ToList();
     var people = await context.Employees.AsNoTracking().Where(e => employeeIds.Contains(e.Id))
-      .Select(e => new { e.Id, e.EmploymentType, e.EmploymentStatus, e.Gender }).ToListAsync(cancellationToken);
+      .Select(e => new { e.Id, e.EmploymentTypeId, e.EmploymentStatus, e.Gender }).ToListAsync(cancellationToken);
+    var types = await context.EmploymentTypes.AsNoTracking().ToDictionaryAsync(t => t.Id, t => t.Name, cancellationToken);
 
     static List<CountLine> Count<T>(IEnumerable<T> keys, Func<T, string> label) =>
       keys.GroupBy(k => label(k)).Select(g => new CountLine(g.Key, g.Count())).OrderByDescending(c => c.Count).ThenBy(c => c.Key).ToList();
@@ -149,7 +150,7 @@ public class ReportHandlers(IApplicationDbContext context, HrLookup lookup, IClo
     return Result<HeadcountReport>.Success(new(date, people.Count,
       Count(placements.Values, p => p.OrgUnit),
       Count(placements.Values, p => $"BPS-{p.Bps}").OrderByDescending(c => int.Parse(c.Key[4..])).ToList(),
-      Count(people, p => EnumText.Label(p.EmploymentType)),
+      Count(people, p => types.GetValueOrDefault(p.EmploymentTypeId, "")),
       Count(people, p => EnumText.Label(p.EmploymentStatus)),
       Count(people, p => p.Gender is { } gender ? EnumText.Label(gender) : "Not recorded")));
   }

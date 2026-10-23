@@ -4,7 +4,7 @@ public sealed record PostDetails(
   PayScaleGradeId GradeId,
   OrganizationUnitId OrgUnitId,
   PostId? ReportingPostId,
-  EmploymentType EmploymentType,
+  EmploymentTypeId EmploymentTypeId,
   LocationId? LocationId,
   int SanctionedCount,
   string? NotificationRef);
@@ -123,7 +123,7 @@ public class PostVersion : Entity<PostVersionId>
   public PayScaleGradeId GradeId { get; private set; } = default!;
   public OrganizationUnitId OrgUnitId { get; private set; } = default!;
   public PostId? ReportingPostId { get; private set; }
-  public EmploymentType EmploymentType { get; private set; }
+  public EmploymentTypeId EmploymentTypeId { get; private set; } = default!;
   public LocationId? LocationId { get; private set; }
   public int SanctionedCount { get; private set; }
   public PostLifecycle LifecycleStatus { get; private set; }
@@ -134,7 +134,7 @@ public class PostVersion : Entity<PostVersionId>
 
   public DateRange Range => new(EffectiveFrom, EffectiveTo);
 
-  public PostDetails Details => new(DesignationId, GradeId, OrgUnitId, ReportingPostId, EmploymentType, LocationId, SanctionedCount, NotificationRef);
+  public PostDetails Details => new(DesignationId, GradeId, OrgUnitId, ReportingPostId, EmploymentTypeId, LocationId, SanctionedCount, NotificationRef);
 
   internal static PostVersion Open(PostId postId, PostDetails details, PostLifecycle lifecycle, DateOnly effectiveFrom, Guid? approvedBy)
   {
@@ -175,7 +175,7 @@ public class PostVersion : Entity<PostVersionId>
     GradeId = details.GradeId;
     OrgUnitId = details.OrgUnitId;
     ReportingPostId = details.ReportingPostId;
-    EmploymentType = details.EmploymentType;
+    EmploymentTypeId = details.EmploymentTypeId;
     LocationId = details.LocationId;
     SanctionedCount = Guard.Positive(details.SanctionedCount, "Sanctioned seats");
     NotificationRef = Guard.Text(details.NotificationRef, 200, "Notification");

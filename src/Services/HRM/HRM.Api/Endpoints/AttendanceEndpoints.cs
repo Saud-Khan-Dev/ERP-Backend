@@ -97,29 +97,21 @@ public class AttendanceEndpoints : ICarterModule
       .WithSummary("Get Holidays")
       .WithDescription("By year or date range. locationId: the gazetted holidays plus that location's local ones.");
 
-    holidays.MapPost("/", async (HolidayInput holiday, ISender sender) =>
-        (await sender.Send(new CreateHolidayCommand(holiday))).ToCreated(r => $"/holidays/{r.Id}"))
-      .RequirePermission(PermissionCatalog.Attendance.Create)
-      .WithName("CreateHoliday")
-      .Produces<CreatedResult>(StatusCodes.Status201Created)
+    holidays.MapPost("/mark", async (MarkHolidayCommand command, ISender sender) => (await sender.Send(command)).ToOk())
+      .RequirePermission(PermissionCatalog.Attendance.Run)
+      .WithName("MarkHoliday")
+      .Produces<MarkHolidayResult>()
       .ProducesProblem(StatusCodes.Status400BadRequest)
-      .WithSummary("Create Holiday")
-      .WithDescription("holidayType = public | religious | provincial | optional. Without a location it applies everywhere; with one, only to staff working there.");
+      .WithSummary("Mark a holiday")
+      .WithDescription("From .. To (at most 7 days, at most 7 days ahead) become a holiday for everyone; everyone holding a post without a check-in is marked Holiday (an absence too).");
 
-    holidays.MapPut("/{id:guid}", async (Guid id, HolidayInput holiday, ISender sender) => (await sender.Send(new UpdateHolidayCommand(id, holiday))).ToOk())
-      .RequirePermission(PermissionCatalog.Attendance.Edit)
-      .WithName("UpdateHoliday")
-      .Produces<UpdatedResult>()
-      .ProducesProblem(StatusCodes.Status400BadRequest)
-      .ProducesProblem(StatusCodes.Status404NotFound)
-      .WithSummary("Update Holiday");
-
-    holidays.MapDelete("/{id:guid}", async (Guid id, ISender sender) => (await sender.Send(new DeleteHolidayCommand(id))).ToOk())
-      .RequirePermission(PermissionCatalog.Attendance.Delete)
-      .WithName("DeleteHoliday")
+    holidays.MapPost("/unmark", async (UnmarkHolidayCommand command, ISender sender) => (await sender.Send(command)).ToOk())
+      .RequirePermission(PermissionCatalog.Attendance.Run)
+      .WithName("UnmarkHoliday")
       .Produces<UpdatedResult>()
       .ProducesProblem(StatusCodes.Status404NotFound)
-      .WithSummary("Delete Holiday");
+      .WithSummary("Undo a holiday")
+      .WithDescription("The day is a working day again; the Holiday marks without a check-in are removed.");
 
     // ---- attendance ----
 

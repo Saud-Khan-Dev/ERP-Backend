@@ -191,6 +191,7 @@ public class PayrollAdjustmentConfiguration : EntityConfiguration<PayrollAdjustm
 
     builder.Property(x => x.Amount).Money();
     builder.Property(x => x.Reason).Text();
+    builder.HasOne<AdjustmentType>().WithMany().HasForeignKey(x => x.AdjustmentTypeId).OnDelete(DeleteBehavior.NoAction);
     builder.HasIndex(x => x.PayrollTransactionId).HasDatabaseName("idx_payroll_adjustment_payroll_transaction_id");
   }
 }

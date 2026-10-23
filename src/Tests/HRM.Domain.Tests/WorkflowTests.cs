@@ -2,6 +2,9 @@ using static Fixture;
 
 public class PayrollRunTests
 {
+  private static readonly AdjustmentType Arrears = AdjustmentType.Create(AdjustmentType.ArrearsId, "Arrears", AdjustmentDirection.Raises);
+  private static readonly AdjustmentType Recovery = AdjustmentType.Create(AdjustmentType.RecoveryId, "Recovery", AdjustmentDirection.Lowers);
+
   private static readonly Guid Preparer = Guid.Parse("22222222-2222-2222-2222-222222222222");
   private static readonly Guid Approver = Guid.Parse("33333333-3333-3333-3333-333333333333");
 
@@ -76,8 +79,8 @@ public class PayrollRunTests
   {
     var run = PayrollRun.Create(PayrollRunId.New(), October(), PayrollRunType.Regular, null, null, Preparer);
     var slip = PayrollTransaction.Open(PayrollTransactionId.New(), run, Employee());
-    slip.AddAdjustment(AdjustmentType.Arrears, 10_000, "September increment");
-    slip.AddAdjustment(AdjustmentType.Recovery, -2_000, "Overpaid conveyance");
+    slip.AddAdjustment(Arrears, 10_000, "September increment");
+    slip.AddAdjustment(Recovery, -2_000, "Overpaid conveyance");
     var basic = Component(SystemComponents.BasicPay);
     var line = new LineResult(0, basic.Id, null, ComponentSource.Rule, ComponentType.Earning, null, null, null, null, 60_000, null, null);
     var segment = new SegmentResult(0, PostId.New(), PayScaleGradeId.New(), null, 60_000, D("2026-10-01"), D("2026-10-31"), 31, 31);
@@ -89,7 +92,7 @@ public class PayrollRunTests
     Assert.Equal(70_000, slip.GrossPay);
     Assert.Equal(2_000, slip.TotalDeductions);
     Assert.Equal(68_000, slip.NetPayable);
-    Assert.Throws<DomainException>(() => slip.AddAdjustment(AdjustmentType.Recovery, 500, "wrong sign"));
+    Assert.Throws<DomainException>(() => slip.AddAdjustment(Recovery, 500, "wrong sign"));
   }
 }
 
@@ -129,7 +132,7 @@ public class StructureTests
   [Fact]
   public void A_post_cannot_drop_below_the_seats_already_filled()
   {
-    var details = new PostDetails(DesignationId.New(), PayScaleGradeId.New(), OrganizationUnitId.New(), null, EmploymentType.Regular, null, 3, null);
+    var details = new PostDetails(DesignationId.New(), PayScaleGradeId.New(), OrganizationUnitId.New(), null, EmploymentTypeId.New(), null, 3, null);
     var post = Post.Create(PostId.New(), "ENG-AD-01", details, D("2020-01-01"), Officer);
 
     Assert.Throws<DomainException>(() => post.Revise(details with { SanctionedCount = 1 }, D("2026-01-01"), filledSeats: 2, Officer));

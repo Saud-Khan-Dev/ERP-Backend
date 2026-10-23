@@ -1,8 +1,8 @@
 public sealed record ActivationRequest(bool IsActive);
 public sealed record UpdatePayScaleGradeRequest(string? GradeName, bool IsActive);
 
-/// HR catalogues: org unit types, locations, designations, BPS grades, document types, recruitment methods, service
-/// event types and employee request types. Any signed-in user may read them (they label every HR screen); changing
+/// HR catalogues: org unit types, locations, designations, BPS grades, document types, recruitment methods, employment
+/// types, service event types and employee request types. Any signed-in user may read them (they label every HR screen); changing
 /// them needs HR_SETUP. Values in use are deactivated; a value nobody used may be deleted.
 public class SetupEndpoints : ICarterModule
 {
@@ -34,6 +34,31 @@ public class SetupEndpoints : ICarterModule
       (includeInactive, sender) => sender.Send(new GetRecruitmentMethodsQuery(includeInactive)),
       (RecruitmentMethodInput input, ISender sender) => sender.Send(new CreateRecruitmentMethodCommand(input)),
       (Guid id, RecruitmentMethodInput input, ISender sender) => sender.Send(new UpdateRecruitmentMethodCommand(id, input)));
+
+    MapCatalog(group, "/employment-types", "EmploymentType", CatalogKind.EmploymentType,
+      (includeInactive, sender) => sender.Send(new GetEmploymentTypesQuery(includeInactive)),
+      (EmploymentTypeInput input, ISender sender) => sender.Send(new CreateEmploymentTypeCommand(input)),
+      (Guid id, EmploymentTypeInput input, ISender sender) => sender.Send(new UpdateEmploymentTypeCommand(id, input)));
+
+    MapCatalog(group, "/qualification-levels", "QualificationLevel", CatalogKind.QualificationLevel,
+      (includeInactive, sender) => sender.Send(new GetQualificationLevelsQuery(includeInactive)),
+      (QualificationLevelInput input, ISender sender) => sender.Send(new CreateQualificationLevelCommand(input)),
+      (Guid id, QualificationLevelInput input, ISender sender) => sender.Send(new UpdateQualificationLevelCommand(id, input)));
+
+    MapCatalog(group, "/family-relations", "FamilyRelation", CatalogKind.FamilyRelation,
+      (includeInactive, sender) => sender.Send(new GetFamilyRelationsQuery(includeInactive)),
+      (FamilyRelationInput input, ISender sender) => sender.Send(new CreateFamilyRelationCommand(input)),
+      (Guid id, FamilyRelationInput input, ISender sender) => sender.Send(new UpdateFamilyRelationCommand(id, input)));
+
+    MapCatalog(group, "/employment-methods", "EmploymentMethod", CatalogKind.EmploymentMethod,
+      (includeInactive, sender) => sender.Send(new GetEmploymentMethodsQuery(includeInactive)),
+      (EmploymentMethodInput input, ISender sender) => sender.Send(new CreateEmploymentMethodCommand(input)),
+      (Guid id, EmploymentMethodInput input, ISender sender) => sender.Send(new UpdateEmploymentMethodCommand(id, input)));
+
+    MapCatalog(group, "/adjustment-types", "AdjustmentType", CatalogKind.AdjustmentType,
+      (includeInactive, sender) => sender.Send(new GetAdjustmentTypesQuery(includeInactive)),
+      (AdjustmentTypeInput input, ISender sender) => sender.Send(new CreateAdjustmentTypeCommand(input)),
+      (Guid id, AdjustmentTypeInput input, ISender sender) => sender.Send(new UpdateAdjustmentTypeCommand(id, input)), payroll: true);
 
     MapCatalog(group, "/service-event-types", "ServiceEventType", CatalogKind.ServiceEventType,
       (includeInactive, sender) => sender.Send(new GetServiceEventTypesQuery(includeInactive)),
@@ -70,8 +95,14 @@ public class SetupEndpoints : ICarterModule
       CatalogKind kind,
       Func<bool, ISender, Task<Result<TList>>> list,
       Func<TInput, ISender, Task<Result<CreatedResult>>> create,
-      Func<Guid, TInput, ISender, Task<Result<UpdatedResult>>> update)
+      Func<Guid, TInput, ISender, Task<Result<UpdatedResult>>> update,
+      bool payroll = false)
   {
+    // the HR lists are HR_SETUP's; a payroll list (adjustment types) is PAYROLL_SETUP's
+    var (create_, edit, delete) = payroll
+      ? (PermissionCatalog.PayrollSetup.Create, PermissionCatalog.PayrollSetup.Edit, PermissionCatalog.PayrollSetup.Delete)
+      : (PermissionCatalog.HrSetup.Create, PermissionCatalog.HrSetup.Edit, PermissionCatalog.HrSetup.Delete);
+
     group.MapGet(route, async (bool? includeInactive, ISender sender) => (await list(includeInactive ?? false, sender)).ToOk())
       .RequireAuthorization()
       .WithName($"Get{name}s")
@@ -80,14 +111,14 @@ public class SetupEndpoints : ICarterModule
       .WithDescription("Active values only unless includeInactive=true.");
 
     group.MapPost(route, async (TInput input, ISender sender) => (await create(input, sender)).ToCreated(r => $"{route}/{r.Id}"))
-      .RequirePermission(PermissionCatalog.HrSetup.Create)
+      .RequirePermission(create_)
       .WithName($"Create{name}")
       .Produces<CreatedResult>(StatusCodes.Status201Created)
       .ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary($"Create {name}");
 
     group.MapPut($"{route}/{{id:guid}}", async (Guid id, TInput input, ISender sender) => (await update(id, input, sender)).ToOk())
-      .RequirePermission(PermissionCatalog.HrSetup.Edit)
+      .RequirePermission(edit)
       .WithName($"Update{name}")
       .Produces<UpdatedResult>()
       .ProducesProblem(StatusCodes.Status400BadRequest)
@@ -96,14 +127,14 @@ public class SetupEndpoints : ICarterModule
 
     group.MapPost($"{route}/{{id:guid}}/activate", async (Guid id, ISender sender) =>
         (await sender.Send(new SetCatalogActivationCommand(kind, id, true))).ToOk())
-      .RequirePermission(PermissionCatalog.HrSetup.Edit)
+      .RequirePermission(edit)
       .WithName($"Activate{name}")
       .Produces<UpdatedResult>()
       .WithSummary($"Activate {name}");
 
     group.MapPost($"{route}/{{id:guid}}/deactivate", async (Guid id, ISender sender) =>
         (await sender.Send(new SetCatalogActivationCommand(kind, id, false))).ToOk())
-      .RequirePermission(PermissionCatalog.HrSetup.Edit)
+      .RequirePermission(edit)
       .WithName($"Deactivate{name}")
       .Produces<UpdatedResult>()
       .ProducesProblem(StatusCodes.Status400BadRequest)
@@ -112,7 +143,7 @@ public class SetupEndpoints : ICarterModule
 
     group.MapDelete($"{route}/{{id:guid}}", async (Guid id, ISender sender) =>
         (await sender.Send(new DeleteCatalogValueCommand(kind, id))).ToOk())
-      .RequirePermission(PermissionCatalog.HrSetup.Delete)
+      .RequirePermission(delete)
       .WithName($"Delete{name}")
       .Produces<UpdatedResult>()
       .ProducesProblem(StatusCodes.Status404NotFound)

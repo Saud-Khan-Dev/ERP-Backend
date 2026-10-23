@@ -53,6 +53,11 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
   public DbSet<EmployeeDocument> Documents => Set<EmployeeDocument>();
   public DbSet<EmployeeEducation> Educations => Set<EmployeeEducation>();
   public DbSet<RecruitmentMethod> RecruitmentMethods => Set<RecruitmentMethod>();
+  public DbSet<EmploymentType> EmploymentTypes => Set<EmploymentType>();
+  public DbSet<QualificationLevel> QualificationLevels => Set<QualificationLevel>();
+  public DbSet<FamilyRelation> FamilyRelations => Set<FamilyRelation>();
+  public DbSet<EmploymentMethod> EmploymentMethods => Set<EmploymentMethod>();
+  public DbSet<AdjustmentType> AdjustmentTypes => Set<AdjustmentType>();
 
   // ---- 7. service ----
   public DbSet<ServiceEventType> ServiceEventTypes => Set<ServiceEventType>();

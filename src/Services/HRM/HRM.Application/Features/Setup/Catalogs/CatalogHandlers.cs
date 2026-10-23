@@ -242,6 +242,164 @@ public class UpdatePayScaleGradeHandler(IApplicationDbContext context) : IComman
   }
 }
 
+/// Who uses an employment type: employees, post versions and salary rules (then its basis is fixed and it cannot be deleted).
+public static class EmploymentTypeUse
+{
+  public static async Task<HashSet<EmploymentTypeId>> UsedAsync(IApplicationDbContext context, CancellationToken cancellationToken)
+  {
+    var used = await context.Employees.Select(e => e.EmploymentTypeId)
+      .Union(context.PostVersions.Select(v => v.EmploymentTypeId))
+      .Union(context.SalaryRules.Where(r => r.ApplicableEmploymentTypeId != null).Select(r => r.ApplicableEmploymentTypeId!))
+      .Distinct().ToListAsync(cancellationToken);
+    return used.ToHashSet();
+  }
+
+  public static async Task<bool> InUseAsync(IApplicationDbContext context, EmploymentTypeId id, CancellationToken cancellationToken) =>
+      await context.Employees.AnyAsync(e => e.EmploymentTypeId == id, cancellationToken)
+      || await context.PostVersions.AnyAsync(v => v.EmploymentTypeId == id, cancellationToken)
+      || await context.SalaryRules.AnyAsync(r => r.ApplicableEmploymentTypeId == id, cancellationToken);
+
+  /// Only one active type may follow the Regular rules, and one the Deputation rules.
+  public static async Task<string?> SecondOfAsync(IApplicationDbContext context, EmploymentType type, CancellationToken cancellationToken)
+  {
+    if (!type.IsActive || !EmploymentType.IsSingle(type.Basis))
+      return null;
+
+    var other = await context.EmploymentTypes.AsNoTracking()
+      .Where(t => t.Id != type.Id && t.IsActive && t.Basis == type.Basis).Select(t => t.Name).FirstOrDefaultAsync(cancellationToken);
+    return other is null ? null
+      : $"'{other}' already follows the {EnumText.Words(type.Basis)} rules; only one active employment type may. Deactivate it first.";
+  }
+}
+
+public class CreateEmploymentTypeHandler(IApplicationDbContext context) : ICommandHandler<CreateEmploymentTypeCommand, Result<CreatedResult>>
+{
+  public async Task<Result<CreatedResult>> Handle(CreateEmploymentTypeCommand command, CancellationToken cancellationToken)
+  {
+    var type = EmploymentType.Create(EmploymentTypeId.New(), command.Type.Name, command.Type.Description, command.Type.Basis);
+
+    if (await context.EmploymentTypes.AnyAsync(t => t.Name.ToLower() == type.Name.ToLower(), cancellationToken))
+      return Result<CreatedResult>.Failure($"An employment type named '{type.Name}' already exists.");
+    if (await EmploymentTypeUse.SecondOfAsync(context, type, cancellationToken) is { } second)
+      return Result<CreatedResult>.Failure(second);
+
+    context.EmploymentTypes.Add(type);
+    await context.SaveChangesAsync(cancellationToken);
+    return CommandResults.Created(type.Id);
+  }
+}
+
+public class UpdateEmploymentTypeHandler(IApplicationDbContext context) : ICommandHandler<UpdateEmploymentTypeCommand, Result<UpdatedResult>>
+{
+  public async Task<Result<UpdatedResult>> Handle(UpdateEmploymentTypeCommand command, CancellationToken cancellationToken)
+  {
+    var type = await context.LoadEmploymentTypeAsync(command.Id, cancellationToken);
+    var inUse = await EmploymentTypeUse.InUseAsync(context, type.Id, cancellationToken);
+    type.Update(command.Type.Name, command.Type.Description, command.Type.Basis, inUse);
+
+    if (await context.EmploymentTypes.AnyAsync(t => t.Id != type.Id && t.Name.ToLower() == type.Name.ToLower(), cancellationToken))
+      return Result<UpdatedResult>.Failure($"Another employment type is named '{type.Name}'.");
+    if (await EmploymentTypeUse.SecondOfAsync(context, type, cancellationToken) is { } second)
+      return Result<UpdatedResult>.Failure(second);
+
+    await context.SaveChangesAsync(cancellationToken);
+    return CommandResults.Updated();
+  }
+}
+
+public class HrListHandlers(IApplicationDbContext context) :
+  ICommandHandler<CreateQualificationLevelCommand, Result<CreatedResult>>,
+  ICommandHandler<UpdateQualificationLevelCommand, Result<UpdatedResult>>,
+  ICommandHandler<CreateFamilyRelationCommand, Result<CreatedResult>>,
+  ICommandHandler<UpdateFamilyRelationCommand, Result<UpdatedResult>>,
+  ICommandHandler<CreateEmploymentMethodCommand, Result<CreatedResult>>,
+  ICommandHandler<UpdateEmploymentMethodCommand, Result<UpdatedResult>>,
+  ICommandHandler<CreateAdjustmentTypeCommand, Result<CreatedResult>>,
+  ICommandHandler<UpdateAdjustmentTypeCommand, Result<UpdatedResult>>
+{
+  public async Task<Result<CreatedResult>> Handle(CreateQualificationLevelCommand command, CancellationToken cancellationToken)
+  {
+    var level = QualificationLevel.Create(QualificationLevelId.New(), command.Level.Name, command.Level.Rank);
+    if (await context.QualificationLevels.AnyAsync(x => x.Name.ToLower() == level.Name.ToLower(), cancellationToken))
+      return Result<CreatedResult>.Failure($"A qualification level named '{level.Name}' already exists.");
+    context.QualificationLevels.Add(level);
+    await context.SaveChangesAsync(cancellationToken);
+    return CommandResults.Created(level.Id);
+  }
+
+  public async Task<Result<UpdatedResult>> Handle(UpdateQualificationLevelCommand command, CancellationToken cancellationToken)
+  {
+    var level = await context.LoadQualificationLevelAsync(command.Id, cancellationToken);
+    level.Update(command.Level.Name, command.Level.Rank);
+    if (await context.QualificationLevels.AnyAsync(x => x.Id != level.Id && x.Name.ToLower() == level.Name.ToLower(), cancellationToken))
+      return Result<UpdatedResult>.Failure($"Another qualification level is named '{level.Name}'.");
+    await context.SaveChangesAsync(cancellationToken);
+    return CommandResults.Updated();
+  }
+
+  public async Task<Result<CreatedResult>> Handle(CreateFamilyRelationCommand command, CancellationToken cancellationToken)
+  {
+    var relation = FamilyRelation.Create(FamilyRelationId.New(), command.Relation.Name);
+    if (await context.FamilyRelations.AnyAsync(x => x.Name.ToLower() == relation.Name.ToLower(), cancellationToken))
+      return Result<CreatedResult>.Failure($"A relation named '{relation.Name}' already exists.");
+    context.FamilyRelations.Add(relation);
+    await context.SaveChangesAsync(cancellationToken);
+    return CommandResults.Created(relation.Id);
+  }
+
+  public async Task<Result<UpdatedResult>> Handle(UpdateFamilyRelationCommand command, CancellationToken cancellationToken)
+  {
+    var relation = await context.LoadFamilyRelationAsync(command.Id, cancellationToken);
+    relation.Update(command.Relation.Name);
+    if (await context.FamilyRelations.AnyAsync(x => x.Id != relation.Id && x.Name.ToLower() == relation.Name.ToLower(), cancellationToken))
+      return Result<UpdatedResult>.Failure($"Another relation is named '{relation.Name}'.");
+    await context.SaveChangesAsync(cancellationToken);
+    return CommandResults.Updated();
+  }
+
+  public async Task<Result<CreatedResult>> Handle(CreateEmploymentMethodCommand command, CancellationToken cancellationToken)
+  {
+    var method = EmploymentMethod.Create(EmploymentMethodId.New(), command.Method.Name, command.Method.Description);
+    if (await context.EmploymentMethods.AnyAsync(x => x.Name.ToLower() == method.Name.ToLower(), cancellationToken))
+      return Result<CreatedResult>.Failure($"An employment method named '{method.Name}' already exists.");
+    context.EmploymentMethods.Add(method);
+    await context.SaveChangesAsync(cancellationToken);
+    return CommandResults.Created(method.Id);
+  }
+
+  public async Task<Result<UpdatedResult>> Handle(UpdateEmploymentMethodCommand command, CancellationToken cancellationToken)
+  {
+    var method = await context.LoadEmploymentMethodAsync(command.Id, cancellationToken);
+    method.Update(command.Method.Name, command.Method.Description);
+    if (await context.EmploymentMethods.AnyAsync(x => x.Id != method.Id && x.Name.ToLower() == method.Name.ToLower(), cancellationToken))
+      return Result<UpdatedResult>.Failure($"Another employment method is named '{method.Name}'.");
+    await context.SaveChangesAsync(cancellationToken);
+    return CommandResults.Updated();
+  }
+
+  public async Task<Result<CreatedResult>> Handle(CreateAdjustmentTypeCommand command, CancellationToken cancellationToken)
+  {
+    var type = AdjustmentType.Create(AdjustmentTypeId.New(), command.Type.Name, command.Type.Direction);
+    if (await context.AdjustmentTypes.AnyAsync(x => x.Name.ToLower() == type.Name.ToLower(), cancellationToken))
+      return Result<CreatedResult>.Failure($"An adjustment type named '{type.Name}' already exists.");
+    context.AdjustmentTypes.Add(type);
+    await context.SaveChangesAsync(cancellationToken);
+    return CommandResults.Created(type.Id);
+  }
+
+  public async Task<Result<UpdatedResult>> Handle(UpdateAdjustmentTypeCommand command, CancellationToken cancellationToken)
+  {
+    var type = await context.LoadAdjustmentTypeAsync(command.Id, cancellationToken);
+    if (type.Direction != command.Type.Direction && await context.PayrollAdjustments.AnyAsync(a => a.AdjustmentTypeId == type.Id, cancellationToken))
+      return Result<UpdatedResult>.Failure($"Pay slips carry '{type.Name}', so whether it raises or lowers pay cannot change. Add a new type instead.");
+    type.Update(command.Type.Name, command.Type.Direction);
+    if (await context.AdjustmentTypes.AnyAsync(x => x.Id != type.Id && x.Name.ToLower() == type.Name.ToLower(), cancellationToken))
+      return Result<UpdatedResult>.Failure($"Another adjustment type is named '{type.Name}'.");
+    await context.SaveChangesAsync(cancellationToken);
+    return CommandResults.Updated();
+  }
+}
+
 public class SetCatalogActivationHandler(IApplicationDbContext context) : ICommandHandler<SetCatalogActivationCommand, Result<UpdatedResult>>
 {
   public async Task<Result<UpdatedResult>> Handle(SetCatalogActivationCommand command, CancellationToken cancellationToken)
@@ -265,6 +423,24 @@ public class SetCatalogActivationHandler(IApplicationDbContext context) : IComma
         var method = await context.RecruitmentMethods.FirstOrDefaultAsync(m => m.Id == methodId, cancellationToken)
           ?? throw new RecruitmentMethodNotFoundException($"Recruitment method {command.Id} was not found.");
         method.SetActive(command.IsActive);
+        break;
+      case CatalogKind.QualificationLevel:
+        (await context.LoadQualificationLevelAsync(command.Id, cancellationToken)).SetActive(command.IsActive);
+        break;
+      case CatalogKind.FamilyRelation:
+        (await context.LoadFamilyRelationAsync(command.Id, cancellationToken)).SetActive(command.IsActive);
+        break;
+      case CatalogKind.EmploymentMethod:
+        (await context.LoadEmploymentMethodAsync(command.Id, cancellationToken)).SetActive(command.IsActive);
+        break;
+      case CatalogKind.AdjustmentType:
+        (await context.LoadAdjustmentTypeAsync(command.Id, cancellationToken)).SetActive(command.IsActive);
+        break;
+      case CatalogKind.EmploymentType:
+        var employmentType = await context.LoadEmploymentTypeAsync(command.Id, cancellationToken);
+        employmentType.SetActive(command.IsActive);
+        if (await EmploymentTypeUse.SecondOfAsync(context, employmentType, cancellationToken) is { } second)
+          return Result<UpdatedResult>.Failure(second);
         break;
       case CatalogKind.ServiceEventType:
         var eventType = await context.LoadEventTypeAsync(command.Id, cancellationToken);
@@ -338,6 +514,49 @@ public class DeleteCatalogValueHandler(IApplicationDbContext context) : ICommand
             || await context.HrActions.AnyAsync(a => a.RecruitmentMethodId == method.Id, cancellationToken))
           throw new InUseException($"Service records name '{method.Name}', so it cannot be deleted. Deactivate it instead.");
         context.RecruitmentMethods.Remove(method);
+        break;
+      }
+      case CatalogKind.QualificationLevel:
+      {
+        var level = await context.LoadQualificationLevelAsync(command.Id, cancellationToken);
+        if (await context.Educations.AnyAsync(e => e.QualificationLevelId == level.Id, cancellationToken))
+          throw new InUseException($"Qualifications of the level '{level.Name}' are on file, so it cannot be deleted. Deactivate it instead.");
+        context.QualificationLevels.Remove(level);
+        break;
+      }
+      case CatalogKind.FamilyRelation:
+      {
+        var relation = await context.LoadFamilyRelationAsync(command.Id, cancellationToken);
+        if (await context.EmployeeFamilyMembers.AnyAsync(m => m.RelationId == relation.Id, cancellationToken))
+          throw new InUseException($"Family members are recorded as '{relation.Name}', so it cannot be deleted. Deactivate it instead.");
+        context.FamilyRelations.Remove(relation);
+        break;
+      }
+      case CatalogKind.EmploymentMethod:
+      {
+        var method = await context.LoadEmploymentMethodAsync(command.Id, cancellationToken);
+        if (await context.Employees.AnyAsync(e => e.EmploymentMethodId == method.Id, cancellationToken)
+            || await context.HrActions.AnyAsync(a => a.EmploymentMethodId == method.Id, cancellationToken))
+          throw new InUseException($"Employees or HR actions name '{method.Name}', so it cannot be deleted. Deactivate it instead.");
+        context.EmploymentMethods.Remove(method);
+        break;
+      }
+      case CatalogKind.AdjustmentType:
+      {
+        var type = await context.LoadAdjustmentTypeAsync(command.Id, cancellationToken);
+        if (type.IsSystem)
+          throw new InUseException($"'{type.Name}' is written by the arrears run; it cannot be deleted.");
+        if (await context.PayrollAdjustments.AnyAsync(a => a.AdjustmentTypeId == type.Id, cancellationToken))
+          throw new InUseException($"Pay slips carry '{type.Name}', so it cannot be deleted. Deactivate it instead.");
+        context.AdjustmentTypes.Remove(type);
+        break;
+      }
+      case CatalogKind.EmploymentType:
+      {
+        var type = await context.LoadEmploymentTypeAsync(command.Id, cancellationToken);
+        if (await EmploymentTypeUse.InUseAsync(context, type.Id, cancellationToken))
+          throw new InUseException($"Employees, posts or salary rules are of the type '{type.Name}', so it cannot be deleted. Deactivate it instead.");
+        context.EmploymentTypes.Remove(type);
         break;
       }
       case CatalogKind.ServiceEventType:

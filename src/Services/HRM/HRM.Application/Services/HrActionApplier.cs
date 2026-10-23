@@ -5,7 +5,7 @@ using Microsoft.EntityFrameworkCore;
 public sealed record HrActionApplyInput(
   string? ExternalReferenceOrg,
   Guid? RecruitmentMethodId,
-  EmploymentMethod? EmploymentMethod,
+  Guid? EmploymentMethodId,
   Guid? EventTypeId,
   int? StageNumber,
   decimal? BasicPay,
@@ -45,7 +45,7 @@ public class HrActionApplier(
     var details = action.Details with
     {
       ExternalReferenceOrg = input.ExternalReferenceOrg ?? action.ExternalReferenceOrg,
-      EmploymentMethod = input.EmploymentMethod ?? action.EmploymentMethod,
+      EmploymentMethodId = input.EmploymentMethodId is { } chosen ? global::EmploymentMethodId.Of(chosen) : action.EmploymentMethodId,
       RecruitmentMethodId = input.RecruitmentMethodId is { } rm ? RecruitmentMethodId.Of(rm) : action.RecruitmentMethodId,
       EventTypeId = input.EventTypeId is { } et ? ServiceEventTypeId.Of(et) : action.EventTypeId,
       StageNumber = input.StageNumber ?? action.StageNumber,
@@ -71,7 +71,7 @@ public class HrActionApplier(
       case HrActionType.Appointment:
       case HrActionType.DeputationIn:
         if (action.ActionType == HrActionType.DeputationIn)
-          employee.TakeOnDeputation(details.ExternalReferenceOrg!, date, details.EndDate);
+          employee.TakeOnDeputation(await TypeForAsync(EmploymentBasis.Deputation, cancellationToken), details.ExternalReferenceOrg!, date, details.EndDate);
         history = await writer.AppointAsync(employee, new AppointmentSpec(
           action.NewPostId!, date, ServiceEventNames.For(action.ActionType)!, action.OrderNumber, details.RecruitmentMethodId,
           details.StageNumber, details.BasicPay, action.SupportingDocumentId, details.ExternalReferenceOrg, action.Reason, input.Remarks, approvedBy), cancellationToken);
@@ -138,7 +138,7 @@ public class HrActionApplier(
         break;
 
       case HrActionType.Regularization:
-        employee.Regularize(details.EmploymentMethod!.Value);
+        employee.Regularize(await TypeForAsync(EmploymentBasis.Regular, cancellationToken), await context.MethodAsync(details.EmploymentMethodId!.Value, cancellationToken) ?? details.EmploymentMethodId);
         break;
 
       case HrActionType.Lwop:
@@ -188,6 +188,11 @@ public class HrActionApplier(
 
     return (history, impact);
   }
+
+  /// The employment type a Regularization or a Deputation (in) gives the person (the rules check one exists first).
+  private async Task<EmploymentType> TypeForAsync(EmploymentBasis basis, CancellationToken cancellationToken) =>
+      await checks.ActiveTypeAsync(basis, cancellationToken)
+      ?? throw new DomainException($"No active employment type follows the {EnumText.Words(basis)} rules. Add one under Configuration › People & service first.");
 
   /// Leave without pay is a dated leave of the unpaid type (payroll leaves its days unpaid): a pending application of
   /// exactly that leave is taken over, otherwise one is recorded, approved by the action's approver.

@@ -70,7 +70,7 @@ public static class CalculationBases
 /// Who a rule applies to and when; null scope fields match everyone.
 /// Who a rule is applied to. UnitPath = the unit and every unit above it, so a rule for a wing reaches its divisions and
 /// sections ("with its sub-units").
-public sealed record RuleScope(int Bps, DesignationId DesignationId, OrganizationUnitId OrgUnitId, EmploymentType EmploymentType, DateOnly Date,
+public sealed record RuleScope(int Bps, DesignationId DesignationId, OrganizationUnitId OrgUnitId, EmploymentTypeId EmploymentTypeId, DateOnly Date,
   IReadOnlyCollection<OrganizationUnitId>? UnitPath = null);
 
 public sealed record SalaryRuleDefinition(
@@ -84,7 +84,7 @@ public sealed record SalaryRuleDefinition(
   int? MaxBps,
   DesignationId? ApplicableDesignationId,
   OrganizationUnitId? ApplicableOrgUnitId,
-  EmploymentType? ApplicableEmploymentType,
+  EmploymentTypeId? ApplicableEmploymentTypeId,
   decimal? MinAmount,
   decimal? MaxAmount,
   int Priority,
@@ -136,7 +136,7 @@ public class SalaryComponentRule : Aggregate<SalaryComponentRuleId>
   public int? MaxBps { get; private set; }
   public DesignationId? ApplicableDesignationId { get; private set; }
   public OrganizationUnitId? ApplicableOrgUnitId { get; private set; }
-  public EmploymentType? ApplicableEmploymentType { get; private set; }
+  public EmploymentTypeId? ApplicableEmploymentTypeId { get; private set; }
   public decimal? MinAmount { get; private set; }
   public decimal? MaxAmount { get; private set; }
   public int Priority { get; private set; }
@@ -151,7 +151,7 @@ public class SalaryComponentRule : Aggregate<SalaryComponentRuleId>
   /// How many scope fields are set: a rule for "BPS 17-22 in the Engineering wing" beats one for "everyone".
   public int Specificity =>
       (MinBps.HasValue || MaxBps.HasValue ? 1 : 0) + (ApplicableDesignationId is null ? 0 : 1)
-      + (ApplicableOrgUnitId is null ? 0 : 1) + (ApplicableEmploymentType is null ? 0 : 1);
+      + (ApplicableOrgUnitId is null ? 0 : 1) + (ApplicableEmploymentTypeId is null ? 0 : 1);
 
   public static SalaryComponentRule Create(SalaryComponentRuleId id, SalaryComponent component, SalaryRuleDefinition definition, Guid? approvedBy)
   {
@@ -201,7 +201,7 @@ public class SalaryComponentRule : Aggregate<SalaryComponentRuleId>
       && (MaxBps is null || scope.Bps <= MaxBps)
       && (ApplicableDesignationId is null || ApplicableDesignationId == scope.DesignationId)
       && (ApplicableOrgUnitId is null || ApplicableOrgUnitId == scope.OrgUnitId || (scope.UnitPath?.Contains(ApplicableOrgUnitId) ?? false))
-      && (ApplicableEmploymentType is null || ApplicableEmploymentType == scope.EmploymentType);
+      && (ApplicableEmploymentTypeId is null || ApplicableEmploymentTypeId == scope.EmploymentTypeId);
 
   /// The monthly amount, clamped to the rule's minimum and maximum.
   public RuleAmount Calculate(PayFigures figures)
@@ -289,7 +289,7 @@ public class SalaryComponentRule : Aggregate<SalaryComponentRuleId>
     MaxBps = maxBps;
     ApplicableDesignationId = d.ApplicableDesignationId;
     ApplicableOrgUnitId = d.ApplicableOrgUnitId;
-    ApplicableEmploymentType = d.ApplicableEmploymentType;
+    ApplicableEmploymentTypeId = d.ApplicableEmploymentTypeId;
     MinAmount = Guard.Money(d.MinAmount, "Minimum amount");
     MaxAmount = Guard.Money(d.MaxAmount, "Maximum amount");
     Priority = d.Priority;

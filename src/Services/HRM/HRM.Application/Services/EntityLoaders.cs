@@ -42,6 +42,62 @@ public static class EntityLoaders
       ?? throw new PayScaleGradeNotFoundException($"Grade {id} was not found.");
   }
 
+  public static async Task<QualificationLevel> LoadQualificationLevelAsync(this IApplicationDbContext context, Guid id, CancellationToken cancellationToken)
+  {
+    var levelId = QualificationLevelId.Of(id);
+    return await context.QualificationLevels.FirstOrDefaultAsync(x => x.Id == levelId, cancellationToken)
+      ?? throw new HrListValueNotFoundException($"Qualification level {id} was not found.");
+  }
+
+  public static async Task<FamilyRelation> LoadFamilyRelationAsync(this IApplicationDbContext context, Guid id, CancellationToken cancellationToken)
+  {
+    var relationId = FamilyRelationId.Of(id);
+    return await context.FamilyRelations.FirstOrDefaultAsync(x => x.Id == relationId, cancellationToken)
+      ?? throw new HrListValueNotFoundException($"Relation {id} was not found.");
+  }
+
+  public static async Task<EmploymentMethod> LoadEmploymentMethodAsync(this IApplicationDbContext context, Guid id, CancellationToken cancellationToken)
+  {
+    var methodId = EmploymentMethodId.Of(id);
+    return await context.EmploymentMethods.FirstOrDefaultAsync(x => x.Id == methodId, cancellationToken)
+      ?? throw new HrListValueNotFoundException($"Employment method {id} was not found.");
+  }
+
+  public static async Task<AdjustmentType> LoadAdjustmentTypeAsync(this IApplicationDbContext context, Guid id, CancellationToken cancellationToken)
+  {
+    var typeId = AdjustmentTypeId.Of(id);
+    return await context.AdjustmentTypes.FirstOrDefaultAsync(x => x.Id == typeId, cancellationToken)
+      ?? throw new HrListValueNotFoundException($"Adjustment type {id} was not found.");
+  }
+
+  /// A relation given to a new family member must be active; one already on the member may stay.
+  public static async Task EnsureRelationAsync(this IApplicationDbContext context, Guid? id, CancellationToken cancellationToken, FamilyRelationId? current = null)
+  {
+    if (id is not { } value)
+      return;
+    var relation = await context.LoadFamilyRelationAsync(value, cancellationToken);
+    if (relation.Id != current)
+      relation.EnsureActive();
+  }
+
+  /// An employment method given must be active; the one the employee already has may stay.
+  public static async Task<EmploymentMethodId?> MethodAsync(this IApplicationDbContext context, Guid? id, CancellationToken cancellationToken, EmploymentMethodId? current = null)
+  {
+    if (id is not { } value)
+      return null;
+    var method = await context.LoadEmploymentMethodAsync(value, cancellationToken);
+    if (method.Id != current)
+      method.EnsureActive();
+    return method.Id;
+  }
+
+  public static async Task<EmploymentType> LoadEmploymentTypeAsync(this IApplicationDbContext context, Guid id, CancellationToken cancellationToken)
+  {
+    var typeId = EmploymentTypeId.Of(id);
+    return await context.EmploymentTypes.FirstOrDefaultAsync(t => t.Id == typeId, cancellationToken)
+      ?? throw new EmploymentTypeNotFoundException($"Employment type {id} was not found.");
+  }
+
   public static async Task<Designation> LoadDesignationAsync(this IApplicationDbContext context, Guid id, CancellationToken cancellationToken)
   {
     var designationId = DesignationId.Of(id);

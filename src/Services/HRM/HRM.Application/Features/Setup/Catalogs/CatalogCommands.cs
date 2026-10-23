@@ -1,7 +1,7 @@
 using FluentValidation;
 
-// The HR catalogues: org unit types, locations, designations, document types, recruitment methods, service event
-// types, request types and the BPS grades. Values are deactivated, never deleted, so old records keep their labels.
+// The HR catalogues: org unit types, locations, designations, document types, recruitment methods, employment types,
+// service event types, request types and the BPS grades. Values are deactivated, never deleted, so old records keep their labels.
 
 public sealed record SetCatalogActivationCommand(CatalogKind Kind, Guid Id, bool IsActive) : ICommand<Result<UpdatedResult>>;
 
@@ -12,6 +12,11 @@ public enum CatalogKind
   Designation,
   DocumentType,
   RecruitmentMethod,
+  EmploymentType,
+  QualificationLevel,
+  FamilyRelation,
+  EmploymentMethod,
+  AdjustmentType,
   ServiceEventType,
   RequestType
 }
@@ -35,6 +40,26 @@ public sealed record UpdateDocumentTypeCommand(Guid Id, DocumentTypeInput Type) 
 public sealed record RecruitmentMethodInput(string Name);
 public sealed record CreateRecruitmentMethodCommand(RecruitmentMethodInput Method) : ICommand<Result<CreatedResult>>;
 public sealed record UpdateRecruitmentMethodCommand(Guid Id, RecruitmentMethodInput Method) : ICommand<Result<UpdatedResult>>;
+
+public sealed record QualificationLevelInput(string Name, int Rank);
+public sealed record CreateQualificationLevelCommand(QualificationLevelInput Level) : ICommand<Result<CreatedResult>>;
+public sealed record UpdateQualificationLevelCommand(Guid Id, QualificationLevelInput Level) : ICommand<Result<UpdatedResult>>;
+
+public sealed record FamilyRelationInput(string Name);
+public sealed record CreateFamilyRelationCommand(FamilyRelationInput Relation) : ICommand<Result<CreatedResult>>;
+public sealed record UpdateFamilyRelationCommand(Guid Id, FamilyRelationInput Relation) : ICommand<Result<UpdatedResult>>;
+
+public sealed record EmploymentMethodInput(string Name, string? Description);
+public sealed record CreateEmploymentMethodCommand(EmploymentMethodInput Method) : ICommand<Result<CreatedResult>>;
+public sealed record UpdateEmploymentMethodCommand(Guid Id, EmploymentMethodInput Method) : ICommand<Result<UpdatedResult>>;
+
+public sealed record AdjustmentTypeInput(string Name, AdjustmentDirection Direction);
+public sealed record CreateAdjustmentTypeCommand(AdjustmentTypeInput Type) : ICommand<Result<CreatedResult>>;
+public sealed record UpdateAdjustmentTypeCommand(Guid Id, AdjustmentTypeInput Type) : ICommand<Result<UpdatedResult>>;
+
+public sealed record EmploymentTypeInput(string Name, string? Description, EmploymentBasis Basis);
+public sealed record CreateEmploymentTypeCommand(EmploymentTypeInput Type) : ICommand<Result<CreatedResult>>;
+public sealed record UpdateEmploymentTypeCommand(Guid Id, EmploymentTypeInput Type) : ICommand<Result<UpdatedResult>>;
 
 public sealed record ServiceEventTypeInput(string Name, string? Category);
 public sealed record CreateServiceEventTypeCommand(ServiceEventTypeInput Type) : ICommand<Result<CreatedResult>>;
@@ -155,6 +180,97 @@ public class UpdateRecruitmentMethodCommandValidator : AbstractValidator<UpdateR
   {
     RuleFor(x => x.Id).NotEmpty();
     RuleFor(x => x.Method).NotNull().SetValidator(new RecruitmentMethodInputValidator());
+  }
+}
+
+public class QualificationLevelInputValidator : AbstractValidator<QualificationLevelInput>
+{
+  public QualificationLevelInputValidator()
+  {
+    RuleFor(x => x.Name).NotEmpty().MaximumLength(100);
+    RuleFor(x => x.Rank).InclusiveBetween(1, 99);
+  }
+}
+
+public class CreateQualificationLevelCommandValidator : AbstractValidator<CreateQualificationLevelCommand>
+{
+  public CreateQualificationLevelCommandValidator() => RuleFor(x => x.Level).NotNull().SetValidator(new QualificationLevelInputValidator());
+}
+
+public class UpdateQualificationLevelCommandValidator : AbstractValidator<UpdateQualificationLevelCommand>
+{
+  public UpdateQualificationLevelCommandValidator() => RuleFor(x => x.Level).NotNull().SetValidator(new QualificationLevelInputValidator());
+}
+
+public class CreateFamilyRelationCommandValidator : AbstractValidator<CreateFamilyRelationCommand>
+{
+  public CreateFamilyRelationCommandValidator() => RuleFor(x => x.Relation.Name).NotEmpty().MaximumLength(60);
+}
+
+public class UpdateFamilyRelationCommandValidator : AbstractValidator<UpdateFamilyRelationCommand>
+{
+  public UpdateFamilyRelationCommandValidator() => RuleFor(x => x.Relation.Name).NotEmpty().MaximumLength(60);
+}
+
+public class EmploymentMethodInputValidator : AbstractValidator<EmploymentMethodInput>
+{
+  public EmploymentMethodInputValidator()
+  {
+    RuleFor(x => x.Name).NotEmpty().MaximumLength(100);
+    RuleFor(x => x.Description).MaximumLength(200);
+  }
+}
+
+public class CreateEmploymentMethodCommandValidator : AbstractValidator<CreateEmploymentMethodCommand>
+{
+  public CreateEmploymentMethodCommandValidator() => RuleFor(x => x.Method).NotNull().SetValidator(new EmploymentMethodInputValidator());
+}
+
+public class UpdateEmploymentMethodCommandValidator : AbstractValidator<UpdateEmploymentMethodCommand>
+{
+  public UpdateEmploymentMethodCommandValidator() => RuleFor(x => x.Method).NotNull().SetValidator(new EmploymentMethodInputValidator());
+}
+
+public class AdjustmentTypeInputValidator : AbstractValidator<AdjustmentTypeInput>
+{
+  public AdjustmentTypeInputValidator()
+  {
+    RuleFor(x => x.Name).NotEmpty().MaximumLength(100);
+    RuleFor(x => x.Direction).IsInEnum();
+  }
+}
+
+public class CreateAdjustmentTypeCommandValidator : AbstractValidator<CreateAdjustmentTypeCommand>
+{
+  public CreateAdjustmentTypeCommandValidator() => RuleFor(x => x.Type).NotNull().SetValidator(new AdjustmentTypeInputValidator());
+}
+
+public class UpdateAdjustmentTypeCommandValidator : AbstractValidator<UpdateAdjustmentTypeCommand>
+{
+  public UpdateAdjustmentTypeCommandValidator() => RuleFor(x => x.Type).NotNull().SetValidator(new AdjustmentTypeInputValidator());
+}
+
+public class EmploymentTypeInputValidator : AbstractValidator<EmploymentTypeInput>
+{
+  public EmploymentTypeInputValidator()
+  {
+    RuleFor(x => x.Name).NotEmpty().MaximumLength(EmploymentType.NameMaxLength);
+    RuleFor(x => x.Description).MaximumLength(EmploymentType.DescriptionMaxLength);
+    RuleFor(x => x.Basis).IsInEnum();
+  }
+}
+
+public class CreateEmploymentTypeCommandValidator : AbstractValidator<CreateEmploymentTypeCommand>
+{
+  public CreateEmploymentTypeCommandValidator() => RuleFor(x => x.Type).NotNull().SetValidator(new EmploymentTypeInputValidator());
+}
+
+public class UpdateEmploymentTypeCommandValidator : AbstractValidator<UpdateEmploymentTypeCommand>
+{
+  public UpdateEmploymentTypeCommandValidator()
+  {
+    RuleFor(x => x.Id).NotEmpty();
+    RuleFor(x => x.Type).NotNull().SetValidator(new EmploymentTypeInputValidator());
   }
 }
 

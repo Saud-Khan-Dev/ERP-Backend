@@ -172,43 +172,47 @@ public class ShiftHandlers(IApplicationDbContext context, IClock clock, IAuditTr
 
 // ---- holidays ----
 
-public sealed record HolidayInput(DateOnly HolidayDate, string Name, HolidayType HolidayType, Guid? LocationId, string? NotificationRef);
+/// Marks a holiday the day before (or the days after, when nobody came in): every day from From to To (at most 7 days)
+/// becomes a holiday for everyone, and everyone holding a post that day without a check-in is marked Holiday (an
+/// absence closed earlier too). Leave and days actually worked are kept. The day is remembered as a holiday, so leave and
+/// Taxation's working days leave it out.
+public sealed record MarkHolidayCommand(DateOnly From, DateOnly? To, string Name) : ICommand<Result<MarkHolidayResult>>;
+public sealed record MarkHolidayResult(int Days, int Marked);
+
+/// Undoes a holiday marked by mistake: the day is a working day again and the Holiday marks it gave are removed (close
+/// the day again to fill it).
+public sealed record UnmarkHolidayCommand(DateOnly Date) : ICommand<Result<UpdatedResult>>;
 
 public sealed record GetHolidaysQueryResult(IReadOnlyList<HolidayDto> Holidays);
 
-/// A year's calendar (or a date range); LocationId adds that location's local holidays to the gazetted ones.
+/// A year's holidays (or a date range); LocationId adds that location's local holidays to the organization-wide ones.
 public sealed record GetHolidaysQuery(int? Year, DateOnly? From, DateOnly? To, Guid? LocationId) : IQuery<Result<GetHolidaysQueryResult>>;
 
-public sealed record CreateHolidayCommand(HolidayInput Holiday) : ICommand<Result<CreatedResult>>;
-public sealed record UpdateHolidayCommand(Guid Id, HolidayInput Holiday) : ICommand<Result<UpdatedResult>>;
-public sealed record DeleteHolidayCommand(Guid Id) : ICommand<Result<UpdatedResult>>;
-
-public class HolidayInputValidator : AbstractValidator<HolidayInput>
+public class MarkHolidayCommandValidator : AbstractValidator<MarkHolidayCommand>
 {
-  public HolidayInputValidator()
+  public MarkHolidayCommandValidator()
   {
-    RuleFor(x => x.Name).NotEmpty().MaximumLength(150);
-    RuleFor(x => x.HolidayType).IsInEnum();
-    RuleFor(x => x.NotificationRef).MaximumLength(200);
+    RuleFor(x => x.Name).NotEmpty().WithMessage("Name the holiday (e.g. Eid ul Fitr).").MaximumLength(150);
+    RuleFor(x => x.To).GreaterThanOrEqualTo(x => x.From).When(x => x.To.HasValue).WithMessage("The last day comes on or after the first.");
+    RuleFor(x => x).Must(x => (x.To ?? x.From).DayNumber - x.From.DayNumber < MarkHolidayRules.MaxDays)
+      .WithMessage($"A holiday is marked for at most {MarkHolidayRules.MaxDays} days at a time.");
   }
 }
 
-public class CreateHolidayCommandValidator : AbstractValidator<CreateHolidayCommand>
+public static class MarkHolidayRules
 {
-  public CreateHolidayCommandValidator() => RuleFor(x => x.Holiday).NotNull().SetValidator(new HolidayInputValidator());
+  public const int MaxDays = 7;
+  /// How far ahead a holiday may be marked (it is announced a day or two before).
+  public const int DaysAhead = 7;
 }
 
-public class UpdateHolidayCommandValidator : AbstractValidator<UpdateHolidayCommand>
-{
-  public UpdateHolidayCommandValidator() => RuleFor(x => x.Holiday).NotNull().SetValidator(new HolidayInputValidator());
-}
-
-public class HolidayHandlers(IApplicationDbContext context, HrLookup lookup, IClock clock) :
+public class HolidayHandlers(IApplicationDbContext context, HrLookup lookup, IClock clock, IAuditTrail audit, OfficeScope scope) :
   IQueryHandler<GetHolidaysQuery, Result<GetHolidaysQueryResult>>,
-  ICommandHandler<CreateHolidayCommand, Result<CreatedResult>>,
-  ICommandHandler<UpdateHolidayCommand, Result<UpdatedResult>>,
-  ICommandHandler<DeleteHolidayCommand, Result<UpdatedResult>>
+  ICommandHandler<MarkHolidayCommand, Result<MarkHolidayResult>>,
+  ICommandHandler<UnmarkHolidayCommand, Result<UpdatedResult>>
 {
+  private const string MarkedRemark = "Holiday marked for everyone.";
+
   public async Task<Result<GetHolidaysQueryResult>> Handle(GetHolidaysQuery query, CancellationToken cancellationToken)
   {
     var year = query.Year ?? clock.Today.Year;
@@ -227,50 +231,83 @@ public class HolidayHandlers(IApplicationDbContext context, HrLookup lookup, ICl
       h.LocationId?.Value, h.LocationId is null ? null : locations.GetValueOrDefault(h.LocationId.Value), h.NotificationRef)).ToList()));
   }
 
-  public async Task<Result<CreatedResult>> Handle(CreateHolidayCommand command, CancellationToken cancellationToken)
+  public async Task<Result<MarkHolidayResult>> Handle(MarkHolidayCommand command, CancellationToken cancellationToken)
   {
-    var input = command.Holiday;
-    var locationId = await LocationAsync(input.LocationId, cancellationToken);
-    var holiday = Holiday.Create(HolidayId.New(), input.HolidayDate, input.Name, input.HolidayType, locationId, input.NotificationRef);
-    if (await context.Holidays.AnyAsync(h => h.HolidayDate == holiday.HolidayDate && h.Name.ToLower() == holiday.Name.ToLower() && h.LocationId == holiday.LocationId, cancellationToken))
-      return Result<CreatedResult>.Failure($"'{holiday.Name}' is already on the calendar on {holiday.HolidayDate:yyyy-MM-dd} for that place.");
+    // a holiday is for the whole organization
+    if (await scope.WholeOrganizationRefusalAsync("mark a holiday", cancellationToken) is { } refusal)
+      return Result<MarkHolidayResult>.Failure(refusal);
+    var today = clock.Today;
+    var last = command.To ?? command.From;
+    if (last > today.AddDays(MarkHolidayRules.DaysAhead))
+      return Result<MarkHolidayResult>.Failure($"A holiday is marked at most {MarkHolidayRules.DaysAhead} days ahead.");
 
-    context.Holidays.Add(holiday);
-    await context.SaveChangesAsync(cancellationToken);
-    return CommandResults.Created(holiday.Id);
+    var marked = 0;
+    var days = 0;
+    using (audit.Quietly())
+    {
+      for (var date = command.From; date <= last; date = date.AddDays(1))
+      {
+        if (!await context.Holidays.AnyAsync(h => h.HolidayDate == date && h.LocationId == null, cancellationToken))
+          context.Holidays.Add(Holiday.Create(HolidayId.New(), date, command.Name, HolidayType.Public, null, null));
+        days++;
+
+        // everyone holding a post that day: a new Holiday mark, or an absence (closed earlier) turned into one
+        var employeeIds = await context.PositionAssignments.AsNoTracking()
+          .Where(a => a.Status == RecordStatus.Active && a.EffectiveFrom <= date && (a.EffectiveTo == null || a.EffectiveTo >= date))
+          .Select(a => a.EmployeeId).Distinct()
+          .Where(id => context.Employees.Any(e => e.Id == id && e.ProfileStatus == RecordStatus.Active))
+          .ToListAsync(cancellationToken);
+        var records = await context.AttendanceRecords.Where(r => r.AttendanceDate == date && employeeIds.Contains(r.EmployeeId))
+          .ToDictionaryAsync(r => r.EmployeeId, cancellationToken);
+
+        foreach (var id in employeeIds)
+        {
+          if (records.TryGetValue(id, out var record))
+          {
+            if (record.CheckIn is null && record.Status == AttendanceStatus.Absent)
+            {
+              record.Update(null, null, null, AttendanceStatus.Holiday, MarkedRemark);
+              marked++;
+            }
+            continue;
+          }
+
+          context.AttendanceRecords.Add(AttendanceRecord.Record(AttendanceRecordId.New(), id, date, null, null, null, AttendanceStatus.Holiday, MarkedRemark));
+          marked++;
+        }
+      }
+
+      audit.Record(AuditActions.Ran, HrmRuns.MarkHoliday, null, command.From.ToString("yyyy-MM-dd"),
+        detail: $"{command.Name} · {command.From:yyyy-MM-dd}{(last > command.From ? $" to {last:yyyy-MM-dd}" : "")} · {marked} marked Holiday");
+      await context.SaveChangesAsync(cancellationToken);
+    }
+
+    return Result<MarkHolidayResult>.Success(new(days, marked));
   }
 
-  public async Task<Result<UpdatedResult>> Handle(UpdateHolidayCommand command, CancellationToken cancellationToken)
+  public async Task<Result<UpdatedResult>> Handle(UnmarkHolidayCommand command, CancellationToken cancellationToken)
   {
-    var holiday = await LoadAsync(command.Id, cancellationToken);
-    var input = command.Holiday;
-    holiday.Update(input.HolidayDate, input.Name, input.HolidayType, await LocationAsync(input.LocationId, cancellationToken), input.NotificationRef);
-    await context.SaveChangesAsync(cancellationToken);
+    if (await scope.WholeOrganizationRefusalAsync("undo a holiday", cancellationToken) is { } refusal)
+      return Result<UpdatedResult>.Failure(refusal);
+    var date = command.Date;
+    var holidays = await context.Holidays.Where(h => h.HolidayDate == date).ToListAsync(cancellationToken);
+    if (holidays.Count == 0)
+      throw new HolidayNotFoundException($"{date:yyyy-MM-dd} is not a holiday.");
+
+    using (audit.Quietly())
+    {
+      context.Holidays.RemoveRange(holidays);
+      var marks = await context.AttendanceRecords
+        .Where(r => r.AttendanceDate == date && r.Status == AttendanceStatus.Holiday && r.CheckIn == null)
+        .ToListAsync(cancellationToken);
+      context.AttendanceRecords.RemoveRange(marks);
+
+      audit.Record(AuditActions.Ran, HrmRuns.MarkHoliday, null, date.ToString("yyyy-MM-dd"),
+        detail: $"{string.Join(", ", holidays.Select(h => h.Name).Distinct())} on {date:yyyy-MM-dd} undone · {marks.Count} Holiday mark(s) removed");
+      await context.SaveChangesAsync(cancellationToken);
+    }
+
     return CommandResults.Updated();
-  }
-
-  public async Task<Result<UpdatedResult>> Handle(DeleteHolidayCommand command, CancellationToken cancellationToken)
-  {
-    var holiday = await LoadAsync(command.Id, cancellationToken);
-    context.Holidays.Remove(holiday);
-    await context.SaveChangesAsync(cancellationToken);
-    return CommandResults.Updated();
-  }
-
-  private async Task<Holiday> LoadAsync(Guid id, CancellationToken cancellationToken)
-  {
-    var holidayId = HolidayId.Of(id);
-    return await context.Holidays.FirstOrDefaultAsync(h => h.Id == holidayId, cancellationToken)
-      ?? throw new HolidayNotFoundException($"Holiday {id} was not found.");
-  }
-
-  private async Task<LocationId?> LocationAsync(Guid? id, CancellationToken cancellationToken)
-  {
-    if (id is not { } value)
-      return null;
-    var location = await context.LoadLocationAsync(value, cancellationToken);
-    location.EnsureActive();
-    return location.Id;
   }
 }
 

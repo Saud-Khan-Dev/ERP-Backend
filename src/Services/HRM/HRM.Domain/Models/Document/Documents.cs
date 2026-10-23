@@ -134,7 +134,7 @@ public class EmployeeDocument : Aggregate<EmployeeDocumentId>
 }
 
 public sealed record EducationDetails(
-  QualificationLevel QualificationLevel,
+  QualificationLevelId QualificationLevelId,
   string DegreeTitle,
   string InstitutionName,
   string? BoardOrUniversity,
@@ -146,7 +146,7 @@ public sealed record EducationDetails(
 public class EmployeeEducation : Aggregate<EducationId>
 {
   public EmployeeId EmployeeId { get; private set; } = default!;
-  public QualificationLevel QualificationLevel { get; private set; }
+  public QualificationLevelId QualificationLevelId { get; private set; } = default!;
   public string DegreeTitle { get; private set; } = default!;
   public string InstitutionName { get; private set; } = default!;
   public string? BoardOrUniversity { get; private set; }
@@ -174,7 +174,7 @@ public class EmployeeEducation : Aggregate<EducationId>
   {
     ArgumentNullException.ThrowIfNull(details);
 
-    QualificationLevel = details.QualificationLevel;
+    QualificationLevelId = details.QualificationLevelId;
     DegreeTitle = Guard.RequiredText(details.DegreeTitle, 200, "Degree title");
     InstitutionName = Guard.RequiredText(details.InstitutionName, 200, "Institution");
     BoardOrUniversity = Guard.Text(details.BoardOrUniversity, 200, "Board / university");

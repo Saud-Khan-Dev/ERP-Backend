@@ -17,11 +17,11 @@ public static class EmploymentStatuses
   public static bool IsInService(EmploymentStatus status) => InService.Contains(status);
 }
 
-/// Employment types engaged for a period (a contract, a deputation from another department, ad hoc, daily wage or a
-/// project): they carry dated terms, and "ending within 60 days" is a queue.
+/// Employment engaged for a period (fixed term, a deputation from another department or a project): it carries dated
+/// terms, and "ending within 60 days" is a queue.
 public static class EmploymentTerms
 {
-  public static bool HasTerm(EmploymentType type) => type is not EmploymentType.Regular;
+  public static bool HasTerm(EmploymentBasis basis) => basis is not EmploymentBasis.Regular;
 }
 
 public sealed record PersonalDetails(
@@ -53,8 +53,10 @@ public class Employee : Aggregate<EmployeeId>
   public string EmployeeNumber { get; private set; } = default!;
   /// The Identity user (login) of this employee. No database FK: users live in the Identity service.
   public Guid? UserId { get; private set; }
-  public EmploymentType EmploymentType { get; private set; }
-  public EmploymentMethod? EmploymentMethod { get; private set; }
+  /// The type HR named (Configuration › Employment types); EmploymentBasis is the rules it follows, copied from it.
+  public EmploymentTypeId EmploymentTypeId { get; private set; } = default!;
+  public EmploymentBasis EmploymentBasis { get; private set; }
+  public EmploymentMethodId? EmploymentMethodId { get; private set; }
   /// The project a project-based employee is paid from (Projects module not built yet, so no FK).
   public Guid? ProjectId { get; private set; }
 
@@ -97,7 +99,7 @@ public class Employee : Aggregate<EmployeeId>
       string employeeNumber,
       PersonalDetails personal,
       EmploymentType employmentType,
-      EmploymentMethod? employmentMethod,
+      EmploymentMethodId? employmentMethodId,
       Guid? projectId,
       DateOnly today)
   {
@@ -110,7 +112,7 @@ public class Employee : Aggregate<EmployeeId>
     };
 
     employee.ApplyPersonal(personal, today);
-    employee.ApplyEmployment(employmentType, employmentMethod, projectId);
+    employee.ApplyEmployment(employmentType, employmentMethodId, projectId);
     return employee;
   }
 
@@ -124,33 +126,38 @@ public class Employee : Aggregate<EmployeeId>
 
   /// Corrects the employment type / method / project entered by mistake. Turning a contract (or any other) employee into a
   /// regular one is a regularization: it goes through the Regularization HR action, which is approved and recorded.
-  public void CorrectEmployment(EmploymentType employmentType, EmploymentMethod? employmentMethod, Guid? projectId)
+  public void CorrectEmployment(EmploymentType employmentType, EmploymentMethodId? employmentMethodId, Guid? projectId)
   {
     EnsureProfileActive();
-    if (employmentType == EmploymentType.Regular && EmploymentType != EmploymentType.Regular)
-      throw new DomainException($"{DisplayName} is {EnumText.WithArticle(EmploymentType)} employee. Making them regular is a regularization: draft a Regularization HR action instead.");
+    if (employmentType.Basis == EmploymentBasis.Regular && EmploymentBasis != EmploymentBasis.Regular)
+      throw new DomainException($"{DisplayName} is {EnumText.WithArticle(EmploymentBasis)} employee. Making them regular is a regularization: draft a Regularization HR action instead.");
 
-    ApplyEmployment(employmentType, employmentMethod, projectId);
-    if (!EmploymentTerms.HasTerm(employmentType))
+    ApplyEmployment(employmentType, employmentMethodId, projectId);
+    if (!EmploymentTerms.HasTerm(EmploymentBasis))
       ClearTerm();
   }
 
   /// The Regularization HR action: a contract / ad hoc / project employee becomes regular (the term ends).
-  public void Regularize(EmploymentMethod employmentMethod)
+  public void Regularize(EmploymentType regularType, EmploymentMethodId employmentMethodId)
   {
     EnsureInService();
-    if (EmploymentType == EmploymentType.Regular)
+    if (EmploymentBasis == EmploymentBasis.Regular)
       throw new DomainException($"{DisplayName} is already a regular employee.");
+    if (regularType.Basis != EmploymentBasis.Regular)
+      throw new DomainException($"'{regularType.Name}' does not follow the regular rules.");
 
-    ApplyEmployment(EmploymentType.Regular, employmentMethod, ProjectId);
+    ApplyEmployment(regularType, employmentMethodId, ProjectId);
     ClearTerm();
   }
 
   /// The Deputation (in) HR action: the person serves here on deputation from their parent department.
-  public void TakeOnDeputation(string lendingDepartment, DateOnly from, DateOnly? until)
+  public void TakeOnDeputation(EmploymentType deputationType, string lendingDepartment, DateOnly from, DateOnly? until)
   {
     EnsureInService();
-    ApplyEmployment(EmploymentType.DeputationIn, null, null);
+    if (deputationType.Basis != EmploymentBasis.Deputation)
+      throw new DomainException($"'{deputationType.Name}' does not follow the deputation rules.");
+
+    ApplyEmployment(deputationType, null, null);
     SetTerm(from, until, lendingDepartment);
   }
 
@@ -158,14 +165,14 @@ public class Employee : Aggregate<EmployeeId>
   public void SetTerm(DateOnly? from, DateOnly? to, string? lendingDepartment)
   {
     EnsureProfileActive();
-    if (!EmploymentTerms.HasTerm(EmploymentType))
-      throw new DomainException($"{DisplayName} is a regular employee; only contract, deputation, ad hoc, daily-wage and project staff have a term.");
+    if (!EmploymentTerms.HasTerm(EmploymentBasis))
+      throw new DomainException($"{DisplayName} is a regular employee; only fixed-term, deputation and project staff have a term.");
 
     Guard.DateOrder(from, to, "Term start", "Term end");
     var department = Guard.Text(lendingDepartment, 200, "Parent department");
-    if (EmploymentType == EmploymentType.DeputationIn && department is null)
+    if (EmploymentBasis == EmploymentBasis.Deputation && department is null)
       throw new DomainException("Name the parent department the deputationist comes from.");
-    if (EmploymentType != EmploymentType.DeputationIn && department is not null)
+    if (EmploymentBasis != EmploymentBasis.Deputation && department is not null)
       throw new DomainException("Only a deputationist (deputation in) has a parent department.");
 
     TermFrom = from;
@@ -411,19 +418,24 @@ public class Employee : Aggregate<EmployeeId>
     BloodGroup = NormalizeBloodGroup(personal.BloodGroup);
   }
 
-  private void ApplyEmployment(EmploymentType employmentType, EmploymentMethod? employmentMethod, Guid? projectId)
+  private void ApplyEmployment(EmploymentType employmentType, EmploymentMethodId? employmentMethodId, Guid? projectId)
   {
-    if (employmentType == EmploymentType.Regular && employmentMethod is null)
+    var basis = employmentType.Basis;
+    if (employmentType.Id != EmploymentTypeId)
+      employmentType.EnsureActive();
+
+    if (basis == EmploymentBasis.Regular && employmentMethodId is null)
       throw new DomainException("A regular employee needs an employment method (scheduled seat or GDA personal).");
 
-    if (employmentType != EmploymentType.Regular && employmentMethod is not null)
+    if (basis != EmploymentBasis.Regular && employmentMethodId is not null)
       throw new DomainException("Only a regular employee has an employment method.");
 
-    if (employmentType != EmploymentType.ProjectBased && projectId is { } project && project != Guid.Empty)
+    if (basis != EmploymentBasis.Project && projectId is { } project && project != Guid.Empty)
       throw new DomainException("Only a project-based employee is paid from a project.");
 
-    EmploymentType = employmentType;
-    EmploymentMethod = employmentMethod;
+    EmploymentTypeId = employmentType.Id;
+    EmploymentBasis = basis;
+    EmploymentMethodId = employmentMethodId;
     ProjectId = projectId == Guid.Empty ? null : projectId;
   }
 
@@ -543,27 +555,13 @@ public class EmployeeEmergencyContact : Entity<EmergencyContactId>
   }
 }
 
-public sealed record FamilyMemberDetails(string? Relation, string? Name, DateOnly? DateOfBirth, string? Cnic, string? Occupation);
-
-/// The relations a family member (dependant, nominee) can have: a fixed list so dependants and nominees can be reported.
-public static class FamilyRelations
-{
-  public static readonly IReadOnlyList<string> All = ["Spouse", "Son", "Daughter", "Father", "Mother", "Brother", "Sister"];
-
-  public static string? Normalize(string? relation)
-  {
-    if (string.IsNullOrWhiteSpace(relation))
-      return null;
-
-    return All.FirstOrDefault(r => string.Equals(r, relation.Trim(), StringComparison.OrdinalIgnoreCase))
-      ?? throw new DomainException($"A family member is the employee's {string.Join(", ", All.Select(r => r.ToLowerInvariant()))}.");
-  }
-}
+public sealed record FamilyMemberDetails(FamilyRelationId? RelationId, string? Name, DateOnly? DateOfBirth, string? Cnic, string? Occupation);
 
 public class EmployeeFamilyMember : Entity<FamilyMemberId>
 {
   public EmployeeId EmployeeId { get; private set; } = default!;
-  public string? Relation { get; private set; }
+  /// Configuration › Family relations.
+  public FamilyRelationId? RelationId { get; private set; }
   public string? Name { get; private set; }
   public DateOnly? DateOfBirth { get; private set; }
   public string? Cnic { get; private set; }
@@ -580,7 +578,7 @@ public class EmployeeFamilyMember : Entity<FamilyMemberId>
   {
     ArgumentNullException.ThrowIfNull(details);
 
-    Relation = FamilyRelations.Normalize(details.Relation);
+    RelationId = details.RelationId;
     Name = Guard.Text(details.Name, 150, "Name");
     Occupation = Guard.Text(details.Occupation, 100, "Occupation");
     Cnic = global::Cnic.NormalizeOptional(details.Cnic, "Family member's CNIC");
@@ -589,7 +587,7 @@ public class EmployeeFamilyMember : Entity<FamilyMemberId>
       throw new DomainException("A family member's date of birth cannot be in the future.");
     DateOfBirth = details.DateOfBirth;
 
-    if (Name is null && Relation is null)
+    if (Name is null && RelationId is null)
       throw new DomainException("A family member needs at least a name or a relation.");
   }
 }

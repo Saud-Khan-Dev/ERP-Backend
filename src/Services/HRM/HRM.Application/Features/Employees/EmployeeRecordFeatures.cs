@@ -1,4 +1,5 @@
 using FluentValidation;
+using Microsoft.EntityFrameworkCore;
 
 // Contacts, addresses, emergency contacts and family members of an employee: children of the Employee aggregate, so
 // "one primary contact per type" and "one permanent / one current address" are checked in one place.
@@ -100,11 +101,19 @@ public class EmployeeRecordHandlers(IApplicationDbContext context, IClock clock,
   public Task<Result<UpdatedResult>> Handle(RemoveEmergencyContactCommand command, CancellationToken cancellationToken) =>
       Change(command.EmployeeId, e => e.RemoveEmergencyContact(EmergencyContactId.Of(command.ContactId)), cancellationToken);
 
-  public Task<Result<CreatedResult>> Handle(AddFamilyMemberCommand command, CancellationToken cancellationToken) =>
-      Add(command.EmployeeId, e => e.AddFamilyMember(command.Member.ToDetails(), clock.Today).Id, cancellationToken);
+  public async Task<Result<CreatedResult>> Handle(AddFamilyMemberCommand command, CancellationToken cancellationToken)
+  {
+    await context.EnsureRelationAsync(command.Member.RelationId, cancellationToken);
+    return await Add(command.EmployeeId, e => e.AddFamilyMember(command.Member.ToDetails(), clock.Today).Id, cancellationToken);
+  }
 
-  public Task<Result<UpdatedResult>> Handle(UpdateFamilyMemberCommand command, CancellationToken cancellationToken) =>
-      Change(command.EmployeeId, e => e.UpdateFamilyMember(FamilyMemberId.Of(command.MemberId), command.Member.ToDetails(), clock.Today), cancellationToken);
+  public async Task<Result<UpdatedResult>> Handle(UpdateFamilyMemberCommand command, CancellationToken cancellationToken)
+  {
+    var memberId = FamilyMemberId.Of(command.MemberId);
+    var current = await context.EmployeeFamilyMembers.AsNoTracking().Where(m => m.Id == memberId).Select(m => m.RelationId).FirstOrDefaultAsync(cancellationToken);
+    await context.EnsureRelationAsync(command.Member.RelationId, cancellationToken, current);
+    return await Change(command.EmployeeId, e => e.UpdateFamilyMember(memberId, command.Member.ToDetails(), clock.Today), cancellationToken);
+  }
 
   public Task<Result<UpdatedResult>> Handle(RemoveFamilyMemberCommand command, CancellationToken cancellationToken) =>
       Change(command.EmployeeId, e => e.RemoveFamilyMember(FamilyMemberId.Of(command.MemberId)), cancellationToken);

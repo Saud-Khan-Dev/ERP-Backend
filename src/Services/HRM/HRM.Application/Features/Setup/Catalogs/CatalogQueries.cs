@@ -18,6 +18,21 @@ public sealed record GetDocumentTypesQuery(bool IncludeInactive) : IQuery<Result
 public sealed record GetRecruitmentMethodsQueryResult(IReadOnlyList<RecruitmentMethodDto> RecruitmentMethods);
 public sealed record GetRecruitmentMethodsQuery(bool IncludeInactive) : IQuery<Result<GetRecruitmentMethodsQueryResult>>;
 
+public sealed record GetQualificationLevelsQueryResult(IReadOnlyList<QualificationLevelDto> QualificationLevels);
+public sealed record GetQualificationLevelsQuery(bool IncludeInactive) : IQuery<Result<GetQualificationLevelsQueryResult>>;
+
+public sealed record GetFamilyRelationsQueryResult(IReadOnlyList<FamilyRelationDto> FamilyRelations);
+public sealed record GetFamilyRelationsQuery(bool IncludeInactive) : IQuery<Result<GetFamilyRelationsQueryResult>>;
+
+public sealed record GetEmploymentMethodsQueryResult(IReadOnlyList<EmploymentMethodDto> EmploymentMethods);
+public sealed record GetEmploymentMethodsQuery(bool IncludeInactive) : IQuery<Result<GetEmploymentMethodsQueryResult>>;
+
+public sealed record GetAdjustmentTypesQueryResult(IReadOnlyList<AdjustmentTypeDto> AdjustmentTypes);
+public sealed record GetAdjustmentTypesQuery(bool IncludeInactive) : IQuery<Result<GetAdjustmentTypesQueryResult>>;
+
+public sealed record GetEmploymentTypesQueryResult(IReadOnlyList<EmploymentTypeDto> EmploymentTypes);
+public sealed record GetEmploymentTypesQuery(bool IncludeInactive) : IQuery<Result<GetEmploymentTypesQueryResult>>;
+
 public sealed record GetServiceEventTypesQueryResult(IReadOnlyList<ServiceEventTypeDto> EventTypes);
 public sealed record GetServiceEventTypesQuery(bool IncludeInactive) : IQuery<Result<GetServiceEventTypesQueryResult>>;
 
@@ -31,6 +46,11 @@ public class CatalogQueryHandlers(IApplicationDbContext context) :
   IQueryHandler<GetPayScaleGradesQuery, Result<GetPayScaleGradesQueryResult>>,
   IQueryHandler<GetDocumentTypesQuery, Result<GetDocumentTypesQueryResult>>,
   IQueryHandler<GetRecruitmentMethodsQuery, Result<GetRecruitmentMethodsQueryResult>>,
+  IQueryHandler<GetEmploymentTypesQuery, Result<GetEmploymentTypesQueryResult>>,
+  IQueryHandler<GetQualificationLevelsQuery, Result<GetQualificationLevelsQueryResult>>,
+  IQueryHandler<GetFamilyRelationsQuery, Result<GetFamilyRelationsQueryResult>>,
+  IQueryHandler<GetEmploymentMethodsQuery, Result<GetEmploymentMethodsQueryResult>>,
+  IQueryHandler<GetAdjustmentTypesQuery, Result<GetAdjustmentTypesQueryResult>>,
   IQueryHandler<GetServiceEventTypesQuery, Result<GetServiceEventTypesQueryResult>>,
   IQueryHandler<GetRequestTypesQuery, Result<GetRequestTypesQueryResult>>
 {
@@ -69,6 +89,38 @@ public class CatalogQueryHandlers(IApplicationDbContext context) :
   {
     var rows = await context.RecruitmentMethods.AsNoTracking().Where(x => query.IncludeInactive || x.IsActive).OrderBy(x => x.Name).ToListAsync(cancellationToken);
     return Result<GetRecruitmentMethodsQueryResult>.Success(new(rows.Select(x => x.ToDto()).ToList()));
+  }
+
+  public async Task<Result<GetQualificationLevelsQueryResult>> Handle(GetQualificationLevelsQuery query, CancellationToken cancellationToken)
+  {
+    var rows = await context.QualificationLevels.AsNoTracking().Where(x => query.IncludeInactive || x.IsActive).OrderBy(x => x.Rank).ThenBy(x => x.Name).ToListAsync(cancellationToken);
+    return Result<GetQualificationLevelsQueryResult>.Success(new(rows.Select(x => x.ToDto()).ToList()));
+  }
+
+  public async Task<Result<GetFamilyRelationsQueryResult>> Handle(GetFamilyRelationsQuery query, CancellationToken cancellationToken)
+  {
+    var rows = await context.FamilyRelations.AsNoTracking().Where(x => query.IncludeInactive || x.IsActive).OrderBy(x => x.Name).ToListAsync(cancellationToken);
+    return Result<GetFamilyRelationsQueryResult>.Success(new(rows.Select(x => x.ToDto()).ToList()));
+  }
+
+  public async Task<Result<GetEmploymentMethodsQueryResult>> Handle(GetEmploymentMethodsQuery query, CancellationToken cancellationToken)
+  {
+    var rows = await context.EmploymentMethods.AsNoTracking().Where(x => query.IncludeInactive || x.IsActive).OrderBy(x => x.Name).ToListAsync(cancellationToken);
+    return Result<GetEmploymentMethodsQueryResult>.Success(new(rows.Select(x => x.ToDto()).ToList()));
+  }
+
+  public async Task<Result<GetAdjustmentTypesQueryResult>> Handle(GetAdjustmentTypesQuery query, CancellationToken cancellationToken)
+  {
+    var rows = await context.AdjustmentTypes.AsNoTracking().Where(x => query.IncludeInactive || x.IsActive).OrderBy(x => x.Name).ToListAsync(cancellationToken);
+    return Result<GetAdjustmentTypesQueryResult>.Success(new(rows.Select(x => x.ToDto()).ToList()));
+  }
+
+  public async Task<Result<GetEmploymentTypesQueryResult>> Handle(GetEmploymentTypesQuery query, CancellationToken cancellationToken)
+  {
+    var rows = await context.EmploymentTypes.AsNoTracking().Where(x => query.IncludeInactive || x.IsActive)
+      .OrderBy(x => x.Basis).ThenBy(x => x.Name).ToListAsync(cancellationToken);
+    var used = await EmploymentTypeUse.UsedAsync(context, cancellationToken);
+    return Result<GetEmploymentTypesQueryResult>.Success(new(rows.Select(x => x.ToDto(used.Contains(x.Id))).ToList()));
   }
 
   public async Task<Result<GetServiceEventTypesQueryResult>> Handle(GetServiceEventTypesQuery query, CancellationToken cancellationToken)

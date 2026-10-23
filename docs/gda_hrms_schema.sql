@@ -77,10 +77,10 @@ CREATE TYPE marital_status_enum    AS ENUM ('single','married','divorced','widow
 CREATE TYPE employment_status_enum AS ENUM ('active','on_leave','suspended','deputed_out','retired','resigned','terminated','deceased',
                                              'dismissed','removed','contract_ended','repatriated');
 
--- regular = Permanent (see employment_method), deputation_in = Permanent deputed in from
--- another department, contract = Contingent, project_based = Project-Based, daily_wage = Daily Wages
-CREATE TYPE employment_type_enum   AS ENUM ('regular','contract','project_based','deputation_in','adhoc','daily_wage');
-CREATE TYPE employment_method_enum AS ENUM ('scheduled_seat','gda_personal');
+-- The rules an employment type follows (HR names the types in employment_type): regular = Permanent
+-- (see employment_method), fixed_term = contract / contingent / ad hoc / daily wage, deputation = deputed in
+-- from another department, project = paid from a development project
+CREATE TYPE employment_basis_enum  AS ENUM ('regular','fixed_term','deputation','project');
 
 -- post lifecycle is stored; occupancy (vacant / partially_filled / filled) is DERIVED in v_post_occupancy
 CREATE TYPE post_lifecycle_enum    AS ENUM ('sanctioned','frozen','abolished');
@@ -95,7 +95,7 @@ CREATE TYPE payroll_run_status_enum    AS ENUM ('draft','calculated','reviewed',
 CREATE TYPE payroll_run_type_enum      AS ENUM ('regular','supplementary','arrears','bonus','final_settlement');
 CREATE TYPE payroll_period_status_enum AS ENUM ('open','closed','locked');
 CREATE TYPE payroll_txn_status_enum    AS ENUM ('calculated','held','released');
-CREATE TYPE adjustment_type_enum       AS ENUM ('arrears','recovery','bonus','correction','other');
+CREATE TYPE adjustment_direction_enum  AS ENUM ('raises','lowers','either');
 CREATE TYPE payment_status_enum        AS ENUM ('pending','processed','failed','returned');
 CREATE TYPE payment_method_enum        AS ENUM ('bank_transfer','cheque','cash');
 
@@ -108,7 +108,6 @@ CREATE TYPE employee_request_status_enum AS ENUM ('pending','approved','rejected
 
 CREATE TYPE contact_type_enum  AS ENUM ('mobile','phone','email','whatsapp','other');
 CREATE TYPE address_type_enum  AS ENUM ('permanent','current','mailing','other');
-CREATE TYPE qualification_level_enum AS ENUM ('primary','middle','matric','intermediate','diploma','bachelors','masters','mphil','phd','other');
 CREATE TYPE separation_type_enum AS ENUM ('retirement','resignation','termination','dismissal','death','end_of_contract','deputation_end','other',
                                           'compulsory_retirement','premature_retirement','removal_from_service');
 
@@ -204,6 +203,34 @@ CREATE INDEX idx_ouv_parent ON organization_unit_version (parent_unit_id);
 -- =====================================================================
 -- MODULE 2: DESIGNATION & PAY SCALE
 -- =====================================================================
+-- Employment types HR names (Regular, Contract, ...); each follows one basis, fixed once in use.
+-- At most one active type per 'regular' and 'deputation' basis (enforced by the service).
+CREATE TABLE employment_type (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  name        varchar NOT NULL UNIQUE,
+  description varchar,
+  basis       employment_basis_enum NOT NULL,
+  is_active   boolean NOT NULL DEFAULT true
+);
+
+-- Lists HR keeps in Configuration (values deactivated, never deleted once used)
+CREATE TABLE employment_method (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(), name varchar NOT NULL UNIQUE, description varchar, is_active boolean NOT NULL DEFAULT true
+);
+CREATE TABLE qualification_level (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(), name varchar NOT NULL UNIQUE,
+  rank int NOT NULL CHECK (rank BETWEEN 1 AND 99),  -- higher = higher qualification
+  is_active boolean NOT NULL DEFAULT true
+);
+CREATE TABLE family_relation (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(), name varchar NOT NULL UNIQUE, is_active boolean NOT NULL DEFAULT true
+);
+-- Arrears and Recovery have fixed ids: the arrears run writes them
+CREATE TABLE adjustment_type (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(), name varchar NOT NULL UNIQUE, direction adjustment_direction_enum NOT NULL,
+  is_active boolean NOT NULL DEFAULT true
+);
+
 CREATE TABLE designation (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   title       varchar NOT NULL UNIQUE,
@@ -271,7 +298,7 @@ CREATE TABLE post_version (
   grade_id         uuid NOT NULL REFERENCES pay_scale_grade(id),
   org_unit_id      uuid NOT NULL REFERENCES organization_unit(id),
   reporting_post_id uuid REFERENCES post(id),
-  employment_type  employment_type_enum NOT NULL DEFAULT 'regular',
+  employment_type_id uuid NOT NULL REFERENCES employment_type(id),
   location_id      uuid REFERENCES location(id),
   sanctioned_count int NOT NULL DEFAULT 1 CHECK (sanctioned_count >= 1),
   lifecycle_status post_lifecycle_enum NOT NULL DEFAULT 'sanctioned',
@@ -322,8 +349,9 @@ CREATE TABLE employee (
   id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   employee_number   varchar NOT NULL UNIQUE,
   user_id           uuid UNIQUE,             -- platform users.id, no cross-schema FK
-  employment_type   employment_type_enum NOT NULL,
-  employment_method employment_method_enum,  -- only when employment_type = 'regular'
+  employment_type_id uuid NOT NULL REFERENCES employment_type(id),
+  employment_basis  employment_basis_enum NOT NULL,  -- copied from the type
+  employment_method_id uuid REFERENCES employment_method(id),  -- only when employment_basis = 'regular'
   project_id        uuid,                    -- Project module not merged yet, no FK
 
   first_name   varchar NOT NULL,
@@ -356,14 +384,14 @@ CREATE TABLE employee (
 
   CONSTRAINT ck_emp_term CHECK (term_to IS NULL OR term_from IS NULL OR term_to >= term_from),
   CONSTRAINT ck_emp_method CHECK (
-    (employment_type = 'regular' AND employment_method IS NOT NULL) OR
-    (employment_type <> 'regular' AND employment_method IS NULL)
+    (employment_basis = 'regular' AND employment_method_id IS NOT NULL) OR
+    (employment_basis <> 'regular' AND employment_method_id IS NULL)
   ),
   CONSTRAINT ck_emp_cnic CHECK (cnic ~ '^[0-9]{5}-?[0-9]{7}-?[0-9]$'),
   CONSTRAINT ck_emp_dob  CHECK (date_of_birth IS NULL OR date_of_birth < current_date),
   CONSTRAINT ck_emp_blood CHECK (blood_group IS NULL OR blood_group IN ('A+','A-','B+','B-','AB+','AB-','O+','O-'))
 );
-CREATE INDEX idx_employee_type   ON employee (employment_type);
+CREATE INDEX idx_employee_type   ON employee (employment_type_id);
 CREATE INDEX idx_employee_status ON employee (employment_status);
 CREATE INDEX idx_employee_term_to ON employee (term_to);
 COMMENT ON TABLE employee IS 'Core identity only. full_name is a generated column. CNIC is stored in plain text (needed for uniqueness/search): protect with column privileges (see security section) and disk/backup encryption.';
@@ -479,7 +507,7 @@ CREATE TABLE employee_emergency_contact (
 CREATE TABLE employee_family_member (
   id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   employee_id   uuid NOT NULL REFERENCES employee(id),
-  relation      varchar,
+  relation_id   uuid REFERENCES family_relation(id),
   name          varchar,
   date_of_birth date,
   cnic          varchar CHECK (cnic IS NULL OR cnic ~ '^[0-9]{5}-?[0-9]{7}-?[0-9]$'),
@@ -539,7 +567,7 @@ CREATE INDEX idx_ed_expiry   ON employee_document (expiry_date) WHERE expiry_dat
 CREATE TABLE employee_education (
   id                       uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   employee_id              uuid NOT NULL REFERENCES employee(id),
-  qualification_level      qualification_level_enum NOT NULL,
+  qualification_level_id   uuid NOT NULL REFERENCES qualification_level(id),
   degree_title             varchar NOT NULL,
   institution_name         varchar NOT NULL,
   board_or_university      varchar,
@@ -722,7 +750,7 @@ CREATE TABLE hr_action_request (
   end_date               date,
   event_type_id          uuid REFERENCES service_event_type(id),
   external_reference_org varchar,
-  employment_method      employment_method_enum,
+  employment_method_id   uuid REFERENCES employment_method(id),
   recruitment_method_id  uuid REFERENCES recruitment_method(id),
   stage_number           int,
   basic_pay              numeric(14,2),
@@ -1061,7 +1089,7 @@ CREATE TABLE salary_component_rule (
   max_bps                   int CHECK (max_bps IS NULL OR max_bps BETWEEN 1 AND 22),
   applicable_designation_id uuid REFERENCES designation(id),
   applicable_org_unit_id    uuid REFERENCES organization_unit(id),
-  applicable_employment_type employment_type_enum,
+  applicable_employment_type_id uuid REFERENCES employment_type(id),
   min_amount                numeric(14,2),
   max_amount                numeric(14,2),
   priority                  int NOT NULL DEFAULT 100,    -- lower number wins when several rules match
@@ -1403,7 +1431,7 @@ COMMENT ON TABLE payroll_component_detail IS
 CREATE TABLE payroll_adjustment (
   id                     uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   payroll_transaction_id uuid NOT NULL REFERENCES payroll_transaction(id),
-  adjustment_type        adjustment_type_enum NOT NULL,
+  adjustment_type_id     uuid NOT NULL REFERENCES adjustment_type(id),
   amount                 numeric(14,2) NOT NULL CHECK (amount <> 0),   -- signed: + increases net, - decreases
   reason                 text,
   created_by             uuid,
@@ -1818,7 +1846,7 @@ GRANT INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA hrms TO hrms_hr, hrms_payro
 GRANT SELECT ON ALL TABLES IN SCHEMA hrms TO hrms_readonly;
 REVOKE SELECT ON employee_bank_account, payroll_payment FROM hrms_readonly;
 REVOKE SELECT ON employee FROM hrms_readonly;
-GRANT SELECT (id, employee_number, employment_type, employment_method, first_name, middle_name,
+GRANT SELECT (id, employee_number, employment_type_id, employment_basis, employment_method_id, first_name, middle_name,
               last_name, full_name, date_of_birth, gender, marital_status, profile_status,
               employment_status, created_at)
   ON employee TO hrms_readonly;
