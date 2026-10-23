@@ -70,6 +70,10 @@ public sealed record PreviewAssessmentQuery(Guid Id, int FiscalYear) : IQuery<Re
 public sealed record GetFileDemandsQueryResult(IReadOnlyList<DemandSummaryDto> Demands, decimal Dues);
 public sealed record GetFileDemandsQuery(Guid Id) : IQuery<Result<GetFileDemandsQueryResult>>;
 
+/// The file's History: every line of the audit trail about the file and what hangs under it (Property facts, payers,
+/// overrides, holds, agreements, arrears, demands, notices, surcharges, payments, fees, clearances), newest first.
+public sealed record GetTaxFileHistoryQuery(Guid Id, AuditFilter Filter) : IQuery<Result<AuditResponse>>;
+
 public sealed record GetReferenceSyncsQueryResult(PaginatedResult<ReferenceSyncDto> Syncs);
 public sealed record GetReferenceSyncsQuery(PaginationRequest Pagination, Guid? TaxFileId, PsidSyncStatus? Status, PsidSyncReason? Reason = null, string? Search = null,
   DateOnly? From = null, DateOnly? To = null) : IQuery<Result<GetReferenceSyncsQueryResult>>;
@@ -158,8 +162,10 @@ public class TaxFileHandlers(
   Assessor assessor,
   Messenger messenger,
   ICurrentUser currentUser,
+  IAuditTrail audit,
   IClock clock) :
   IQueryHandler<GetTaxFilesQuery, Result<GetTaxFilesQueryResult>>,
+  IQueryHandler<GetTaxFileHistoryQuery, Result<AuditResponse>>,
   IQueryHandler<GetTaxFileQuery, Result<GetTaxFileQueryResult>>,
   ICommandHandler<OpenTaxFileCommand, Result<CreatedResult>>,
   ICommandHandler<SyncTaxFileCommand, Result<SyncTaxFileResult>>,
@@ -189,7 +195,7 @@ public class TaxFileHandlers(
 
   public async Task<Result<GetTaxFilesQueryResult>> Handle(GetTaxFilesQuery query, CancellationToken cancellationToken)
   {
-    var rows = context.TaxFiles.AsNoTracking();
+    var rows = context.ScopedFiles().AsNoTracking();
     if (!string.IsNullOrWhiteSpace(query.Search))
     {
       var s = query.Search.Trim().ToUpperInvariant();
@@ -247,6 +253,16 @@ public class TaxFileHandlers(
   public async Task<Result<GetTaxFileQueryResult>> Handle(GetTaxFileQuery query, CancellationToken cancellationToken) =>
       Result<GetTaxFileQueryResult>.Success(new(await DtoAsync(await context.LoadTaxFileAsync(query.Id, cancellationToken), cancellationToken)));
 
+  public async Task<Result<AuditResponse>> Handle(GetTaxFileHistoryQuery query, CancellationToken cancellationToken)
+  {
+    var fileId = TaxFileId.Of(query.Id);
+    if (!await context.ScopedFiles().AnyAsync(f => f.Id == fileId, cancellationToken))
+      throw new TaxFileNotFoundException($"Tax file {query.Id} was not found.");
+    var id = query.Id;
+    var trail = context.AuditTrail.Where(x => x.ParentId == id || x.RecordId == id);
+    return Result<AuditResponse>.Success(new(await AuditQueries.ListAsync(trail, query.Filter with { ParentId = null, RecordId = null }, cancellationToken)));
+  }
+
   private async Task<TaxFileDto> DtoAsync(TaxFile file, CancellationToken cancellationToken)
   {
     var circle = await setup.CircleAsync(file.CircleId, cancellationToken);
@@ -290,7 +306,10 @@ public class TaxFileHandlers(
   public async Task<Result<UpdatedResult>> Handle(ChangeTaxCategoryCommand command, CancellationToken cancellationToken)
   {
     var file = await context.LoadTaxFileAsync(command.Id, cancellationToken);
+    var before = file.TaxCategory;
     file.ChangeCategory(command.TaxCategory, command.Reason);
+    if (file.TaxCategory != before)
+      audit.Record("Recategorised", file, Reason(command.Reason), "Category", AuditValues.Text(before), AuditValues.Text(file.TaxCategory));
     await context.SaveChangesAsync(cancellationToken);
     return CommandResults.Updated();
   }
@@ -300,7 +319,11 @@ public class TaxFileHandlers(
     var file = await context.LoadTaxFileAsync(command.Id, cancellationToken);
     if (command.Status == TaxStatus.Closed && await ledger.DuesAsync(file, cancellationToken) > 0)
       return Result<UpdatedResult>.Failure($"{file.FileNo} still owes {Rupees.Text(await ledger.DuesAsync(file, cancellationToken))}; a file is closed only when nothing is due.");
+    var before = file.TaxStatus;
     file.ChangeStatus(command.Status, command.Reason, clock.Today);
+    if (file.TaxStatus != before)
+      audit.Record(file.TaxStatus switch { TaxStatus.Closed => "Closed", TaxStatus.Exempt => "Exempted", _ => "Reopened" }, file, Reason(command.Reason), "Status",
+        AuditValues.Text(before), AuditValues.Text(file.TaxStatus));
     await context.SaveChangesAsync(cancellationToken);
     return CommandResults.Updated();
   }
@@ -348,6 +371,7 @@ public class TaxFileHandlers(
   {
     var file = await context.LoadTaxFileAsync(command.Id, cancellationToken);
     var voided = file.VoidOverride(TaxFileOverrideId.Of(command.OverrideId), clock.Today);
+    audit.Record("Taken back", voided, $"Set by mistake, before it was in force (from {voided.EffectiveFrom:dd MMM yyyy})");
     context.Overrides.Remove(voided);
     await context.SaveChangesAsync(cancellationToken);
     return CommandResults.Updated();
@@ -357,6 +381,7 @@ public class TaxFileHandlers(
   {
     var file = await context.LoadTaxFileAsync(command.Id, cancellationToken);
     var voided = file.VoidHold(LitigationHoldId.Of(command.HoldId), clock.Today);
+    audit.Record("Taken back", voided, $"Put by mistake, before it began (from {voided.StartedOn:dd MMM yyyy})");
     context.Holds.Remove(voided);
     await context.SaveChangesAsync(cancellationToken);
     return CommandResults.Updated();
@@ -425,7 +450,7 @@ public class TaxFileHandlers(
   public async Task<Result<GetOpeningArrearsQueryResult>> Handle(GetOpeningArrearsQuery query, CancellationToken cancellationToken)
   {
     var fileId = TaxFileId.Of(query.Id);
-    if (!await context.TaxFiles.AnyAsync(f => f.Id == fileId, cancellationToken))
+    if (!await context.ScopedFiles().AnyAsync(f => f.Id == fileId, cancellationToken))
       throw new TaxFileNotFoundException($"Tax file {query.Id} was not found.");
     var rows = await context.ArrearsRows.AsNoTracking().Where(a => a.TaxFileId == fileId && a.Source == ArrearsSource.Import)
       .OrderBy(a => a.FiscalYear ?? 0).ThenBy(a => a.EnteredAt).ToListAsync(cancellationToken);
@@ -445,6 +470,7 @@ public class TaxFileHandlers(
     var before = row.OriginalAmount;
     row.CorrectOpening(head, command.Row.FiscalYear, command.Row.Amount, command.Row.Description, command.Reason, Guard.Actor(currentUser.UserId, "correct opening arrears"),
       clock.UtcNow);
+    audit.Record("Corrected", row, command.Reason.Trim(), "Amount", Rupees.Number(before), Rupees.Number(row.OriginalAmount));
     await messenger.SyncAsync(file, PsidSyncReason.Correction, null, null, null,
       $"opening arrears corrected {Rupees.Text(before)} → {Rupees.Text(row.OriginalAmount)}: {command.Reason.Trim()}", cancellationToken);
     await context.SaveChangesAsync(cancellationToken);
@@ -459,6 +485,7 @@ public class TaxFileHandlers(
       return Result<UpdatedResult>.Failure("This due is billed on a demand now; correct it with a notice instead.");
     if (row.Settled > 0)
       return Result<UpdatedResult>.Failure($"{Rupees.Text(row.Settled)} was already paid on it; correct its amount instead of removing it.");
+    audit.Record("Taken back", row, $"Entered by mistake: {command.Reason.Trim()}");
     context.ArrearsRows.Remove(row);
     await messenger.SyncAsync(file, PsidSyncReason.Correction, null, null, null, $"opening arrears of {Rupees.Text(row.OriginalAmount)} removed: {command.Reason.Trim()}",
       cancellationToken);
@@ -481,7 +508,7 @@ public class TaxFileHandlers(
   public async Task<Result<GetOverridesQueryResult>> Handle(GetOverridesQuery query, CancellationToken cancellationToken)
   {
     var today = clock.Today;
-    var rows = context.Overrides.AsNoTracking();
+    var rows = context.Overrides.AsNoTracking().InScope(context);
     if (query.HeadId is { } h)
     {
       var headId = TaxHeadId.Of(h);
@@ -547,7 +574,7 @@ public class TaxFileHandlers(
 
   public async Task<Result<GetReferenceSyncsQueryResult>> Handle(GetReferenceSyncsQuery query, CancellationToken cancellationToken)
   {
-    var rows = context.PsidSyncs.AsNoTracking();
+    var rows = context.PsidSyncs.AsNoTracking().InScope(context);
     if (query.TaxFileId is { } f)
     {
       var fileId = TaxFileId.Of(f);
@@ -582,4 +609,6 @@ public class TaxFileHandlers(
     return Result<GetReferenceSyncsQueryResult>.Success(new(new PaginatedResult<ReferenceSyncDto>(query.Pagination.Pageindex, query.Pagination.PageSize, total,
       page.Select(s => s.ToDto(fileNos.GetValueOrDefault(s.TaxFileId))).ToList())));
   }
+
+  private static string? Reason(string? reason) => string.IsNullOrWhiteSpace(reason) ? null : reason.Trim();
 }

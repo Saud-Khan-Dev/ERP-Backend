@@ -10,7 +10,7 @@ using Microsoft.EntityFrameworkCore;
 ///   appeal       — opened: appeal date; next: decision due date (appeal date + 120 days, Act s.32)
 ///   violation    — opened: violation date; next: the deadline given in the notice
 /// A violation's code is its notice no.; without one, "{agreement code} · violation #{occurrence no.}".
-public class GetLegalMattersHandler(IApplicationDbContext context, MasterLookup masters, PropertyReadService read)
+public class GetLegalMattersHandler(IApplicationDbContext context, MasterLookup masters, PropertyReadService read, ICurrentUser currentUser)
   : IQueryHandler<GetLegalMattersQuery, Result<GetLegalMattersQueryResult>>
 {
   private sealed record Row(
@@ -29,6 +29,14 @@ public class GetLegalMattersHandler(IApplicationDbContext context, MasterLookup 
   public async Task<Result<GetLegalMattersQueryResult>> Handle(GetLegalMattersQuery query, CancellationToken cancellationToken)
   {
     var kinds = query.Kinds is { Count: > 0 } ? query.Kinds.ToHashSet() : Enum.GetValues<LegalMatterKind>().ToHashSet();
+    // encroachments, cases and appeals are legal matters (PROPERTY_LEGAL.VIEW); a violation of an agreement is estate work
+    // (PROPERTY.VIEW). Without the legal right the list holds violations only; asking for a legal kind is refused.
+    if (!currentUser.HasPermission(PermissionCatalog.PropertyLegal.View))
+    {
+      if (query.Kinds is { Count: > 0 } && query.Kinds.Any(k => k != LegalMatterKind.Violation))
+        throw new PermissionRequiredException("Encroachments, court cases and appeals need Legal: view (PROPERTY_LEGAL.VIEW).");
+      kinds = [LegalMatterKind.Violation];
+    }
     var scope = RegisterScope.Create(context, query.PropertyId, query.TownId, query.Search);
     var party = query.PartyId is { } partyId ? OwnerId.Of(partyId) : null;
     var court = string.IsNullOrWhiteSpace(query.Court) ? null : query.Court.Trim().ToLowerInvariant();

@@ -15,7 +15,7 @@ public class AddDepreciationEntry : ICarterModule
       var response = result.Value.Adapt<AddDepreciationEntryResponse>();
       return Results.Created($"/depreciation-schedules/{scheduleId}/entries/{response!.Id}", response);
     })
-      .RequirePermission(PermissionCatalog.AssetFinance.Create)
+      .RequireFinance(PermissionCatalog.AssetFinance.Create)
 
       .WithName("AddDepreciationEntry")
       .Produces<AddDepreciationEntryResponse>(StatusCodes.Status201Created)

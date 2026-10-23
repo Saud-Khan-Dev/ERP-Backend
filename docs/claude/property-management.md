@@ -114,7 +114,7 @@ Ids are Guids wrapped in strongly typed ids. Users live in the Identity service,
 
 GDA Act rules:
 - s.28-A: a fine is at most Rs 1,000,000. Fine status (`POST /violations/{id}/fine-status`): PAID needs receipt no. +
-  paid-on date (not future, not before imposed); WAIVED needs a reason and APPROVE; RECOVERY_AS_ARREARS needs APPROVE;
+  paid-on date (not future, not before imposed); WAIVED needs a reason and PROPERTY.WAIVE; RECOVERY_AS_ARREARS needs PROPERTY.WAIVE; PAID needs EDIT;
   PAID and WAIVED are final. Who / when is stored (`fine_status_changed_by/_on`).
 - s.28-A fines and s.30 criminal complaints need an **authorized officer**, the Identity flag
   `is_authorized_officer`. It arrives as JWT claim `ao` and is read through `ICurrentUser.IsAuthorizedOfficer`.
@@ -134,14 +134,19 @@ property's records at the same moment…"). `property`, `property_transfer` and 
 - **Approving a transfer IS the mutation.** `POST /transfers/{id}/approve` re-checks every rule and, in the same save,
   closes the givers' rows and opens the receivers' rows (status COMPLETED, `completedOn` = today, `completedBy` = the
   signed-in user, optional `approvalOrderRef`). The approver is the **signed-in officer** (`approved_by_user_id`,
-  `approved_by_employee_id` when linked) - the request carries no "approved by". Maker-checker:
-  `Transfers:RequireSeparateApprover` (appsettings, default true; Development false; `GET /property-settings`) refuses the
-  person who started a transfer ("…one person cannot both start and approve a transfer"). `/transfers/completed` never
-  applies it (one officer records a past transfer). `noDuesCertificateNo` (Taxation clearance, checked and consumed by
+  `approved_by_employee_id` when linked) - the request carries no "approved by". Maker-checker is the
+  **PROPERTY_TRANSFER separation-of-duties rule** (BuildingBlock `DutyRules`, on unless a Super Admin switched it off in
+  Administration; `GET /property-settings` `requireSeparateApprover` shows its state read-only): the person who started or
+  recorded a transfer is refused ("You cannot approve TRF-…, which you started: transfers pass through two people …"),
+  checked in the handler before anything changes. `/transfers/completed` while the rule is on saves the past transfer
+  INITIATED (`awaitingApproval`, `recordedPast` on the transfer) with the approval date / order / no-dues certificate read
+  off the paper kept on it (`PropertyTransfer.RecordForApproval`); a second officer approves it (approve defaults to those
+  values). With the rule off it is one step as before. `noDuesCertificateNo` (Taxation clearance, checked and consumed by
   the UI through Taxation's API - a missing one is only a warning) is stored. A transfer dated more than 90 days ahead
   is refused unless `confirmFarFuture`. The only waiting state is INITIATED. `/complete` only registers rows still
-  in the legacy APPROVED state. `/transfers/completed` = initiate + approve in one step. `/reject {reason}` (APPROVE
-  permission) and `/cancel {reason}` (EDIT; a legacy APPROVED one also needs APPROVE, else 403) record `closedOn`,
+  in the legacy APPROVED state. `/transfers/completed` = initiate + approve in one step (rule off) or initiate for a second officer (rule on).
+  `/reject {reason}` (APPROVE permission) and `/cancel {reason}` (PROPERTY_LEGAL.EDIT; a legacy APPROVED one also needs
+  APPROVE, else 403) record `closedOn`,
   `closedBy`, `closingReason`. A completed transfer is reversed by a new transfer.
 - **Transfer rules** (at initiate and again at approve): both sides balance; the transfer must move a share ("This
   transfer moves no share."); every party is an active owner; givers hold an ACTIVE share — a disputed giver is refused;
@@ -237,12 +242,36 @@ returns what a registration of such a property shows. Once a field holds values 
 are locked; `DELETE /attribute-definitions/{id}` only when no property holds a value. `GET /properties/{id}/attributes`
 returns applicable fields, then `isHidden` read-only values of switched-off / not-applying fields.
 
-Change log: `PropertyChangeLogInterceptor` writes `property_change` rows (who, when, entity, field, old -> new) for every
-change to a property's or an owner's records; read at `GET /properties/{id}/changes` and `/owners/{id}/changes`.
+Audit trail (since 2026-10-22): the shared `AuditTrailInterceptor` writes `audit_entry` (append-only, triggers) for every
+record added, changed (one line per field, old -> new, names not ids; renames of the complex `PropertyName` / `OwnerName`
+included) or removed, with who (display name), when, address, device and request id. `Application/Services/PropertyAudit.cs`
+is the profile: kinds in words, codes, and the parent - every record on a property hangs off the PROPERTY (case parties,
+hearings, bids and transfer parties through their back-navigations `Litigation` / `Auction` / `Transfer`), an owner's
+contacts, addresses and own papers off the OWNER; boundary points are skipped (the survey line keeps the facts; capturing
+an encroached polygon writes one "Encroached area boundary" line). Decisions add a verb line (`PropertyAuditActions`:
+Approved, Rejected, Cancelled, Recorded for approval, Allotted, Restored, Confirmed, Terminated, Ended, Released, Enforced,
+Decided, Resolved, Awarded, Imposed, Waived, Sent for recovery, Activated, Deactivated) with the reason / order; opening a
+paper writes "Downloaded". Handlers get the same DbContext instance the trail writes to (`IApplicationDbContext` resolves
+`ApplicationDbContext`). `GET /properties/{id}/history` and `/owners/{id}/history` (PROPERTY.VIEW; `before`, `from`, `to`,
+`action`, `search`, `pageSize`) answer `{ audit: { data, count }, restrictedCount }`; without PROPERTY_LEGAL.VIEW legal
+kinds and hidden papers are left out. `GET /audit`, `/audit/kinds` (IAM_AUDIT.VIEW), `POST /audit/exports` (PROPERTY.EXPORT,
+the screens' CSV notes) and `GET /system/status` (IAM_SYSTEM.VIEW) come from the building block. The old `property_change`
+table is read-only (its 4,800 lines were copied into `audit_entry` by migration `AuditTrail`).
 
-Bell: `GET /attention` (any signed-in user; counts follow the caller's rights): transfers.pending,
-transfers.unregistered, appeals.overdue, plans.waiting, allotments.unconfirmed (APPROVE); agreements.ending (60 days),
-agreements.overdue, hearings.week, legal.next-passed, encroachments.open, fines.unpaid (EDIT). The frontend maps them in
+Town scope (`ICurrentUser.TownScope`, set in Administration): named EF query filters (`ApplicationDbContext.TownScopeFilter`)
+narrow `Property` and every record on a property (and their parts) to the person's towns, so lists, counts, reports, the
+bell and reads (404) follow it; writes on such records 404. Registering or moving a property to a town outside the scope is
+403. Owners are not filtered by the model (a party's name on a record in scope always shows): the owner screens use
+`OwnerScope` - visible when they hold or held a share in scope, are party to an allotment / lease / rental / contract there,
+or hold no share anywhere (`OwnershipLink`, a view over `property_ownership` no filter narrows). `GET /owners?cnic=` / `?ntn=`
+(exact lookups) search every town so a person holding land elsewhere is used, not registered twice. Checks that must see
+every town call `IgnoreQueryFilters()` (codes in use, case numbers, an owner's commitments, custom-field values).
+`GET /directory/towns` (signed in): every active town `{ towns: [{ id, code, name }] }` for Administration's scope picker.
+
+Bell: `GET /attention` (any signed-in user; counts follow the caller's rights and towns): transfers.pending,
+transfers.unregistered, plans.waiting, allotments.unconfirmed (APPROVE); appeals.overdue (LEGAL.APPROVE); agreements.ending
+(60 days), agreements.overdue (EDIT); hearings.week, legal.next-passed, encroachments.open (LEGAL.EDIT); fines.unpaid (EDIT
+or WAIVE). The frontend maps them in
 `features/property/property.attention.ts`.
 
 ## API map (permissions from `PermissionCatalog`)
@@ -250,10 +279,15 @@ agreements.overdue, hearings.week, legal.next-passed, encroachments.open, fines.
 | Area | Routes | Permission |
 | --- | --- | --- |
 | Masters, code sequences, custom-field definitions | `/masters/*`, `/code-sequences`, `/attribute-definitions` | `PROPERTY_SETUP.*`; reads of masters and definitions also accept `PROPERTY.VIEW`; deletes need `PROPERTY_SETUP.DELETE` |
-| Settings, bell, change log | `GET /property-settings`, `GET /attention` (signed in), `GET /properties/{id}/changes`, `GET /owners/{id}/changes` | `PROPERTY.VIEW` (settings also `PROPERTY_SETUP.VIEW`) |
+| Settings, bell, history | `GET /property-settings`, `GET /attention` (signed in), `GET /properties/{id}/history`, `GET /owners/{id}/history`, `GET /directory/towns` (signed in) | `PROPERTY.VIEW` (settings also `PROPERTY_SETUP.VIEW`) |
+| Audit trail, system | `GET /audit`, `/audit/kinds`; `POST /audit/exports`; `GET /system/status` | `IAM_AUDIT.VIEW`; `PROPERTY.EXPORT`; `IAM_SYSTEM.VIEW` |
+| Legal matters | encroachments, court cases (parties, hearings), appeals: reads, `/litigations/upcoming-hearings`, `/appeals/overdue`; confidential papers and papers on those records; `/legal-matters` kinds encroachment / case / appeal (violations only without it) | `PROPERTY_LEGAL.VIEW` |
+| Legal work | record / edit / notice / status / boundary of encroachments; file / edit / party / hearing / status of cases; file / edit / start hearing / withdraw appeals; violation notice; ownership dispute mark / resolve; auction bids; transfer cancel; papers filed on legal records | `PROPERTY_LEGAL.EDIT` |
+| Legal decisions | resolve an encroachment, decide a case or appeal, award an auction | `PROPERTY_LEGAL.APPROVE` |
+| Fines | fine-status WAIVED / RECOVERY_AS_ARREARS (PAID needs EDIT; the route accepts either) | `PROPERTY.WAIVE` |
 | Register | `GET /properties` (filters incl. transferPending, allotted, agreementInForce, hasHolder, charged, disputed, measured, hasBoundary; sort incl. holder; paging 1-200), `GET /properties/next-code`, `POST /properties` (can also save owners, boundary and custom fields in one transaction), `/properties/{id}/status`, `/measurements`, `/regularizations`, `/area`, `/attributes` | `PROPERTY.VIEW/CREATE/EDIT` |
 | Owners | `/owners` (search: code, CNIC or its first 5+ digits, NTN, name; `cnic` / `ntn` exact lookup; `hasHoldings`; `role` holder / allottee / lessee / tenant / contractor / bidder / encroacher / litigant / appellant / violator; `sortBy` code / name / type / holdings), contacts, addresses, documents | `PROPERTY.*` |
-| Ownership | `/properties/{id}/ownerships`, `/transfers` (initiate), `/transfers/completed` (one step), `/transfers/{id}/approve|reject|complete|cancel`, `/encumbrances/*` | approve, reject, complete and the one-step record need `PROPERTY.APPROVE`; cancelling a legacy APPROVED transfer too |
+| Ownership | `/properties/{id}/ownerships`, `/transfers` (initiate), `/transfers/completed` (past transfer), `/transfers/{id}/approve|reject|complete|cancel`, `/encumbrances/*` | approve, reject, complete and the past-transfer record need `PROPERTY.APPROVE`; cancel needs `PROPERTY_LEGAL.EDIT` (+ APPROVE for a legacy APPROVED one); disputes `PROPERTY_LEGAL.EDIT` |
 | Management | `/properties/{id}/allotments|leases|rentals|violations|auctions|outsourcing-contracts` + action routes (`/leases/{id}/renew`, `/violations/{id}/fine` …) | official orders need `PROPERTY.APPROVE` |
 | Compliance | `/properties/{id}/boundaries|encroachments|litigations|appeals|building-plans` + action routes | official orders need `PROPERTY.APPROVE` |
 | Documents | `/properties/{id}/documents` (PROPERTY kinds), `/owners/{id}/documents` (OWNER kinds, no `propertyId`), `/documents/{id}` (details, re-type within scope), `/documents/{id}/versions|content|activate|deactivate` | `PROPERTY.*` |
@@ -305,6 +339,8 @@ Migrations:
    reason, contract money direction and renewal link, case result and counsel, fine payment columns, violation on an
    allotment (check widened), xmin row versions (property, transfer, allotment - system column, nothing to create).
 6. `PropertyScopesAndChangeLog` (2026-10-20): custom-field scope arrays, `property_change`.
+7. `AuditTrail` (2026-10-22): `audit_entry` with append-only triggers, the old change log copied into it. (The snapshot's
+   `OwnershipLink` view line is `b.ToTable((string)null)`: EF writes `ToTable(null, "property")`, which throws.)
 
 Create migrations from `src/` with
 `dotnet ef migrations add <Name> -p Services/PropertyManagement/PropertyManagement.Infrastructure -s Services/PropertyManagement/PropertyManagement.Api`.
@@ -315,8 +351,7 @@ Config (`appsettings.json`):
 - `Jwt:Issuer/Audience/SigningKey`: the key must equal Identity's
 - `FileStorage:RootPath`: documents folder; compose mounts the `property-files` volume
 - `Documents:MaxFileSizeBytes` (25 MB) and `Documents:AllowedExtensions`
-- `Transfers:RequireSeparateApprover` (true; `appsettings.Development.json` false; in compose set
-  `Transfers__RequireSeparateApprover`)
+- (`Transfers:RequireSeparateApprover` is gone: the PROPERTY_TRANSFER duty rule in Administration replaced it.)
 
 ## Testing
 
@@ -333,7 +368,7 @@ Config (`appsettings.json`):
   seeder adds each by code where missing, also to existing databases, and leaves existing rows alone.
 - Transfers move shares: the transferor side and the transferee side must balance. A gift needs `relationship`.
   Approving a transfer registers it (there is no separate "complete" step for new transfers). `/transfers/completed`
-  records a past transfer as COMPLETED in one step, using the same rules.
+  records a past transfer with the same rules: COMPLETED in one step only while the PROPERTY_TRANSFER rule is off, else it waits for a second officer.
 - An appeal against a fine marks the violation APPEALED. A decided appeal is final; its decision (or a withdrawal)
   moves the violation out of APPEALED (see "Land and legal lifecycle rules").
 - `DomainException` wraps its message (`Domain Exception "…" throws from Domain layer`); domain tests assert with

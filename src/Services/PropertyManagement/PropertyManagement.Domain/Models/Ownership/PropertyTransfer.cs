@@ -109,7 +109,8 @@ public class PropertyTransfer : Aggregate<TransferId>
   }
 
   /// Enters a transfer that already happened (e.g. from the paper register) as COMPLETED in one step, under the
-  /// same rules as initiate + approve. It cannot be dated in the future.
+  /// same rules as initiate + approve. It cannot be dated in the future. Used when the PROPERTY_TRANSFER separation rule
+  /// is off; while it is on, RecordForApproval keeps the entry waiting for a second officer.
   public static (PropertyTransfer Transfer, OwnershipChange Change) RecordCompleted(
       TransferId id,
       BusinessCode transferNo,
@@ -129,21 +130,63 @@ public class PropertyTransfer : Aggregate<TransferId>
       TenureType newTenureType)
   {
     ArgumentNullException.ThrowIfNull(record);
-
-    if (transferDate > record.Today)
-      throw new DomainException(
-        $"A transfer that already happened cannot be dated in the future ({transferDate:yyyy-MM-dd}); today is {record.Today:yyyy-MM-dd}. Initiate it instead.");
+    EnsurePast(transferDate, record.Today);
 
     var transfer = Initiate(id, transferNo, transferType, transferDate, transferReferenceNo, considerationAmount, relationship, remarks, parties, record);
-    // one approver enters it in one step, so there is no second person to check it
-    var change = transfer.Approve(approver, approvalDate ?? transferDate, approvalOrderRef, noDuesCertificateNo, completedBy, record, newTenureType,
-      requireSeparateApprover: false);
+    var change = transfer.Approve(approver, approvalDate ?? transferDate, approvalOrderRef, noDuesCertificateNo, completedBy, record, newTenureType);
     return (transfer, change);
+  }
+
+  /// A transfer that already happened, entered while two people must pass every transfer (the PROPERTY_TRANSFER rule):
+  /// it is saved waiting for approval and nothing changes hands. The approval the clerk read off the paper - its date
+  /// (default the transfer date), order and no-dues certificate - is kept on it, so the second officer checks the entry
+  /// against the paper and approves it as it stands (IsRecordedPast).
+  public static PropertyTransfer RecordForApproval(
+      TransferId id,
+      BusinessCode transferNo,
+      TransferType transferType,
+      DateOnly transferDate,
+      string? transferReferenceNo,
+      decimal? considerationAmount,
+      string? relationship,
+      string? remarks,
+      IReadOnlyCollection<PartyInput> parties,
+      DateOnly? approvalDate,
+      string? approvalOrderRef,
+      string? noDuesCertificateNo,
+      OwnershipRecord record)
+  {
+    ArgumentNullException.ThrowIfNull(record);
+    EnsurePast(transferDate, record.Today);
+
+    var date = approvalDate ?? transferDate;
+    if (date > record.Today)
+      throw new DomainException($"The approval date cannot be in the future ({date:yyyy-MM-dd}); today is {record.Today:yyyy-MM-dd}.");
+    if (date < transferDate)
+      throw new DomainException($"A transfer cannot be approved before its transfer date ({transferDate:yyyy-MM-dd}).");
+
+    var transfer = Initiate(id, transferNo, transferType, transferDate, transferReferenceNo, considerationAmount, relationship, remarks, parties, record);
+    transfer.ApprovalDate = date;
+    transfer.ApprovalOrderRef = Guard.Text(approvalOrderRef, 100, "Approval order ref");
+    transfer.NoDuesCertificateNo = Guard.Text(noDuesCertificateNo, NoDuesCertificateMaxLength, "No-dues certificate no.");
+    return transfer;
+  }
+
+  /// Entered after the fact and waiting for a second officer (RecordForApproval): the approval date, order and
+  /// certificate on it are the ones read off the paper, not yet anyone's approval here.
+  public bool IsRecordedPast => TransferStatus == TransferStatus.Initiated && ApprovalDate is not null;
+
+  private static void EnsurePast(DateOnly transferDate, DateOnly today)
+  {
+    if (transferDate > today)
+      throw new DomainException(
+        $"A transfer that already happened cannot be dated in the future ({transferDate:yyyy-MM-dd}); today is {today:yyyy-MM-dd}. Initiate it instead.");
   }
 
   /// Approves AND completes the transfer in one step: the rules are checked again against the record as it
   /// stands now, then the givers' rows are closed and the resulting rows opened. The approver is the signed-in
-  /// officer; with requireSeparateApprover (maker-checker) the person who started the transfer cannot approve it.
+  /// officer. Whether the person who started it may approve it is the PROPERTY_TRANSFER separation-of-duties rule,
+  /// which the handler checks before calling this (Administration switches it, so it is not a fixed domain rule).
   public OwnershipChange Approve(
       Approver approver,
       DateOnly approvalDate,
@@ -151,8 +194,7 @@ public class PropertyTransfer : Aggregate<TransferId>
       string? noDuesCertificateNo,
       string completedBy,
       OwnershipRecord record,
-      TenureType newTenureType,
-      bool requireSeparateApprover = true)
+      TenureType newTenureType)
   {
     ArgumentNullException.ThrowIfNull(approver);
     ArgumentNullException.ThrowIfNull(record);
@@ -166,10 +208,6 @@ public class PropertyTransfer : Aggregate<TransferId>
       default:
         throw new DomainException($"{TransferNo.Value} is {Describe(TransferStatus)} and can no longer be approved.");
     }
-
-    if (requireSeparateApprover && approver.UserId is { } approverId && CreatedBy == approverId)
-      throw new DomainException(
-        $"You started {TransferNo.Value}, so another officer with the approval right must approve it: one person cannot both start and approve a transfer.");
 
     EnsureDue(record.Today);
 
@@ -470,6 +508,8 @@ public class PropertyTransfer : Aggregate<TransferId>
 public class PropertyTransferParty : Entity<TransferPartyId>
 {
   public TransferId PropertyTransferId { get; private set; } = default!;
+  /// The transfer it belongs to (set by EF when both are loaded; the audit trail reads its property through it).
+  public PropertyTransfer? Transfer { get; private set; }
   public OwnerId OwnerId { get; private set; } = default!;
   public TransferPartyRole PartyRole { get; private set; }
   /// Share given (transferor) or received (transferee).

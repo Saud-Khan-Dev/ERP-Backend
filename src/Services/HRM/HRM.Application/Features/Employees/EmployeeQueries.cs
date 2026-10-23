@@ -41,7 +41,8 @@ public sealed record GetEmployeesQuery(
 
 public sealed record GetEmployeeQueryResult(EmployeeDto Employee);
 
-public sealed record GetEmployeeQuery(Guid Id) : IQuery<Result<GetEmployeeQueryResult>>;
+/// Own: the caller's own record (self-service), always shown in full.
+public sealed record GetEmployeeQuery(Guid Id, bool Own = false) : IQuery<Result<GetEmployeeQueryResult>>;
 
 public sealed record GetNextEmployeeNumberQueryResult(string EmployeeNumber);
 
@@ -66,6 +67,8 @@ public class EmployeeQueryHandlers(
   CodeIssuer codes,
   FileUploads files,
   HrmSettings settings,
+  Sensitive sensitive,
+  EmployeeScope scope,
   IClock clock) :
   IQueryHandler<GetEmployeesQuery, Result<GetEmployeesQueryResult>>,
   IQueryHandler<GetEmployeeQuery, Result<GetEmployeeQueryResult>>,
@@ -93,7 +96,8 @@ public class EmployeeQueryHandlers(
       var term = query.Search.Trim();
       var pattern = SearchPattern.Contains(term);
       var digits = new string(term.Where(char.IsAsciiDigit).ToArray());
-      string? cnic = digits.Length == 13 ? Cnic.Normalize(digits) : null;
+      // finding people by CNIC is reading CNICs: only for those who may see them
+      string? cnic = digits.Length == 13 && sensitive.CanView ? Cnic.Normalize(digits) : null;
       employees = employees.Where(e =>
         EF.Functions.Like(e.EmployeeNumber.ToLower(), pattern, SearchPattern.Escape)
         || EF.Functions.Like(e.FullName!.ToLower(), pattern, SearchPattern.Escape)
@@ -183,10 +187,12 @@ public class EmployeeQueryHandlers(
       .GroupBy(c => c.EmployeeId.Value)
       .ToDictionary(g => g.Key, g => g.OrderBy(c => c.ContactType).First().Value);
 
+    var shows = sensitive.CanView;
+    var withheld = sensitive.Withheld(false, Sensitive.Cnic, Sensitive.DateOfBirth, Sensitive.Mobile);
     var data = page.Select(e => new EmployeeListItemDto(
-      e.Id.Value, e.EmployeeNumber, e.DisplayName, e.Cnic, e.Gender, e.DateOfBirth, e.EmploymentType, e.EmploymentMethod, e.EmploymentStatus,
-      e.ProfileStatus, e.UserId, placed.GetValueOrDefault(e.Id.Value)?.ToDto(), settings.SuperannuationDate(e),
-      mobiles.GetValueOrDefault(e.Id.Value), e.CreatedAt, e.TermTo, !e.HasLeftService)).ToList();
+      e.Id.Value, e.EmployeeNumber, e.DisplayName, shows ? e.Cnic : null, e.Gender, shows ? e.DateOfBirth : null, e.EmploymentType, e.EmploymentMethod,
+      e.EmploymentStatus, e.ProfileStatus, e.UserId, placed.GetValueOrDefault(e.Id.Value)?.ToDto(), settings.SuperannuationDate(e),
+      shows ? mobiles.GetValueOrDefault(e.Id.Value) : null, e.CreatedAt, e.TermTo, !e.HasLeftService, withheld)).ToList();
 
     return Result<GetEmployeesQueryResult>.Success(new(new PaginatedResult<EmployeeListItemDto>(query.Pagination.Pageindex, query.Pagination.PageSize, total, data)));
   }
@@ -213,23 +219,30 @@ public class EmployeeQueryHandlers(
       .Where(a => a.EmployeeId == employee.Id && a.Status == RecordStatus.Active)
       .OrderBy(a => a.EffectiveFrom).Select(a => (DateOnly?)a.EffectiveFrom).FirstOrDefaultAsync(cancellationToken);
 
+    var shows = sensitive.Shows(query.Own);
     var dto = new EmployeeDto(
       employee.Id.Value, employee.EmployeeNumber, employee.FirstName, employee.MiddleName, employee.LastName, employee.DisplayName,
-      employee.Cnic, employee.DateOfBirth, employee.Gender, employee.Nationality, employee.MaritalStatus, employee.BloodGroup,
+      shows ? employee.Cnic : null, shows ? employee.DateOfBirth : null, employee.Gender, employee.Nationality, employee.MaritalStatus, employee.BloodGroup,
       employee.EmploymentType, employee.EmploymentMethod, employee.ProjectId, employee.EmploymentStatus, employee.ProfileStatus,
       employee.UserId, employee.PhotoReference is not null, settings.SuperannuationDate(employee), firstEntry ?? firstPost,
-      placement?.ToDto(), currentPay,
-      employee.Contacts.OrderBy(c => c.ContactType).ThenByDescending(c => c.IsPrimary).Select(c => c.ToDto()).ToList(),
-      employee.Addresses.OrderBy(a => a.AddressType).Select(a => a.ToDto()).ToList(),
-      employee.EmergencyContacts.Select(c => c.ToDto()).ToList(),
-      employee.FamilyMembers.Select(m => m.ToDto()).ToList(),
-      employee.CreatedAt, employee.UpdatedAt, employee.TermFrom, employee.TermTo, employee.LendingDepartment, !employee.HasLeftService);
+      placement?.ToDto(), shows || currentPay is null ? currentPay : currentPay with { BasicPay = null },
+      shows ? employee.Contacts.OrderBy(c => c.ContactType).ThenByDescending(c => c.IsPrimary).Select(c => c.ToDto()).ToList() : [],
+      shows ? employee.Addresses.OrderBy(a => a.AddressType).Select(a => a.ToDto()).ToList() : [],
+      shows ? employee.EmergencyContacts.Select(c => c.ToDto()).ToList() : [],
+      shows ? employee.FamilyMembers.Select(m => m.ToDto()).ToList() : [],
+      employee.CreatedAt, employee.UpdatedAt, employee.TermFrom, employee.TermTo, employee.LendingDepartment, !employee.HasLeftService,
+      sensitive.Withheld(query.Own, Sensitive.Cnic, Sensitive.DateOfBirth, Sensitive.Contacts, Sensitive.Addresses, Sensitive.EmergencyContacts,
+        Sensitive.FamilyMembers, Sensitive.BasicPay));
 
     return Result<GetEmployeeQueryResult>.Success(new(dto));
   }
 
-  public async Task<Result<GetNextEmployeeNumberQueryResult>> Handle(GetNextEmployeeNumberQuery query, CancellationToken cancellationToken) =>
-      Result<GetNextEmployeeNumberQueryResult>.Success(new(await codes.NextEmployeeNumberAsync(cancellationToken)));
+  public async Task<Result<GetNextEmployeeNumberQueryResult>> Handle(GetNextEmployeeNumberQuery query, CancellationToken cancellationToken)
+  {
+    // numbers are unique across the organization, whatever offices the person works on
+    using (scope.Unrestricted())
+      return Result<GetNextEmployeeNumberQueryResult>.Success(new(await codes.NextEmployeeNumberAsync(cancellationToken)));
+  }
 
   public async Task<Result<StoredFile>> Handle(GetEmployeePhotoQuery query, CancellationToken cancellationToken)
   {

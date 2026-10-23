@@ -97,6 +97,9 @@ public interface IApplicationDbContext
   DbSet<GpFundBalance> GpFundBalances { get; }
   DbSet<EmployeeTaxYtd> EmployeeTaxYtd { get; }
 
+  /// The audit trail (hrms.audit_entry), read-only: written only by the trail itself.
+  IQueryable<AuditRecord> AuditEntries { get; }
+
   Task<int> SaveChangesAsync(CancellationToken cancellationToken);
 
   /// For the few use cases that must save in steps inside one transaction.

@@ -147,12 +147,16 @@ public sealed record SecuritySettingsDto(
   int MaxFailedLoginAttempts,
   int LockoutMinutes,
   int AccessTokenMinutes,
-  int RefreshTokenDays);
+  int RefreshTokenDays,
+  int DormantAfterDays = 90,
+  bool SwitchOffDormant = false,
+  int AccessReviewMonths = 6,
+  int SignInMaxDays = 30);
 
 public sealed record AdminActivityDto(
   Guid Id,
   DateTime OccurredAt,
-  Guid ActorUserId,
+  Guid? ActorUserId,
   string ActorName,
   string Action,
   string TargetType,
@@ -190,14 +194,15 @@ public static class IdentityMappings
 
   public static SecuritySettingsDto ToDto(this SecuritySettings x) => new(
     x.PasswordMinimumLength, x.PasswordRequireUppercase, x.PasswordRequireLowercase, x.PasswordRequireDigit, x.PasswordRequireNonAlphanumeric,
-    x.MaxFailedLoginAttempts, x.LockoutMinutes, x.AccessTokenMinutes, x.RefreshTokenDays);
+    x.MaxFailedLoginAttempts, x.LockoutMinutes, x.AccessTokenMinutes, x.RefreshTokenDays,
+    x.DormantAfterDays, x.SwitchOffDormant, x.AccessReviewMonths, x.SignInMaxDays);
 
   public static LoginAttemptDto ToDto(this LoginAttempt x) => new(
     x.Id.Value, x.UserId?.Value, x.AttemptedUsername, x.Succeeded, x.FailureReason,
     x.IpAddress?.Value, x.UserAgent, x.AttemptedAt);
 
   public static AdminActivityDto ToDto(this AdminActivity x) => new(
-    x.Id.Value, x.OccurredAt, x.ActorUserId.Value, x.ActorName, x.Action.ToString(), x.TargetType.ToString(),
+    x.Id.Value, x.OccurredAt, x.ActorUserId?.Value, x.ActorName, x.Action.ToString(), x.TargetType.ToString(),
     x.TargetId, x.TargetLabel, x.Detail, x.IpAddress?.Value, x.UserAgent);
 
   public static CurrentUserDto ToCurrentUserDto(this User x, PermissionResolver.ResolvedPermissions resolved, IReadOnlyDictionary<string, string>? roleNames = null)

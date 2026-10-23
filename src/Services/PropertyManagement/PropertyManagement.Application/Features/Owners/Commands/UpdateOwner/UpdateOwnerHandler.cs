@@ -3,7 +3,7 @@ public class UpdateOwnerHandler(IApplicationDbContext context, MasterLookup mast
 {
   public async Task<Result<UpdateOwnerCommandResult>> Handle(UpdateOwnerCommand command, CancellationToken cancellationToken)
   {
-    var owner = await context.LoadOwnerAsync(command.Id, cancellationToken);
+    var owner = await context.LoadVisibleOwnerAsync(command.Id, cancellationToken);
     var input = command.Owner;
     var cnic = Cnic.OfNullable(input.Cnic);
     var ntn = Ntn.OfNullable(input.Ntn);

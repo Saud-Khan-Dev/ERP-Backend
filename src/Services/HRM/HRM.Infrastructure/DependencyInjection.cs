@@ -12,9 +12,13 @@ public static class DependencyInjection
     services.AddScoped<ISaveChangesInterceptor, AuditableEntityInterceptors>();
     services.AddScoped<ISaveChangesInterceptor, DispatchDomainEventInterceptor>();
 
+    // the shared audit trail (hrms.audit_entry): every record added, changed or removed, who and when
+    services.AddAuditTrail<ApplicationDbContext>(HrmAuditProfile.Module, HrmAuditProfile.Configure);
+
     services.AddDbContext<ApplicationDbContext>((sp, opt) =>
     {
       opt.AddInterceptors(sp.GetServices<ISaveChangesInterceptor>()!);
+      opt.AddInterceptors(sp.GetRequiredService<AuditTrailInterceptor>());
       // Shared ERP database: this service owns the "hrms" schema and its own migrations history.
       opt.UseNpgsql(connectionString, npgsql =>
       {
@@ -25,7 +29,10 @@ public static class DependencyInjection
       opt.UseSnakeCaseNamingConvention();
     });
 
-    services.AddScoped<IApplicationDbContext, ApplicationDbContext>();
+    services.AddScoped<IApplicationDbContext>(sp => sp.GetRequiredService<ApplicationDbContext>());
+
+    // the bulk and scheduled work HRM runs, for Administration › System
+    services.AddScoped<ISystemJobSource, HrmJobSource>();
 
     // ---- files ----
     services.Configure<FileStorageOptions>(configuration.GetSection(FileStorageOptions.SectionName));

@@ -1,6 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 
-public class AppealActionsHandler(IApplicationDbContext context, MasterLookup masters)
+public class AppealActionsHandler(IApplicationDbContext context, MasterLookup masters, IAuditTrail audit)
   : ICommandHandler<UpdateAppealCommand, Result<AppealActionResult>>,
     ICommandHandler<StartAppealHearingCommand, Result<AppealActionResult>>,
     ICommandHandler<DecideAppealCommand, Result<AppealActionResult>>,
@@ -31,6 +31,7 @@ public class AppealActionsHandler(IApplicationDbContext context, MasterLookup ma
     var appeal = await context.LoadAppealAsync(command.Id, cancellationToken);
     await context.EnsurePropertyActiveAsync(appeal.PropertyId, cancellationToken);
     appeal.Decide(command.DecisionDate, command.DecisionOutcome, command.DecisionDetails, PropertyWriteGuard.Today());
+    audit.Record(PropertyAuditActions.Decided, appeal, string.Join(" · ", new[] { AuditProfile.Words(command.DecisionOutcome.ToString()), command.DecisionDetails }.Where(x => !string.IsNullOrWhiteSpace(x))));
 
     var warnings = command.DecisionDate > appeal.DecisionDueDate
       ? new[] { $"Decided {command.DecisionDate.DayNumber - appeal.DecisionDueDate.DayNumber} days after the {PropertyAppeal.DecisionWindowDays}-day limit of Act s.32(1)." }

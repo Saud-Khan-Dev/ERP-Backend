@@ -73,6 +73,43 @@ public class PayRuleTests
   }
 
   [Fact]
+  public void A_loan_application_waits_with_no_installments_until_it_is_sanctioned()
+  {
+    var employee = Employee();
+    var type = LoanType(Deduction);
+    var loan = EmployeeLoan.Apply(EmployeeLoanId.New(), employee, type, 12_000, 0, 6, D("2026-10-01"), 100, D("2026-10-21"));
+    Assert.Equal(LoanStatus.Pending, loan.Status);
+    Assert.Empty(loan.Installments);
+    Assert.Null(loan.ApprovedBy);
+    Assert.Equal(2_000, loan.MonthlyInstallment);
+
+    loan.Sanction(employee, type, Officer, D("2026-10-21"));
+    Assert.Equal(LoanStatus.Active, loan.Status);
+    Assert.Equal(6, loan.Installments.Count);
+    Assert.Equal(12_000, loan.RemainingBalance);
+    Assert.Equal(Officer, loan.ApprovedBy);
+    Assert.Throws<DomainException>(() => loan.Sanction(employee, type, Officer, D("2026-10-21")));
+  }
+
+  [Fact]
+  public void A_pending_loan_application_can_be_turned_down_with_a_reason()
+  {
+    var loan = EmployeeLoan.Apply(EmployeeLoanId.New(), Employee(), LoanType(Deduction), 12_000, 0, 6, D("2026-10-01"), 100, D("2026-10-21"));
+    loan.Cancel("Not eligible this year", Officer, DateTime.UtcNow);
+    Assert.Equal(LoanStatus.Cancelled, loan.Status);
+    Assert.Throws<DomainException>(() => loan.Repay(100));
+  }
+
+  [Fact]
+  public void A_loan_application_sanctioned_after_its_start_month_has_gone_is_refused()
+  {
+    var employee = Employee();
+    var type = LoanType(Deduction);
+    var loan = EmployeeLoan.Apply(EmployeeLoanId.New(), employee, type, 12_000, 0, 6, D("2026-10-01"), 100, D("2026-10-21"));
+    Assert.Throws<DomainException>(() => loan.Sanction(employee, type, Officer, D("2026-11-02")));
+  }
+
+  [Fact]
   public void A_loan_cannot_start_in_a_month_already_gone()
   {
     Assert.Throws<DomainException>(() => EmployeeLoan.Sanction(EmployeeLoanId.New(), Employee(), LoanType(Deduction), 12_000, null, 6, D("2026-08-01"), 100, Officer, D("2026-10-21")));

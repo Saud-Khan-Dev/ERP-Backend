@@ -14,7 +14,7 @@ public sealed record EmployeeListItemDto(
   Guid Id,
   string EmployeeNumber,
   string FullName,
-  string Cnic,
+  string? Cnic,
   Gender? Gender,
   DateOnly? DateOfBirth,
   EmploymentType EmploymentType,
@@ -27,7 +27,9 @@ public sealed record EmployeeListItemDto(
   string? Mobile,
   DateTime? CreatedAt,
   DateOnly? TermTo = null,
-  bool InService = true);
+  bool InService = true,
+  /// Fields withheld from this caller (no HR_SENSITIVE.VIEW): "cnic", "dateOfBirth", "mobile" - shown as "Restricted".
+  IReadOnlyList<string>? Restricted = null);
 
 public sealed record EmployeeContactDto(Guid Id, ContactType ContactType, string Value, bool IsPrimary);
 
@@ -39,7 +41,7 @@ public sealed record FamilyMemberDto(Guid Id, string? Relation, string? Name, Da
 
 /// The pay the employee draws now: stage and basic pay, with the scale and grade they sit in. IncrementOverdue: the
 /// next increment date has passed and the increment was not given; IncrementDeferredDays: put back by leave without pay.
-public sealed record CurrentPayDto(Guid PayRecordId, int Bps, string? ScaleLabel, int StageNumber, decimal BasicPay, DateOnly Since, DateOnly? NextIncrementDate,
+public sealed record CurrentPayDto(Guid PayRecordId, int Bps, string? ScaleLabel, int StageNumber, decimal? BasicPay, DateOnly Since, DateOnly? NextIncrementDate,
   bool IncrementOverdue = false, int IncrementDeferredDays = 0);
 
 public sealed record EmployeeDto(
@@ -49,7 +51,7 @@ public sealed record EmployeeDto(
   string? MiddleName,
   string? LastName,
   string FullName,
-  string Cnic,
+  string? Cnic,
   DateOnly? DateOfBirth,
   Gender? Gender,
   string? Nationality,
@@ -75,10 +77,11 @@ public sealed record EmployeeDto(
   DateOnly? TermFrom = null,
   DateOnly? TermTo = null,
   string? LendingDepartment = null,
-  bool InService = true);
+  bool InService = true,
+  /// Fields withheld from this caller (no HR_SENSITIVE.VIEW, and not their own record): "cnic", "dateOfBirth", "contacts",
+  /// "addresses", "emergencyContacts", "familyMembers", "basicPay" - null or empty here, "Restricted" on screen.
+  IReadOnlyList<string>? Restricted = null);
 
-/// One change to the employee's identity, employment or pay (employee_change_log).
-public sealed record EmployeeChangeDto(Guid Id, string Field, string? OldValue, string? NewValue, string? Reason, Guid? ChangedBy, string? ChangedByName, DateTime ChangedAt);
 
 public sealed record PayRecordDto(
   Guid Id,
@@ -87,7 +90,7 @@ public sealed record PayRecordDto(
   string? ScaleLabel,
   int Bps,
   int StageNumber,
-  decimal BasicPay,
+  decimal? BasicPay,
   DateOnly? LastIncrementDate,
   DateOnly? NextIncrementDate,
   string? Reason,
@@ -96,7 +99,9 @@ public sealed record PayRecordDto(
   DateOnly? EffectiveTo,
   DateTime? CreatedAt,
   bool IncrementOverdue = false,
-  int IncrementDeferredDays = 0);
+  int IncrementDeferredDays = 0,
+  /// "basicPay" when the amount is withheld (no HR_SENSITIVE.VIEW).
+  IReadOnlyList<string>? Restricted = null);
 
 public sealed record AssignmentDto(
   Guid Id,

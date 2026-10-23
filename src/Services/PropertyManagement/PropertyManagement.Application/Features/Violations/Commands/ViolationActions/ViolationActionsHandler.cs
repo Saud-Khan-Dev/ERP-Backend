@@ -1,4 +1,4 @@
-public class ViolationActionsHandler(IApplicationDbContext context, ICurrentUser currentUser)
+public class ViolationActionsHandler(IApplicationDbContext context, ICurrentUser currentUser, IAuditTrail audit)
   : ICommandHandler<IssueViolationNoticeCommand, Result<ViolationActionResult>>,
     ICommandHandler<ImposeFineCommand, Result<ViolationActionResult>>,
     ICommandHandler<SetFineStatusCommand, Result<ViolationActionResult>>,
@@ -21,21 +21,29 @@ public class ViolationActionsHandler(IApplicationDbContext context, ICurrentUser
     var violation = await context.LoadViolationAsync(command.Id, cancellationToken);
     await context.EnsurePropertyActiveAsync(violation.PropertyId, cancellationToken);
     violation.ImposeFine(command.FineAmount, currentUser.UserId.Value, PropertyWriteGuard.Today());
+    audit.Record(PropertyAuditActions.Imposed, violation, $"Fine of Rs {command.FineAmount:N0} (GDA Act s.28-A)");
     return await SaveAsync(violation, cancellationToken);
   }
 
   public async Task<Result<ViolationActionResult>> Handle(SetFineStatusCommand command, CancellationToken cancellationToken)
   {
-    // a payment is a record (with its receipt); waiving a fine or sending it for recovery as land revenue is a decision
-    if (command.FineStatus is FineStatus.Waived or FineStatus.RecoveryAsArrears && !currentUser.HasPermission(PermissionCatalog.Property.Approve))
+    // a payment is a record (with its receipt, PROPERTY.EDIT); waiving a fine or sending it for recovery as land revenue is a
+    // decision of its own (PROPERTY.WAIVE). The route lets either code in; the act decides which one it needs.
+    if (command.FineStatus is FineStatus.Waived or FineStatus.RecoveryAsArrears && !currentUser.HasPermission(PermissionCatalog.Property.Waive))
       throw new PermissionRequiredException(command.FineStatus == FineStatus.Waived
-        ? "Waiving a fine is an approver's decision; ask an officer who can approve."
-        : "Sending a fine for recovery as arrears of land revenue is an approver's order; ask an officer who can approve.");
+        ? "Waiving a fine needs Property: waive fines (PROPERTY.WAIVE); ask an officer who holds it."
+        : "Sending a fine for recovery as arrears of land revenue needs Property: waive fines (PROPERTY.WAIVE); ask an officer who holds it.");
+    if (command.FineStatus is not (FineStatus.Waived or FineStatus.RecoveryAsArrears) && !currentUser.HasPermission(PermissionCatalog.Property.Edit))
+      throw new PermissionRequiredException("Recording a fine as paid needs Property: edit (PROPERTY.EDIT).");
 
     var violation = await context.LoadViolationAsync(command.Id, cancellationToken);
     await context.EnsurePropertyActiveAsync(violation.PropertyId, cancellationToken);
     violation.ChangeFineStatus(new AgreementViolation.FineChange(command.FineStatus, command.ReceiptNo, command.PaidOn, command.Reason),
       PropertyWriteGuard.Today(), currentUser.UserId);
+    if (command.FineStatus is FineStatus.Waived)
+      audit.Record(PropertyAuditActions.Waived, violation, command.Reason);
+    else if (command.FineStatus is FineStatus.RecoveryAsArrears)
+      audit.Record(PropertyAuditActions.SentForRecovery, violation, "Fine to be recovered as arrears of land revenue (s.28(2))");
     return await SaveAsync(violation, cancellationToken);
   }
 

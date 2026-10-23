@@ -19,8 +19,7 @@ public class GetDocumentsHandler(IApplicationDbContext context, MasterLookup mas
 
     if (query.OwnerId is { } ownerId)
     {
-      if (!await context.Owners.AnyAsync(o => o.Id == OwnerId.Of(ownerId), cancellationToken))
-        throw new OwnerNotFoundException($"Owner {ownerId} was not found.");
+      await context.EnsureOwnerVisibleAsync(OwnerId.Of(ownerId), cancellationToken);
 
       rows = rows.Where(d => d.EntityType == DocumentEntityType.Owner && d.EntityId == ownerId);
     }
@@ -37,23 +36,24 @@ public class GetDocumentsHandler(IApplicationDbContext context, MasterLookup mas
     if (!query.IncludeInactive)
       rows = rows.Where(d => d.IsActive);
 
-    if (!documents.CanSeeConfidential())
-      rows = rows.Where(d => !d.IsConfidential);
+    var all = await rows.OrderByDescending(d => d.UploadedAt).ToListAsync(cancellationToken);
 
-    var list = await rows.OrderByDescending(d => d.UploadedAt).ToListAsync(cancellationToken);
-
-    var ids = list.Select(d => d.Id).ToList();
+    var ids = all.Select(d => d.Id).ToList();
     var superseded = (await context.Documents.AsNoTracking()
         .Where(d => d.SupersedesDocumentId != null && ids.Contains(d.SupersedesDocumentId))
         .Select(d => d.SupersedesDocumentId!)
         .ToListAsync(cancellationToken)).ToHashSet();
 
     if (!query.IncludeSuperseded)
-      list = list.Where(d => !superseded.Contains(d.Id)).ToList();
+      all = all.Where(d => !superseded.Contains(d.Id)).ToList();
+
+    // confidential papers and papers on legal records the caller may not see are counted, never silently left out
+    var list = all.Where(documents.MaySee).ToList();
+    var restricted = all.Count - list.Count;
 
     var refs = await masters.Refs().Add<DocumentType>(list.Select(d => d.DocumentTypeId)).LoadAsync(cancellationToken);
 
     return Result<GetDocumentsQueryResult>.Success(new GetDocumentsQueryResult(
-      list.Select(d => d.ToDto(refs, !superseded.Contains(d.Id))).ToList()));
+      list.Select(d => d.ToDto(refs, !superseded.Contains(d.Id))).ToList(), restricted));
   }
 }

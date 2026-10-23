@@ -84,7 +84,9 @@ public sealed record LeaveApplicationDto(
   DateTime? DecidedAt = null,
   string? DecisionReason = null,
   Guid? HrActionId = null,
-  decimal? CountedDays = null);
+  decimal? CountedDays = null,
+  /// Who keyed the application in (the employee through the portal, or a clerk on their behalf): they may not decide it.
+  Guid? CreatedBy = null);
 
 public sealed record LeaveLedgerEntryDto(
   Guid Id,

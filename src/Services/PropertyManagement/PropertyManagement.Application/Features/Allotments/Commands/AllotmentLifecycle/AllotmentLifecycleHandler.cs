@@ -1,4 +1,4 @@
-public class AllotmentLifecycleHandler(IApplicationDbContext context, MasterLookup masters, ICurrentUser currentUser)
+public class AllotmentLifecycleHandler(IApplicationDbContext context, MasterLookup masters, ICurrentUser currentUser, IAuditTrail audit)
   : ICommandHandler<CancelAllotmentCommand, Result<AllotmentLifecycleResult>>,
     ICommandHandler<RestoreAllotmentCommand, Result<AllotmentLifecycleResult>>,
     ICommandHandler<ChangeAllotmentStatusCommand, Result<AllotmentLifecycleResult>>,
@@ -12,6 +12,7 @@ public class AllotmentLifecycleHandler(IApplicationDbContext context, MasterLook
     var ended = allotment.Cancel(
       await CurrentStatusAsync(allotment, cancellationToken), await Status(SystemMasterCodes.Cancelled, cancellationToken),
       command.CancellationDate, command.Reason, command.OrderRef, record);
+    audit.Record(PropertyAuditActions.Cancelled, allotment, string.Join(" · ", new[] { command.Reason, command.OrderRef is { } order ? $"order {order}" : null }.Where(x => x is not null)));
 
     return await SaveAsync(allotment, ended, cancellationToken);
   }
@@ -27,6 +28,7 @@ public class AllotmentLifecycleHandler(IApplicationDbContext context, MasterLook
       command.RestorationDate, command.OrderRef,
       await context.AllotmentInForceAsync(property.Id, allotment.Id, cancellationToken),
       EntityLoaders.Today);
+    audit.Record(PropertyAuditActions.Restored, allotment, command.OrderRef is { } order ? $"order {order}" : null);
 
     return await SaveAsync(allotment, Array.Empty<PropertyOwnership>(), cancellationToken);
   }

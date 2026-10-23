@@ -1,4 +1,4 @@
-public class LeaseLifecycleHandler(IApplicationDbContext context, MasterLookup masters, CodeGenerator codes)
+public class LeaseLifecycleHandler(IApplicationDbContext context, MasterLookup masters, CodeGenerator codes, IAuditTrail audit)
   : ICommandHandler<ActivateLeaseCommand, Result<LeaseLifecycleResult>>,
     ICommandHandler<ExpireLeaseCommand, Result<LeaseLifecycleResult>>,
     ICommandHandler<TerminateLeaseCommand, Result<LeaseLifecycleResult>>,
@@ -32,6 +32,7 @@ public class LeaseLifecycleHandler(IApplicationDbContext context, MasterLookup m
     await context.EnsurePropertyActiveAsync(lease.PropertyId, cancellationToken);
     lease.Terminate(await Current(lease, cancellationToken), await Status(SystemMasterCodes.Terminated, cancellationToken),
       command.TerminationDate, command.Reason, PropertyWriteGuard.Today());
+    audit.Record(PropertyAuditActions.Terminated, lease, command.Reason);
     return await SaveAsync(lease, cancellationToken);
   }
 

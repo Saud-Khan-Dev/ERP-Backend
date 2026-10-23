@@ -20,36 +20,30 @@ public sealed record GetCollectionByPeriodQuery(DateOnly From, DateOnly To, stri
 /// The Taxation overview: the year at a glance, worked out on the server.
 public sealed record GetTaxOverviewQuery(int? FiscalYear) : IQuery<Result<TaxOverviewDto>>;
 
-/// The change history: who changed what and when (a record's, a file's, or everything in a period).
-public sealed record GetAuditLogQuery(PaginationRequest Pagination, string? Entity, Guid? EntityId, Guid? TaxFileId, Guid? UserId, DateOnly? From, DateOnly? To)
-  : IQuery<Result<GetAuditLogQueryResult>>;
-public sealed record GetAuditLogQueryResult(PaginatedResult<AuditLogDto> Entries);
-
 public class ReportHandlers(IApplicationDbContext context, TaxSetup setup, IClock clock) :
   IQueryHandler<GetCollectionSummaryQuery, Result<CollectionSummaryDto>>,
   IQueryHandler<GetHeadReportQuery, Result<HeadReportDto>>,
   IQueryHandler<GetCircleTownReportQuery, Result<CircleTownReportDto>>,
   IQueryHandler<GetArrearsReportQuery, Result<ArrearsReportDto>>,
   IQueryHandler<GetCollectionByPeriodQuery, Result<CollectionByPeriodDto>>,
-  IQueryHandler<GetTaxOverviewQuery, Result<TaxOverviewDto>>,
-  IQueryHandler<GetAuditLogQuery, Result<GetAuditLogQueryResult>>
+  IQueryHandler<GetTaxOverviewQuery, Result<TaxOverviewDto>>
 {
   public async Task<Result<CollectionSummaryDto>> Handle(GetCollectionSummaryQuery query, CancellationToken cancellationToken)
   {
     var fy = FiscalYear.Valid(query.FiscalYear);
-    var year = await context.Demands.AsNoTracking()
+    var year = await context.Demands.AsNoTracking().InScope(context)
       .Where(d => d.FiscalYear == fy && d.Status != DemandStatus.Draft && d.Status != DemandStatus.Cancelled)
       .Select(d => new { d.Id, d.TaxFileId, d.Status, d.CurrentAmount, d.ArrearsBf, d.PenaltyAmount, d.PaidAmount, d.Balance })
       .ToListAsync(cancellationToken);
-    var circleOf = await context.TaxFiles.AsNoTracking().Select(f => new { f.Id, f.CircleId }).ToDictionaryAsync(f => f.Id, f => f.CircleId, cancellationToken);
+    var circleOf = await context.ScopedFiles().AsNoTracking().Select(f => new { f.Id, f.CircleId }).ToDictionaryAsync(f => f.Id, f => f.CircleId, cancellationToken);
     var circles = await context.TaxCircles.AsNoTracking().OrderBy(c => c.SortOrder).ToListAsync(cancellationToken);
 
-    var outstanding = await context.Demands.AsNoTracking().Where(d => (d.Status == DemandStatus.Issued || d.Status == DemandStatus.PartPaid || d.Status == DemandStatus.Defaulted)).SumAsync(d => (decimal?)d.Balance, cancellationToken) ?? 0m;
+    var outstanding = await context.Demands.AsNoTracking().InScope(context).Where(d => (d.Status == DemandStatus.Issued || d.Status == DemandStatus.PartPaid || d.Status == DemandStatus.Defaulted)).SumAsync(d => (decimal?)d.Balance, cancellationToken) ?? 0m;
     // the surcharges on this year's demands
     var ids = year.Select(d => d.Id).ToList();
-    var penalties = await context.Penalties.AsNoTracking().Where(p => ids.Contains(p.DemandId))
+    var penalties = await context.Penalties.AsNoTracking().InScope(context).Where(p => ids.Contains(p.DemandId))
       .GroupBy(p => p.Kind).Select(g => new { g.Key, Total = g.Sum(p => p.Amount) }).ToListAsync(cancellationToken);
-    var pending = await context.Notices.CountAsync(n => n.Status == NoticeStatus.Pending, cancellationToken);
+    var pending = await context.Notices.InScope(context).CountAsync(n => n.Status == NoticeStatus.Pending, cancellationToken);
 
     decimal Charged(decimal current, decimal arrears, decimal penalty) => current + arrears + penalty;
     var demanded = year.Sum(d => Charged(d.CurrentAmount, d.ArrearsBf, d.PenaltyAmount));
@@ -72,7 +66,7 @@ public class ReportHandlers(IApplicationDbContext context, TaxSetup setup, ICloc
   public async Task<Result<HeadReportDto>> Handle(GetHeadReportQuery query, CancellationToken cancellationToken)
   {
     var fy = FiscalYear.Valid(query.FiscalYear);
-    var demands = context.Demands.AsNoTracking().Where(d => d.FiscalYear == fy && d.Status != DemandStatus.Draft && d.Status != DemandStatus.Cancelled);
+    var demands = context.Demands.AsNoTracking().InScope(context).Where(d => d.FiscalYear == fy && d.Status != DemandStatus.Draft && d.Status != DemandStatus.Cancelled);
     if (query.CircleId is { } c)
     {
       var circleId = TaxCircleId.Of(c);
@@ -88,10 +82,10 @@ public class ReportHandlers(IApplicationDbContext context, TaxSetup setup, ICloc
     var linePaid = await context.PaymentAllocations.AsNoTracking()
       .Where(a => posted.Contains(a.PaymentId) && a.DemandLineId != null && context.DemandLines.Any(l => l.Id == a.DemandLineId && demandIds.Contains(l.DemandId)))
       .GroupBy(a => a.HeadId).Select(g => new { g.Key, Paid = g.Sum(a => a.Amount) }).ToListAsync(cancellationToken);
-    var arrears = await context.ArrearsRows.AsNoTracking().Where(a => a.AddedToDemandId != null && demandIds.Contains(a.AddedToDemandId))
+    var arrears = await context.ArrearsRows.AsNoTracking().InScope(context).Where(a => a.AddedToDemandId != null && demandIds.Contains(a.AddedToDemandId))
       .GroupBy(a => a.HeadId).Select(g => new { g.Key, Amount = g.Sum(a => a.OriginalAmount + a.PenaltyAmount), Outstanding = g.Sum(a => a.Outstanding) })
       .ToListAsync(cancellationToken);
-    var penalties = await context.Penalties.AsNoTracking().Where(p => demandIds.Contains(p.DemandId))
+    var penalties = await context.Penalties.AsNoTracking().InScope(context).Where(p => demandIds.Contains(p.DemandId))
       .GroupBy(p => p.Kind).Select(g => new { g.Key, Amount = g.Sum(p => p.Amount) }).ToListAsync(cancellationToken);
     var penaltyPaid = await context.PaymentAllocations.AsNoTracking()
       .Where(a => posted.Contains(a.PaymentId) && a.PenaltyId != null && context.Penalties.Any(p => p.Id == a.PenaltyId && demandIds.Contains(p.DemandId)))
@@ -117,11 +111,11 @@ public class ReportHandlers(IApplicationDbContext context, TaxSetup setup, ICloc
   {
     var fy = FiscalYear.Valid(query.FiscalYear);
     var start = FiscalYear.Start(fy);
-    var year = await context.Demands.AsNoTracking()
+    var year = await context.Demands.AsNoTracking().InScope(context)
       .Where(d => d.FiscalYear == fy && d.Status != DemandStatus.Draft && d.Status != DemandStatus.Cancelled)
       .Join(context.TaxFiles, d => d.TaxFileId, f => f.Id, (d, f) => new { f.TownId, d.Status, d.CurrentAmount, d.ArrearsBf, d.PenaltyAmount, d.PaidAmount, d.Balance })
       .ToListAsync(cancellationToken);
-    var files = await context.TaxFiles.AsNoTracking().Where(f => f.TaxStatus != TaxStatus.Closed).GroupBy(f => f.TownId)
+    var files = await context.ScopedFiles().AsNoTracking().Where(f => f.TaxStatus != TaxStatus.Closed).GroupBy(f => f.TownId)
       .Select(g => new { g.Key, Count = g.Count() }).ToListAsync(cancellationToken);
     var towns = await context.CircleTowns.AsNoTracking().ToListAsync(cancellationToken);
     var circles = await context.TaxCircles.AsNoTracking().ToDictionaryAsync(c => c.Id, c => c.Code, cancellationToken);
@@ -144,7 +138,7 @@ public class ReportHandlers(IApplicationDbContext context, TaxSetup setup, ICloc
 
   public async Task<Result<ArrearsReportDto>> Handle(GetArrearsReportQuery query, CancellationToken cancellationToken)
   {
-    var owing = context.Demands.AsNoTracking().Where(d => (d.Status == DemandStatus.Issued || d.Status == DemandStatus.PartPaid || d.Status == DemandStatus.Defaulted) && d.Balance > 0);
+    var owing = context.Demands.AsNoTracking().InScope(context).Where(d => (d.Status == DemandStatus.Issued || d.Status == DemandStatus.PartPaid || d.Status == DemandStatus.Defaulted) && d.Balance > 0);
     if (query.CircleId is { } c)
     {
       var circleId = TaxCircleId.Of(c);
@@ -166,14 +160,14 @@ public class ReportHandlers(IApplicationDbContext context, TaxSetup setup, ICloc
       .ToListAsync(cancellationToken);
 
     var ids = page.Select(p => p.FileId).ToList();
-    var files2 = await context.TaxFiles.AsNoTracking().Where(f => ids.Contains(f.Id)).Select(f => new { f.Id, f.FileNo, f.CircleId, f.Psid }).ToDictionaryAsync(f => f.Id, cancellationToken);
+    var files2 = await context.ScopedFiles().AsNoTracking().Where(f => ids.Contains(f.Id)).Select(f => new { f.Id, f.FileNo, f.CircleId, f.Psid }).ToDictionaryAsync(f => f.Id, cancellationToken);
     var circles = await context.TaxCircles.AsNoTracking().ToDictionaryAsync(x => x.Id, x => x.Code, cancellationToken);
-    var open = await context.Demands.AsNoTracking().Where(d => ids.Contains(d.TaxFileId) && (d.Status == DemandStatus.Issued || d.Status == DemandStatus.PartPaid || d.Status == DemandStatus.Defaulted) && d.Balance > 0)
+    var open = await context.Demands.AsNoTracking().InScope(context).Where(d => ids.Contains(d.TaxFileId) && (d.Status == DemandStatus.Issued || d.Status == DemandStatus.PartPaid || d.Status == DemandStatus.Defaulted) && d.Balance > 0)
       .Select(d => new { d.Id, d.TaxFileId, d.FiscalYear, d.PayerName, d.Stage, d.Balance }).ToListAsync(cancellationToken);
     var openIds = open.Select(d => d.Id).ToList();
-    var years = await context.ArrearsRows.AsNoTracking().Where(a => a.AddedToDemandId != null && openIds.Contains(a.AddedToDemandId) && a.Outstanding > 0)
+    var years = await context.ArrearsRows.AsNoTracking().InScope(context).Where(a => a.AddedToDemandId != null && openIds.Contains(a.AddedToDemandId) && a.Outstanding > 0)
       .Select(a => new { a.AddedToDemandId, a.FiscalYear }).ToListAsync(cancellationToken);
-    var lastPaid = await context.Payments.AsNoTracking().Where(p => p.TaxFileId != null && ids.Contains(p.TaxFileId) && p.Status == PaymentStatus.Posted && p.FeeId == null)
+    var lastPaid = await context.Payments.AsNoTracking().InScope(context).Where(p => p.TaxFileId != null && ids.Contains(p.TaxFileId) && p.Status == PaymentStatus.Posted && p.FeeId == null)
       .GroupBy(p => p.TaxFileId).Select(g => new { g.Key, At = g.Max(p => p.PaidAt) }).ToListAsync(cancellationToken);
 
     var rows = page.Select(p =>
@@ -199,7 +193,7 @@ public class ReportHandlers(IApplicationDbContext context, TaxSetup setup, ICloc
     var monthly = string.Equals(query.GroupBy, "month", StringComparison.OrdinalIgnoreCase);
     var start = Pkt.StartOf(query.From);
     var end = Pkt.StartOf(query.To.AddDays(1));
-    var rows = context.Payments.AsNoTracking().Where(p => p.Status == PaymentStatus.Posted && p.PaidAt >= start && p.PaidAt < end);
+    var rows = context.Payments.AsNoTracking().InScope(context).Where(p => p.Status == PaymentStatus.Posted && p.PaidAt >= start && p.PaidAt < end);
     if (query.CircleId is { } c)
     {
       var circleId = TaxCircleId.Of(c);
@@ -229,21 +223,21 @@ public class ReportHandlers(IApplicationDbContext context, TaxSetup setup, ICloc
     var fy = FiscalYear.Valid(query.FiscalYear ?? FiscalYear.Of(today));
     var label = FiscalYear.Label(fy);
 
-    var files = await context.TaxFiles.AsNoTracking().GroupBy(f => f.TaxStatus).Select(g => new { g.Key, Count = g.Count() }).ToListAsync(cancellationToken);
-    var onHold = await context.Holds.AsNoTracking().Where(h => h.SuspendsDemand && h.StartedOn <= today && (h.EndedOn == null || h.EndedOn >= today))
+    var files = await context.ScopedFiles().AsNoTracking().GroupBy(f => f.TaxStatus).Select(g => new { g.Key, Count = g.Count() }).ToListAsync(cancellationToken);
+    var onHold = await context.Holds.AsNoTracking().InScope(context).Where(h => h.SuspendsDemand && h.StartedOn <= today && (h.EndedOn == null || h.EndedOn >= today))
       .Select(h => h.TaxFileId).Distinct().CountAsync(cancellationToken);
-    var byCategory = await context.TaxFiles.AsNoTracking().Where(f => f.TaxStatus != TaxStatus.Closed).GroupBy(f => f.TaxCategory)
+    var byCategory = await context.ScopedFiles().AsNoTracking().Where(f => f.TaxStatus != TaxStatus.Closed).GroupBy(f => f.TaxCategory)
       .Select(g => new { g.Key, Count = g.Count() }).ToListAsync(cancellationToken);
 
-    var year = await context.Demands.AsNoTracking().Where(d => d.FiscalYear == fy && d.Status != DemandStatus.Cancelled)
+    var year = await context.Demands.AsNoTracking().InScope(context).Where(d => d.FiscalYear == fy && d.Status != DemandStatus.Cancelled)
       .Select(d => new { d.Id, d.TaxFileId, d.Status, d.Stage, d.CurrentAmount, d.ArrearsBf, d.PenaltyAmount, d.PaidAmount, d.Balance })
       .ToListAsync(cancellationToken);
     var issued = year.Where(d => d.Status != DemandStatus.Draft).ToList();
     var demanded = issued.Sum(d => d.CurrentAmount + d.ArrearsBf + d.PenaltyAmount);
     var recovered = issued.Sum(d => d.PaidAmount);
-    var outstandingAll = await context.Demands.AsNoTracking().Where(d => (d.Status == DemandStatus.Issued || d.Status == DemandStatus.PartPaid || d.Status == DemandStatus.Defaulted)).SumAsync(d => (decimal?)d.Balance, cancellationToken) ?? 0m;
+    var outstandingAll = await context.Demands.AsNoTracking().InScope(context).Where(d => (d.Status == DemandStatus.Issued || d.Status == DemandStatus.PartPaid || d.Status == DemandStatus.Defaulted)).SumAsync(d => (decimal?)d.Balance, cancellationToken) ?? 0m;
 
-    var circleOf = await context.TaxFiles.AsNoTracking().Select(f => new { f.Id, f.CircleId }).ToDictionaryAsync(f => f.Id, f => f.CircleId, cancellationToken);
+    var circleOf = await context.ScopedFiles().AsNoTracking().Select(f => new { f.Id, f.CircleId }).ToDictionaryAsync(f => f.Id, f => f.CircleId, cancellationToken);
     var circles = await context.TaxCircles.AsNoTracking().Where(c => c.IsActive).OrderBy(c => c.SortOrder).ToListAsync(cancellationToken);
     var byCircle = circles.Select(c =>
     {
@@ -255,7 +249,7 @@ public class ReportHandlers(IApplicationDbContext context, TaxSetup setup, ICloc
     // money received in the year, month by month (Pakistan time), taxes and fees
     var start = Pkt.StartOf(FiscalYear.Start(fy));
     var end = Pkt.StartOf(FiscalYear.End(fy).AddDays(1));
-    var paid = await context.Payments.AsNoTracking().Where(p => p.Status == PaymentStatus.Posted && p.PaidAt >= start && p.PaidAt < end)
+    var paid = await context.Payments.AsNoTracking().InScope(context).Where(p => p.Status == PaymentStatus.Posted && p.PaidAt >= start && p.PaidAt < end)
       .Select(p => new { p.PaidAt, p.Amount, Fee = p.FeeId != null }).ToListAsync(cancellationToken);
     var months = Enumerable.Range(0, 12).Select(i => FiscalYear.Start(fy).AddMonths(i)).Select(m =>
     {
@@ -272,23 +266,23 @@ public class ReportHandlers(IApplicationDbContext context, TaxSetup setup, ICloc
       .Select(x => new HeadAmountDto(x.Key.Value, heads.GetValueOrDefault(x.Key)?.Code ?? "", heads.GetValueOrDefault(x.Key)?.Name ?? "", x.Amount))
       .OrderByDescending(x => x.Amount).ToList();
 
-    var notices = await context.Notices.AsNoTracking().GroupBy(n => new { n.Status, n.Stage }).Select(g => new { g.Key.Status, g.Key.Stage, Count = g.Count() })
+    var notices = await context.Notices.AsNoTracking().InScope(context).GroupBy(n => new { n.Status, n.Stage }).Select(g => new { g.Key.Status, g.Key.Stage, Count = g.Count() })
       .ToListAsync(cancellationToken);
-    var unserved = await context.Notices.CountAsync(n => n.Status == NoticeStatus.Issued && n.ServedOn == null, cancellationToken);
+    var unserved = await context.Notices.InScope(context).CountAsync(n => n.Status == NoticeStatus.Issued && n.ServedOn == null, cancellationToken);
 
-    var feesDue = await context.Fees.AsNoTracking().Where(f => f.Status == FeeStatus.Due).GroupBy(f => 1)
+    var feesDue = await context.Fees.AsNoTracking().InScope(context).Where(f => f.Status == FeeStatus.Due).GroupBy(f => 1)
       .Select(g => new { Count = g.Count(), Amount = g.Sum(f => f.Amount) }).FirstOrDefaultAsync(cancellationToken);
-    var validClearances = await context.Clearances.CountAsync(c => c.Status == ClearanceStatus.Issued && c.ValidUntil >= today, cancellationToken);
-    var syncsWaiting = await context.PsidSyncs.CountAsync(s => s.Status == PsidSyncStatus.Pending, cancellationToken);
-    var smsQueued = await context.SmsMessages.CountAsync(m => m.DeliveryStatus == SmsStatus.Queued, cancellationToken);
-    var penalties = await context.Penalties.AsNoTracking().Where(p => yearIds.Contains(p.DemandId)).GroupBy(p => p.Kind)
+    var validClearances = await context.Clearances.InScope(context).CountAsync(c => c.Status == ClearanceStatus.Issued && c.ValidUntil >= today, cancellationToken);
+    var syncsWaiting = await context.PsidSyncs.InScope(context).CountAsync(s => s.Status == PsidSyncStatus.Pending, cancellationToken);
+    var smsQueued = await context.SmsMessages.InScope(context).CountAsync(m => m.DeliveryStatus == SmsStatus.Queued, cancellationToken);
+    var penalties = await context.Penalties.AsNoTracking().InScope(context).Where(p => yearIds.Contains(p.DemandId)).GroupBy(p => p.Kind)
       .Select(g => new { g.Key, Amount = g.Sum(p => p.Amount) }).ToListAsync(cancellationToken);
 
     // the largest balances behind references now
-    var largest = await context.Demands.AsNoTracking().Where(d => (d.Status == DemandStatus.Issued || d.Status == DemandStatus.PartPaid || d.Status == DemandStatus.Defaulted) && d.Balance > 0).GroupBy(d => d.TaxFileId)
+    var largest = await context.Demands.AsNoTracking().InScope(context).Where(d => (d.Status == DemandStatus.Issued || d.Status == DemandStatus.PartPaid || d.Status == DemandStatus.Defaulted) && d.Balance > 0).GroupBy(d => d.TaxFileId)
       .Select(g => new { FileId = g.Key, Outstanding = g.Sum(d => d.Balance) }).OrderByDescending(x => x.Outstanding).Take(10).ToListAsync(cancellationToken);
     var largestIds = largest.Select(l => l.FileId).ToList();
-    var largestFiles = await context.TaxFiles.AsNoTracking().Where(f => largestIds.Contains(f.Id)).ToDictionaryAsync(f => f.Id, f => f.FileNo, cancellationToken);
+    var largestFiles = await context.ScopedFiles().AsNoTracking().Where(f => largestIds.Contains(f.Id)).ToDictionaryAsync(f => f.Id, f => f.FileNo, cancellationToken);
     var largestPayers = await context.TaxFilePayers.AsNoTracking().Where(p => largestIds.Contains(p.TaxFileId) && p.EffectiveTo == null && p.IsAddressee)
       .Select(p => new { p.TaxFileId, p.Name }).ToListAsync(cancellationToken);
 
@@ -318,33 +312,5 @@ public class ReportHandlers(IApplicationDbContext context, TaxSetup setup, ICloc
         largestPayers.FirstOrDefault(p => p.TaxFileId == l.FileId)?.Name, l.Outstanding)).ToList(),
       surchargeFrom, surchargeRun, fy == FiscalYear.Of(today) && surchargeFrom is { } from && from <= today && !surchargeRun,
       lastJob?.ToDto()));
-  }
-
-  public async Task<Result<GetAuditLogQueryResult>> Handle(GetAuditLogQuery query, CancellationToken cancellationToken)
-  {
-    var rows = context.AuditLogs.AsNoTracking();
-    if (!string.IsNullOrWhiteSpace(query.Entity))
-      rows = rows.Where(a => a.EntityName == query.Entity.Trim());
-    if (query.EntityId is { } id)
-      rows = rows.Where(a => a.EntityId == id);
-    if (query.TaxFileId is { } file)
-      rows = rows.Where(a => a.TaxFileId == file);
-    if (query.UserId is { } user)
-      rows = rows.Where(a => a.UserId == user);
-    if (query.From is { } from)
-    {
-      var start = Pkt.StartOf(from);
-      rows = rows.Where(a => a.At >= start);
-    }
-    if (query.To is { } to)
-    {
-      var end = Pkt.StartOf(to.AddDays(1));
-      rows = rows.Where(a => a.At < end);
-    }
-    var total = await rows.LongCountAsync(cancellationToken);
-    var page = await rows.OrderByDescending(a => a.At).Skip(query.Pagination.Pageindex * query.Pagination.PageSize).Take(query.Pagination.PageSize)
-      .ToListAsync(cancellationToken);
-    return Result<GetAuditLogQueryResult>.Success(new(new PaginatedResult<AuditLogDto>(query.Pagination.Pageindex, query.Pagination.PageSize, total,
-      page.Select(a => new AuditLogDto(a.Id.Value, a.EntityName, a.EntityId, a.Action, a.OldValues, a.NewValues, a.UserId, a.UserName, a.At, a.TaxFileId)).ToList())));
   }
 }

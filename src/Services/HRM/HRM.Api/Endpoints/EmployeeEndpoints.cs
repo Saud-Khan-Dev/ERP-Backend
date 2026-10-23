@@ -101,12 +101,17 @@ public class EmployeeEndpoints : ICarterModule
       .WithDescription("The engagement period of a contract, deputation-in, ad hoc, daily-wage or project employee (an extension is a new end date), and a "
         + "deputationist's parent department. Kept in the change log.");
 
-    employees.MapGet("/{id:guid}/change-log", async (Guid id, ISender sender) => (await sender.Send(new GetEmployeeChangeLogQuery(id))).ToOk())
-      .RequirePermission(PermissionCatalog.Hr.View)
-      .WithName("GetEmployeeChangeLog")
-      .Produces<GetEmployeeChangeLogQueryResult>()
-      .WithSummary("Employee Change Log")
-      .WithDescription("Every change to the employee's identity (names, CNIC, date of birth ...), employment, sign-in account and pay: old -> new, why, who and when.");
+    employees.MapGet("/{id:guid}/history", async (Guid id, HttpRequest request, ISender sender) =>
+        (await sender.Send(new GetEmployeeHistoryQuery(id, AuditQueries.FilterFrom(request)))).ToOk())
+      .RequireAnyPermission(PermissionCatalog.Hr.View, PermissionCatalog.Attendance.View, PermissionCatalog.Payroll.View)
+      .WithName("GetEmployeeHistory")
+      .Produces<AuditResponse>()
+      .ProducesProblem(StatusCodes.Status404NotFound)
+      .WithSummary("Employee History")
+      .WithDescription("Everything recorded about the employee in the audit trail, newest first: the record itself and everything that hangs off it "
+        + "(contacts, family, bank accounts, pay, documents, posts, HR actions, leave, attendance, loans, GP Fund, pay slips, reviews, tasks, requests). "
+        + "Filters as GET /audit: before, from, to, actorId, action, kind, search, pageSize. Without HR_SENSITIVE.VIEW the values of personal and pay "
+        + "facts read \"Restricted\".");
 
     employees.MapPut("/{id:guid}/number", async (Guid id, CorrectEmployeeNumberRequest request, ISender sender) =>
         (await sender.Send(new CorrectEmployeeNumberCommand(id, request.EmployeeNumber, request.Reason))).ToOk())
@@ -116,21 +121,21 @@ public class EmployeeEndpoints : ICarterModule
       .ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Correct Employee Number");
 
-    // the link is made from either side: the HR record (HR.EDIT) or the sign-in account in Administration (IAM_USERS.EDIT);
-    // both screens then tell Identity too (PUT /users/{userId}/employee-link), which shows the HR number as the account's code
+    // linking a sign-in account decides whose portal (/me) the account opens, so it is an account act (IAM_USERS.EDIT);
+    // the screen then tells Identity too (PUT /users/{userId}/employee-link), which shows the HR number as the account's code
     employees.MapPost("/{id:guid}/user", async (Guid id, LinkUserRequest request, ISender sender) =>
         (await sender.Send(new LinkEmployeeUserCommand(id, request.UserId))).ToOk())
-      .RequireAnyPermission(PermissionCatalog.Hr.Edit, PermissionCatalog.Users.Edit)
+      .RequirePermission(PermissionCatalog.Users.Edit)
       .WithName("LinkEmployeeUser")
       .Produces<UpdatedResult>()
       .ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Link Sign-in Account")
-      .WithDescription("Links the employee to an Identity user account (HR.EDIT or IAM_USERS.EDIT). An account linked to another employee is refused; "
-        + "relinking the same employee to another account replaces the link. Self-service (/me) finds the employee this way or by the token's employee claim.");
+      .WithDescription("Links the employee to an Identity user account (IAM_USERS.EDIT). Your own account is refused, and so is an account linked to "
+        + "another employee; relinking the same employee to another account replaces the link. Self-service (/me) follows the token's employee claim.");
 
     employees.MapDelete("/{id:guid}/user", async (Guid id, ISender sender) =>
         (await sender.Send(new LinkEmployeeUserCommand(id, null))).ToOk())
-      .RequireAnyPermission(PermissionCatalog.Hr.Edit, PermissionCatalog.Users.Edit)
+      .RequirePermission(PermissionCatalog.Users.Edit)
       .WithName("UnlinkEmployeeUser")
       .Produces<UpdatedResult>()
       .WithSummary("Unlink Sign-in Account");
@@ -203,29 +208,29 @@ public class EmployeeEndpoints : ICarterModule
     employees.MapPost("/{id:guid}/pay-records", async (Guid id, RecordPayChangeRequest request, ISender sender) =>
         (await sender.Send(new RecordPayChangeCommand(id, request.PayScaleStageId, request.BasicPay, request.EffectiveFrom, request.Reason,
           request.OrderNumber, request.NextIncrementDate))).ToOk())
-      .RequirePermission(PermissionCatalog.Hr.Approve)
+      .RequirePermission(PermissionCatalog.Hr.Pay)
       .WithTags("Pay Records")
       .WithName("RecordPayChange")
       .Produces<RecordPayChangeResult>()
       .ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Record Pay Change")
-      .WithDescription("A new pay position from a date (correction, advance increments) - a money change, so HR.APPROVE. The stage must belong to the scale of the "
+      .WithDescription("A new pay position from a date (correction, advance increments) - a money change, so HR.PAY; never on your own record. The stage must belong to the scale of the "
         + "grade of the post held that day. Kept in the change log; payrollImpact lists posted months a back-dated change reaches. Promotions and appointments fix the pay themselves.");
 
     var pay = app.MapGroup("/pay-records").WithTags("Pay Records");
 
     pay.MapPut("/{id:guid}/next-increment", async (Guid id, SetNextIncrementRequest request, ISender sender) =>
         (await sender.Send(new SetNextIncrementDateCommand(id, request.NextIncrementDate, request.Reason))).ToOk())
-      .RequirePermission(PermissionCatalog.Hr.Approve)
+      .RequirePermission(PermissionCatalog.Hr.Pay)
       .WithName("SetNextIncrementDate")
       .Produces<UpdatedResult>()
       .ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Set Next Increment Date")
-      .WithDescription("e.g. an increment withheld as a penalty, or deferred (HR.APPROVE; kept in the change log). The date set is the one before any leave-without-pay deferral.");
+      .WithDescription("e.g. an increment withheld as a penalty, or deferred (HR.PAY; kept in the audit trail; never on your own record). The date set is the one before any leave-without-pay deferral.");
 
     pay.MapPost("/annual-increment", async (AnnualIncrementRequest request, ISender sender) =>
         (await sender.Send(new RunAnnualIncrementCommand(request.EffectiveDate, request.DryRun, request.EmployeeIds))).ToOk())
-      .RequirePermission(PermissionCatalog.Hr.Approve)
+      .RequirePermission(PermissionCatalog.Hr.Run)
       .WithName("RunAnnualIncrement")
       .Produces<PayRunResult>()
       .WithSummary("Run Annual Increment")
@@ -233,7 +238,7 @@ public class EmployeeEndpoints : ICarterModule
 
     pay.MapPost("/revision", async (PayRevisionRequest request, ISender sender) =>
         (await sender.Send(new ApplyPayRevisionCommand(request.EffectiveDate, request.DryRun, request.GradeIds))).ToOk())
-      .RequirePermission(PermissionCatalog.Hr.Approve)
+      .RequirePermission(PermissionCatalog.Hr.Run)
       .WithName("ApplyPayRevision")
       .Produces<PayRunResult>()
       .ProducesProblem(StatusCodes.Status400BadRequest)
@@ -249,8 +254,10 @@ public class EmployeeEndpoints : ICarterModule
       Func<Guid, Guid, TInput, ISender, Task<Result<UpdatedResult>>> update,
       Func<Guid, Guid, ISender, Task<Result<UpdatedResult>>> remove)
   {
+    // contacts, addresses and family are personal facts: changing them needs seeing them (HR_SENSITIVE.VIEW) as well
     employees.MapPost($"/{{id:guid}}/{route}", async (Guid id, TInput input, ISender sender) => (await add(id, input, sender)).ToOk())
       .RequirePermission(PermissionCatalog.Hr.Edit)
+      .RequirePermission(PermissionCatalog.HrSensitive.View)
       .WithName($"Add{name}")
       .Produces<CreatedResult>()
       .ProducesProblem(StatusCodes.Status400BadRequest)
@@ -258,6 +265,7 @@ public class EmployeeEndpoints : ICarterModule
 
     employees.MapPut($"/{{id:guid}}/{route}/{{childId:guid}}", async (Guid id, Guid childId, TInput input, ISender sender) => (await update(id, childId, input, sender)).ToOk())
       .RequirePermission(PermissionCatalog.Hr.Edit)
+      .RequirePermission(PermissionCatalog.HrSensitive.View)
       .WithName($"Update{name}")
       .Produces<UpdatedResult>()
       .ProducesProblem(StatusCodes.Status400BadRequest)
@@ -265,6 +273,7 @@ public class EmployeeEndpoints : ICarterModule
 
     employees.MapDelete($"/{{id:guid}}/{route}/{{childId:guid}}", async (Guid id, Guid childId, ISender sender) => (await remove(id, childId, sender)).ToOk())
       .RequirePermission(PermissionCatalog.Hr.Edit)
+      .RequirePermission(PermissionCatalog.HrSensitive.View)
       .WithName($"Remove{name}")
       .Produces<UpdatedResult>()
       .ProducesProblem(StatusCodes.Status400BadRequest)

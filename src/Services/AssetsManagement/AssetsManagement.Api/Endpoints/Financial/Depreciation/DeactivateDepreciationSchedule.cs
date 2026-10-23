@@ -14,7 +14,7 @@ public class DeactivateDepreciationSchedule : ICarterModule
 
       return Results.Ok(result.Value.Adapt<DeactivateDepreciationScheduleResponse>());
     })
-      .RequirePermission(PermissionCatalog.AssetFinance.Edit)
+      .RequireFinance(PermissionCatalog.AssetFinance.Edit)
 
       .WithName("DeactivateDepreciationSchedule")
       .Produces<DeactivateDepreciationScheduleResponse>(StatusCodes.Status200OK)

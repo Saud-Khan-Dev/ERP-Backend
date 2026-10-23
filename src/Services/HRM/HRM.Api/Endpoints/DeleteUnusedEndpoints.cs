@@ -14,8 +14,8 @@ public class DeleteUnusedEndpoints : ICarterModule
         .WithSummary($"Delete {name}")
         .WithDescription("Only while nobody used it (entered by mistake); otherwise 409 with the reason - deactivate or close it instead.");
 
-    Map("/loan-types/{id:guid}", "LoanType", PermissionCatalog.Payroll.Delete, id => new DeleteLoanTypeCommand(id));
-    Map("/salary-components/{id:guid}", "SalaryComponent", PermissionCatalog.Payroll.Delete, id => new DeleteSalaryComponentCommand(id));
+    Map("/loan-types/{id:guid}", "LoanType", PermissionCatalog.PayrollSetup.Delete, id => new DeleteLoanTypeCommand(id));
+    Map("/salary-components/{id:guid}", "SalaryComponent", PermissionCatalog.PayrollSetup.Delete, id => new DeleteSalaryComponentCommand(id));
     Map("/work-shifts/{id:guid}", "WorkShift", PermissionCatalog.Attendance.Delete, id => new DeleteWorkShiftCommand(id));
     Map("/org-units/{id:guid}", "OrgUnit", PermissionCatalog.HrSetup.Delete, id => new DeleteOrgUnitCommand(id));
   }

@@ -31,17 +31,34 @@ PSIDs), `refund`, `sealing`, `water_connection`, `non_utilization_case`, `enlist
 `arrears.import_row_id`) are plain uuids for now. `notice.sms_message_id` has no foreign key on purpose
 (`sms_message.notice_id` points back; both are written in one save).
 
-## Permissions
+## Permissions, scope and separation of duties
 
 | Module | Codes | Used for |
 | --- | --- | --- |
-| `TAX` | VIEW, CREATE, EDIT, DELETE, APPROVE, POST | tax files, demands, notices, surcharges, payments, fees, clearances. CREATE opens files (a mapped category, not exempt, no uplift), computes runs, prepares notices and charges fees; EDIT syncs files, keeps the details, reviews, confirms, serves and escalates notices, corrects opening arrears, issues a hand-made notice at once, runs the daily job; APPROVE approves demand and surcharge runs, sets overrides, holds, category and status, opens a file in a category the map does not give / exempt / with an uplift, sets amounts and Normal/Special on a hand-made notice, issues pending notices in bulk, applies the in-year surcharge, exempts or waives fees, reverses payments and issues clearances; POST receives payments and takes fee receipts; DELETE removes a party with no fee and an opening-arrears row not yet billed |
+| `TAX` | VIEW, CREATE, EDIT, DELETE, APPROVE, POST, EXPORT, RUN, REVERSE, WAIVE, ISSUE, ADJUST | CREATE opens files (a mapped category, not exempt, no uplift), computes runs, prepares notices, charges fees, registers parties; EDIT syncs files, keeps the details, reviews, confirms, serves notices, issues a hand-made notice at once, keeps parties; APPROVE approves / cancels demand runs and the in-year surcharge, sets overrides, holds, category and status, opens a file in another category / exempt / with an uplift, sets amounts and Normal/Special on a hand-made notice, issues pending notices in bulk; POST receives payments and takes fee receipts; DELETE removes a party with no fee and an opening-arrears row not yet billed; **EXPORT** notes a CSV / print in the trail (`POST /audit/exports`); **RUN** runs the daily job, the year-end surcharge and "prepare the notices due"; **REVERSE** reverses a payment; **WAIVE** waives a fee or charges one exempt; **ISSUE** issues and revokes clearances (and marks one used, as PROPERTY.APPROVE does); **ADJUST** adds and corrects opening arrears |
 | `TAX_SETUP` | VIEW, CREATE, EDIT, DELETE, APPROVE | circles, heads, category map, rate sets (APPROVE approves one), settings (EDIT also takes back a future value), special policies, penalty rules (versions; EDIT takes back a future one), templates, letterhead, notice table. DELETE removes a circle, head or policy nothing refers to |
 
-Setup lists, reports, the overview and the change history are readable with `TAX.VIEW` or `TAX_SETUP.VIEW`
-(`TaxAuthorization.AnyTaxReader`); `GET /attention` needs only a signed-in token and lists what the caller may act on. **Calls that read
-Property (open and sync a file, assign a town, map a property type) pass the caller's token on, so the caller also needs
-`PROPERTY.VIEW`.** Holidays and post holders are read from HRM the same way.
+Setup lists, reports and the overview are readable with `TAX.VIEW` or `TAX_SETUP.VIEW` (`TaxAuthorization.AnyTaxReader`);
+`GET /attention` needs only a signed-in token and lists what the caller may act on. **Calls that read Property (open and
+sync a file, assign a town, map a property type) pass the caller's token on, so the caller also needs `PROPERTY.VIEW`.**
+Holidays and post holders are read from HRM the same way; with no caller (the scheduled daily job) holidays come from
+HRM's public `GET /directory/holidays?from&to` (`{ holidays: [{ date, name }] }`; a missing list counts as "could not be
+read", so the job reports the weekends-only fallback).
+
+**Town scope** (`ICurrentUser.TownScope`, `IApplicationDbContext.TownScope`, `Services/TaxScope.cs`): a person limited to
+some towns sees and acts only on tax files of those towns and on everything under them (demands, notices, surcharges,
+arrears, overrides, holds, payments, fees, clearances, reference syncs, SMS) - lists, reports, the overview and the bell
+are filtered; a record outside is 404 (the loaders in `EntityLoaders` check it). Fees and receipts of a registered party
+(no file) are seen by all. Opening a file for a property outside is "not found". Runs: a demand run / surcharge run needs
+every town of its circle (all circles: no scope); the daily job, the year-end surcharge and "prepare the notices due" need
+every town. Runs of a circle with none of the person's towns are hidden.
+
+**Duty rules** (`IDutyRules`, Identity's switches, ON unless a Super Admin switched one off), checked before anything
+changes: `TAX_DEMAND_RUN` (the run's `computed_by` does not approve it), `TAX_RATE_SET` (nobody who drafted any part of the
+set - its `created_by`/`updated_by`, its factors' and rates' `created_by`, any trail line under it - approves it),
+`TAX_PAYMENT_REVERSE` (the payment's `created_by`, else `received_by`, does not reverse it), `TAX_FEE_WAIVE` (the fee's
+`created_by` does not waive it; charging a fee exempt in one go is refused while the rule is on). The makers are the rows'
+own `created_by` (stamped from the token at insert, never changed), so no new column was needed.
 
 ## Layout
 
@@ -70,7 +87,8 @@ Taxation.Application/
   Abstractions/     IPropertyDirectory, IHrmDirectory, INumberSource, IFileStorage
 Taxation.Infrastructure/
   Data/Configuration/  EF mapping (SetupConfiguration, OperationsConfiguration)
-  Data/Interceptors/AuditLogInterceptor.cs   writes audit_log in the same save
+  Data/TaxationAudit.cs   the audit-trail profile (kinds, codes, Under<TaxFile> for every child, skipped bulk rows)
+  Data/TaxationJobs.cs    ISystemJobSource: the daily job (job_run), the last demand run and surcharge run
   Data/Seed/TaxationSeeder.cs   Data/PostgresNumberSource.cs (the schema's sequences)
   Clients/ServiceClients.cs     PropertyServiceClient, HrmServiceClient, ForwardAuthorizationHandler
   Storage/LocalFileStorage      letterhead logos under FileStorage:RootPath
@@ -174,7 +192,7 @@ src/Tests/Taxation.Domain.Tests/  xUnit, tests named after the rules
     (filtered unique index). Cash and bank counter need a receipt no. (MR-00001 is issued when not given; unique). Not
     more than is due; not dated before the file was opened.
   - SMS and reference sync after each payment.
-  - **Reversal** (`POST /payments/{id}/reverse {reason}`, `TAX.APPROVE`): a bounced cheque or a wrong reference. What it
+  - **Reversal** (`POST /payments/{id}/reverse {reason}`, `TAX.REVERSE`, not by who posted it): a bounced cheque or a wrong reference. What it
     settled is owed again (a carried year's share goes back onto the demand it was carried into), the receipt stays,
     marked reversed, and a REVERSAL reference sync is recorded. A fee receipt's fee returns to due. Refunds are not built
     (Accounts).
@@ -184,7 +202,7 @@ src/Tests/Taxation.Domain.Tests/  xUnit, tests named after the rules
   table when there is one), a percentage of a value, or the non-utilization fee of a plan extension (months / 12). A
   file's town and category rows win over general rows; a band's amount is rounded up as the rate set says. A fee is
   paid by a receipt (`POST /fees/{id}/pay`: a fee-kind payment with its MR- receipt, `TAX.POST`), can be charged and paid
-  in one go (`payNow`) or charged exempt with a reason (`TAX.APPROVE`). A paid water connection fee sets the WATER
+  in one go (`payNow`) or charged exempt with a reason (`TAX.WAIVE`; refused while TAX_FEE_WAIVE is on). A paid water connection fee sets the WATER
   facility date. A clearance is issued only when nothing is behind the reference and no fee on the file is due; valid
   `CLEARANCE_VALID_DAYS` counting the day of issue; it keeps the payer's name; used once (`consume`, who and when kept) or
   revoked. A party can be deactivated (no new fee) or, with no fee ever, deleted. A party's CNIC of 13 digits is kept dashed as Property keeps it (`Guard.CnicNtn`), an
@@ -197,7 +215,7 @@ src/Tests/Taxation.Domain.Tests/  xUnit, tests named after the rules
 - **Daily job** (`DailyJob`, run by `DailyJobService` every 15 minutes once the day's hour has come, once a day): applies
   the year-end surcharge to years that are over and prepares the notices that fall due (`NoticeEscalation`). Each run is
   a `job_run` row (RUNNING / DONE / FAILED, counts, summary). `GET /daily-job` lists the recent runs; `POST
-  /daily-job/run` (`TAX.EDIT`) runs it now.
+  /daily-job/run` (`TAX.RUN`, every town) runs it now; each run is one "Ran" line in the trail.
 - **Attention** (`GET /attention`, any signed-in user, only the queues the caller may act on): `runs.computed`,
   `runs.problems`, `notices.pending`, `notices.unserved`, `notices.due`, `demands.overdue`, `demands.defaulted`,
   `yearend.pending`, `surcharge.due`, `clearances.expiring`, `fees.due`, `references.failed`, `references.pending`,
@@ -209,10 +227,20 @@ src/Tests/Taxation.Domain.Tests/  xUnit, tests named after the rules
   largest balances, the in-year surcharge due, the last daily job), `GET /tax-reports/collection`, `/by-head`,
   `/by-circle-town`, `/arrears` (paged), `/collection-by-period?from&to&groupBy=day|month`; `GET /penalties` lists
   surcharges and `GET /penalty-runs/{id}` one run with its surcharges and notices.
-- **Change history** (`audit_log`, `AuditLogInterceptor`): every change to the configuration and to the decisions on
-  files and money (overrides, holds, payments, fees, clearances, parties, opening arrears) is written in the same save,
-  with who, when and the changed values before and after. Bulk run output (demands, lines, notices, syncs, SMS) carries
-  its own who and when instead. `GET /audit-log?entity&entityId&taxFileId&userId&from&to`.
+- **Audit trail** (`audit_entry`, BuildingBlock/Audit, since 2026-10-21; `taxation.audit_log` is read-only, its rows copied
+  in): every record added, changed or removed is written in the same save (`AuditTrailInterceptor`, profile in
+  `TaxationAudit.cs`), one line per changed fact with the values before and after in words; every child of a tax file
+  (Property facts, payers, head values, overrides, holds, agreements and revisions, arrears, demands, notices, surcharges,
+  payments, fees, clearances) hangs under the file. Decisions add their own line with the reason (`IAuditTrail.Record`):
+  Approved (demand run, rate set), Cancelled (run, notice - reason required), Reversed, Waived, Issued (notice, clearance),
+  Revoked (reason required), Used (names who used a clearance: Taxation or Property), Recategorised / Exempted / Closed /
+  Reopened (file), Corrected / Taken back (opening arrears, overrides, holds); a notice's printed-field edits are a line
+  each with the reason. Runs write in `Quietly()` and record one Ran line (demand run worked out, surcharge run, year-end,
+  issue pending notices, prepare due notices, the daily job - "System · Daily job" when scheduled). Not written line by
+  line: demand_line, payment_allocation, psid_sync, sms_message, job_run. Endpoints: `GET /tax-files/{id}/history`
+  (TAX.VIEW, scoped) and `GET /rate-sets/{id}/history` (any tax reader), shaped like `GET /audit`; `GET /audit`,
+  `/audit/kinds` (IAM_AUDIT.VIEW) and `POST /audit/exports` (TAX.EXPORT) from `MapAuditTrail`; `GET /system/status`
+  (IAM_SYSTEM.VIEW). The old `GET /audit-log` is gone.
 
 ## Seeds (`TaxationSeeder`)
 
@@ -246,7 +274,9 @@ src/Tests/Taxation.Domain.Tests/  xUnit, tests named after the rules
 ## Database and migrations
 
 - The service migrates and seeds on startup (`Database:AutoMigrate`, on in Development).
-- Migrations: `InitialTaxationSchema`; `TaxationFixesOct2026` (xmin tokens, payment kind / payer / reversal columns,
+- Migrations: `InitialTaxationSchema`; `AuditTrail` (2026-10-21: `audit_entry` with append-only triggers, the audit_log rows
+  copied into it line by line, audit_log made read-only by a trigger, `tax_file_id` on notice / penalty /
+  agreement_step_revision backfilled from their demand or agreement); `TaxationFixesOct2026` (xmin tokens, payment kind / payer / reversal columns,
   fee receipt link, clearance payer / consumed-by / revoked-by, `charged_on_notice`, `base_fiscal_year`, penalty rule
   versions keyed by code and date, filtered unique transaction ref / receipt no., `job_run`, `audit_log`; data: the
   circles' officer posts became TO staff rows, `base_fiscal_year` = the FY of each set's start, `MAN-` refs cleared,

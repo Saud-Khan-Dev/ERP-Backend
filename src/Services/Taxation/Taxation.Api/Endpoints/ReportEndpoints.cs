@@ -1,4 +1,5 @@
-/// The overview, the reports, the bell's queues, the daily job and the change history.
+/// The overview, the reports, the bell's queues and the daily job. (The change history is the audit trail: GET /audit for
+/// Administration, GET /tax-files/{id}/history and GET /rate-sets/{id}/history for a record.)
 public class ReportEndpoints : ICarterModule
 {
   public void AddRoutes(IEndpointRouteBuilder app)
@@ -64,22 +65,15 @@ public class ReportEndpoints : ICarterModule
       .WithTags("Overview").WithName("GetDailyJob").Produces<DailyJobStatusDto>()
       .WithSummary("Daily Job").WithDescription("The schedule (hour, Pakistan time) and the last 30 runs: year-end surcharges applied, notices prepared, or the error.");
 
-    app.MapPost("/daily-job/run", async (DailyJob job, ICurrentUser user, CancellationToken cancellationToken) => Results.Ok(await job.RunAsync(user.UserId, cancellationToken)))
-      .RequirePermission(PermissionCatalog.Tax.Edit)
+    app.MapPost("/daily-job/run", async (DailyJob job, ICurrentUser user, IApplicationDbContext context, CancellationToken cancellationToken) =>
+        context.EveryTownRefusal("run the daily job") is { } refusal
+          ? Results.BadRequest(new { message = refusal })
+          : Results.Ok(await job.RunAsync(user.UserId, cancellationToken)))
+      .RequirePermission(PermissionCatalog.Tax.Run)
       .WithTags("Overview").WithName("RunDailyJob").Produces<JobRunDto>()
       .WithSummary("Run Daily Job Now")
-      .WithDescription("The year-end surcharges of years that are over, then the notices due for their next stage (pending confirmation). Safe to run any time.");
-
-    // ---- change history ----
-
-    app.MapGet("/audit-log", async (int? pageIndex, int? pageSize, string? entity, Guid? entityId, Guid? taxFileId, Guid? userId, DateOnly? from, DateOnly? to,
-        ISender sender) =>
-        (await sender.Send(new GetAuditLogQuery(QueryParsing.Page(pageIndex, pageSize), entity, entityId, taxFileId, userId, from, to))).ToOk())
-      .RequireAnyPermission(TaxAuthorization.AnyTaxReader)
-      .WithTags("Overview").WithName("GetAuditLog").Produces<GetAuditLogQueryResult>()
-      .WithSummary("Change History")
-      .WithDescription("Who changed what and when, newest first: entity = the table (tax_head, rate_set, tax_file, payment ...), entityId, taxFileId (a file's history), "
-        + "userId, from / to (Pakistan time). oldValues / newValues: the changed fields as JSON.");
+      .WithDescription("The year-end surcharges of years that are over, then the notices due for their next stage (pending confirmation). Safe to run any time. "
+        + "TAX.RUN, and every town (it reaches every file).");
   }
 }
 

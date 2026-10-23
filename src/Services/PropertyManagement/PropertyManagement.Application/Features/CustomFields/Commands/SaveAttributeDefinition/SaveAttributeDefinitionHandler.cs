@@ -13,7 +13,7 @@ public class SaveAttributeDefinitionHandler(IApplicationDbContext context, Maste
     if (command.Id is { } id)
     {
       var definition = await context.LoadAttributeDefinitionAsync(id, cancellationToken);
-      var inUse = await context.PropertyAttributeValues.AsNoTracking()
+      var inUse = await context.PropertyAttributeValues.IgnoreQueryFilters().AsNoTracking()
           .Where(v => v.AttributeDefinitionId == definition.Id && v.Value != null)
           .Select(v => v.Value!)
           .ToListAsync(cancellationToken);

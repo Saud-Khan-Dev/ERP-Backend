@@ -13,7 +13,7 @@ public class ActivityEndpoints : ICarterModule
 
       return Results.Ok(new GetAdminActivityResponse(result.Value!.Activities));
     })
-      .RequirePermission(PermissionCatalog.Security.View)
+      .RequirePermission(PermissionCatalog.Audit.View)
       .WithName("GetAdminActivity")
       .Produces<GetAdminActivityResponse>(StatusCodes.Status200OK)
       .WithSummary("Get Administration Activity")

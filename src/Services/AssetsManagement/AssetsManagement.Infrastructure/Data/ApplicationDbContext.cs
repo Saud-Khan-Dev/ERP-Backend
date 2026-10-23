@@ -53,6 +53,9 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
   public DbSet<AssetValuation> AssetValuations => Set<AssetValuation>();
   public DbSet<AssetDisposal> AssetDisposals => Set<AssetDisposal>();
 
+  // ---- audit trail (append-only) ----
+  public DbSet<AuditRecord> AuditRecords => Set<AuditRecord>();
+
   public async Task<IUnitOfWorkTransaction> BeginTransactionAsync(CancellationToken cancellationToken) =>
       new UnitOfWorkTransaction(await Database.BeginTransactionAsync(cancellationToken));
 
@@ -66,6 +69,7 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
   {
     builder.HasDefaultSchema(Schema);
     builder.HasPostgresExtension("ltree");
+    builder.AddAuditTrail();
     // the AST-000001 series: numbers handed out by the database, so two registrations never get the same tag
     builder.HasSequence<long>("asset_tag_seq", Schema).StartsAt(1).IncrementsBy(1);
     builder.ApplyConfigurationsFromAssembly(Assembly.GetExecutingAssembly());

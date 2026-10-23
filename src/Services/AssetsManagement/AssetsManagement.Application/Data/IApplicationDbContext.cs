@@ -47,6 +47,9 @@ public interface IApplicationDbContext
   DbSet<AssetValuation> AssetValuations { get; }
   DbSet<AssetDisposal> AssetDisposals { get; }
 
+  // ---- audit trail (append-only: add lines through IAuditTrail, never change them) ----
+  DbSet<AuditRecord> AuditRecords { get; }
+
   Task<int> SaveChangesAsync(CancellationToken cancellationToken);
 
   /// One database transaction around several saves - for changes whose order matters to a unique index (a schedule

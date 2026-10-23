@@ -9,6 +9,8 @@ public class UserConfiguration : EntityConfiguration<User, UserId>
 
     builder.ToTable("users");
 
+    builder.Property(x => x.AccessStamp).IsRequired().HasDefaultValue(1L);
+
     builder.HasKey(x => x.Id);
     builder.Property(x => x.Id).HasConversion(id => id.Value, dbId => UserId.Of(dbId));
 

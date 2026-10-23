@@ -9,7 +9,8 @@ public sealed record ComputeDemandRunCommand(int FiscalYear, Guid? CircleId) : I
 /// their SMS, and every reference is re-synced.
 public sealed record ApproveDemandRunCommand(Guid Id) : ICommand<Result<ApproveRunResult>>;
 
-public sealed record CancelDemandRunCommand(Guid Id) : ICommand<Result<UpdatedResult>>;
+/// Cancels a computed run (its drafts are removed), with the reason the trail keeps.
+public sealed record CancelDemandRunCommand(Guid Id, string Reason) : ICommand<Result<UpdatedResult>>;
 
 public sealed record GetDemandRunsQueryResult(IReadOnlyList<DemandRunDto> Runs);
 public sealed record GetDemandRunsQuery(int? FiscalYear, DemandRunStatus? Status = null) : IQuery<Result<GetDemandRunsQueryResult>>;
@@ -32,6 +33,11 @@ public class ComputeDemandRunCommandValidator : AbstractValidator<ComputeDemandR
   public ComputeDemandRunCommandValidator() => RuleFor(x => x.FiscalYear).InclusiveBetween(FiscalYear.Earliest, FiscalYear.Latest);
 }
 
+public class CancelDemandRunCommandValidator : AbstractValidator<CancelDemandRunCommand>
+{
+  public CancelDemandRunCommandValidator() => RuleFor(x => x.Reason).NotEmpty().WithMessage("Say why the run is cancelled.").MaximumLength(300);
+}
+
 public class DemandRunHandlers(
   IApplicationDbContext context,
   TaxSetup setup,
@@ -42,6 +48,8 @@ public class DemandRunHandlers(
   Messenger messenger,
   PenaltyService penalties,
   ICurrentUser currentUser,
+  IDutyRules dutyRules,
+  IAuditTrail audit,
   IClock clock) :
   ICommandHandler<ComputeDemandRunCommand, Result<ComputeRunResult>>,
   ICommandHandler<ApproveDemandRunCommand, Result<ApproveRunResult>>,
@@ -54,6 +62,11 @@ public class DemandRunHandlers(
   {
     var fy = command.FiscalYear;
     TaxCircleId? circleId = command.CircleId is { } c ? (await context.LoadCircleAsync(c, cancellationToken)).Id : null;
+    if (await context.CircleRefusalAsync(circleId, "work out a demand run", cancellationToken) is { } outside)
+      return Result<ComputeRunResult>.Failure(outside);
+
+    // a run writes its drafts in bulk: the trail gets one line for the run, not one per demand
+    using var quiet = audit.Quietly();
 
     // the year-end surcharges of earlier years first, so the balances carried are final
     await penalties.ApplyYearEndAsync(cancellationToken);
@@ -126,6 +139,7 @@ public class DemandRunHandlers(
     }
 
     run.Record(computed, total, problems.Count, latestSync == DateTime.MinValue ? clock.UtcNow : latestSync);
+    audit.Record(AuditActions.Ran, run, $"Worked out {computed} demand(s), {Rupees.Text(total)}; {skipped} already issued, {held} on hold, {problems.Count} could not be worked out");
     await context.SaveChangesAsync(cancellationToken);
     return Result<ComputeRunResult>.Success(new(run.Id.Value, computed, skipped, held, total, problems));
   }
@@ -134,8 +148,17 @@ public class DemandRunHandlers(
   {
     var run = await context.LoadRunAsync(command.Id, cancellationToken);
     var actor = Guard.Actor(currentUser.UserId, "approve a demand run");
+    if (run.Status != DemandRunStatus.Computed)
+      return Result<ApproveRunResult>.Failure($"The run is {EnumText.Words(run.Status).ToLowerInvariant()}; only a computed run can be approved.");
+    if (await context.CircleRefusalAsync(run.CircleId, "approve this demand run", cancellationToken) is { } outside)
+      return Result<ApproveRunResult>.Failure(outside);
+    if (await dutyRules.SeparationRefusalAsync(DutyRules.TaxDemandRun, run.ComputedBy, actor, "approve a demand run you worked out", cancellationToken) is { } refusal)
+      return Result<ApproveRunResult>.Failure(refusal);
     var today = clock.Today;
     run.Approve(actor, clock.UtcNow, today);
+
+    // the demands, notices and syncs it issues are written as one line for the approval
+    using var quiet = audit.Quietly();
 
     var yearEnds = await penalties.ApplyYearEndAsync(cancellationToken);
     var settings = await setup.SettingsAsync(today, cancellationToken);
@@ -178,6 +201,8 @@ public class DemandRunHandlers(
       await messenger.SyncAsync(file, PsidSyncReason.AnnualDemand, demand.Id, null, demand.DueDate, $"FY {FiscalYear.Label(demand.FiscalYear)} demand {demand.DemandNo}", cancellationToken);
     }
 
+    audit.Record("Approved", run, $"Issued {drafts.Count} demand(s), {Rupees.Text(drafts.Sum(d => d.Balance))} behind the references; {noticesIssued} first notice(s), "
+      + $"{held.Count} file(s) on hold without a notice, {stale.Count} changed since worked out; year-end surcharges applied first: {yearEnds}");
     await context.SaveChangesAsync(cancellationToken);
     return Result<ApproveRunResult>.Success(new(run.Id.Value, drafts.Count, noticesIssued, sms, yearEnds, held, stale, credits));
   }
@@ -229,25 +254,37 @@ public class DemandRunHandlers(
   public async Task<Result<UpdatedResult>> Handle(CancelDemandRunCommand command, CancellationToken cancellationToken)
   {
     var run = await context.LoadRunAsync(command.Id, cancellationToken);
+    if (await context.CircleRefusalAsync(run.CircleId, "cancel this demand run", cancellationToken) is { } outside)
+      return Result<UpdatedResult>.Failure(outside);
     run.Cancel();
+    using var quiet = audit.Quietly();
     var drafts = await context.DemandsWithItems().Where(d => d.RunId == run.Id && d.Status == DemandStatus.Draft).ToListAsync(cancellationToken);
     foreach (var draft in drafts)
       context.Demands.Remove(draft);
+    audit.Record("Cancelled", run, $"{command.Reason.Trim()} ({drafts.Count} draft demand(s) removed)");
     await context.SaveChangesAsync(cancellationToken);
     return CommandResults.Updated();
   }
 
   public async Task<Result<GetDemandRunsQueryResult>> Handle(GetDemandRunsQuery query, CancellationToken cancellationToken)
   {
-    var runs = await context.DemandRuns.AsNoTracking().Where(r => (query.FiscalYear == null || r.FiscalYear == query.FiscalYear) && (query.Status == null || r.Status == query.Status))
-      .OrderByDescending(r => r.ComputedAt).ToListAsync(cancellationToken);
+    var rows = context.DemandRuns.AsNoTracking().Where(r => (query.FiscalYear == null || r.FiscalYear == query.FiscalYear) && (query.Status == null || r.Status == query.Status));
+    if (context.TownScope is { } towns)
+    {
+      // a person limited to some towns sees the runs of every circle and of the circles holding their towns
+      var circles = context.CircleTowns.Where(t => towns.Contains(t.TownId)).Select(t => t.CircleId);
+      rows = rows.Where(r => r.CircleId == null || circles.Contains(r.CircleId));
+    }
+    var runs = await rows.OrderByDescending(r => r.ComputedAt).ToListAsync(cancellationToken);
     return Result<GetDemandRunsQueryResult>.Success(new(await DtosAsync(runs, cancellationToken)));
   }
 
   public async Task<Result<GetDemandRunQueryResult>> Handle(GetDemandRunQuery query, CancellationToken cancellationToken)
   {
     var run = await context.LoadRunAsync(query.Id, cancellationToken);
-    var demands = await context.Demands.AsNoTracking().Where(d => d.RunId == run.Id).OrderBy(d => d.DemandNo).ToListAsync(cancellationToken);
+    if (!await context.SeesRunOfAsync(run.CircleId, cancellationToken))
+      throw new DemandRunNotFoundException($"Demand run {query.Id} was not found.");
+    var demands = await context.Demands.AsNoTracking().InScope(context).Where(d => d.RunId == run.Id).OrderBy(d => d.DemandNo).ToListAsync(cancellationToken);
     var fileIds = demands.Select(d => d.TaxFileId).ToList();
     var files = await context.TaxFiles.AsNoTracking().Where(f => fileIds.Contains(f.Id)).ToDictionaryAsync(f => f.Id, f => (f.FileNo, f.Psid), cancellationToken);
     return Result<GetDemandRunQueryResult>.Success(new((await DtosAsync([run], cancellationToken))[0],
@@ -257,8 +294,11 @@ public class DemandRunHandlers(
   public async Task<Result<GetDemandRunProblemsQueryResult>> Handle(GetDemandRunProblemsQuery query, CancellationToken cancellationToken)
   {
     var run = await context.LoadRunAsync(query.Id, cancellationToken);
+    if (!await context.SeesRunOfAsync(run.CircleId, cancellationToken))
+      throw new DemandRunNotFoundException($"Demand run {query.Id} was not found.");
     var fy = run.FiscalYear;
-    var files = await context.TaxFilesWithDetails().Where(f => f.TaxStatus == TaxStatus.Active && (run.CircleId == null || f.CircleId == run.CircleId)).ToListAsync(cancellationToken);
+    var files = (await context.TaxFilesWithDetails().Where(f => f.TaxStatus == TaxStatus.Active && (run.CircleId == null || f.CircleId == run.CircleId)).ToListAsync(cancellationToken))
+      .Where(context.Covers).ToList();
     var fileIds = files.Select(f => f.Id).ToList();
     var withDemand = (await context.Demands.Where(d => d.FiscalYear == fy && fileIds.Contains(d.TaxFileId) && d.Status != DemandStatus.Cancelled)
       .Select(d => d.TaxFileId).ToListAsync(cancellationToken)).ToHashSet();
@@ -267,7 +307,7 @@ public class DemandRunHandlers(
     var staleRows = new List<RunProblemDto>();
     if (run.Status == DemandRunStatus.Computed)
     {
-      var drafts = await context.DemandsWithItems().AsNoTracking().Where(d => d.RunId == run.Id && d.Status == DemandStatus.Draft).ToListAsync(cancellationToken);
+      var drafts = await context.DemandsWithItems().AsNoTracking().InScope(context).Where(d => d.RunId == run.Id && d.Status == DemandStatus.Draft).ToListAsync(cancellationToken);
       staleRows = await StaleAsync(run, drafts, files.ToDictionary(f => f.Id), cancellationToken);
     }
     if (missing.Count == 0)
@@ -314,7 +354,7 @@ public class DemandQueryHandlers(IApplicationDbContext context, TaxSetup setup, 
 {
   public async Task<Result<GetDemandsQueryResult>> Handle(GetDemandsQuery query, CancellationToken cancellationToken)
   {
-    var rows = context.Demands.AsNoTracking().Where(d => d.Status != DemandStatus.Cancelled);
+    var rows = context.Demands.AsNoTracking().InScope(context).Where(d => d.Status != DemandStatus.Cancelled);
     if (query.FiscalYear is { } fy)
       rows = rows.Where(d => d.FiscalYear == fy);
     if (query.Status is { } status)

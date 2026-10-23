@@ -131,7 +131,7 @@ public class TaxFileEndpoints : ICarterModule
       .WithSummary("Revise Step Mid-term").WithDescription("15 % revised to 7 % after two years: past years keep the old step.");
 
     files.MapPost("/{id:guid}/opening-arrears", async (Guid id, OpeningArrearsRequest r, ISender sender) => (await sender.Send(new AddOpeningArrearsCommand(id, r.Rows))).ToOk())
-      .RequirePermission(PermissionCatalog.Tax.Create)
+      .RequirePermission(PermissionCatalog.Tax.Adjust)
       .WithName("AddOpeningArrears").Produces<UpdatedResult>().ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Add Opening Arrears")
       .WithDescription("The old register's arrears by head code (and year when known), before the file's first demand: paid against the reference until "
@@ -144,7 +144,7 @@ public class TaxFileEndpoints : ICarterModule
 
     files.MapPut("/{id:guid}/opening-arrears/{arrearsId:guid}", async (Guid id, Guid arrearsId, CorrectOpeningArrearsRequest r, ISender sender) =>
         (await sender.Send(new CorrectOpeningArrearsCommand(id, arrearsId, r.Row, r.Reason))).ToOk())
-      .RequirePermission(PermissionCatalog.Tax.Edit)
+      .RequirePermission(PermissionCatalog.Tax.Adjust)
       .WithName("CorrectOpeningArrears").Produces<UpdatedResult>().ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Correct Opening Arrears").WithDescription("Not billed yet; never below what was already paid on it. The reason is kept.");
 
@@ -158,6 +158,15 @@ public class TaxFileEndpoints : ICarterModule
       .RequirePermission(PermissionCatalog.Tax.View)
       .WithName("PreviewAssessment").Produces<AssessmentDto>().ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Preview Assessment").WithDescription("The year's computation for the file (fiscalYear 2026 = FY 2026-27), with how each head was worked out. Nothing is saved.");
+
+    files.MapGet("/{id:guid}/history", async (Guid id, HttpRequest request, ISender sender) =>
+        (await sender.Send(new GetTaxFileHistoryQuery(id, AuditQueries.FilterFrom(request)))).ToOk())
+      .RequirePermission(PermissionCatalog.Tax.View)
+      .WithName("GetTaxFileHistory").Produces<AuditResponse>().ProducesProblem(StatusCodes.Status404NotFound)
+      .WithSummary("Tax File History")
+      .WithDescription("The audit trail of the file and everything under it (Property facts, payers, overrides, holds, agreements, opening arrears, demands, notices, "
+        + "surcharges, payments, fees, clearances), newest first: who, when, the fact before and after, and the reason of a decision. Filters as GET /audit: "
+        + "before (continue), from / to, actorId, action, kind, search, pageSize.");
 
     files.MapGet("/{id:guid}/demands", async (Guid id, ISender sender) => (await sender.Send(new GetFileDemandsQuery(id))).ToOk())
       .RequirePermission(PermissionCatalog.Tax.View)

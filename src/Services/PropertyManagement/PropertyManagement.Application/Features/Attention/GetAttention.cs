@@ -7,13 +7,13 @@ using Microsoft.EntityFrameworkCore;
 ///   transfers.unregistered  [APPROVE] transfers approved before approval registered them (legacy APPROVED); "Register now"
 ///   agreements.ending       [EDIT]    leases, rentals, contracts and allotments in force that end within 60 days; nextDue
 ///   agreements.overdue      [EDIT]    the same, in force although their end date has passed; oldest = the earliest end
-///   hearings.week           [EDIT]    open court cases with a hearing in the next 7 days; nextDue
-///   legal.next-passed       [EDIT]    open court cases whose next hearing passed, open violations whose comply-by date passed
-///   appeals.overdue         [APPROVE] open departmental appeals past their s.32 decision date
-///   encroachments.open      [EDIT]    unresolved encroachments; oldest = the earliest detection
+///   hearings.week           [LEGAL.EDIT] open court cases with a hearing in the next 7 days; nextDue
+///   legal.next-passed       [LEGAL.EDIT] open court cases whose next hearing passed, open violations whose comply-by date passed
+///   appeals.overdue         [LEGAL.APPROVE] open departmental appeals past their s.32 decision date
+///   encroachments.open      [LEGAL.EDIT] unresolved encroachments; oldest = the earliest detection
 ///   plans.waiting           [APPROVE] building plans waiting for a decision (submitted, under review ...)
 ///   allotments.unconfirmed  [APPROVE] allotments in force whose allottee has not been confirmed as owner
-///   fines.unpaid            [EDIT]    fines imposed and not yet paid or waived (also sent for recovery), open violation or not
+///   fines.unpaid            [EDIT or WAIVE] fines imposed and not yet paid or waived (also sent for recovery), open violation or not
 public sealed record GetAttentionQuery : IQuery<Result<AttentionResponse>>;
 
 public class GetAttentionHandler(IApplicationDbContext context, ICurrentUser currentUser)
@@ -29,6 +29,9 @@ public class GetAttentionHandler(IApplicationDbContext context, ICurrentUser cur
     var active = context.Properties.AsNoTracking().Where(p => p.IsActive).Select(p => p.Id);
     var canApprove = currentUser.HasPermission(PermissionCatalog.Property.Approve);
     var canEdit = currentUser.HasPermission(PermissionCatalog.Property.Edit);
+    var canWorkLegal = currentUser.HasPermission(PermissionCatalog.PropertyLegal.Edit);
+    var canDecideLegal = currentUser.HasPermission(PermissionCatalog.PropertyLegal.Approve);
+    var canSettleFines = canEdit || currentUser.HasPermission(PermissionCatalog.Property.Waive);
 
     if (canApprove)
     {
@@ -53,7 +56,7 @@ public class GetAttentionHandler(IApplicationDbContext context, ICurrentUser cur
     var closedCase = await OpenMatters.ClosedCaseStatusIdsAsync(context, cancellationToken);
     var openCases = context.Litigations.AsNoTracking().Where(l => active.Contains(l.PropertyId)).Where(OpenMatters.CaseIsOpen(closedCase));
 
-    if (canEdit)
+    if (canWorkLegal)
     {
       var week = today.AddDays(HearingsWithinDays);
       var hearings = openCases.Where(l => l.NextHearingDate != null && l.NextHearingDate >= today && l.NextHearingDate <= week);
@@ -70,7 +73,7 @@ public class GetAttentionHandler(IApplicationDbContext context, ICurrentUser cur
         await passedHearings.CountAsync(cancellationToken) + await passedNotices.CountAsync(cancellationToken), Day(firstPassed)));
     }
 
-    if (canApprove)
+    if (canDecideLegal)
     {
       var overdueAppeals = context.Appeals.AsNoTracking()
         .Where(a => active.Contains(a.PropertyId)).Where(OpenMatters.AppealIsOpen).Where(a => a.DecisionDueDate < today);
@@ -78,7 +81,7 @@ public class GetAttentionHandler(IApplicationDbContext context, ICurrentUser cur
         Day(await overdueAppeals.MinAsync(a => (DateOnly?)a.DecisionDueDate, cancellationToken))));
     }
 
-    if (canEdit)
+    if (canWorkLegal)
     {
       var encroachments = context.Encroachments.AsNoTracking().Where(e => active.Contains(e.PropertyId)).Where(OpenMatters.EncroachmentIsOpen);
       items.Add(new AttentionItemDto("encroachments.open", await encroachments.CountAsync(cancellationToken),
@@ -101,7 +104,7 @@ public class GetAttentionHandler(IApplicationDbContext context, ICurrentUser cur
         Day(await unconfirmed.MinAsync(a => (DateOnly?)(a.EffectiveDate ?? a.AllotmentDate), cancellationToken))));
     }
 
-    if (canEdit)
+    if (canSettleFines)
     {
       var fines = context.Violations.AsNoTracking()
         .Where(v => active.Contains(v.PropertyId) && (v.FineStatus == FineStatus.Imposed || v.FineStatus == FineStatus.RecoveryAsArrears));

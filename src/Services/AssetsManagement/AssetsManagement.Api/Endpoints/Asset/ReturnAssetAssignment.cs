@@ -14,7 +14,7 @@ public class ReturnAssetAssignment : ICarterModule
 
       return Results.Ok(result.Value.Adapt<ReturnAssetAssignmentResponse>());
     })
-      .RequirePermission(PermissionCatalog.Assets.Edit)
+      .RequirePermission(PermissionCatalog.Assets.Assign)
 
       .WithName("ReturnAssetAssignment")
       .Produces<ReturnAssetAssignmentResponse>(StatusCodes.Status200OK)

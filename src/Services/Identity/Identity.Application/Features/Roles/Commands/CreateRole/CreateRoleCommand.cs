@@ -1,7 +1,8 @@
 using FluentValidation;
 
 /// `Code` is optional: left out, the server makes one from the name (an administrator never needs to see codes).
-public sealed record RoleInput(string? Code, string Name, string? Description = null, IReadOnlyList<Guid>? PermissionIds = null);
+/// `ConflictReason`: why the new role may hold two duties that should be kept apart (needed only then).
+public sealed record RoleInput(string? Code, string Name, string? Description = null, IReadOnlyList<Guid>? PermissionIds = null, string? ConflictReason = null);
 
 public sealed record CreateRoleCommandResult(Guid Id);
 

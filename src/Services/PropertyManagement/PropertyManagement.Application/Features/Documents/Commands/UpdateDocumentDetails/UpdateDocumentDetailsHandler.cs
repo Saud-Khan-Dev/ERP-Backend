@@ -4,6 +4,7 @@ public class UpdateDocumentDetailsHandler(IApplicationDbContext context, MasterL
   public async Task<Result<UpdateDocumentDetailsCommandResult>> Handle(UpdateDocumentDetailsCommand command, CancellationToken cancellationToken)
   {
     var document = await context.LoadDocumentAsync(command.Id, cancellationToken);
+    documents.EnsureMaySee(document);
     var documentType = await masters.GetAsync<DocumentType>(command.DocumentTypeId, cancellationToken);
 
     document.UpdateDetails(documentType, command.Details.ToDetails());

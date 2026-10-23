@@ -1,5 +1,5 @@
 /// The operation half of a MODULE.ACTION permission code. A closed set, so codes cannot drift
-/// between EDIT and UPDATE.
+/// between EDIT and UPDATE. Mirrors PermissionCatalog.Actions.
 public enum PermissionAction
 {
   View,
@@ -9,5 +9,15 @@ public enum PermissionAction
   Approve,
   Post,
   Assign,
-  Revoke
+  Revoke,
+  Export,
+  Run,
+  Reset,
+  Disable,
+  Override,
+  Reverse,
+  Waive,
+  Issue,
+  Adjust,
+  Pay
 }

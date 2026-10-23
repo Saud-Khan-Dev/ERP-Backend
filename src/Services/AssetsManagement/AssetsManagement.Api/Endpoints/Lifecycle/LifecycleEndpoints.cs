@@ -27,11 +27,11 @@ public class LifecycleEndpoints : ICarterModule
       var result = await sender.Send(new RunDepreciationCommand(request.Until, request.Post, request.AssetId));
       return Results.Ok(result.Value);
     })
-      .RequireAnyPermission(PermissionCatalog.AssetFinance.Create, PermissionCatalog.AssetFinance.Post)
+      .RequireAnyFinance(PermissionCatalog.AssetFinance.Run, PermissionCatalog.AssetFinance.Create)
 
       .WithName("RunDepreciation")
       .Produces<RunDepreciationCommandResult>(StatusCodes.Status200OK)
       .WithSummary("Run Depreciation")
-      .WithDescription("Period-end run over every active schedule: writes the missing monthly entries up to `until` (default: the end of last month) and, with post=true (needs ASSET_FINANCE.POST), posts every draft month that has ended by then. assetId limits the run to one asset. Schedules that cannot run are listed in `skipped`.");
+      .WithDescription("Period-end run over every active schedule (ASSET_FINANCE.RUN): writes the missing monthly entries up to `until` (default today) and, with post=true (needs ASSET_FINANCE.POST), posts every draft month that has ended by then. assetId limits the run to one asset, which ASSET_FINANCE.CREATE also allows. Schedules that cannot run are listed in `skipped`. The audit trail keeps one Ran line per run.");
   }
 }

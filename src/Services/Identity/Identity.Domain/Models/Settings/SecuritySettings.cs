@@ -23,6 +23,12 @@ public class SecuritySettings : Aggregate<SecuritySettingsId>
   public const int MaxAccessTokenMinutes = 240;      // four hours
   public const int MinRefreshTokenDays = 1;
   public const int MaxRefreshTokenDays = 90;
+  public const int MinDormantDays = 30;
+  public const int MaxDormantDays = 365;
+  public const int MinReviewMonths = 1;
+  public const int MaxReviewMonths = 24;
+  public const int MinSignInMaxDays = 1;
+  public const int MaxSignInMaxDays = 90;
 
   // ---- password policy ----
   public int PasswordMinimumLength { get; private set; }
@@ -38,6 +44,29 @@ public class SecuritySettings : Aggregate<SecuritySettingsId>
   // ---- session lifetimes ----
   public int AccessTokenMinutes { get; private set; }
   public int RefreshTokenDays { get; private set; }
+
+  // ---- oversight ----
+  /// An account nobody signed in to for this many days is "dormant": listed on the Overview and in the bell.
+  public int DormantAfterDays { get; private set; } = 90;
+  /// Switch dormant accounts off automatically (a Super Administrator's account is never switched off this way).
+  public bool SwitchOffDormant { get; private set; }
+  /// How often every account's access is reviewed and signed off (Administration › Access review).
+  public int AccessReviewMonths { get; private set; } = 6;
+  /// The longest one sign-in lasts, however often it is renewed: after it, the password is asked again.
+  public int SignInMaxDays { get; private set; } = 30;
+
+  public void UpdateOversight(int dormantAfterDays, bool switchOffDormant, int accessReviewMonths, int signInMaxDays)
+  {
+    Between(dormantAfterDays, MinDormantDays, MaxDormantDays, "The days before an unused account counts as dormant");
+    Between(accessReviewMonths, MinReviewMonths, MaxReviewMonths, "The months between access reviews");
+    Between(signInMaxDays, MinSignInMaxDays, MaxSignInMaxDays, "The longest sign-in in days");
+    DormantAfterDays = dormantAfterDays;
+    SwitchOffDormant = switchOffDormant;
+    AccessReviewMonths = accessReviewMonths;
+    SignInMaxDays = signInMaxDays;
+  }
+
+  public TimeSpan SignInMaxLifetime => TimeSpan.FromDays(SignInMaxDays);
 
   public PasswordPolicyOptions PasswordPolicy => new(
       PasswordMinimumLength,

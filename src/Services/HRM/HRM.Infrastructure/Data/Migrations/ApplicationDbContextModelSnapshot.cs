@@ -40,7 +40,7 @@ namespace HRM.Infrastructure.Data.Migrations
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "hrms", "installment_status_enum", new[] { "paid", "partial", "pending", "waived" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "hrms", "leave_status_enum", new[] { "approved", "cancelled", "pending", "rejected" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "hrms", "leave_txn_type_enum", new[] { "accrual", "adjustment", "carry_forward", "encashment", "lapse", "opening", "usage", "usage_reversal" });
-            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "hrms", "loan_status_enum", new[] { "active", "cancelled", "completed", "written_off" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "hrms", "loan_status_enum", new[] { "active", "cancelled", "completed", "pending", "written_off" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "hrms", "marital_status_enum", new[] { "divorced", "married", "single", "widowed" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "hrms", "payment_method_enum", new[] { "bank_transfer", "cash", "cheque" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "hrms", "payment_status_enum", new[] { "failed", "pending", "processed", "returned" });
@@ -147,6 +147,123 @@ namespace HRM.Infrastructure.Data.Migrations
 
                             t.HasCheckConstraint("attendance_record_working_hours_check", "working_hours IS NULL OR working_hours BETWEEN 0 AND 24");
                         });
+                });
+
+            modelBuilder.Entity("AuditRecord", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("varchar")
+                        .HasColumnName("action");
+
+                    b.Property<Guid?>("ActorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("actor_id");
+
+                    b.Property<string>("ActorName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("varchar")
+                        .HasColumnName("actor_name");
+
+                    b.Property<DateTimeOffset>("At")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("at");
+
+                    b.Property<string>("Detail")
+                        .HasColumnType("varchar")
+                        .HasColumnName("detail");
+
+                    b.Property<string>("Device")
+                        .HasMaxLength(300)
+                        .HasColumnType("varchar")
+                        .HasColumnName("device");
+
+                    b.Property<string>("Field")
+                        .HasMaxLength(150)
+                        .HasColumnType("varchar")
+                        .HasColumnName("field");
+
+                    b.Property<string>("IpAddress")
+                        .HasMaxLength(64)
+                        .HasColumnType("varchar")
+                        .HasColumnName("ip_address");
+
+                    b.Property<string>("Module")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("varchar")
+                        .HasColumnName("module");
+
+                    b.Property<string>("NewValue")
+                        .HasMaxLength(4000)
+                        .HasColumnType("varchar")
+                        .HasColumnName("new_value");
+
+                    b.Property<string>("OldValue")
+                        .HasMaxLength(4000)
+                        .HasColumnType("varchar")
+                        .HasColumnName("old_value");
+
+                    b.Property<string>("ParentCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar")
+                        .HasColumnName("parent_code");
+
+                    b.Property<Guid?>("ParentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("parent_id");
+
+                    b.Property<string>("RecordCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar")
+                        .HasColumnName("record_code");
+
+                    b.Property<Guid?>("RecordId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("record_id");
+
+                    b.Property<string>("RecordKind")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar")
+                        .HasColumnName("record_kind");
+
+                    b.Property<string>("RecordLabel")
+                        .HasMaxLength(300)
+                        .HasColumnType("varchar")
+                        .HasColumnName("record_label");
+
+                    b.Property<string>("RequestId")
+                        .HasMaxLength(100)
+                        .HasColumnType("varchar")
+                        .HasColumnName("request_id");
+
+                    b.HasKey("Id")
+                        .HasName("audit_entry_pkey");
+
+                    b.HasIndex("At")
+                        .HasDatabaseName("ix_audit_entry_at");
+
+                    b.HasIndex("ActorId", "At")
+                        .HasDatabaseName("ix_audit_entry_actor_id_at");
+
+                    b.HasIndex("ParentId", "At")
+                        .HasDatabaseName("ix_audit_entry_parent_id_at");
+
+                    b.HasIndex("RecordId", "At")
+                        .HasDatabaseName("ix_audit_entry_record_id_at");
+
+                    b.HasIndex("RecordKind", "At")
+                        .HasDatabaseName("ix_audit_entry_record_kind_at");
+
+                    b.ToTable("audit_entry", "hrms");
                 });
 
             modelBuilder.Entity("Designation", b =>
@@ -2213,6 +2330,10 @@ namespace HRM.Infrastructure.Data.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at")
                         .HasDefaultValueSql("now()");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
 
                     b.Property<decimal>("Days")
                         .HasPrecision(6, 2)

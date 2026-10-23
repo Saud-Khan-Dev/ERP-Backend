@@ -16,12 +16,14 @@ public sealed record AttributeFilter(string Code, AttributeFilterOperator Operat
 
 public sealed record GetAssetsQueryResult(PaginatedResult<AssetListItemDto> Assets);
 
-/// Disposed = an asset with a disposal record. Include (default) lists both, Exclude hides them, Only lists just them.
+/// Disposed = an asset with an approved disposal. Include (default) lists both, Exclude hides them, Only lists just them;
+/// Proposed lists the assets whose disposal waits for approval (they are not disposed yet).
 public enum DisposalFilter
 {
   Include,
   Exclude,
-  Only
+  Only,
+  Proposed
 }
 
 /// Out = on a loan that has not come back; Overdue = and its return date has passed.

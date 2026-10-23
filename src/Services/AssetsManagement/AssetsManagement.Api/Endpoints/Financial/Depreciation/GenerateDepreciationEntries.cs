@@ -14,7 +14,7 @@ public class GenerateDepreciationEntries : ICarterModule
 
       return Results.Ok(new GenerateDepreciationEntriesResponse(result.Value!.Entries));
     })
-      .RequirePermission(PermissionCatalog.AssetFinance.Create)
+      .RequireFinance(PermissionCatalog.AssetFinance.Create)
 
       .WithName("GenerateDepreciationEntries")
       .Produces<GenerateDepreciationEntriesResponse>(StatusCodes.Status200OK)

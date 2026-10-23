@@ -4,7 +4,9 @@ public sealed record SetRolePermissionsCommandResult(int AddedCount, int Removed
 
 /// Makes a role carry exactly these permissions - the role editor's save. What it adds and removes is
 /// recorded as ONE activity line, so a review reads "changed what Director can do: +… -…".
-public sealed record SetRolePermissionsCommand(Guid RoleId, IReadOnlyList<Guid> PermissionIds)
+/// `ConflictReason`: why the role may hold two duties that should be kept apart (PermissionCatalog.Conflicts) - needed only
+/// when the save puts a new such pair together; recorded in the activity trail.
+public sealed record SetRolePermissionsCommand(Guid RoleId, IReadOnlyList<Guid> PermissionIds, string? ConflictReason = null)
   : ICommand<Result<SetRolePermissionsCommandResult>>;
 
 public class SetRolePermissionsCommandValidator : AbstractValidator<SetRolePermissionsCommand>

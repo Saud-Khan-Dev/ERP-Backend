@@ -13,7 +13,7 @@ public class PostDepreciationEntry : ICarterModule
 
       return Results.Ok(result.Value.Adapt<PostDepreciationEntryResponse>());
     })
-      .RequirePermission(PermissionCatalog.AssetFinance.Post)
+      .RequireFinance(PermissionCatalog.AssetFinance.Post)
 
       .WithName("PostDepreciationEntry")
       .Produces<PostDepreciationEntryResponse>(StatusCodes.Status200OK)

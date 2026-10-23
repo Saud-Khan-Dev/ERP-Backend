@@ -12,6 +12,9 @@ public interface ICurrentUser
 
   string? Username { get; }
 
+  /// The person's display name from the token ("Ayesha Noor"); null on an older token.
+  string? DisplayName { get; }
+
   string? Email { get; }
 
   /// HRM employee reference, when the account is linked to one.
@@ -24,6 +27,18 @@ public interface ICurrentUser
 
   /// Session the access token was issued for.
   Guid? SessionId { get; }
+
+  /// The account's access stamp the token was issued with (see ErpClaimTypes.AccessStamp).
+  long? AccessStamp { get; }
+
+  /// The towns the person works on; null means every town (no restriction).
+  IReadOnlySet<Guid>? TownScope { get; }
+
+  /// The HRM offices (organization units, sub-units included) the person works on; null means every office.
+  IReadOnlySet<Guid>? OfficeScope { get; }
+
+  /// Holds the built-in Super Administrator role.
+  bool IsSuperAdmin { get; }
 
   /// Officer authorized by the DG (GDA Act s.2(a-i)): may impose fines (s.28) and file complaints (s.30).
   bool IsAuthorizedOfficer { get; }

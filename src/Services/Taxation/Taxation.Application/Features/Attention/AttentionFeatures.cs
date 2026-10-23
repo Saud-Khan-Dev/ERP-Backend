@@ -19,7 +19,16 @@ public class AttentionHandlers(IApplicationDbContext context, TaxSetup setup, Du
     // ---- demand runs ----
     if (Can(PermissionCatalog.Tax.Approve) || Can(PermissionCatalog.Tax.Create))
     {
-      var computed = await context.DemandRuns.AsNoTracking().Where(r => r.Status == DemandRunStatus.Computed)
+      var runs = context.DemandRuns.AsNoTracking().Where(r => r.Status == DemandRunStatus.Computed);
+      if (context.TownScope is { } towns)
+      {
+        // the runs the person can approve: of circles all of whose towns are theirs
+        var circles = await context.CircleTowns.AsNoTracking().Where(t => t.EffectiveTo == null || t.EffectiveTo >= today).Select(t => new { t.CircleId, t.TownId })
+          .ToListAsync(cancellationToken);
+        var theirs = circles.GroupBy(t => t.CircleId).Where(g => g.All(t => towns.Contains(t.TownId))).Select(g => g.Key).ToList();
+        runs = runs.Where(r => r.CircleId != null && theirs.Contains(r.CircleId));
+      }
+      var computed = await runs
         .Select(r => new { r.ComputedAt, r.ExceptionCount }).ToListAsync(cancellationToken);
       if (Can(PermissionCatalog.Tax.Approve))
         items.Add(new("runs.computed", computed.Count, At(computed.Min(r => r.ComputedAt))));
@@ -30,24 +39,33 @@ public class AttentionHandlers(IApplicationDbContext context, TaxSetup setup, Du
     // ---- notices and demands ----
     if (Can(PermissionCatalog.Tax.Edit))
     {
-      var pending = await context.Notices.Where(n => n.Status == NoticeStatus.Pending).GroupBy(n => 1)
+      var pending = await context.Notices.InScope(context).Where(n => n.Status == NoticeStatus.Pending).GroupBy(n => 1)
         .Select(g => new { Count = g.Count(), Oldest = g.Min(n => n.CreatedAt) }).FirstOrDefaultAsync(cancellationToken);
       items.Add(new("notices.pending", pending?.Count ?? 0, At(pending?.Oldest)));
 
-      var unserved = await context.Notices.Where(n => n.Status == NoticeStatus.Issued && n.ServedOn == null).GroupBy(n => 1)
+      var unserved = await context.Notices.InScope(context).Where(n => n.Status == NoticeStatus.Issued && n.ServedOn == null).GroupBy(n => 1)
         .Select(g => new { Count = g.Count(), Oldest = g.Min(n => n.IssueDate) }).FirstOrDefaultAsync(cancellationToken);
       items.Add(new("notices.unserved", unserved?.Count ?? 0, Day(unserved?.Oldest)));
 
-      items.Add(new("notices.due", (await dueNotices.DemandsAsync(today, cancellationToken)).Count));
 
-      var overdue = await context.Demands.Where(d => (d.Status == DemandStatus.Issued || d.Status == DemandStatus.PartPaid || d.Status == DemandStatus.Defaulted)
+      var overdue = await context.Demands.InScope(context).Where(d => (d.Status == DemandStatus.Issued || d.Status == DemandStatus.PartPaid || d.Status == DemandStatus.Defaulted)
           && d.Balance > 0 && d.DueDate != null && d.DueDate < today).GroupBy(d => 1)
         .Select(g => new { Count = g.Count(), Oldest = g.Min(d => d.DueDate) }).FirstOrDefaultAsync(cancellationToken);
       items.Add(new("demands.overdue", overdue?.Count ?? 0, Day(overdue?.Oldest)));
 
-      items.Add(new("demands.defaulted", await context.Demands.CountAsync(d => d.Status == DemandStatus.Defaulted && d.Balance > 0, cancellationToken)));
+      items.Add(new("demands.defaulted", await context.Demands.InScope(context).CountAsync(d => d.Status == DemandStatus.Defaulted && d.Balance > 0, cancellationToken)));
 
-      var yearEnd = await context.Demands.Where(d => (d.Status == DemandStatus.Issued || d.Status == DemandStatus.PartPaid) && d.Balance > 0 && d.FiscalYear < fy)
+    }
+
+    // the bulk runs: notices due for their next stage, and years that are over still waiting for the year-end surcharge
+    if (Can(PermissionCatalog.Tax.Run))
+    {
+      var due = await dueNotices.DemandsAsync(today, cancellationToken);
+      if (context.IsLimited())
+        due = await context.Demands.InScope(context).Where(d => due.Contains(d.Id)).Select(d => d.Id).ToListAsync(cancellationToken);
+      items.Add(new("notices.due", due.Count));
+
+      var yearEnd = await context.Demands.InScope(context).Where(d => (d.Status == DemandStatus.Issued || d.Status == DemandStatus.PartPaid) && d.Balance > 0 && d.FiscalYear < fy)
         .GroupBy(d => 1).Select(g => new { Count = g.Count(), Oldest = g.Min(d => d.FiscalYear) }).FirstOrDefaultAsync(cancellationToken);
       items.Add(new("yearend.pending", yearEnd?.Count ?? 0, yearEnd is null ? null : Day(FiscalYear.End(yearEnd.Oldest).AddDays(1))));
     }
@@ -63,7 +81,7 @@ public class AttentionHandlers(IApplicationDbContext context, TaxSetup setup, Du
         from = rule.EligibleFrom(fy, null, (await setup.SettingsAsync(today, cancellationToken)).DueDate(fy));
         if (from <= today)
         {
-          var candidates = context.Demands.Where(d => d.FiscalYear == fy && (d.Status == DemandStatus.Issued || d.Status == DemandStatus.PartPaid) && d.Balance > 0
+          var candidates = context.Demands.InScope(context).Where(d => d.FiscalYear == fy && (d.Status == DemandStatus.Issued || d.Status == DemandStatus.PartPaid) && d.Balance > 0
             && !d.Penalties.Any(p => p.Kind == PenaltyKind.IntraYear));
           if (rule.TargetSet == TargetSet.DefaultersOnly)
             candidates = candidates.Where(d => d.ArrearsRows.Any(a => a.Outstanding > 0));
@@ -71,15 +89,18 @@ public class AttentionHandlers(IApplicationDbContext context, TaxSetup setup, Du
         }
       }
       items.Add(new("surcharge.due", count, count > 0 ? Day(from) : null));
+    }
 
-      var expiring = await context.Clearances.Where(c => c.Status == ClearanceStatus.Issued && c.ValidUntil >= today && c.ValidUntil <= today.AddDays(7))
+    if (Can(PermissionCatalog.Tax.Issue))
+    {
+      var expiring = await context.Clearances.InScope(context).Where(c => c.Status == ClearanceStatus.Issued && c.ValidUntil >= today && c.ValidUntil <= today.AddDays(7))
         .GroupBy(c => 1).Select(g => new { Count = g.Count(), Next = g.Min(c => c.ValidUntil) }).FirstOrDefaultAsync(cancellationToken);
       items.Add(new("clearances.expiring", expiring?.Count ?? 0, null, expiring?.Next));
     }
 
     if (Can(PermissionCatalog.Tax.Post))
     {
-      var fees = await context.Fees.Where(f => f.Status == FeeStatus.Due).GroupBy(f => 1)
+      var fees = await context.Fees.InScope(context).Where(f => f.Status == FeeStatus.Due).GroupBy(f => 1)
         .Select(g => new { Count = g.Count(), Oldest = g.Min(f => f.CreatedAt) }).FirstOrDefaultAsync(cancellationToken);
       items.Add(new("fees.due", fees?.Count ?? 0, At(fees?.Oldest)));
     }
@@ -87,13 +108,13 @@ public class AttentionHandlers(IApplicationDbContext context, TaxSetup setup, Du
     // ---- links out and setup (the Section's administrators) ----
     if (Can(PermissionCatalog.TaxSetup.View))
     {
-      var failed = await context.PsidSyncs.Where(s => s.Status == PsidSyncStatus.Failed).GroupBy(s => 1)
+      var failed = await context.PsidSyncs.InScope(context).Where(s => s.Status == PsidSyncStatus.Failed).GroupBy(s => 1)
         .Select(g => new { Count = g.Count(), Oldest = g.Min(s => s.SyncedAt) }).FirstOrDefaultAsync(cancellationToken);
       items.Add(new("references.failed", failed?.Count ?? 0, At(failed?.Oldest)));
-      var waiting = await context.PsidSyncs.Where(s => s.Status == PsidSyncStatus.Pending).GroupBy(s => 1)
+      var waiting = await context.PsidSyncs.InScope(context).Where(s => s.Status == PsidSyncStatus.Pending).GroupBy(s => 1)
         .Select(g => new { Count = g.Count(), Oldest = g.Min(s => s.SyncedAt) }).FirstOrDefaultAsync(cancellationToken);
       items.Add(new("references.pending", waiting?.Count ?? 0, At(waiting?.Oldest)));
-      var queued = await context.SmsMessages.Where(m => m.DeliveryStatus == SmsStatus.Queued).GroupBy(m => 1)
+      var queued = await context.SmsMessages.InScope(context).Where(m => m.DeliveryStatus == SmsStatus.Queued).GroupBy(m => 1)
         .Select(g => new { Count = g.Count(), Oldest = g.Min(m => m.QueuedAt) }).FirstOrDefaultAsync(cancellationToken);
       items.Add(new("sms.queued", queued?.Count ?? 0, At(queued?.Oldest)));
     }

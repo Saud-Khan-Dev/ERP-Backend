@@ -10,4 +10,16 @@ public interface IActivityRecorder
       string? targetLabel,
       string? detail,
       CancellationToken cancellationToken);
+
+  /// A line whose actor is not the caller: the person themself when the request carries no token (sign-out, a stolen
+  /// refresh token noticed), or the system (`actorId` null, `systemActor` "Startup", "Daily check").
+  Task RecordAsAsync(
+      UserId? actorId,
+      string? systemActor,
+      ActivityAction action,
+      ActivityTargetType targetType,
+      Guid? targetId,
+      string? targetLabel,
+      string? detail,
+      CancellationToken cancellationToken);
 }

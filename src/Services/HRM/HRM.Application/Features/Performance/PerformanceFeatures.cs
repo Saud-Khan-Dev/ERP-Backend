@@ -131,7 +131,7 @@ public class FinalizeReviewCommandValidator : AbstractValidator<FinalizeReviewCo
   }
 }
 
-public class PerformanceHandlers(IApplicationDbContext context, HrLookup lookup, IClock clock, ICurrentUser currentUser, HrmSettings settings) :
+public class PerformanceHandlers(IApplicationDbContext context, HrLookup lookup, IClock clock, ICurrentUser currentUser, HrmSettings settings, EmployeeScope scope, DutyGuard duty, IAuditTrail audit, OfficeScope offices) :
   ICommandHandler<SetCountersigningOfficerCommand, Result<UpdatedResult>>,
   ICommandHandler<CountersignReviewCommand, Result<UpdatedResult>>,
   IQueryHandler<GetPerformancePeriodsQuery, Result<GetPerformancePeriodsQueryResult>>,
@@ -280,6 +280,12 @@ public class PerformanceHandlers(IApplicationDbContext context, HrLookup lookup,
       .ToListAsync(cancellationToken);
 
     var regular = seats.Where(s => s.AssignmentType == AssignmentType.Regular).ToList();
+    // a person limited to some offices opens the reviews of the employees there (their evaluators may sit anywhere)
+    if (scope.Employees is { } inScope)
+    {
+      var mine = inScope.ToHashSet();
+      regular = regular.Where(s => mine.Contains(s.EmployeeId)).ToList();
+    }
     if (command.EmployeeIds is { Count: > 0 })
     {
       var only = command.EmployeeIds.Select(EmployeeId.Of).ToHashSet();
@@ -291,7 +297,9 @@ public class PerformanceHandlers(IApplicationDbContext context, HrLookup lookup,
     var holders = seats.GroupBy(s => s.PostId).ToDictionary(g => g.Key, g => g.OrderBy(s => s.AssignmentType).ToList());
 
     var employeeIds = regular.Select(s => s.EmployeeId).Concat(seats.Select(s => s.EmployeeId)).Distinct().ToList();
-    var employees = await context.Employees.AsNoTracking().Where(e => employeeIds.Contains(e.Id)).ToDictionaryAsync(e => e.Id, cancellationToken);
+    Dictionary<EmployeeId, Employee> employees;
+    using (scope.Unrestricted())
+      employees = await context.Employees.AsNoTracking().Where(e => employeeIds.Contains(e.Id)).ToDictionaryAsync(e => e.Id, cancellationToken);
     var postCodes = await lookup.PostCodesAsync(regular.Select(s => s.ReportingPostId), cancellationToken);
 
     var problems = new List<string>();
@@ -338,7 +346,13 @@ public class PerformanceHandlers(IApplicationDbContext context, HrLookup lookup,
       }
     }
 
-    await context.SaveChangesAsync(cancellationToken);
+    using (audit.Quietly())
+    {
+      var where = offices.IsLimited ? $" · offices: {await offices.OfficeNamesAsync(cancellationToken)}" : "";
+      audit.Record(AuditActions.Ran, HrmRuns.StartReviews, period.Id.Value, null, period.Name, period.Id.Value,
+        detail: $"{created} review(s) opened · {alreadyOpen} already open · {problems.Count} need an evaluator{where}");
+      await context.SaveChangesAsync(cancellationToken);
+    }
     return Result<StartPerformanceReviewsResult>.Success(new(created, alreadyOpen, problems));
   }
 
@@ -403,6 +417,7 @@ public class PerformanceHandlers(IApplicationDbContext context, HrLookup lookup,
   public async Task<Result<UpdatedResult>> Handle(CountersignReviewCommand command, CancellationToken cancellationToken)
   {
     var review = await LoadAsync(command.Id, command.Actor, cancellationToken);
+    await duty.EnsureNotOwnRecordAsync(review.EmployeeId, "countersign a performance review", review, cancellationToken);
     review.Countersign(command.Actor is { } actor ? EmployeeId.Of(actor.EmployeeId) : null, command.Remarks, command.PerformanceGrade, clock.UtcNow);
     await context.SaveChangesAsync(cancellationToken);
     return CommandResults.Updated();
@@ -411,7 +426,9 @@ public class PerformanceHandlers(IApplicationDbContext context, HrLookup lookup,
   public async Task<Result<UpdatedResult>> Handle(FinalizeReviewCommand command, CancellationToken cancellationToken)
   {
     var review = await context.LoadReviewAsync(command.Id, cancellationToken);
+    await duty.EnsureNotOwnRecordAsync(review.EmployeeId, "finalize a performance review", review, cancellationToken);
     review.FinalizeReview(command.FinalScore, command.PerformanceGrade, settings.ScoreWeights, command.Reason, currentUser.UserId, clock.UtcNow);
+    audit.Record(HrmVerbs.Finalized, review, string.IsNullOrWhiteSpace(command.Reason) ? null : $"Reason: {command.Reason}");
     await context.SaveChangesAsync(cancellationToken);
     return CommandResults.Updated();
   }

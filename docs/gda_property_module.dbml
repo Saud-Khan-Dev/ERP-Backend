@@ -1005,6 +1005,7 @@ Table building_plan {
 // attribute_definition.applies_to_property_type_ids uuid[] and applies_to_classification_ids uuid[]
 // (empty = every property).
 // ---------------------------------------------------------------------
+// Read-only since 2026-10-22: its lines were copied into audit_entry (migration AuditTrail) and nothing writes it now.
 Table property_change {
   id               uuid [pk]
   property_id      uuid [note: 'set for a property''s records']
@@ -1023,6 +1024,40 @@ Table property_change {
   indexes {
     (property_id, changed_at)
     (owner_id, changed_at)
+  }
+}
+
+// The shared audit trail (BuildingBlock Audit): one line per record added / field changed / record removed, and the
+// module's verbs (Approved, Rejected, Cancelled, Waived, Decided, Downloaded, Exported ...). Append-only: triggers refuse
+// UPDATE, DELETE and TRUNCATE (AuditTrailSql.Protect). parent_id = the property (every record on it) or the owner
+// (contacts, addresses, own papers), so a History tab lists by it.
+Table audit_entry {
+  id            uuid [pk]
+  at            timestamptz [not null]
+  module        varchar(60) [not null, note: 'Property']
+  actor_id      uuid [note: 'Identity user; null = the system']
+  actor_name    varchar(200) [not null, note: 'display name as it stood, or "System · ..."']
+  action        varchar(40) [not null]
+  record_kind   varchar(100) [not null, note: 'Property, Owner, Transfer, Court case ...']
+  record_id     uuid
+  record_code   varchar(100)
+  record_label  varchar(300)
+  parent_id     uuid
+  parent_code   varchar(100)
+  field         varchar(150)
+  old_value     varchar(4000)
+  new_value     varchar(4000)
+  detail        text
+  ip_address    varchar(64)
+  device        varchar(300)
+  request_id    varchar(100)
+
+  indexes {
+    at
+    (parent_id, at)
+    (record_id, at)
+    (actor_id, at)
+    (record_kind, at)
   }
 }
 

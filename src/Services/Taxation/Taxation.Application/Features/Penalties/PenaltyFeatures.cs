@@ -123,6 +123,7 @@ public class PenaltyHandlers(
   NoticeComposer notices,
   Messenger messenger,
   ICurrentUser currentUser,
+  IAuditTrail audit,
   IClock clock) :
   IQueryHandler<PreviewSurchargeQuery, Result<SurchargePreviewDto>>,
   ICommandHandler<ApplySurchargeCommand, Result<ApplySurchargeResult>>,
@@ -134,7 +135,7 @@ public class PenaltyHandlers(
   public async Task<Result<SurchargePreviewDto>> Handle(PreviewSurchargeQuery query, CancellationToken cancellationToken)
   {
     var (_, rows) = await penalties.CandidatesAsync(await TermsAsync(query.Terms, cancellationToken), cancellationToken);
-    var list = rows.Select(r => new SurchargeCandidateDto(r.Candidate.Demand.Id.Value, r.Candidate.Demand.DemandNo, r.File.Id.Value, r.File.FileNo,
+    var list = rows.Where(r => context.Covers(r.File)).Select(r => new SurchargeCandidateDto(r.Candidate.Demand.Id.Value, r.Candidate.Demand.DemandNo, r.File.Id.Value, r.File.FileNo,
       r.Candidate.Demand.PayerName, r.Candidate.Demand.Balance, r.Candidate.ArrearsOwed, r.Candidate.Base, r.Candidate.Amount, r.Candidate.Eligible,
       r.Candidate.Reason, r.Candidate.SurchargedOn)).ToList();
     return Result<SurchargePreviewDto>.Success(new(list.Count(c => c.Eligible), list.Where(c => c.Eligible).Sum(c => c.Amount), list));
@@ -143,12 +144,16 @@ public class PenaltyHandlers(
   public async Task<Result<ApplySurchargeResult>> Handle(ApplySurchargeCommand command, CancellationToken cancellationToken)
   {
     var terms = await TermsAsync(command.Terms, cancellationToken);
+    if (await context.CircleRefusalAsync(terms.CircleId, "apply a surcharge run", cancellationToken) is { } outside)
+      return Result<ApplySurchargeResult>.Failure(outside);
     var (rule, rows) = await penalties.CandidatesAsync(terms, cancellationToken);
     var eligible = rows.Where(r => r.Candidate.Eligible).ToList();
     if (eligible.Count == 0)
       return Result<ApplySurchargeResult>.Failure($"No property is eligible for this surcharge on {clock.Today:yyyy-MM-dd}.");
 
     var actor = Guard.Actor(currentUser.UserId, "approve a surcharge run");
+    // the surcharges, notices and syncs it writes are one line for the run
+    using var quiet = audit.Quietly();
     var run = PenaltyRun.Create(PenaltyRunId.New(), rule, terms, clock.Today, actor);
     context.PenaltyRuns.Add(run);
 
@@ -163,6 +168,8 @@ public class PenaltyHandlers(
       await messenger.SyncAsync(file, PsidSyncReason.PenaltyAddUp, demand.Id, penalty.Id, null, $"surcharge run of {clock.Today:yyyy-MM-dd}", cancellationToken);
     }
     run.Record(eligible.Count, eligible.Sum(e => e.Candidate.Amount));
+    audit.Record(AuditActions.Ran, run, $"Surcharged {eligible.Count} demand(s), {Rupees.Text(run.TotalAmount ?? 0)} ({(terms.RateType == PenaltyRateType.Percent ? Rupees.Number(terms.Rate) + " %" : Rupees.Text(terms.Rate))}, "
+      + $"{EnumText.Words(terms.TargetSet).ToLowerInvariant()}); {prepared} surcharge notice(s) prepared");
 
     await context.SaveChangesAsync(cancellationToken);
     return Result<ApplySurchargeResult>.Success(new(run.Id.Value, eligible.Count, run.TotalAmount ?? 0, prepared));
@@ -170,15 +177,25 @@ public class PenaltyHandlers(
 
   public async Task<Result<ApplyYearEndResult>> Handle(ApplyYearEndCommand command, CancellationToken cancellationToken)
   {
+    if (context.EveryTownRefusal("apply the year-end surcharge") is { } outside)
+      return Result<ApplyYearEndResult>.Failure(outside);
+    using var quiet = audit.Quietly();
     var count = await penalties.ApplyYearEndAsync(cancellationToken);
+    audit.Record(AuditActions.Ran, "Year-end surcharge", null, clock.Today.ToString("yyyy-MM-dd"), null, null, null,
+      $"Applied to {count} demand(s) of years that are over");
     await context.SaveChangesAsync(cancellationToken);
     return Result<ApplyYearEndResult>.Success(new(count));
   }
 
   public async Task<Result<GetPenaltyRunsQueryResult>> Handle(GetPenaltyRunsQuery query, CancellationToken cancellationToken)
   {
-    var runs = await context.PenaltyRuns.AsNoTracking().Where(r => query.FiscalYear == null || r.FiscalYear == query.FiscalYear)
-      .OrderByDescending(r => r.RunOn).ThenByDescending(r => r.CreatedAt).ToListAsync(cancellationToken);
+    var rows = context.PenaltyRuns.AsNoTracking().Where(r => query.FiscalYear == null || r.FiscalYear == query.FiscalYear);
+    if (context.TownScope is { } towns)
+    {
+      var circles = context.CircleTowns.Where(t => towns.Contains(t.TownId)).Select(t => t.CircleId);
+      rows = rows.Where(r => r.CircleId == null || circles.Contains(r.CircleId));
+    }
+    var runs = await rows.OrderByDescending(r => r.RunOn).ThenByDescending(r => r.CreatedAt).ToListAsync(cancellationToken);
     return Result<GetPenaltyRunsQueryResult>.Success(new(await RunDtosAsync(runs, cancellationToken)));
   }
 
@@ -187,8 +204,10 @@ public class PenaltyHandlers(
     var id = PenaltyRunId.Of(query.Id);
     var run = await context.PenaltyRuns.AsNoTracking().FirstOrDefaultAsync(r => r.Id == id, cancellationToken)
       ?? throw new DemandRunNotFoundException($"Surcharge run {query.Id} was not found.");
-    var penalties = await PenaltyRowsAsync(context.Penalties.AsNoTracking().Where(p => p.RunId == id), 0, 5000, cancellationToken);
-    var notices = await context.Notices.AsNoTracking().Where(n => n.PenaltyRunId == id).OrderBy(n => n.NoticeNo).ToListAsync(cancellationToken);
+    if (!await context.SeesRunOfAsync(run.CircleId, cancellationToken))
+      throw new DemandRunNotFoundException($"Surcharge run {query.Id} was not found.");
+    var penalties = await PenaltyRowsAsync(context.Penalties.AsNoTracking().InScope(context).Where(p => p.RunId == id), 0, 5000, cancellationToken);
+    var notices = await context.Notices.AsNoTracking().InScope(context).Where(n => n.PenaltyRunId == id).OrderBy(n => n.NoticeNo).ToListAsync(cancellationToken);
     var demandIds = notices.Select(n => n.DemandId).Distinct().ToList();
     var demands = await context.Demands.AsNoTracking().Where(d => demandIds.Contains(d.Id)).ToDictionaryAsync(d => d.Id, cancellationToken);
     var fileIds = demands.Values.Select(d => d.TaxFileId).Distinct().ToList();
@@ -199,7 +218,7 @@ public class PenaltyHandlers(
 
   public async Task<Result<GetPenaltiesQueryResult>> Handle(GetPenaltiesQuery query, CancellationToken cancellationToken)
   {
-    var rows = context.Penalties.AsNoTracking();
+    var rows = context.Penalties.AsNoTracking().InScope(context);
     if (query.Kind is { } kind)
       rows = rows.Where(p => p.Kind == kind);
     if (query.RunId is { } run)

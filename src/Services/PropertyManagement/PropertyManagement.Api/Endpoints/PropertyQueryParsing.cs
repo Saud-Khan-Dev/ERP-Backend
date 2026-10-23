@@ -62,11 +62,16 @@ public sealed record PropertyFilterParameters(
   [FromQuery(Name = "measured")] bool? Measured = null,
   [FromQuery(Name = "hasBoundary")] bool? HasBoundary = null,
   [FromQuery(Name = "sortBy")] string? SortBy = null,
-  [FromQuery(Name = "sortDir")] string? SortDir = null)
+  [FromQuery(Name = "sortDir")] string? SortDir = null,
+  [FromServices] ICurrentUser? CurrentUser = null)
 {
   /// sortBy=registered without a sortDir lists the newest first; every other sort is ascending by default.
   public GetPropertiesQuery ToQuery(PaginationRequest pagination)
   {
+    // which properties have an open encroachment or court case is legal information (PROPERTY_LEGAL.VIEW)
+    if ((HasOpenEncroachment is not null || HasOpenCase is not null) && CurrentUser?.HasPermission(PermissionCatalog.PropertyLegal.View) != true)
+      throw new PermissionRequiredException("Filtering by open encroachments or court cases needs Legal: view (PROPERTY_LEGAL.VIEW).");
+
     var sort = PropertyQueryParsing.ParseEnum<PropertySort>(SortBy, "sortBy") ?? PropertySort.Code;
     return new(
       pagination, Search, TownId, PropertyTypeId, PropertyStatusId, PropertyClassificationId, IncludeInactive ?? false,

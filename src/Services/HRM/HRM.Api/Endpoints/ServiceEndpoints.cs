@@ -140,7 +140,7 @@ public class ServiceEndpoints : ICarterModule
 
     app.MapGet("/employees/{id:guid}/hr-action-options", async (Guid id, DateOnly? date, ISender sender) =>
         (await sender.Send(new GetHrActionOptionsQuery(id, date))).ToOk())
-      .RequirePermission(PermissionCatalog.Hr.Create)
+      .RequireAnyPermission(PermissionCatalog.Hr.Create, PermissionCatalog.Hr.Edit)
       .WithTags("HR Actions")
       .WithName("GetHrActionOptions")
       .Produces<HrActionOptionsDto>()
@@ -151,7 +151,7 @@ public class ServiceEndpoints : ICarterModule
     app.MapGet("/employees/{id:guid}/hr-action-posts", async (Guid id, string actionType, DateOnly date, string? search, ISender sender) =>
         (await sender.Send(new GetHrActionPostsQuery(id, QueryParsing.ParseEnum<HrActionType>(actionType, "actionType")
           ?? throw new BadHttpRequestException("actionType is required."), date, search))).ToOk())
-      .RequirePermission(PermissionCatalog.Hr.Create)
+      .RequireAnyPermission(PermissionCatalog.Hr.Create, PermissionCatalog.Hr.Edit)
       .WithTags("HR Actions")
       .WithName("GetHrActionPosts")
       .Produces<IReadOnlyList<HrActionPostDto>>()
@@ -161,7 +161,7 @@ public class ServiceEndpoints : ICarterModule
 
     app.MapPost("/employees/{id:guid}/hr-actions/preview", async (Guid id, HrActionInput action, ISender sender) =>
         (await sender.Send(new PreviewHrActionQuery(id, action))).ToOk())
-      .RequirePermission(PermissionCatalog.Hr.Create)
+      .RequireAnyPermission(PermissionCatalog.Hr.Create, PermissionCatalog.Hr.Edit)
       .WithTags("HR Actions")
       .WithName("PreviewHrAction")
       .Produces<HrActionPreviewDto>()
@@ -214,8 +214,8 @@ public class ServiceEndpoints : ICarterModule
       .Produces<UpdatedResult>()
       .ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Approve HR Action")
-      .WithDescription("The approver is the signed-in officer, and may not be the one who drafted or submitted it (Hrm:RequireSeparateApprover, which follows "
-        + "Payroll:RequireSeparateApprover unless set). The rules are checked again. approvalRequestId optionally points at a platform approval workflow item.");
+      .WithDescription("The approver is the signed-in officer, and may not be the one who drafted or submitted it (duty rule HR_ACTION), and nobody approves an action about "
+        + "themselves (OWN_RECORD). The rules are checked again. approvalRequestId optionally points at a platform approval workflow item.");
 
     actions.MapPost("/{id:guid}/apply", async (Guid id, HrActionApplyInput? input, ISender sender) =>
         (await sender.Send(new ApplyHrActionCommand(id, input ?? HrActionApplyInput.None))).ToOk())

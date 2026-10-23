@@ -105,26 +105,49 @@ X.Api             Carter endpoint modules, exception handler, Program.cs, Depend
   - Validation helpers `.Code()` and `.Name()`.
 - **BuildingBlock.Authentication**:
   - `AddErpAuthentication(config)`: JWT bearer with `MapInboundClaims = false`, which is required. It throws at
-    startup if `Jwt:SigningKey` is empty.
-  - `.RequirePermission(PermissionCatalog.X.Y)` on routes or groups.
-  - `ICurrentUser`: `UserId`, `Username`, `Roles`, `Permissions`, `IsAuthorizedOfficer`, `HasPermission()`, `AuditName`.
+    startup if `Jwt:SigningKey` is empty. It also: checks every token with Identity (`TokenState.cs`, 30 s cache; a
+    stale token is a 401 with `X-Token-Stale`), makes `.RequireAuthorization()` refuse a temporary-password token,
+    honours `X-Forwarded-For` from private networks (an `IStartupFilter`), registers `ICurrentUser`, `IRequestOrigin`
+    (address, device, request id) and `IDutyRules`. Services find Identity through `Services:IdentityBaseUrl`
+    (compose: `http://identity-api:8080`).
+  - `.RequirePermission(PermissionCatalog.X.Y)` / `.RequireAnyPermission(...)` / `.RequireSignedIn()` on routes or groups.
+  - `ICurrentUser`: `UserId`, `Username`, `DisplayName`, `Roles`, `Permissions`, `IsSuperAdmin`, `IsAuthorizedOfficer`,
+    `EmployeeId`, `TownScope` / `OfficeScope` (null = everywhere), `HasPermission()`, `AuditName` (display name first).
   - `ErpClaimTypes`.
-  - **`PermissionCatalog`**: every permission code in the ERP. The Identity seeder reads it.
+  - **`PermissionCatalog`**: every permission code in the ERP, what a split code inherits, and the pairs that should not
+    meet. The Identity seeder reads it.
+  - **`DutyRules`**: the maker-checker rules (OWN_RECORD, HR_ACTION, PAYROLL_APPROVE, PAYROLL_PAY, LOAN_SANCTION,
+    LEAVE_APPROVE, PROPERTY_TRANSFER, TAX_DEMAND_RUN, TAX_RATE_SET, TAX_PAYMENT_REVERSE, TAX_FEE_WAIVE, ASSET_DISPOSAL,
+    DEPRECIATION_REVERSE). `await dutyRules.SeparationRefusalAsync(code, makerId, currentUser.UserId, "approve a ...")`
+    returns the refusal in words or null. ON unless a Super Administrator switched it off in Administration.
+- **BuildingBlock** (references Authentication; EF Core Relational + ASP.NET):
+  - **Audit trail** (`Audit/`): one append-only `audit_entry` table per service. `services.AddAuditTrail<TContext>("Module
+    words", profile => ...)` + the `AuditTrailInterceptor` on the DbContext + `modelBuilder.AddAuditTrail()` + a
+    migration ending with `AuditTrailSql.Protect(schema)` (triggers refuse UPDATE/DELETE/TRUNCATE). Every entity added,
+    changed (one line per field, old → new, foreign keys as names) or removed (every fact kept) is recorded with who,
+    when, address, device and request id; `IAuditTrail.Record(...)` for verbs ("Approved", "Reversed", "Ran"),
+    `Quietly()` around bulk runs, `ActingAs("Daily job")` for the system. `app.MapAuditTrail<TContext>(exportCodes)`
+    serves `GET /audit`, `GET /audit/kinds` (IAM_AUDIT.VIEW) and `POST /audit/exports` (a screen's CSV or print noted).
+    Kept forever (government records).
+  - **System page** (`System/`): `app.MapSystemStatus<TContext>("Module words")` = `GET /system/status`
+    (IAM_SYSTEM.VIEW): database, pending migrations, audit lines, jobs from `ISystemJobSource`.
 - **BuildingBlock.Messaging**: an empty placeholder; there is no message bus yet.
 
 ## Security model in one paragraph
 
-Identity issues short-lived HS256 JWTs (15 min by default, editable in the security settings) carrying `perm` claims (effective permissions) and `role`, `sub`, `username`
-and `ao` (authorized officer). Every service validates them with the **same** `Jwt:SigningKey`, issuer `erp-identity`
-and audience `erp`. The dev key is in each `appsettings.Development.json`, and compose passes `Jwt__SigningKey`.
-Endpoints declare `.RequirePermission(...)` (or `.RequireAnyPermission(...)`, or `.RequireSignedIn()` for directory
-reads and `GET /attention`, which refuses a temporary-password token). **Every service enforces this, Assets included
-(since 2026-10-20).** A token for an account still holding a temporary password carries `pwd=change` and no permissions.
-Taxation calls Property with the caller's own token, so its users need `PROPERTY.VIEW` too; Taxation (the signing officer)
-and Assets (custodians and departments) read HRM's staff directory (`/directory/*`, any signed-in person) with the caller's
-token. A token for an account linked to an HRM employee also carries `emp` (the employee id), which HRM's self-service
-(`/me`) uses. Every service answers `GET /attention` (BuildingBlock `AttentionItemDto`): exact counts of what waits for
-the caller, for the notification bell.
+Identity issues short-lived HS256 JWTs (15 min by default) carrying `perm` claims (effective permissions), `role`, `sub`,
+`username`, `name`, `ast` (access stamp), `stn` / `sof` (towns / offices the person works on) and `ao` (authorized
+officer). Every service validates them with the **same** `Jwt:SigningKey`, issuer `erp-identity` and audience `erp`, AND
+asks Identity whether the token is still current (session open, account on, stamp unchanged - cached 30 s), so switching
+someone off or changing their access acts at once. Endpoints declare `.RequirePermission(...)` (or
+`.RequireAnyPermission(...)`, or `.RequireSignedIn()` for directory reads and `GET /attention`). A token for an account
+still holding a temporary password carries `pwd=change`, no permissions, and opens only Identity's own `/auth` routes.
+Each service filters its records by the person's scope (Property and Taxation by town, HRM by office with its
+sub-units), blocks maker-checker violations through `IDutyRules`, and writes its audit trail (`audit_entry`), which
+Administration › Activity reads from every service at once. Taxation calls Property with the caller's own token, so its
+users need `PROPERTY.VIEW` too; Taxation and Assets read HRM's staff directory (`/directory/*`). A token for an account
+linked to an HRM employee also carries `emp`, which HRM's self-service (`/me`) uses. Every service answers
+`GET /attention` (BuildingBlock `AttentionItemDto`): exact counts of what waits for the caller, for the notification bell.
 
 ## Team workflow
 
@@ -148,4 +171,12 @@ the caller, for the notification bell.
 - Property's https launch profile uses port 5142, which clashes with Identity's http port. Use the http profiles.
 - Assets runs `MigrateAsync()` with no wait-for-database retry, and compose has no healthchecks. If Postgres isn't up
   yet, start Assets again.
-- No CORS and no health checks are configured anywhere yet.
+- An entity mapped with `ToView(...)` on a context with `HasDefaultSchema` makes `dotnet ef migrations add` write
+  `b.ToTable(null, "<schema>")` into the snapshot/designer, which throws at startup: hand-fix it to
+  `b.ToTable((string)null)` (Property hit this on 2026-10-22).
+- A service's handlers must share ONE DbContext with the audit trail: register
+  `services.AddScoped<IApplicationDbContext>(sp => sp.GetRequiredService<ApplicationDbContext>())`, never
+  `AddScoped<IApplicationDbContext, ApplicationDbContext>()` (a second instance: `IAuditTrail.Record` lines are never saved).
+- Rebuild one service with `docker compose up -d --build --no-deps <service>`; without `--no-deps` compose also
+  builds the others.
+- No CORS is configured anywhere; health is `GET /system/status` (IAM_SYSTEM.VIEW) on every service.

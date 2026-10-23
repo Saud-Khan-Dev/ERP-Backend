@@ -127,7 +127,7 @@ public class UpdateTaxExemptionCommandValidator : AbstractValidator<UpdateTaxExe
   }
 }
 
-public class TaxHandlers(IApplicationDbContext context, IClock clock) :
+public class TaxHandlers(IApplicationDbContext context, IClock clock, DutyGuard duty) :
   IQueryHandler<GetTaxYearsQuery, Result<GetTaxYearsQueryResult>>,
   IQueryHandler<GetTaxYearQuery, Result<GetTaxYearQueryResult>>,
   ICommandHandler<CreateTaxYearCommand, Result<CreatedResult>>,
@@ -146,6 +146,7 @@ public class TaxHandlers(IApplicationDbContext context, IClock clock) :
   public async Task<Result<UpdatedResult>> Handle(SetTaxOpeningCommand command, CancellationToken cancellationToken)
   {
     var employee = await context.LoadEmployeeAsync(command.EmployeeId, cancellationToken);
+    await duty.EnsureNotOwnRecordAsync(employee.Id, "set the tax opening", employee, cancellationToken);
     var year = await context.LoadTaxYearAsync(command.TaxYearId, cancellationToken);
     var existing = await context.TaxOpenings.FirstOrDefaultAsync(o => o.EmployeeId == employee.Id && o.TaxYearId == year.Id, cancellationToken);
     if (existing is null)
@@ -159,6 +160,7 @@ public class TaxHandlers(IApplicationDbContext context, IClock clock) :
   public async Task<Result<UpdatedResult>> Handle(DeleteTaxOpeningCommand command, CancellationToken cancellationToken)
   {
     var employeeId = EmployeeId.Of(command.EmployeeId);
+    await duty.EnsureNotOwnRecordAsync(employeeId, "remove the tax opening", null, cancellationToken);
     var yearId = TaxYearId.Of(command.TaxYearId);
     var opening = await context.TaxOpenings.FirstOrDefaultAsync(o => o.EmployeeId == employeeId && o.TaxYearId == yearId, cancellationToken)
       ?? throw new TaxYearNotFoundException("There is no opening tax position for this employee and year.");
@@ -254,6 +256,7 @@ public class TaxHandlers(IApplicationDbContext context, IClock clock) :
   public async Task<Result<CreatedResult>> Handle(CreateTaxExemptionCommand command, CancellationToken cancellationToken)
   {
     var employee = await context.LoadEmployeeAsync(command.EmployeeId, cancellationToken);
+    await duty.EnsureNotOwnRecordAsync(employee.Id, "grant a tax exemption", employee, cancellationToken);
     var year = await context.LoadTaxYearAsync(command.TaxYearId, cancellationToken);
     var exemption = EmployeeTaxExemption.Create(TaxExemptionId.New(), employee.Id, year, command.ExemptionType, command.Amount);
     if (await context.TaxExemptions.AnyAsync(e => e.EmployeeId == employee.Id && e.TaxYearId == year.Id
@@ -268,6 +271,7 @@ public class TaxHandlers(IApplicationDbContext context, IClock clock) :
   public async Task<Result<UpdatedResult>> Handle(UpdateTaxExemptionCommand command, CancellationToken cancellationToken)
   {
     var exemption = await LoadExemptionAsync(command.Id, cancellationToken);
+    await duty.EnsureNotOwnRecordAsync(exemption.EmployeeId, "change a tax exemption", exemption, cancellationToken);
     exemption.Update(command.ExemptionType, command.Amount);
     if (await context.TaxExemptions.AnyAsync(e => e.Id != exemption.Id && e.EmployeeId == exemption.EmployeeId && e.TaxYearId == exemption.TaxYearId
         && e.ExemptionType.ToLower() == exemption.ExemptionType.ToLower(), cancellationToken))
@@ -280,6 +284,7 @@ public class TaxHandlers(IApplicationDbContext context, IClock clock) :
   public async Task<Result<UpdatedResult>> Handle(DeleteTaxExemptionCommand command, CancellationToken cancellationToken)
   {
     var exemption = await LoadExemptionAsync(command.Id, cancellationToken);
+    await duty.EnsureNotOwnRecordAsync(exemption.EmployeeId, "remove a tax exemption", exemption, cancellationToken);
     context.TaxExemptions.Remove(exemption);
     await context.SaveChangesAsync(cancellationToken);
     return CommandResults.Updated();

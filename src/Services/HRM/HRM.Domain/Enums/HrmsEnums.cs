@@ -110,7 +110,8 @@ public enum LeaveStatus { Pending, Approved, Rejected, Cancelled }
 /// encashment debit (-), adjustment either way.
 public enum LeaveTransactionType { Opening, Accrual, Usage, UsageReversal, CarryForward, Lapse, Encashment, Adjustment }
 
-public enum LoanStatus { Active, Completed, Cancelled, WrittenOff }
+/// Pending: an application entered and waiting to be sanctioned by someone else (no installments yet).
+public enum LoanStatus { Active, Completed, Cancelled, WrittenOff, Pending }
 
 public enum InstallmentStatus { Pending, Partial, Paid, Waived }
 

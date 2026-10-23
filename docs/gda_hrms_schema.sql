@@ -53,6 +53,14 @@
 --     bank account only for bank transfers (cheque / cash); loan closure and
 --     installment waiver reasons; loan_repayment (append-only);
 --     employee_tax_opening.
+--   * AuditTrail (2026-10-21): audit_entry, the shared audit trail (one line
+--     per fact added / changed / removed, plus verbs, runs and exports), made
+--     append-only by triggers (no UPDATE, DELETE or TRUNCATE); the rows of
+--     employee_change_log copied into it (the old table stays, read-only,
+--     no longer written).
+--   * DutyRulesLoansAndLeave (2026-10-22): loan_status 'pending' (a loan
+--     application waits for a second person to sanction it);
+--     leave_application.created_by (who keyed it in).
 -- =====================================================================
 
 CREATE EXTENSION IF NOT EXISTS btree_gist;
@@ -115,7 +123,7 @@ CREATE TYPE holiday_type_enum  AS ENUM ('public','religious','provincial','optio
 CREATE TYPE leave_status_enum   AS ENUM ('pending','approved','rejected','cancelled');
 CREATE TYPE leave_txn_type_enum AS ENUM ('opening','accrual','usage','usage_reversal','carry_forward','lapse','encashment','adjustment');
 
-CREATE TYPE loan_status_enum        AS ENUM ('active','completed','cancelled','written_off');
+CREATE TYPE loan_status_enum        AS ENUM ('active','completed','cancelled','written_off','pending');
 CREATE TYPE installment_status_enum AS ENUM ('pending','partial','paid','waived');
 CREATE TYPE gpf_txn_type_enum       AS ENUM ('opening','subscription','interest','advance','advance_recovery','withdrawal','final_payment','adjustment');
 
@@ -400,6 +408,41 @@ CREATE INDEX idx_ecl_employee_at ON employee_change_log (employee_id, changed_at
 COMMENT ON TABLE employee_change_log IS 'Append-only trail of changes to an employee''s identity, employment, sign-in account and pay: old -> new, reason, who and when.';
 CREATE TRIGGER trg_ecl_append_only BEFORE UPDATE OR DELETE ON employee_change_log
   FOR EACH ROW EXECUTE FUNCTION fn_block_mutation();
+
+-- The shared audit trail (BuildingBlock/Audit, the same table in every service's schema): who did what to which
+-- record, when and from where; for a change each fact's value before and after, in words. Append-only.
+CREATE TABLE audit_entry (
+  id           uuid PRIMARY KEY,
+  at           timestamptz NOT NULL,
+  module       varchar(60) NOT NULL,
+  actor_id     uuid,                          -- null with actor_name 'System · ...' for the system itself
+  actor_name   varchar(200) NOT NULL,
+  action       varchar(40) NOT NULL,          -- Added, Changed, Removed, Exported, Printed, Downloaded, Ran, Refused, or a verb (Approved ...)
+  record_kind  varchar(100) NOT NULL,
+  record_id    uuid,
+  record_code  varchar(100),
+  record_label varchar(300),
+  parent_id    uuid,                          -- the record it hangs off (the employee): History lists by it
+  parent_code  varchar(100),
+  field        varchar(150),
+  old_value    varchar(4000),
+  new_value    varchar(4000),
+  detail       varchar,
+  ip_address   varchar(64),
+  device       varchar(300),
+  request_id   varchar(100)
+);
+CREATE INDEX ix_audit_entry_at             ON audit_entry (at);
+CREATE INDEX ix_audit_entry_parent_id_at   ON audit_entry (parent_id, at);
+CREATE INDEX ix_audit_entry_record_id_at   ON audit_entry (record_id, at);
+CREATE INDEX ix_audit_entry_actor_id_at    ON audit_entry (actor_id, at);
+CREATE INDEX ix_audit_entry_record_kind_at ON audit_entry (record_kind, at);
+CREATE FUNCTION audit_entry_append_only() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  RAISE EXCEPTION 'The audit trail is append-only: its lines cannot be changed or deleted.';
+END $$;
+CREATE TRIGGER audit_entry_no_change BEFORE UPDATE OR DELETE ON audit_entry FOR EACH ROW EXECUTE FUNCTION audit_entry_append_only();
+CREATE TRIGGER audit_entry_no_truncate BEFORE TRUNCATE ON audit_entry FOR EACH STATEMENT EXECUTE FUNCTION audit_entry_append_only();
 
 CREATE TABLE employee_contact (
   id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -919,6 +962,7 @@ CREATE TABLE leave_application (
   decision_reason text,
   hr_action_id  uuid,                        -- the LWOP HR action that recorded it (FK below)
   created_at    timestamptz NOT NULL DEFAULT now(),
+  created_by    uuid,                        -- who keyed it in (the employee, or a clerk on their behalf)
   updated_at    timestamptz,
   updated_by    uuid,
   CONSTRAINT ck_la_dates    CHECK (end_date >= start_date),

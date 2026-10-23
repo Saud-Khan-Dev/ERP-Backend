@@ -942,6 +942,11 @@ namespace AssetsManagement.Infrastructure.Data.Migrations
                         .HasColumnType("character varying(100)")
                         .HasColumnName("posted_by_name");
 
+                    b.Property<string>("ReversalReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("reversal_reason");
+
                     b.Property<DateTime?>("ReversedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("reversed_at");
@@ -1098,6 +1103,24 @@ namespace AssetsManagement.Infrastructure.Data.Migrations
                         .HasColumnType("text")
                         .HasColumnName("buyer_info");
 
+                    b.Property<string>("CancellationReason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("cancellation_reason");
+
+                    b.Property<DateTime?>("CancelledAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("cancelled_at");
+
+                    b.Property<Guid?>("CancelledBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("cancelled_by");
+
+                    b.Property<string>("CancelledByName")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("cancelled_by_name");
+
                     b.Property<DateTime?>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
@@ -1110,6 +1133,24 @@ namespace AssetsManagement.Infrastructure.Data.Migrations
                     b.Property<string>("CurrencyCode")
                         .HasColumnType("char(3)")
                         .HasColumnName("currency_code");
+
+                    b.Property<DateTime?>("DecidedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("decided_at");
+
+                    b.Property<Guid?>("DecidedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("decided_by");
+
+                    b.Property<string>("DecidedByName")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("decided_by_name");
+
+                    b.Property<string>("DecisionNote")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("decision_note");
 
                     b.Property<DateOnly>("DisposalDate")
                         .HasColumnType("date")
@@ -1143,22 +1184,52 @@ namespace AssetsManagement.Infrastructure.Data.Migrations
                         .HasColumnType("numeric(18,2)")
                         .HasColumnName("net_book_value_at_disposal");
 
+                    b.Property<DateTime?>("ProposedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("proposed_at");
+
+                    b.Property<Guid?>("ProposedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("proposed_by");
+
+                    b.Property<string>("ProposedByName")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("proposed_by_name");
+
                     b.Property<string>("Reason")
                         .HasColumnType("text")
                         .HasColumnName("reason");
+
+                    b.Property<string>("State")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)")
+                        .HasColumnName("state");
+
+                    b.Property<Guid?>("ToStatusId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("to_status_id");
 
                     b.HasKey("Id")
                         .HasName("pk_asset_disposal");
 
                     b.HasIndex("AssetId")
                         .IsUnique()
-                        .HasDatabaseName("ix_asset_disposal_asset_id");
+                        .HasDatabaseName("ux_asset_disposal_live")
+                        .HasFilter("state IN ('Proposed', 'Approved')");
 
                     b.HasIndex("CurrencyCode")
                         .HasDatabaseName("ix_asset_disposal_currency_code");
 
                     b.HasIndex("DisposalMethodId")
                         .HasDatabaseName("ix_asset_disposal_disposal_method_id");
+
+                    b.HasIndex("ToStatusId")
+                        .HasDatabaseName("ix_asset_disposal_to_status_id");
+
+                    b.HasIndex("AssetId", "State")
+                        .HasDatabaseName("ix_asset_disposal_asset_id_state");
 
                     b.ToTable("asset_disposal", "assets", t =>
                         {
@@ -1895,6 +1966,123 @@ namespace AssetsManagement.Infrastructure.Data.Migrations
                         .HasDatabaseName("ix_attribute_group_code");
 
                     b.ToTable("attribute_group", "assets");
+                });
+
+            modelBuilder.Entity("AuditRecord", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("action");
+
+                    b.Property<Guid?>("ActorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("actor_id");
+
+                    b.Property<string>("ActorName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("actor_name");
+
+                    b.Property<DateTimeOffset>("At")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("at");
+
+                    b.Property<string>("Detail")
+                        .HasColumnType("text")
+                        .HasColumnName("detail");
+
+                    b.Property<string>("Device")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
+                        .HasColumnName("device");
+
+                    b.Property<string>("Field")
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("field");
+
+                    b.Property<string>("IpAddress")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("ip_address");
+
+                    b.Property<string>("Module")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)")
+                        .HasColumnName("module");
+
+                    b.Property<string>("NewValue")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)")
+                        .HasColumnName("new_value");
+
+                    b.Property<string>("OldValue")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)")
+                        .HasColumnName("old_value");
+
+                    b.Property<string>("ParentCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("parent_code");
+
+                    b.Property<Guid?>("ParentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("parent_id");
+
+                    b.Property<string>("RecordCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("record_code");
+
+                    b.Property<Guid?>("RecordId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("record_id");
+
+                    b.Property<string>("RecordKind")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("record_kind");
+
+                    b.Property<string>("RecordLabel")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
+                        .HasColumnName("record_label");
+
+                    b.Property<string>("RequestId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("request_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_audit_entry");
+
+                    b.HasIndex("At")
+                        .HasDatabaseName("ix_audit_entry_at");
+
+                    b.HasIndex("ActorId", "At")
+                        .HasDatabaseName("ix_audit_entry_actor_id_at");
+
+                    b.HasIndex("ParentId", "At")
+                        .HasDatabaseName("ix_audit_entry_parent_id_at");
+
+                    b.HasIndex("RecordId", "At")
+                        .HasDatabaseName("ix_audit_entry_record_id_at");
+
+                    b.HasIndex("RecordKind", "At")
+                        .HasDatabaseName("ix_audit_entry_record_kind_at");
+
+                    b.ToTable("audit_entry", "assets");
                 });
 
             modelBuilder.Entity("CurrencyLookup", b =>
@@ -3724,7 +3912,7 @@ namespace AssetsManagement.Infrastructure.Data.Migrations
                     b.HasOne("Asset", null)
                         .WithMany()
                         .HasForeignKey("AssetId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_asset_acquisition_asset_asset_id");
 
@@ -3741,7 +3929,7 @@ namespace AssetsManagement.Infrastructure.Data.Migrations
                     b.HasOne("Asset", null)
                         .WithMany()
                         .HasForeignKey("AssetId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_asset_assignment_asset_asset_id");
 
@@ -3763,7 +3951,7 @@ namespace AssetsManagement.Infrastructure.Data.Migrations
                     b.HasOne("Asset", null)
                         .WithMany()
                         .HasForeignKey("AssetId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_asset_attachment_asset_asset_id");
                 });
@@ -3773,16 +3961,9 @@ namespace AssetsManagement.Infrastructure.Data.Migrations
                     b.HasOne("Asset", null)
                         .WithMany()
                         .HasForeignKey("AssetId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_asset_attribute_history_asset_asset_id");
-
-                    b.HasOne("AttributeDefinition", null)
-                        .WithMany()
-                        .HasForeignKey("AttributeDefinitionId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("fk_asset_attribute_history_attribute_definition_attribute_defi");
                 });
 
             modelBuilder.Entity("AssetAttributeValue", b =>
@@ -3846,7 +4027,7 @@ namespace AssetsManagement.Infrastructure.Data.Migrations
                     b.HasOne("Asset", null)
                         .WithMany()
                         .HasForeignKey("AssetId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_asset_depreciation_schedule_asset_asset_id");
 
@@ -3863,7 +4044,7 @@ namespace AssetsManagement.Infrastructure.Data.Migrations
                     b.HasOne("Asset", null)
                         .WithMany()
                         .HasForeignKey("AssetId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_asset_disposal_asset_asset_id");
 
@@ -3879,6 +4060,12 @@ namespace AssetsManagement.Infrastructure.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_asset_disposal_disposal_method_disposal_method_id");
+
+                    b.HasOne("AssetStatus", null)
+                        .WithMany()
+                        .HasForeignKey("ToStatusId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_asset_disposal_asset_status_to_status_id");
                 });
 
             modelBuilder.Entity("AssetLifecycleEvent", b =>
@@ -3886,7 +4073,7 @@ namespace AssetsManagement.Infrastructure.Data.Migrations
                     b.HasOne("Asset", null)
                         .WithMany()
                         .HasForeignKey("AssetId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_asset_lifecycle_event_asset_asset_id");
 
@@ -3925,7 +4112,7 @@ namespace AssetsManagement.Infrastructure.Data.Migrations
                     b.HasOne("Asset", null)
                         .WithMany()
                         .HasForeignKey("AssetId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_asset_valuation_history_asset_asset_id");
 

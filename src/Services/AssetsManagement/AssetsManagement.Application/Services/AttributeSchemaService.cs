@@ -1,7 +1,7 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 
-public class AttributeSchemaService(IApplicationDbContext context) : IAttributeSchemaService
+public class AttributeSchemaService(IApplicationDbContext context, IAuditTrail audit) : IAttributeSchemaService
 {
   public async Task<IReadOnlyList<AssetCategory>> GetCategoryChainAsync(AssetCategoryId categoryId, CancellationToken cancellationToken)
   {
@@ -104,8 +104,9 @@ public class AttributeSchemaService(IApplicationDbContext context) : IAttributeS
 
     await EnsureUniquePerCategoryAsync(asset, schema, projection, cancellationToken);
 
-    var definitionIdsByCode = await DefinitionIdsForAsync(schema, before.Keys.Union(validated.Keys), cancellationToken);
-    var history = AttributeHistoryDiff.Diff(asset.Id, before, validated, definitionIdsByCode, DateTime.UtcNow, changedBy, changeReason);
+    var definitionsByCode = await DefinitionsForAsync(schema, before.Keys.Union(validated.Keys), cancellationToken);
+    var changes = AttributeHistoryDiff.Diff(asset.Id, before, validated, definitionsByCode.ToDictionary(kv => kv.Key, kv => kv.Value.Id),
+      DateTime.UtcNow, changedBy, changeReason);
 
     asset.SetExtraAttributes(validated, DateTime.UtcNow);
 
@@ -116,7 +117,23 @@ public class AttributeSchemaService(IApplicationDbContext context) : IAttributeS
     }
 
     await context.AssetAttributeValues.AddRangeAsync(projection, cancellationToken);
-    await context.AssetAttributeHistories.AddRangeAsync(history, cancellationToken);
+
+    // the audit trail keeps every field change: one line per field, with its name and the values as a person reads them
+    // (choices by their labels). A new asset's values are its first ones ("—" before).
+    var otherSets = changes.Select(c => definitionsByCode[c.AttributeCode].OptionSetId)
+      .Where(id => id is not null && !optionSets.ContainsKey(id)).Select(id => id!).ToList();
+    var allSets = otherSets.Count == 0
+      ? optionSets
+      : optionSets.Concat(await LoadOptionSetsAsync(otherSets, cancellationToken)).ToDictionary(kv => kv.Key, kv => kv.Value);
+    foreach (var change in changes)
+    {
+      var definition = definitionsByCode[change.AttributeCode];
+      var label = schema.Find(change.AttributeCode)?.Label ?? definition.Name.Value;
+      var set = definition.OptionSetId is { } setId ? allSets.GetValueOrDefault(setId) : null;
+      audit.Line(AuditActions.Changed, AssetAuditKinds.Asset, asset, field: label,
+        oldValue: AttributeAuditText.Of(change.OldValue, definition, set), newValue: AttributeAuditText.Of(change.NewValue, definition, set),
+        detail: isNewAsset || string.IsNullOrWhiteSpace(changeReason) ? null : changeReason);
+    }
 
     return schema;
   }
@@ -163,15 +180,16 @@ public class AttributeSchemaService(IApplicationDbContext context) : IAttributeS
     }
   }
 
-  private async Task<IReadOnlyDictionary<string, AttributeDefinitionId>> DefinitionIdsForAsync(ResolvedAttributeSchema schema, IEnumerable<string> codes, CancellationToken cancellationToken)
+  /// The definitions of the given codes: the form's, and those of kept values whose field is no longer on it.
+  private async Task<IReadOnlyDictionary<string, AttributeDefinition>> DefinitionsForAsync(ResolvedAttributeSchema schema, IEnumerable<string> codes, CancellationToken cancellationToken)
   {
-    var map = schema.Attributes.ToDictionary(a => a.Code, a => a.Definition.Id, StringComparer.Ordinal);
+    var map = schema.Attributes.ToDictionary(a => a.Code, a => a.Definition, StringComparer.Ordinal);
     var missing = codes.Where(c => !map.ContainsKey(c)).Distinct().ToList();
 
     if (missing.Count == 0)
       return map;
 
-    // keys that are not on the form any more (kept values) still get a history row when they change
+    // keys that are not on the form any more (kept values) still get a line when they change
     var attributeCodes = missing.Select(AttributeCode.Of).ToList();
     var extra = await context.AttributeDefinitions
         .AsNoTracking()
@@ -179,8 +197,38 @@ public class AttributeSchemaService(IApplicationDbContext context) : IAttributeS
         .ToListAsync(cancellationToken);
 
     foreach (var definition in extra)
-      map[definition.Code.Value] = definition.Id;
+      map[definition.Code.Value] = definition;
 
     return map;
+  }
+}
+
+/// A field value as a person reads it in the trail: text as it is, yes/no, a date as a date, choices by their labels.
+public static class AttributeAuditText
+{
+  public static string? Of(JsonElement? value, AttributeDefinition definition, OptionSet? choices)
+  {
+    if (value is not { } element || element.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
+      return null;
+
+    string Choice(string code) => choices?.FindByCode(code)?.Label ?? code;
+
+    var text = element.ValueKind switch
+    {
+      JsonValueKind.String when definition.DataType is AttributeDataType.Select or AttributeDataType.MultiSelect => Choice(element.GetString()!),
+      JsonValueKind.String => element.GetString(),
+      JsonValueKind.True => "Yes",
+      JsonValueKind.False => "No",
+      JsonValueKind.Number => element.GetRawText(),
+      JsonValueKind.Array => string.Join(", ", element.EnumerateArray().Select(item => item.ValueKind == JsonValueKind.String
+        ? (definition.DataType is AttributeDataType.Select or AttributeDataType.MultiSelect ? Choice(item.GetString()!) : item.GetString())
+        : item.GetRawText())),
+      _ => element.GetRawText()
+    };
+    if (string.IsNullOrWhiteSpace(text))
+      return null;
+    return definition.Unit is { Length: > 0 } unit && element.ValueKind == JsonValueKind.Number
+      ? $"{text} {unit}"
+      : text;
   }
 }

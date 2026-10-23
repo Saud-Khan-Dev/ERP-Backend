@@ -7,7 +7,9 @@ public sealed record RoleGrantInput(Guid RoleId, DateTime? ExpiresAt = null);
 /// "Change someone's job" in one act: the exact set of roles the person should hold. Roles they keep are untouched,
 /// new ones are given, missing ones taken away - with the same guard rails as giving and taking one role, and one line
 /// in the activity trail.
-public sealed record SetUserRolesCommand(Guid UserId, IReadOnlyList<RoleGrantInput> Roles) : ICommand<Result<SetUserRolesCommandResult>>;
+/// `ConflictReason`: why the person may hold two duties that should be kept apart - needed only when the new roles put
+/// such a pair together; recorded in the activity trail.
+public sealed record SetUserRolesCommand(Guid UserId, IReadOnlyList<RoleGrantInput> Roles, string? ConflictReason = null) : ICommand<Result<SetUserRolesCommandResult>>;
 
 public sealed record SetUserRolesCommandResult(int Added, int Removed);
 
@@ -42,10 +44,12 @@ public class SetUserRolesHandler(IApplicationDbContext context, IdentityGuard gu
 
     var addIds = wanted.Keys.Where(id => live.All(g => g.RoleId != id)).ToList();
     var removeGrants = live.Where(g => !wanted.ContainsKey(g.RoleId)).ToList();
-    if (addIds.Count == 0 && removeGrants.Count == 0)
+    // a kept role whose end date changed is given again with the new date (one grant per role at a time)
+    var redated = live.Where(g => wanted.TryGetValue(g.RoleId, out var end) && end != g.ExpiresAt).ToList();
+    if (addIds.Count == 0 && removeGrants.Count == 0 && redated.Count == 0)
       return Result<SetUserRolesCommandResult>.Success(new SetUserRolesCommandResult(0, 0));
 
-    var touchedIds = addIds.Concat(removeGrants.Select(g => g.RoleId)).Distinct().ToList();
+    var touchedIds = addIds.Concat(removeGrants.Select(g => g.RoleId)).Concat(redated.Select(g => g.RoleId)).Distinct().ToList();
     var roles = await context.Roles.Where(r => touchedIds.Contains(r.Id)).ToDictionaryAsync(r => r.Id, cancellationToken);
     if (addIds.Any(id => !roles.ContainsKey(id)))
       throw new RoleNotFoundException("One of the chosen roles was not found - it may have been deleted.");
@@ -68,6 +72,27 @@ public class SetUserRolesHandler(IApplicationDbContext context, IdentityGuard gu
     }
     foreach (var grant in removeGrants)
       grant.Revoke(now);
+    foreach (var grant in redated)
+    {
+      grant.Revoke(now);
+      await context.UserRoles.AddAsync(UserRole.Create(userId, grant.RoleId, currentUser.UserId, wanted[grant.RoleId], now), cancellationToken);
+    }
+
+    // the roles the person will hold together: a new pair of duties that should be kept apart needs a reason
+    var keptIds = live.Where(g => wanted.ContainsKey(g.RoleId)).Select(g => g.RoleId).ToList();
+    var beforeIds = live.Select(g => g.RoleId).Distinct().ToList();
+    var afterIds = keptIds.Concat(addIds).Distinct().ToList();
+    async Task<List<string>> CodesOf(List<RoleId> ids) => await context.RolePermissions.AsNoTracking()
+      .Where(rp => ids.Contains(rp.RoleId))
+      .Join(context.Permissions.AsNoTracking().Where(p => p.IsActive), rp => rp.PermissionId, p => p.Id, (rp, p) => p.Code.Value)
+      .Distinct().ToListAsync(cancellationToken);
+    if (!roles.Values.Any(r => r.IsSuperAdmin && addIds.Contains(r.Id)))
+    {
+      var known = AccessMap.ConflictsIn(await CodesOf(beforeIds));
+      var after = await CodesOf(afterIds);
+      if (AccessMap.ConflictsIn(after).Any(c => !known.Contains(c)))
+        await ConflictCheck.EnsureAcceptedAsync(activity, after, command.ConflictReason, ActivityTargetType.User, userId.Value, user.DisplayName.Value, cancellationToken);
+    }
 
     var given = addIds.Select(id => roles[id].RoleName.Value).OrderBy(n => n).ToList();
     var taken = removeGrants.Select(g => roles.TryGetValue(g.RoleId, out var r) ? r.RoleName.Value : "a deleted role").OrderBy(n => n).ToList();
@@ -75,10 +100,13 @@ public class SetUserRolesHandler(IApplicationDbContext context, IdentityGuard gu
     {
       given.Count > 0 ? $"Given: {string.Join(", ", given)}" : null,
       taken.Count > 0 ? $"Taken away: {string.Join(", ", taken)}" : null,
+      redated.Count > 0 ? $"New end date: {string.Join(", ", redated.Select(g => $"{roles[g.RoleId].RoleName.Value} {(wanted[g.RoleId] is { } d ? d.ToString("dd MMM yyyy") : "none")}"))}" : null,
     }.Where(p => p is not null));
     await activity.RecordAsync(ActivityAction.RolesChanged, ActivityTargetType.User, userId.Value, user.DisplayName.Value, detail, cancellationToken);
 
+    // tokens issued before this change stop working at once
+    await context.AccessChangedAsync(userId, cancellationToken);
     await context.SaveChangesAsync(cancellationToken);
-    return Result<SetUserRolesCommandResult>.Success(new SetUserRolesCommandResult(addIds.Count, removeGrants.Count));
+    return Result<SetUserRolesCommandResult>.Success(new SetUserRolesCommandResult(addIds.Count + redated.Count, removeGrants.Count));
   }
 }

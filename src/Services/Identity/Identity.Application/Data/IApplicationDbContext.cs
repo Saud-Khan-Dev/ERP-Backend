@@ -17,5 +17,11 @@ public interface IApplicationDbContext
   DbSet<RolePermission> RolePermissions { get; }
   DbSet<UserPermissionOverride> UserPermissionOverrides { get; }
 
+  // ---- oversight ----
+  DbSet<UserScope> UserScopes { get; }
+  DbSet<DutyRuleSwitch> DutyRuleSwitches { get; }
+  DbSet<AccessReview> AccessReviews { get; }
+  DbSet<AccessReviewDecision> AccessReviewDecisions { get; }
+
   Task<int> SaveChangesAsync(CancellationToken cancellationToken);
 }

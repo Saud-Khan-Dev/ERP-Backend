@@ -59,7 +59,7 @@ public class UpdateFamilyMemberCommandValidator : AbstractValidator<UpdateFamily
   public UpdateFamilyMemberCommandValidator() => RuleFor(x => x.Member).NotNull().SetValidator(new FamilyMemberInputValidator());
 }
 
-public class EmployeeRecordHandlers(IApplicationDbContext context, IClock clock) :
+public class EmployeeRecordHandlers(IApplicationDbContext context, IClock clock, DutyGuard duty) :
   ICommandHandler<AddContactCommand, Result<CreatedResult>>,
   ICommandHandler<UpdateContactCommand, Result<UpdatedResult>>,
   ICommandHandler<RemoveContactCommand, Result<UpdatedResult>>,
@@ -112,6 +112,7 @@ public class EmployeeRecordHandlers(IApplicationDbContext context, IClock clock)
   private async Task<Result<CreatedResult>> Add(Guid employeeId, Func<Employee, ITypedId> add, CancellationToken cancellationToken)
   {
     var employee = await context.LoadEmployeeAsync(employeeId, cancellationToken, withDetails: true);
+    await duty.EnsureNotOwnRecordAsync(employee.Id, "change the personal details", employee, cancellationToken);
     var id = add(employee);
     await context.SaveChangesAsync(cancellationToken);
     return CommandResults.Created(id);
@@ -120,6 +121,7 @@ public class EmployeeRecordHandlers(IApplicationDbContext context, IClock clock)
   private async Task<Result<UpdatedResult>> Change(Guid employeeId, Action<Employee> change, CancellationToken cancellationToken)
   {
     var employee = await context.LoadEmployeeAsync(employeeId, cancellationToken, withDetails: true);
+    await duty.EnsureNotOwnRecordAsync(employee.Id, "change the personal details", employee, cancellationToken);
     change(employee);
     await context.SaveChangesAsync(cancellationToken);
     return CommandResults.Updated();

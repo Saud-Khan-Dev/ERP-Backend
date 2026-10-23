@@ -11,9 +11,15 @@ public static class DependencyInjection
     services.AddScoped<ISaveChangesInterceptor, AuditableEntityInterceptors>();
     services.AddScoped<ISaveChangesInterceptor, DispatchDomainEventInterceptor>();
 
+    // the shared audit trail (assets.audit_entry, append-only): every save writes who changed what, in words
+    services.AddAuditTrail<ApplicationDbContext>(AssetAuditKinds.Module, AssetsAuditProfile.Configure);
+    // Administration › System: the month-end depreciation run
+    services.AddScoped<ISystemJobSource, DepreciationRunJobSource>();
+
     services.AddDbContext<ApplicationDbContext>((sp, opt) =>
     {
-      opt.AddInterceptors(sp.GetServices<ISaveChangesInterceptor>()!);
+      // the trail goes last, so it sees the rows as the other interceptors left them
+      opt.AddInterceptors([.. sp.GetServices<ISaveChangesInterceptor>(), sp.GetRequiredService<AuditTrailInterceptor>()]);
       // Shared ERP database: this service owns the "assets" schema and its own migrations history,
       // so it never collides with PropertyManagement's tables in "public".
       opt.UseNpgsql(connectionString, npgsql =>
@@ -22,7 +28,9 @@ public static class DependencyInjection
       opt.UseSnakeCaseNamingConvention();
     });
 
-    services.AddScoped<IApplicationDbContext, ApplicationDbContext>();
+    // one context per request: the handlers' IApplicationDbContext IS the ApplicationDbContext the audit trail writes to,
+    // so the lines an act records are saved in the same transaction as the act
+    services.AddScoped<IApplicationDbContext>(sp => sp.GetRequiredService<ApplicationDbContext>());
 
     // documents and photos of assets: the file server as a directory (a mounted volume in Docker)
     services.Configure<FileStorageOptions>(configuration.GetSection(FileStorageOptions.SectionName));

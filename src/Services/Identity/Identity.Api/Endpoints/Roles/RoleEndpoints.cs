@@ -94,7 +94,7 @@ public class RoleEndpoints : ICarterModule
 
     app.MapPut("/roles/{id}/permissions", async (Guid id, SetRolePermissionsRequest request, ISender sender) =>
     {
-      var result = await sender.Send(new SetRolePermissionsCommand(id, request.PermissionIds));
+      var result = await sender.Send(new SetRolePermissionsCommand(id, request.PermissionIds, request.ConflictReason));
 
       if (!result.IsSuccess)
         return Results.BadRequest(new { Message = result.Message });
@@ -143,5 +143,5 @@ public sealed record AddRolePermissionsRequest(IReadOnlyList<Guid> PermissionIds
 public sealed record AddRolePermissionsResponse(int AddedCount);
 public sealed record RemoveRolePermissionResponse(bool IsSuccess);
 
-public sealed record SetRolePermissionsRequest(IReadOnlyList<Guid> PermissionIds);
+public sealed record SetRolePermissionsRequest(IReadOnlyList<Guid> PermissionIds, string? ConflictReason = null);
 public sealed record SetRolePermissionsResponse(int AddedCount, int RemovedCount);

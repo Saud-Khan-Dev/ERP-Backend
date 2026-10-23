@@ -1,8 +1,9 @@
 using Microsoft.EntityFrameworkCore;
 
-/// The employee record of the signed-in user, for self-service: the token's employee claim (set by Identity when the
-/// account is linked to an employee) or, failing that, the employee whose user_id is the caller.
-public class CurrentEmployee(IApplicationDbContext context, ICurrentUser currentUser)
+/// The employee record of the signed-in user, for self-service: ONLY the token's employee claim (`emp`), which
+/// Identity sets when an administrator links the account to an employee. The HR-side link (employee.user_id) is not
+/// trusted on its own: an account opens a portal only once Identity has linked it too.
+public class CurrentEmployee(IApplicationDbContext context, ICurrentUser currentUser, EmployeeScope scope)
 {
   public async Task<EmployeeId> IdAsync(CancellationToken cancellationToken) =>
       await TryIdAsync(cancellationToken)
@@ -11,26 +12,19 @@ public class CurrentEmployee(IApplicationDbContext context, ICurrentUser current
   /// The signed-in account's employee, or null when it is not linked (GET /me/link answers this without a 403).
   public async Task<EmployeeId?> TryIdAsync(CancellationToken cancellationToken)
   {
-    if (currentUser.EmployeeId is { } claimed && claimed != Guid.Empty)
-    {
-      var employeeId = EmployeeId.Of(claimed);
-      if (await context.Employees.AnyAsync(e => e.Id == employeeId, cancellationToken))
-        return employeeId;
-    }
+    if (currentUser.EmployeeId is not { } claimed || claimed == Guid.Empty)
+      return null;
 
-    if (currentUser.UserId is { } userId)
-    {
-      var linked = await context.Employees.Where(e => e.UserId == userId).Select(e => e.Id).FirstOrDefaultAsync(cancellationToken);
-      if (linked is not null)
-        return linked;
-    }
-
-    return null;
+    var employeeId = EmployeeId.Of(claimed);
+    // one's own record is never outside one's office scope
+    using (scope.Unrestricted())
+      return await context.Employees.AnyAsync(e => e.Id == employeeId, cancellationToken) ? employeeId : null;
   }
 
   public async Task<Employee> LoadAsync(CancellationToken cancellationToken)
   {
     var id = await IdAsync(cancellationToken);
-    return await context.Employees.FirstAsync(e => e.Id == id, cancellationToken);
+    using (scope.Unrestricted())
+      return await context.Employees.FirstAsync(e => e.Id == id, cancellationToken);
   }
 }

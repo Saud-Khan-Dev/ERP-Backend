@@ -74,6 +74,8 @@ public class Notice : Aggregate<NoticeId>
   public bool ShowsTable { get; private set; }
   public NoticeParticulars Particulars { get; private set; } = default!;
   public DemandId DemandId { get; private set; } = default!;
+  /// The demand's tax file (kept on the notice so the file's history and the town scope reach it directly).
+  public TaxFileId TaxFileId { get; private set; } = default!;
   public NoticeStage Stage { get; private set; }
   public NoticeOrigin Origin { get; private set; }
   public PayVia PayVia { get; private set; }
@@ -133,6 +135,7 @@ public class Notice : Aggregate<NoticeId>
       ShowsTable = true,
       Particulars = particulars,
       DemandId = demand.Id,
+      TaxFileId = demand.TaxFileId,
       Stage = stage,
       Origin = origin,
       PayVia = payVia,

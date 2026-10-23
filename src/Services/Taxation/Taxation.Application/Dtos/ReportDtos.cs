@@ -54,10 +54,6 @@ public sealed record TaxOverviewDto(
   decimal FeesCollected, int ClearancesValid, int ReferenceSyncsWaiting, int SmsQueued, decimal IntraYearSurcharges, decimal YearEndSurcharges,
   IReadOnlyList<LargestBalanceDto> LargestBalances, DateOnly? SurchargeEligibleFrom, bool SurchargeRunThisYear, bool SurchargePeriodPassed, JobRunDto? LastDailyJob);
 
-/// One change: Entity is the table (tax_head, tax_file ...); OldValues / NewValues hold the changed fields as JSON.
-public sealed record AuditLogDto(Guid Id, string Entity, Guid EntityId, string Action, string? OldValues, string? NewValues, Guid? UserId, string? UserName, DateTime At,
-  Guid? TaxFileId);
-
 public static class JobMappings
 {
   public static JobRunDto ToDto(this JobRun j) => new(j.Id.Value, j.Job, j.RunDate, j.StartedAt, j.FinishedAt, j.Status, j.StartedBy, j.YearEndSurcharged,

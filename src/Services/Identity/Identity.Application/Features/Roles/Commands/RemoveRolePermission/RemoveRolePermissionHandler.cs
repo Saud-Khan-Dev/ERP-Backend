@@ -27,6 +27,8 @@ public class RemoveRolePermissionHandler(IApplicationDbContext context, Identity
     await activity.RecordAsync(ActivityAction.RolePermissionRemoved, ActivityTargetType.Role, role.Id.Value, role.RoleName.Value,
       await RolePermissionDetail.DescribeAsync(context, [], [permissionId], cancellationToken), cancellationToken);
 
+    // every holder's tokens issued before this change stop working at once
+    await context.HoldersAccessChangedAsync(roleId, cancellationToken);
     await context.SaveChangesAsync(cancellationToken);
 
     return Result<RemoveRolePermissionCommandResult>.Success(new RemoveRolePermissionCommandResult(true));

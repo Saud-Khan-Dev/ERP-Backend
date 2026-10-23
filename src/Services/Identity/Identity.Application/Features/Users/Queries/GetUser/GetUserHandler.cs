@@ -25,6 +25,7 @@ public class GetUserHandler(IApplicationDbContext context, IUserPermissionServic
         .ToListAsync(cancellationToken);
 
     var resolved = await permissionService.ResolveAsync(id, cancellationToken);
+    var scopes = await context.UserScopes.AsNoTracking().Where(s => s.UserId == id).OrderBy(s => s.Label).ToListAsync(cancellationToken);
 
     return Result<GetUserQueryResult>.Success(new GetUserQueryResult(
       user.ToDto(now),
@@ -34,6 +35,9 @@ public class GetUserHandler(IApplicationDbContext context, IUserPermissionServic
       overrides.Select(x => new UserPermissionOverrideDto(
         x.p.Id.Value, x.p.Code.Value, x.o.Effect.ToString().ToUpperInvariant(),
         x.o.GrantedAt, x.o.GrantedBy, x.o.ExpiresAt, x.o.Reason, x.o.IsLive(now))).ToList(),
-      resolved.PermissionCodes.OrderBy(p => p, StringComparer.Ordinal).ToList()));
+      resolved.PermissionCodes.OrderBy(p => p, StringComparer.Ordinal).ToList(),
+      new UserScopeDto(
+        scopes.Where(s => s.Kind == ScopeKind.Town).Select(s => new ScopePlaceDto(s.RefId, s.Label)).ToList(),
+        scopes.Where(s => s.Kind == ScopeKind.Office).Select(s => new ScopePlaceDto(s.RefId, s.Label)).ToList())));
   }
 }

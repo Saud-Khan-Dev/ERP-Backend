@@ -45,22 +45,9 @@ public sealed class HrmOptions
   /// practice.
   public bool RetireOnDayBeforeBirthday { get; set; }
 
-  /// The person who drafted or submitted an HR action may not approve it (maker-checker). Null = follow
-  /// Payroll:RequireSeparateApprover (on everywhere except a developer machine).
-  public bool? RequireSeparateApprover { get; set; }
-
   /// How the PER final score is made, in percent of goals / KPIs / competencies (the three must total 100). Goals only
   /// (today's rule) until GDA confirms its PER form.
   public int PerGoalWeight { get; set; } = 100;
   public int PerKpiWeight { get; set; }
   public int PerCompetencyWeight { get; set; }
-}
-
-/// Payroll controls, bound from the "Payroll" section.
-public sealed class PayrollOptions
-{
-  public const string SectionName = "Payroll";
-
-  /// The person who prepared a payroll run may not approve it (maker-checker). Off only on a developer machine.
-  public bool RequireSeparateApprover { get; set; } = true;
 }

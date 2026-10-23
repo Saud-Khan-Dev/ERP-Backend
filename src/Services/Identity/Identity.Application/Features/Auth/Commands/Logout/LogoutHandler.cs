@@ -1,6 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 
-public class LogoutHandler(IApplicationDbContext context, ITokenService tokenService)
+public class LogoutHandler(IApplicationDbContext context, ITokenService tokenService, IActivityRecorder activity)
   : ICommandHandler<LogoutCommand, Result<LogoutCommandResult>>
 {
   public async Task<Result<LogoutCommandResult>> Handle(LogoutCommand command, CancellationToken cancellationToken)
@@ -27,6 +27,9 @@ public class LogoutHandler(IApplicationDbContext context, ITokenService tokenSer
     {
       session.Revoke(now, "Logout");
     }
+
+    await activity.RecordAsAsync(session.UserId, null, ActivityAction.SignedOut, ActivityTargetType.User, session.UserId.Value, null,
+      command.AllSessions ? "Every device" : null, cancellationToken);
 
     await context.SaveChangesAsync(cancellationToken);
 

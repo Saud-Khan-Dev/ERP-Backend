@@ -5,10 +5,20 @@ public class DisposalAndStatusTests
   private static DisposalMethod Sale() => DisposalMethod.Create(DisposalMethodId.Of(Guid.NewGuid()), LookupCode.Of("SALE"), Name.Of("Sale"), requiresValue: true);
   private static DisposalMethod Scrap(bool allowsValue = true) => DisposalMethod.Create(DisposalMethodId.Of(Guid.NewGuid()), LookupCode.Of("SCRAP"), Name.Of("Scrapped"), requiresValue: false, allowsValue);
 
-  private static AssetDisposal Dispose(DisposalMethod method, decimal? proceeds, decimal? bookValue, DateOnly? date = null, DateOnly? purchased = null) =>
-    AssetDisposal.Create(AssetDisposalId.Of(Guid.NewGuid()), AssetId.Of(Guid.NewGuid()), method, date ?? Today, proceeds,
-      proceeds is null ? null : Currency.Of("PKR"), Currency.Of("PKR"), purchased ?? new DateOnly(2024, 1, 1), bookValue, null, null,
+  private static readonly ActorRef Approver = new(Guid.NewGuid(), "Approver Two");
+  private static readonly AssetStatus Disposed = Fixture.Status("DISPOSED", terminal: true);
+
+  private static AssetDisposal Propose(DisposalMethod method, decimal? proceeds, DateOnly? date = null, DateOnly? purchased = null) =>
+    AssetDisposal.Propose(AssetDisposalId.Of(Guid.NewGuid()), AssetId.Of(Guid.NewGuid()), method, Disposed, date ?? Today, proceeds,
+      proceeds is null ? null : Currency.Of("PKR"), Currency.Of("PKR"), purchased ?? new DateOnly(2024, 1, 1), null, null,
       Fixture.Clerk, DateTime.UtcNow, Today);
+
+  private static AssetDisposal Dispose(DisposalMethod method, decimal? proceeds, decimal? bookValue, DateOnly? date = null, DateOnly? purchased = null)
+  {
+    var disposal = Propose(method, proceeds, date, purchased);
+    disposal.Approve(method, Disposed, bookValue, Currency.Of("PKR"), purchased ?? new DateOnly(2024, 1, 1), Approver, DateTime.UtcNow, Today);
+    return disposal;
+  }
 
   [Fact]
   public void Gain_or_loss_is_proceeds_less_book_value()
@@ -21,17 +31,63 @@ public class DisposalAndStatusTests
   [Fact]
   public void Proceeds_follow_the_method()
   {
-    Assert.Throws<DomainException>(() => Dispose(Sale(), null, 1m));
-    Assert.Throws<DomainException>(() => Dispose(Scrap(allowsValue: false), 100m, 1m));
-    Assert.Throws<DomainException>(() => Dispose(Sale(), -1m, 1m));
+    Assert.Throws<DomainException>(() => Propose(Sale(), null));
+    Assert.Throws<DomainException>(() => Propose(Scrap(allowsValue: false), 100m));
+    Assert.Throws<DomainException>(() => Propose(Sale(), -1m));
   }
 
   [Fact]
   public void Disposal_dates_must_be_real()
   {
-    Assert.Throws<DomainException>(() => Dispose(Scrap(), null, 1m, date: Today.AddDays(1)));
-    Assert.Throws<DomainException>(() => Dispose(Scrap(), null, 1m, date: new DateOnly(2023, 12, 31), purchased: new DateOnly(2024, 1, 1)));
-    Assert.Equal("Clerk One", Dispose(Scrap(), null, 1m).ApprovedByName);
+    Assert.Throws<DomainException>(() => Propose(Scrap(), null, date: Today.AddDays(1)));
+    Assert.Throws<DomainException>(() => Propose(Scrap(), null, date: new DateOnly(2023, 12, 31), purchased: new DateOnly(2024, 1, 1)));
+  }
+
+  [Fact]
+  public void A_disposal_is_proposed_by_one_person_and_approved_by_another()
+  {
+    var proposal = Propose(Scrap(), null);
+    Assert.Equal(DisposalState.Proposed, proposal.State);
+    Assert.Equal("Clerk One", proposal.ProposedByName);
+    Assert.Null(proposal.NetBookValueAtDisposal);
+
+    var scrap = DisposalMethod.Create(proposal.DisposalMethodId, LookupCode.Of("SCRAP"), Name.Of("Scrapped"), requiresValue: false);
+    proposal.Approve(scrap, Disposed, 1_000m, Currency.Of("PKR"), new DateOnly(2024, 1, 1), Approver, DateTime.UtcNow, Today);
+    Assert.Equal(DisposalState.Approved, proposal.State);
+    Assert.Equal("Approver Two", proposal.ApprovedByName);
+    Assert.Equal(-1_000m, proposal.GainLoss);
+    // decided once
+    Assert.Throws<DomainException>(() => proposal.Approve(scrap, Disposed, 1m, null, null, Approver, DateTime.UtcNow, Today));
+    Assert.Throws<DomainException>(() => proposal.Reject(Approver, "too late", DateTime.UtcNow));
+  }
+
+  [Fact]
+  public void A_proposal_is_rejected_with_a_reason_or_withdrawn_by_its_proposer()
+  {
+    var rejected = Propose(Scrap(), null);
+    Assert.Throws<DomainException>(() => rejected.Reject(Approver, " ", DateTime.UtcNow));
+    rejected.Reject(Approver, "Still in use at the rest house", DateTime.UtcNow);
+    Assert.Equal(DisposalState.Rejected, rejected.State);
+    Assert.Equal("Still in use at the rest house", rejected.DecisionNote);
+    Assert.False(rejected.IsLive);
+
+    var withdrawn = Propose(Scrap(), null);
+    Assert.Throws<DomainException>(() => withdrawn.Withdraw(Approver, null, DateTime.UtcNow));
+    withdrawn.Withdraw(Fixture.Clerk, "Wrong asset", DateTime.UtcNow);
+    Assert.Equal(DisposalState.Withdrawn, withdrawn.State);
+  }
+
+  [Fact]
+  public void Cancelling_an_approved_disposal_keeps_it_on_record()
+  {
+    var disposal = Dispose(Sale(), 25_000m, 20_000m);
+    Assert.Throws<DomainException>(() => Propose(Scrap(), null).Cancel(Approver, "mistake", DateTime.UtcNow));
+    disposal.Cancel(Approver, "Recorded on the wrong asset", DateTime.UtcNow);
+    Assert.Equal(DisposalState.Cancelled, disposal.State);
+    Assert.Equal(25_000m, disposal.DisposalValue);
+    Assert.Equal(5_000m, disposal.GainLoss);
+    Assert.Equal("Approver Two", disposal.ApprovedByName);
+    Assert.Equal("Recorded on the wrong asset", disposal.CancellationReason);
   }
 
   [Fact]

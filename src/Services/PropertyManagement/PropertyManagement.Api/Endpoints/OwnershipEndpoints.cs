@@ -52,7 +52,7 @@ public class OwnershipEndpoints : ICarterModule
 
     ownerships.MapPost("/{id:guid}/dispute", async (Guid id, RemarksRequest request, ISender sender) =>
         (await sender.Send(new SetOwnershipDisputeCommand(id, true, request.Remarks))).ToOk())
-      .RequirePermission(PermissionCatalog.Property.Edit)
+      .RequirePermission(PermissionCatalog.PropertyLegal.Edit)
       .WithName("DisputeOwnership")
       .Produces<SetOwnershipDisputeCommandResult>()
       .ProducesProblem(StatusCodes.Status400BadRequest)
@@ -61,7 +61,7 @@ public class OwnershipEndpoints : ICarterModule
 
     ownerships.MapPost("/{id:guid}/resolve-dispute", async (Guid id, RemarksRequest request, ISender sender) =>
         (await sender.Send(new SetOwnershipDisputeCommand(id, false, request.Remarks))).ToOk())
-      .RequirePermission(PermissionCatalog.Property.Edit)
+      .RequirePermission(PermissionCatalog.PropertyLegal.Edit)
       .WithName("ResolveOwnershipDispute")
       .Produces<SetOwnershipDisputeCommandResult>()
       .ProducesProblem(StatusCodes.Status400BadRequest)
@@ -89,8 +89,11 @@ public class OwnershipEndpoints : ICarterModule
       .Produces<RecordCompletedTransferCommandResult>(StatusCodes.Status201Created)
       .ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Record Completed Transfer")
-      .WithDescription("Enters a transfer that already happened (e.g. from the paper register) as COMPLETED in one step, with the same rules as initiate + approve "
-        + "(transfer date not in the future); ownership rows are closed and opened on the transfer date. The approver is the signed-in officer.");
+      .WithDescription("Enters a transfer that already happened (e.g. from the paper register), with the same rules as initiate + approve (transfer date "
+        + "not in the future). While the PROPERTY_TRANSFER separation-of-duties rule is on (GET /property-settings requireSeparateApprover) it is saved "
+        + "waiting for approval (status Initiated, awaitingApproval = true, recordedPast on the transfer) with the approval date, order and no-dues "
+        + "certificate read off the paper kept on it, and another officer approves it; nothing changes hands until then. With the rule off it is "
+        + "COMPLETED in one step: ownership rows are closed and opened on the transfer date, the signed-in officer as approver.");
 
     properties.MapGet("/{id:guid}/transfers", async (Guid id, TransferStatus? status, ISender sender) =>
         (await sender.Send(new GetPropertyTransfersQuery(id, status))).ToOk())
@@ -116,9 +119,9 @@ public class OwnershipEndpoints : ICarterModule
       .ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Approve Transfer")
       .WithDescription("Approves AND registers a transfer waiting for approval, in one step: the rules are checked again, the givers' rows are closed on the "
-        + "transfer date and the resulting rows opened (status COMPLETED). The approver is the signed-in officer; the one who started the transfer cannot "
-        + "approve it (maker-checker, Transfers:RequireSeparateApprover - see GET /property-settings). Refused before the transfer date; approvalDate "
-        + "defaults to today and may not be in the future or before the transfer date. noDuesCertificateNo: the Taxation clearance relied on (optional).");
+        + "transfer date and the resulting rows opened (status COMPLETED). The approver is the signed-in officer; while the PROPERTY_TRANSFER "
+        + "separation-of-duties rule is on, the one who started or recorded the transfer cannot approve it (GET /property-settings). Refused before the "
+        + "transfer date; approvalDate defaults to the one recorded with a past transfer, else today and may not be in the future or before the transfer date. noDuesCertificateNo: the Taxation clearance relied on (optional).");
 
     transfers.MapPost("/{id:guid}/reject", async (Guid id, RejectTransferRequest request, ISender sender) =>
         (await sender.Send(new RejectTransferCommand(id, request.Reason))).ToOk())
@@ -141,13 +144,13 @@ public class OwnershipEndpoints : ICarterModule
 
     transfers.MapPost("/{id:guid}/cancel", async (Guid id, CancelTransferRequest request, ISender sender) =>
         (await sender.Send(new CancelTransferCommand(id, request.Reason))).ToOk())
-      .RequirePermission(PermissionCatalog.Property.Edit)
+      .RequirePermission(PermissionCatalog.PropertyLegal.Edit)
       .WithName("CancelTransfer")
       .Produces<CancelTransferCommandResult>()
       .ProducesProblem(StatusCodes.Status400BadRequest)
       .ProducesProblem(StatusCodes.Status403Forbidden)
       .WithSummary("Cancel Transfer")
-      .WithDescription("Withdraws a transfer that has not changed ownership (status CANCELLED); the reason is required. A transfer still in status APPROVED "
+      .WithDescription("Withdraws a transfer that has not changed ownership (status CANCELLED); the reason is required (PROPERTY_LEGAL.EDIT). A transfer still in status APPROVED "
         + "also needs PROPERTY.APPROVE (403 otherwise). A completed transfer is reversed with a new transfer.");
 
     // ---- encumbrances ----

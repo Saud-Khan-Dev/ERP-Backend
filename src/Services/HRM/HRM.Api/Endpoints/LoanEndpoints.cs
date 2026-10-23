@@ -1,4 +1,4 @@
-public sealed record SanctionLoanRequest(Guid LoanTypeId, decimal PrincipalAmount, decimal? InterestAmount, int InstallmentsCount, DateOnly StartDate, int? DeductionPriority);
+public sealed record SanctionLoanRequest(Guid LoanTypeId, decimal PrincipalAmount, decimal? InterestAmount, int InstallmentsCount, DateOnly StartDate, int? DeductionPriority, bool? SanctionNow);
 public sealed record RepayLoanRequest(decimal Amount, DateOnly? PaidOn, string? Remarks, string? ReceiptNumber);
 public sealed record LoanReasonRequest(string? Reason);
 public sealed record LoanPriorityRequest(int DeductionPriority);
@@ -20,13 +20,13 @@ public class LoanEndpoints : ICarterModule
     var types = app.MapGroup("/loan-types").WithTags("Loans");
 
     types.MapGet("/", async (bool? includeInactive, ISender sender) => (await sender.Send(new GetLoanTypesQuery(includeInactive ?? false))).ToOk())
-      .RequirePermission(PermissionCatalog.Payroll.View)
+      .RequireAnyPermission(PermissionCatalog.Payroll.View, PermissionCatalog.PayrollSetup.View)
       .WithName("GetLoanTypes")
       .Produces<GetLoanTypesQueryResult>()
       .WithSummary("Get Loan Types");
 
     types.MapPost("/", async (LoanTypeInput type, ISender sender) => (await sender.Send(new CreateLoanTypeCommand(type))).ToCreated(r => $"/loan-types/{r.Id}"))
-      .RequirePermission(PermissionCatalog.Payroll.Create)
+      .RequirePermission(PermissionCatalog.PayrollSetup.Create)
       .WithName("CreateLoanType")
       .Produces<CreatedResult>(StatusCodes.Status201Created)
       .ProducesProblem(StatusCodes.Status400BadRequest)
@@ -35,7 +35,7 @@ public class LoanEndpoints : ICarterModule
         + "defaultInterestRate: simple annual % over the term.");
 
     types.MapPut("/{id:guid}", async (Guid id, LoanTypeInput type, ISender sender) => (await sender.Send(new UpdateLoanTypeCommand(id, type))).ToOk())
-      .RequirePermission(PermissionCatalog.Payroll.Edit)
+      .RequirePermission(PermissionCatalog.PayrollSetup.Edit)
       .WithName("UpdateLoanType")
       .Produces<UpdatedResult>()
       .ProducesProblem(StatusCodes.Status400BadRequest)
@@ -46,7 +46,7 @@ public class LoanEndpoints : ICarterModule
     foreach (var (route, active) in new[] { ("activate", true), ("deactivate", false) })
     {
       types.MapPost($"/{{id:guid}}/{route}", async (Guid id, ISender sender) => (await sender.Send(new SetLoanTypeActivationCommand(id, active))).ToOk())
-        .RequirePermission(PermissionCatalog.Payroll.Edit)
+        .RequirePermission(PermissionCatalog.PayrollSetup.Edit)
         .WithName(active ? "ActivateLoanType" : "DeactivateLoanType")
         .Produces<UpdatedResult>()
         .ProducesProblem(StatusCodes.Status404NotFound)
@@ -75,17 +75,27 @@ public class LoanEndpoints : ICarterModule
       .WithDescription("With its installment schedule, what has been recovered and what is overdue.");
 
     app.MapPost("/employees/{id:guid}/loans", async (Guid id, SanctionLoanRequest r, ISender sender) =>
-        (await sender.Send(new SanctionLoanCommand(id, r.LoanTypeId, r.PrincipalAmount, r.InterestAmount, r.InstallmentsCount, r.StartDate, r.DeductionPriority ?? 100)))
+        (await sender.Send(new SanctionLoanCommand(id, r.LoanTypeId, r.PrincipalAmount, r.InterestAmount, r.InstallmentsCount, r.StartDate, r.DeductionPriority ?? 100,
+          r.SanctionNow ?? false)))
           .ToCreated(c => $"/loans/{c.Id}"))
-      .RequirePermission(PermissionCatalog.Payroll.Approve)
+      .RequirePermission(PermissionCatalog.Payroll.Create)
       .WithTags("Loans")
       .WithName("SanctionLoan")
       .Produces<CreatedResult>(StatusCodes.Status201Created)
       .ProducesProblem(StatusCodes.Status400BadRequest)
-      .WithSummary("Sanction Loan")
+      .WithSummary("Enter Loan Application")
       .WithDescription("Equal monthly installments due from startDate (the last absorbs the rounding). Interest defaults to the type's rate over the term. "
         + "A GP Fund advance is paid out of the employee's fund (not more than its balance; one at a time). "
         + "deductionPriority (default 100): lower is recovered first when the pay cannot cover every deduction.");
+
+    loans.MapPost("/{id:guid}/sanction", async (Guid id, ISender sender) => (await sender.Send(new SanctionLoanApplicationCommand(id))).ToOk())
+      .RequirePermission(PermissionCatalog.Payroll.Approve)
+      .WithName("SanctionLoanApplication")
+      .Produces<UpdatedResult>()
+      .ProducesProblem(StatusCodes.Status400BadRequest)
+      .WithSummary("Sanction Loan")
+      .WithDescription("Sanctions a pending application and lays out its installments; a GP Fund advance is paid out of the fund. Whoever entered the application "
+        + "cannot sanction it (duty rule LOAN_SANCTION), and nobody sanctions their own loan. To turn an application down, cancel it with the reason.");
 
     loans.MapPost("/{id:guid}/repay", async (Guid id, RepayLoanRequest r, ISender sender) =>
         (await sender.Send(new RepayLoanCommand(id, r.Amount, r.PaidOn, r.Remarks, r.ReceiptNumber))).ToOk())
@@ -107,7 +117,7 @@ public class LoanEndpoints : ICarterModule
 
     loans.MapPost("/{id:guid}/installments/{installmentId:guid}/waive", async (Guid id, Guid installmentId, LoanReasonRequest? r, ISender sender) =>
         (await sender.Send(new WaiveInstallmentCommand(id, installmentId, r?.Reason))).ToOk())
-      .RequirePermission(PermissionCatalog.Payroll.Approve)
+      .RequirePermission(PermissionCatalog.Payroll.Waive)
       .WithName("WaiveInstallment")
       .Produces<UpdatedResult>()
       .ProducesProblem(StatusCodes.Status400BadRequest)
@@ -121,7 +131,7 @@ public class LoanEndpoints : ICarterModule
     })
     {
       loans.MapPost($"/{{id:guid}}/{route}", async (Guid id, LoanReasonRequest? r, ISender sender) => (await sender.Send(new CloseLoanCommand(id, action, r?.Reason))).ToOk())
-        .RequirePermission(PermissionCatalog.Payroll.Approve)
+        .RequirePermission(action == LoanAction.Cancel ? PermissionCatalog.Payroll.Approve : PermissionCatalog.Payroll.Waive)
         .WithName($"{action}Loan")
         .Produces<UpdatedResult>()
         .ProducesProblem(StatusCodes.Status400BadRequest)
@@ -200,14 +210,14 @@ public class LoanEndpoints : ICarterModule
       .WithDescription("Only when the balance is zero (after the final payment).");
 
     gpf.MapGet("/interest-rates", async (ISender sender) => (await sender.Send(new GetGpFundInterestRatesQuery())).ToOk())
-      .RequirePermission(PermissionCatalog.Payroll.View)
+      .RequireAnyPermission(PermissionCatalog.Payroll.View, PermissionCatalog.PayrollSetup.View)
       .WithName("GetGpFundInterestRates")
       .Produces<GetGpFundInterestRatesQueryResult>()
       .WithSummary("Get GP Fund Interest Rates");
 
     gpf.MapPost("/interest-rates", async (GpFundInterestRateInput rate, ISender sender) =>
         (await sender.Send(new CreateGpFundInterestRateCommand(rate))).ToCreated(r => $"/gp-fund/interest-rates/{r.Id}"))
-      .RequirePermission(PermissionCatalog.Payroll.Approve)
+      .RequirePermission(PermissionCatalog.PayrollSetup.Create)
       .WithName("CreateGpFundInterestRate")
       .Produces<CreatedResult>(StatusCodes.Status201Created)
       .ProducesProblem(StatusCodes.Status400BadRequest)
@@ -217,7 +227,7 @@ public class LoanEndpoints : ICarterModule
 
     gpf.MapPut("/interest-rates/{id:guid}", async (Guid id, GpFundInterestRateInput rate, ISender sender) =>
         (await sender.Send(new UpdateGpFundInterestRateCommand(id, rate))).ToOk())
-      .RequirePermission(PermissionCatalog.Payroll.Approve)
+      .RequirePermission(PermissionCatalog.PayrollSetup.Edit)
       .WithName("UpdateGpFundInterestRate")
       .Produces<UpdatedResult>()
       .ProducesProblem(StatusCodes.Status400BadRequest)
@@ -249,7 +259,7 @@ public class LoanEndpoints : ICarterModule
 
     app.MapPost("/employees/{id:guid}/bank-accounts", async (Guid id, CreateBankAccountRequest r, ISender sender) =>
         (await sender.Send(new CreateBankAccountCommand(id, new BankAccountInput(r.BankName, r.BranchName, r.AccountNumber, r.Iban), r.MakePrimary ?? false))).ToOk())
-      .RequirePermission(PermissionCatalog.Payroll.Create)
+      .RequirePermission(PermissionCatalog.HrSensitive.Edit)
       .WithTags("Bank Accounts")
       .WithName("CreateBankAccount")
       .Produces<CreatedResult>()
@@ -260,7 +270,7 @@ public class LoanEndpoints : ICarterModule
     var bank = app.MapGroup("/bank-accounts").WithTags("Bank Accounts");
 
     bank.MapPut("/{id:guid}", async (Guid id, BankAccountInput account, ISender sender) => (await sender.Send(new UpdateBankAccountCommand(id, account))).ToOk())
-      .RequirePermission(PermissionCatalog.Payroll.Edit)
+      .RequirePermission(PermissionCatalog.HrSensitive.Edit)
       .WithName("UpdateBankAccount")
       .Produces<UpdatedResult>()
       .ProducesProblem(StatusCodes.Status400BadRequest)
@@ -269,7 +279,7 @@ public class LoanEndpoints : ICarterModule
       .WithDescription("Payments already made keep the account they were sent to.");
 
     bank.MapPost("/{id:guid}/make-primary", async (Guid id, ISender sender) => (await sender.Send(new MakeBankAccountPrimaryCommand(id))).ToOk())
-      .RequirePermission(PermissionCatalog.Payroll.Edit)
+      .RequirePermission(PermissionCatalog.HrSensitive.Edit)
       .WithName("MakeBankAccountPrimary")
       .Produces<UpdatedResult>()
       .ProducesProblem(StatusCodes.Status400BadRequest)
@@ -278,7 +288,7 @@ public class LoanEndpoints : ICarterModule
     foreach (var (route, active) in new[] { ("activate", true), ("deactivate", false) })
     {
       bank.MapPost($"/{{id:guid}}/{route}", async (Guid id, ISender sender) => (await sender.Send(new SetBankAccountActivationCommand(id, active))).ToOk())
-        .RequirePermission(PermissionCatalog.Payroll.Edit)
+        .RequirePermission(PermissionCatalog.HrSensitive.Edit)
         .WithName(active ? "ActivateBankAccount" : "DeactivateBankAccount")
         .Produces<UpdatedResult>()
         .ProducesProblem(StatusCodes.Status404NotFound)

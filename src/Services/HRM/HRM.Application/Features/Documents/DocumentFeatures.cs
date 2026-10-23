@@ -73,7 +73,7 @@ public class GetExpiringDocumentsQueryValidator : AbstractValidator<GetExpiringD
   public GetExpiringDocumentsQueryValidator() => RuleFor(x => x.WithinDays).InclusiveBetween(0, 3650);
 }
 
-public class DocumentHandlers(IApplicationDbContext context, FileUploads files, HrLookup lookup, ICurrentUser currentUser, IClock clock) :
+public class DocumentHandlers(IApplicationDbContext context, FileUploads files, HrLookup lookup, ICurrentUser currentUser, IClock clock, DutyGuard duty, IAuditTrail audit) :
   IQueryHandler<GetEmployeeDocumentsQuery, Result<GetEmployeeDocumentsQueryResult>>,
   IQueryHandler<GetExpiringDocumentsQuery, Result<GetExpiringDocumentsQueryResult>>,
   IQueryHandler<GetDocumentsToVerifyQuery, Result<GetExpiringDocumentsQueryResult>>,
@@ -134,6 +134,9 @@ public class DocumentHandlers(IApplicationDbContext context, FileUploads files, 
       throw new EmployeeDocumentNotFoundException($"Document {query.Id} was not found.");
     var type = await context.DocumentTypes.AsNoTracking().Where(t => t.Id == document.DocumentTypeId).Select(t => t.Name).FirstAsync(cancellationToken);
     var number = await context.Employees.AsNoTracking().Where(e => e.Id == document.EmployeeId).Select(e => e.EmployeeNumber).FirstAsync(cancellationToken);
+    // a scanned paper (CNIC, degree, order) leaving the system is kept in the trail
+    audit.Record(AuditActions.Downloaded, document, query.OnlyForEmployee is null ? $"{type} scan" : $"{type} scan (own, through the portal)");
+    await audit.SaveAsync(cancellationToken);
     return Result<StoredFile>.Success(await files.OpenAsync(document.FileReference, $"{number}-{type}{(document.DocumentNumber is null ? "" : "-" + document.DocumentNumber)}", cancellationToken));
   }
 
@@ -215,16 +218,21 @@ public class DocumentHandlers(IApplicationDbContext context, FileUploads files, 
   {
     var document = await context.LoadDocumentAsync(command.Id, cancellationToken);
     await EnsureProfileActiveAsync(document.EmployeeId, cancellationToken);
+    if (command.Action != DocumentReview.Submit)
+      await duty.EnsureNotOwnRecordAsync(document.EmployeeId, "verify or reject a document", document, cancellationToken);
     switch (command.Action)
     {
       case DocumentReview.Submit:
         document.SubmitForVerification();
+        audit.Record(HrmVerbs.Submitted, document);
         break;
       case DocumentReview.Verify:
         document.Verify(currentUser.UserId, clock.Today);
+        audit.Record(HrmVerbs.Verified, document);
         break;
       case DocumentReview.Reject:
         document.Reject(currentUser.UserId, clock.Today);
+        audit.Record(HrmVerbs.Rejected, document);
         break;
     }
 
@@ -306,7 +314,7 @@ public class UpdateEducationCommandValidator : AbstractValidator<UpdateEducation
   public UpdateEducationCommandValidator() => RuleFor(x => x.Education).NotNull().SetValidator(new EducationInputValidator());
 }
 
-public class EducationHandlers(IApplicationDbContext context, FileUploads files, IClock clock) :
+public class EducationHandlers(IApplicationDbContext context, FileUploads files, IClock clock, IAuditTrail audit) :
   IQueryHandler<GetEducationQuery, Result<GetEducationQueryResult>>,
   IQueryHandler<GetEducationContentQuery, Result<StoredFile>>,
   ICommandHandler<AddEducationCommand, Result<CreatedResult>>,
@@ -331,6 +339,8 @@ public class EducationHandlers(IApplicationDbContext context, FileUploads files,
     if (education.FileReference is null)
       throw new StoredFileNotFoundException("No scan is attached to this qualification.");
     var number = await context.Employees.AsNoTracking().Where(e => e.Id == education.EmployeeId).Select(e => e.EmployeeNumber).FirstAsync(cancellationToken);
+    audit.Record(AuditActions.Downloaded, education, "Qualification scan");
+    await audit.SaveAsync(cancellationToken);
     return Result<StoredFile>.Success(await files.OpenAsync(education.FileReference, $"{number}-{education.DegreeTitle}", cancellationToken));
   }
 

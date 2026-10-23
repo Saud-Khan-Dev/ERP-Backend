@@ -53,7 +53,14 @@ public interface IApplicationDbContext
 
   // ---- 7. the daily job and the change history ----
   DbSet<JobRun> JobRuns { get; }
+  /// The change history kept until 2026-10-21: read-only, its rows copied into the audit trail.
   DbSet<AuditLog> AuditLogs { get; }
+  /// The module's audit trail (audit_entry): who did what, read for a record's History.
+  DbSet<AuditRecord> AuditTrail { get; }
+
+  /// The towns the signed-in person works on; null = every town (and always null for a background job). Tax files and
+  /// everything under them outside these towns are not found (TaxScope).
+  List<Guid>? TownScope { get; }
 
   Task<int> SaveChangesAsync(CancellationToken cancellationToken);
 

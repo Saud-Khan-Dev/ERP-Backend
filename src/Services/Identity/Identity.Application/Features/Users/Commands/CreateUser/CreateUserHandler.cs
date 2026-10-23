@@ -49,6 +49,11 @@ public class CreateUserHandler(
       guard.EnsurePermission(PermissionCatalog.Users.Assign, "give roles to a new account (that needs the right to give roles)");
       await guard.EnsureCanGrantRolesAsync(roles.Select(r => r.Id), "give these roles", cancellationToken);
     }
+    var roleIds = roles.Where(r => !r.IsSuperAdmin).Select(r => r.Id).ToList();
+    var roleCodes = roleIds.Count == 0 || roles.Any(r => r.IsSuperAdmin) ? [] : await context.RolePermissions.AsNoTracking()
+      .Where(rp => roleIds.Contains(rp.RoleId))
+      .Join(context.Permissions.AsNoTracking().Where(p => p.IsActive), rp => rp.PermissionId, p => p.Id, (rp, p) => p.Code.Value)
+      .Distinct().ToListAsync(cancellationToken);
 
     var generated = input.TemporaryPassword is null;
     var password = input.TemporaryPassword ?? passwordGenerator.Generate(policy);
@@ -74,6 +79,7 @@ public class CreateUserHandler(
 
     await activity.RecordAsync(ActivityAction.UserCreated, ActivityTargetType.User, user.Id.Value, user.DisplayName.Value,
       roles.Count == 0 ? null : string.Join(", ", roles.Select(r => r.RoleName.Value)), cancellationToken);
+    await ConflictCheck.EnsureAcceptedAsync(activity, roleCodes, input.ConflictReason, ActivityTargetType.User, user.Id.Value, user.DisplayName.Value, cancellationToken);
 
     await context.SaveChangesAsync(cancellationToken);
 

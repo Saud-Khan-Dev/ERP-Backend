@@ -10,12 +10,16 @@ public static class DependencyInjection
     var connectionString = configuration.GetConnectionString("Database");
 
     services.AddScoped<ISaveChangesInterceptor, AuditableEntityInterceptors>();
-    services.AddScoped<ISaveChangesInterceptor, PropertyChangeLogInterceptor>();
     services.AddScoped<ISaveChangesInterceptor, DispatchDomainEventInterceptor>();
+
+    // the shared audit trail (audit_entry): every record added, changed or removed, in the same save; the old
+    // property_change log is kept read-only and no longer written (PropertyChangeLogInterceptor is gone)
+    services.AddAuditTrail<ApplicationDbContext>(PropertyAudit.Module, PropertyAudit.Configure);
 
     services.AddDbContext<ApplicationDbContext>((sp, opt) =>
     {
-      opt.AddInterceptors(sp.GetServices<ISaveChangesInterceptor>()!);
+      // the trail last, so it sees what the other interceptors changed
+      opt.AddInterceptors(sp.GetServices<ISaveChangesInterceptor>().Append(sp.GetRequiredService<AuditTrailInterceptor>()));
       // Shared ERP database: this service owns the "property" schema and its own migrations history.
       opt.UseNpgsql(connectionString, npgsql =>
         npgsql.MigrationsHistoryTable("__EFMigrationsHistory", ApplicationDbContext.Schema));
@@ -23,7 +27,8 @@ public static class DependencyInjection
       opt.UseSnakeCaseNamingConvention();
     });
 
-    services.AddScoped<IApplicationDbContext, ApplicationDbContext>();
+    // the same instance the audit trail writes to, so lines recorded with IAuditTrail.Record are saved with the handler's SaveChanges
+    services.AddScoped<IApplicationDbContext>(sp => sp.GetRequiredService<ApplicationDbContext>());
 
     // ---- files ----
     services.Configure<FileStorageOptions>(configuration.GetSection(FileStorageOptions.SectionName));

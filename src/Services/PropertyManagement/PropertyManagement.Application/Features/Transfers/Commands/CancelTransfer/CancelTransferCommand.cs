@@ -2,7 +2,7 @@ using FluentValidation;
 
 public sealed record CancelTransferCommandResult(TransferStatus Status);
 
-/// Withdraws a transfer that has not changed ownership: one waiting for approval (PROPERTY.EDIT), or one
+/// Withdraws a transfer that has not changed ownership: one waiting for approval (PROPERTY_LEGAL.EDIT), or one
 /// approved before approval became completion (PROPERTY.APPROVE). The reason is required.
 public sealed record CancelTransferCommand(Guid Id, string Reason) : ICommand<Result<CancelTransferCommandResult>>;
 

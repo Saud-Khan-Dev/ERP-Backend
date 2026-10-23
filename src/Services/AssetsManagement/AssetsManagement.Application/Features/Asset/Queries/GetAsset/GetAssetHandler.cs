@@ -39,6 +39,11 @@ public class GetAssetHandler(IApplicationDbContext context, IAttributeSchemaServ
       .OrderBy(r => r.Label, StringComparer.OrdinalIgnoreCase)
       .ToList();
 
-    return Result<GetAssetQueryResult>.Success(new GetAssetQueryResult(asset.ToDto(), attributes, retired));
+    var proposal = await context.AssetDisposals.AsNoTracking()
+      .FirstOrDefaultAsync(d => d.AssetId == id && d.State == DisposalState.Proposed, cancellationToken);
+    var pending = proposal is null ? null
+      : new PendingDisposalDto(proposal.Id.Value, proposal.DisposalDate, proposal.ProposedBy, proposal.ProposedByName, proposal.ProposedAt);
+
+    return Result<GetAssetQueryResult>.Success(new GetAssetQueryResult(asset.ToDto(), attributes, retired, pending));
   }
 }

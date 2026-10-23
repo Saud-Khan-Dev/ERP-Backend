@@ -1,7 +1,8 @@
 # Assets Management service — context for AI assistants
 
 Read [overview.md](overview.md) first. This file covers `src/Services/AssetsManagement` after the 2026-10-20 audit fix
-(sign-in on every route, the acting person from the token, HR-linked custody, one book value, the field library).
+(sign-in on every route, the acting person from the token, HR-linked custody, one book value, the field library) and the
+2026-10-21 administration overhaul (an act per permission, two-step disposal with duty rules, the shared audit trail).
 
 ## What it is
 
@@ -26,23 +27,32 @@ It still contains the domain and tables of an **older Inventory, Purchase, Scrap
   Compose passes `Jwt__SigningKey` and `Services__HrmBaseUrl` (`http://hrm-api:8080`). The acting person always comes
   from the token (`ICurrentUser`, `CurrentUserExtensions.Actor()`): `performedBy`, `changedBy`, `postedBy`,
   `reversedBy`, `approvedBy`, `recordedBy` are never read from a body, and each is stored with the person's name
-  (`*_name` columns) so history reads right after a rename. The audit interceptor writes `ICurrentUser.AuditName`.
+  (`*_name` columns) so history reads right after a rename. Every name is `ICurrentUser.AuditName` (the display name
+  first) - the same name the audit trail and the created / changed columns write.
+- **One DbContext per request**: `IApplicationDbContext` resolves to THE scoped `ApplicationDbContext`, so the lines an act
+  records through `IAuditTrail` are saved with the act (before 2026-10-21 they were two instances).
 
 | Permission | What it allows |
 | --- | --- |
 | `ASSETS.VIEW` | the register (`GET /assets`), a record, its files, history, the timeline, the reports' non-money columns |
 | `ASSETS.CREATE` | register an asset (`POST /assets`, `GET /assets/next-tag`), upload files while registering |
-| `ASSETS.EDIT` | edit details and extra fields, transfer / loan / return, change status, record an event, files |
-| `ASSETS.DELETE` | delete a record entered by mistake (with a reason; never a disposed one or one with posted depreciation) |
+| `ASSETS.EDIT` | edit details and extra fields, change status, record an event, upload and delete files |
+| `ASSETS.ASSIGN` | custody: transfer, issue on loan, record the return (`POST /assets/{id}/assignments`, `…/{aid}/return`) |
+| `ASSETS.DELETE` | delete a record entered by mistake (with a reason; never a disposed one, one with posted depreciation or a proposal waiting) |
+| `ASSETS.EXPORT` | `POST /audit/exports` - the screens note every CSV of the register and the reports (the files are built in the browser) |
 | `ASSET_TAXONOMY.*` | classes, types, categories and the lists (statuses, locations, currencies, methods, event types) |
 | `ASSET_ATTRIBUTES.*` | fields, choice lists, form sections, placements, "not used here" (EDIT) |
 | any of ASSETS.VIEW / ASSET_TAXONOMY.VIEW / ASSET_ATTRIBUTES.VIEW | read the structure, the lists, the forms and `GET /field-library` (`AssetsAuthorization.AnyAssetsReader`) |
-| `ASSET_FINANCE.VIEW` | every money figure: the register's cost / purchase-date columns and the filters and sorts that read money (refused with 403 without it), acquisition, schedules, book value, valuations, disposal, report money and totals |
-| `ASSET_FINANCE.CREATE` | record a purchase (also inside `POST /assets`), start a schedule, write draft months (generate, run without post), add a manual month, record a valuation |
+| `ASSET_FINANCE.VIEW` | every money figure: the register's cost / purchase-date columns and the filters and sorts that read money (refused with 403 without it), acquisition, schedules, book value, valuations, disposal, report money and totals. **Every finance act below also needs VIEW** (`RequireFinance`) - nobody changes money they may not see |
+| `ASSET_FINANCE.CREATE` | record a purchase (also inside `POST /assets`), start a schedule, write draft months (generate, one asset's run without post), add a manual month, record a valuation, **propose a disposal**, withdraw one's own proposal |
 | `ASSET_FINANCE.EDIT` | change a purchase, revise the useful life, stop a schedule |
-| `ASSET_FINANCE.POST` | post a month (only once it has ended) and reverse one; `POST /depreciation-runs` with `post: true` |
+| `ASSET_FINANCE.POST` | post a month (only once it has ended); `POST /depreciation-runs` with `post: true` |
+| `ASSET_FINANCE.REVERSE` | reverse a posted month, with a reason - not one you posted while the rule DEPRECIATION_REVERSE is on |
+| `ASSET_FINANCE.RUN` | `POST /depreciation-runs` without `assetId` (every asset at once; one asset's run also opens with CREATE) |
 | `ASSET_FINANCE.DELETE` | delete a draft month or a valuation |
-| `ASSET_FINANCE.APPROVE` | record a disposal (the recorder is the approver) and cancel a mistaken one |
+| `ASSET_FINANCE.APPROVE` | approve or reject a proposed disposal - not one you proposed while the rule ASSET_DISPOSAL is on - and cancel an approved one recorded by mistake |
+| `IAM_AUDIT.VIEW` | `GET /audit`, `GET /audit/kinds` (Administration's Activity) |
+| `IAM_SYSTEM.VIEW` | `GET /system/status` (health, trail size, the depreciation run as a job) |
 | signed in | `GET /attention` (never 403s; lists only the queues the caller may act on) |
 
 ## Domain model (`AssetsManagement.Domain/Models`)
@@ -71,7 +81,11 @@ It still contains the domain and tables of an **older Inventory, Purchase, Scrap
   - `AssetBookValue`: THE book value = cost − every posted, not reversed month ended by a date, across all the
     asset's schedules. The record, the disposal, the reports and `GET /assets/{id}/book-value` all use it.
   - `AssetValuation` (table `asset_valuation_history`)
-  - `AssetDisposal` (one per asset)
+  - `AssetDisposal`: `State` Proposed → Approved | Rejected | Withdrawn; Approved → Cancelled. At most ONE live (Proposed or
+    Approved) per asset (partial unique index `ux_asset_disposal_live`); rejected, withdrawn and cancelled rows stay.
+    `ProposedBy/At`, `ApprovedBy/At`, `DecidedBy/At` + `DecisionNote` (reject / withdraw), `CancelledBy/At` +
+    `CancellationReason`, `ToStatusId` (the final status chosen on the proposal). Book value and gain / loss are set on
+    approval. **Every query that means "disposed" filters `State == Approved`.**
 - **Lookups**, admin-defined (the migration seeds only the system rows below):
   - `AssetStatus` (`IsTerminal`, `AllowsAssignment` - locked once assets use the status)
   - `CurrencyLookup`, keyed by ISO code
@@ -134,10 +148,17 @@ It still contains the domain and tables of an **older Inventory, Purchase, Scrap
   - One active schedule per asset (partial unique index `ux_asset_depreciation_schedule_active`); a revision closes
     the running one after its last posted month and starts a new one from the book value left (two saves in one
     transaction because of the index).
-- **Disposal**: depreciation is posted up to the disposal date first; book value on the day; gain / loss =
-  (proceeds or 0) − book value; proceeds required / allowed by the method and in the purchase currency; refused while
-  on loan, before the purchase date, after today. The event is stamped with the real time. Cancelling a mistaken
-  disposal (APPROVE, with a reason) restores the earlier status and reopens a stopped schedule; posted months stay.
+- **Disposal, two steps**: a proposal (CREATE) checks the method, the date (not before the purchase, not after today), the
+  proceeds (required / allowed by the method, in the purchase currency), loans, a proposal already waiting, and months
+  posted after the date - and changes nothing on the asset. The approval (APPROVE, another person while the duty rule
+  ASSET_DISPOSAL is on - `IDutyRules.SeparationRefusalAsync` before anything changes) checks it all again, posts the
+  months up to the disposal date, keeps the book value on the day, works out gain / loss = (proceeds or 0) − book
+  value, closes the schedules, moves the asset to the proposed final status and writes the Disposal event. Reject
+  (APPROVE, a reason) or withdraw (the proposer only) leaves the asset as it is. Cancelling an approved disposal
+  (APPROVE, a reason) marks it Cancelled - **never deletes it** - restores the earlier status and reopens a stopped
+  schedule; posted months stay.
+- **Reversing a posted month** (REVERSE) needs a reason (`reversal_reason`) and is refused to the person who posted it while
+  the rule DEPRECIATION_REVERSE is on.
 - **Deleting an asset**: only with a reason; refused for a disposed asset and for one with posted depreciation.
 - **Fields**: a field can be deleted only while no (not deleted) asset holds a value; otherwise it is switched off.
 - **Attachments**: only an Image can be the primary image; SHA-256; removing one deletes the file too.
@@ -176,7 +197,7 @@ directly (no `MapGroup`), with request and response records at the top of the fi
     assetTypeId / categoryId (each alone; includeSubCategories), statusId, locationId (includeSubLocations) or
     noLocation, custodianId / departmentId (HRM ids; departmentId includes sub-units unless includeSubUnits=false) /
     hasCustodian, heldOn (with custodianId), ownership, disposed=include|exclude|only, disposedFrom/To, registeredFrom/To,
-    loan=out|overdue, warrantyFrom/To, warrantyWithinDays, outOfService, statusSinceTo, inStatusOverDays,
+    loan=out|overdue, disposed=proposed (a disposal waits for approval), warrantyFrom/To, warrantyWithinDays, outOfService, statusSinceTo, inStatusOverDays,
     missingRequiredLocation, search (part of the tag, name, barcode, description, Searchable fields), attr=code:op:value
     (Filter-flagged fields), sortBy=code|name|registered|acquired|cost|status|location|warranty. Money (cost /
     purchase-date columns; acquiredFrom/To, costMin/Max, hasPurchase, depreciationBehind, sortBy acquired|cost) needs
@@ -184,14 +205,17 @@ directly (no `MapGroup`), with request and response records at the top of the fi
     card reads `GET /assets?custodianId=…`.
   - `POST /assets`: the asset with its acquisition and depreciation plan in one transaction (the money parts need
     ASSET_FINANCE.CREATE); the tag is issued from the sequence.
-  - `GET /assets/next-tag`, `GET/PUT /assets/{id}` (GET adds `retiredAttributes`), `DELETE /assets/{id}` (body
+  - `GET /assets/next-tag`, `GET/PUT /assets/{id}` (GET adds `retiredAttributes` and `pendingDisposal` - who proposed a
+    disposal waiting for approval, no money), `GET /assets/{id}/history` (the audit trail), `DELETE /assets/{id}` (body
     `{reason}` or `?reason=`), `PUT /assets/{id}/attributes`, `GET /assets/{id}/attribute-history`,
     `POST /assets/{id}/status`.
 - **Per asset**: `…/acquisition`, `…/assignments` (+ `/{aid}/return`; body clearCustodian / clearDepartment),
   `…/attachments` (+ `/{aid}/content`), `…/lifecycle-events` (hand-recorded types only), `…/depreciation-schedules`,
-  `…/book-value?asOf=`, `…/valuations` (`valuedByName`), `…/disposal`, `…/disposal/cancel`.
+  `…/book-value?asOf=`, `…/valuations` (`valuedByName`), `GET …/disposal` (the live one) and `…/disposals` (all),
+  `POST …/disposal` (propose), `…/disposal/approve {note?}`, `…/disposal/reject {reason}`, `…/disposal/withdraw {reason?}`,
+  `…/disposal/cancel {reason}`.
 - **Depreciation**: `/depreciation-schedules/{sid}/deactivate {lastDay}|revise|entries|entries/generate|
-  entries/{eid}/post|reverse` and `POST /depreciation-runs {until, post, assetId?}`.
+  entries/{eid}/post|reverse {reason}` and `POST /depreciation-runs {until, post, assetId?}`.
 - **Register-wide**: `GET /lifecycle-events` (timeline; filters assetId, eventTypeId, stage, from/to, assetClassId,
   categoryId, locationId), `GET /asset-reports/register` (the register's filters or `ids=`, `asOf`, `totalsOnly` -
   money and totals need ASSET_FINANCE.VIEW), `GET /attention`.
@@ -202,17 +226,42 @@ directly (no `MapGroup`), with request and response records at the top of the fi
 - **Lookups**: `/asset-statuses`, `/currencies`, `/locations`, `/lifecycle-event-types`, `/depreciation-methods`,
   `/disposal-methods`.
 
+### Audit trail (`assets.audit_entry`, shared BuildingBlock/Audit)
+
+- `AddAuditTrail<ApplicationDbContext>("Assets", AssetsAuditProfile.Configure)` + `AuditTrailInterceptor` (last
+  interceptor); `modelBuilder.AddAuditTrail()`. The table is append-only (triggers from `AuditTrailSql.Protect`).
+- **Profile** (`Infrastructure/Data/Audit/AssetsAuditProfile.cs`): every child of an asset hangs `Under<Asset>` (move,
+  purchase, document, schedule, valuation, disposal) so the asset's History lists it; lists and structure are named by
+  their names (codes are configuration detail); fields read in words. Skipped (their acts write their own lines):
+  `AssetAttributeValue` (projection), `AssetAttributeHistory` (old archive), `AssetLifecycleEvent` (the timeline - a
+  hand-recorded event writes "Recorded"), `AssetDepreciationEntry` (bulk months).
+- **Lines the acts write** (`Application/Audit/AssetAudit.cs`): field values one line per field with the field's name
+  and the choices' labels (`AttributeSchemaService` - `asset_attribute_history` is no longer written, kept read-only);
+  Removed (asset deleted, with the reason); Recorded (hand event); Posted / Reversed / Added / Removed (a month);
+  one Ran line per depreciation run (`audit.Quietly()` around the bulk save); Approved / Rejected / Withdrawn /
+  Cancelled (disposal); Downloaded (`…/content?download=true`).
+- `GET /assets/{id}/history` (ASSETS.VIEW): the trail by parent, newest first (`before`, `from`, `to`, `action`, `kind`,
+  `search`, `pageSize`); money kinds (Purchase, Depreciation schedule / month / run, Valuation, Disposal) come back
+  `restricted: true` with no values or detail without ASSET_FINANCE.VIEW.
+- `MapAuditTrail<ApplicationDbContext>(ASSETS.EXPORT)` and `MapSystemStatus<ApplicationDbContext>("Assets")`;
+  `DepreciationRunJobSource` reports the last run over every asset (its Ran line) to Administration › System.
+- Migration `AuditTrail` (2026-10-21): the disposal columns and `ux_asset_disposal_live`, `reversal_reason`, Restrict
+  instead of Cascade from `asset` to every history table, no foreign key from `asset_attribute_history` to the field (a
+  deleted field keeps its history), `audit_entry` - and copies into it the timeline events, the field-change archive,
+  deleted assets, posted months (one line per posting) and reversed months (`request_id` = `copied:<table>`).
+
 ### `GET /attention` keys (the bell)
 
 Each count is the register's own filter with `disposed=exclude`, so `GET /assets` with the same filter shows the same number.
 
 | Key | Register filter | Listed for |
 | --- | --- | --- |
-| `assets.loans-overdue` (oldest = earliest missed return date) | `loan=overdue` | ASSETS.EDIT |
+| `assets.loans-overdue` (oldest = earliest missed return date) | `loan=overdue` | ASSETS.ASSIGN |
 | `assets.location-missing` | `missingRequiredLocation=true` | ASSETS.EDIT |
 | `assets.out-of-service-long` | `outOfService=true&inStatusOverDays=30` | ASSETS.EDIT |
 | `assets.warranty-ending` (nextDue) | `warrantyWithinDays=30` | ASSETS.EDIT |
 | `assets.depreciation-behind` | `depreciationBehind=true` | ASSET_FINANCE.POST + VIEW |
+| `assets.disposals-pending` (oldest = first proposed) | `disposed=proposed` | ASSET_FINANCE.APPROVE + VIEW |
 | `assets.no-purchase` | `hasPurchase=false` | ASSET_FINANCE.CREATE + VIEW |
 | `assets.in-my-custody` (forMe) | `custodianId=<the caller's employee>` | ASSETS.VIEW and a token with `emp` |
 
@@ -242,6 +291,7 @@ Errors (`Api/AssetExceptionHandler.cs`):
      type placements set to inherit.
   4. `PurgeDeletedE2EAssets`: removes four test assets the end-to-end suites had deleted (matched by id, tag, test
      name and deleted mark - a no-op on any other database).
+  5. `AuditTrail`: see "Audit trail" above.
 - `Program.cs` runs `MigrateAsync()` when `Database:AutoMigrate` is set (default on in Development). There is **no
   wait-for-database retry**; the only seed data are the system rows the migration inserts.
 - New migration (from `src/`):
@@ -271,7 +321,9 @@ Errors (`Api/AssetExceptionHandler.cs`):
   `dotnet test src/Tests/AssetsManagement.Domain.Tests`.
 - `ERP-Frontend/tools/e2e/assets-api.e2e.mjs` drives the whole contract against the running service on standing
   fixtures (type "E2E sandbox" and its categories, found or made and switched off after); each run removes its own
-  fields and deletes its assets with a reason. Always pass `assetId` to `POST /depreciation-runs` in tests.
+  fields and deletes its assets with a reason. Always pass `assetId` to `POST /depreciation-runs` in tests. The second
+  person is the permanent account `e2e.assets.checker` (`accounts.mjs`): it approves disposals and reverses the months
+  the Super Admin posted; `e2e.assets.maker` proves each 403.
 
 ## Gotchas
 

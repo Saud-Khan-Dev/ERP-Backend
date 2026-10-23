@@ -22,12 +22,26 @@ public sealed class ActivityRecorder(
     if (currentUser.UserId is not { } actorId)
       return;
 
+    await RecordAsAsync(UserId.Of(actorId), null, action, targetType, targetId, targetLabel, detail, cancellationToken);
+  }
+
+  public async Task RecordAsAsync(
+      UserId? actor,
+      string? systemActor,
+      ActivityAction action,
+      ActivityTargetType targetType,
+      Guid? targetId,
+      string? targetLabel,
+      string? detail,
+      CancellationToken cancellationToken)
+  {
     var http = httpContextAccessor.HttpContext;
     var ip = IpAddress.OfNullable(http?.Connection.RemoteIpAddress?.ToString());
     var userAgent = http?.Request.Headers.UserAgent.ToString();
 
-    var actor = UserId.Of(actorId);
-    var actorName = await NameOfAsync(actor, cancellationToken) ?? currentUser.Username ?? currentUser.AuditName;
+    var actorName = actor is null
+      ? (systemActor is null ? "System" : $"System · {systemActor}")
+      : await NameOfAsync(actor, cancellationToken) ?? currentUser.Username ?? currentUser.AuditName;
     if (targetType == ActivityTargetType.User && targetId is { } target)
       targetLabel = await NameOfAsync(UserId.Of(target), cancellationToken) ?? targetLabel;
 

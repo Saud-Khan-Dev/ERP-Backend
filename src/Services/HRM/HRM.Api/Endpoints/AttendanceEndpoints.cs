@@ -157,7 +157,7 @@ public class AttendanceEndpoints : ICarterModule
 
     attendance.MapPost("/import", async (ImportAttendanceRequest request, ISender sender) =>
         (await sender.Send(new ImportAttendanceCommand(request.Rows))).ToOk())
-      .RequirePermission(PermissionCatalog.Attendance.Create)
+      .RequirePermission(PermissionCatalog.Attendance.Run)
       .WithName("ImportAttendance")
       .Produces<ImportAttendanceResult>()
       .ProducesProblem(StatusCodes.Status400BadRequest)
@@ -166,7 +166,7 @@ public class AttendanceEndpoints : ICarterModule
 
     attendance.MapPost("/close-day", async (CloseAttendanceDayRequest request, ISender sender) =>
         (await sender.Send(new CloseAttendanceDayCommand(request.Date, request.DryRun))).ToOk())
-      .RequirePermission(PermissionCatalog.Attendance.Edit)
+      .RequirePermission(PermissionCatalog.Attendance.Run)
       .WithName("CloseAttendanceDay")
       .Produces<CloseAttendanceDayResult>()
       .ProducesProblem(StatusCodes.Status400BadRequest)

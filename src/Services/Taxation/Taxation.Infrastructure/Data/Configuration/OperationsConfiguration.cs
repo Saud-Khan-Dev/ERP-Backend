@@ -150,6 +150,7 @@ public class AgreementStepRevisionConfiguration : EntityConfiguration<AgreementS
     builder.ToTable("agreement_step_revision");
     builder.Property(x => x.StepPct).Numeric(6, 2);
     builder.Property(x => x.BoardReference).HasMaxLength(100);
+    builder.HasOne<TaxFile>().WithMany().HasForeignKey(x => x.TaxFileId).OnDelete(DeleteBehavior.Restrict);
   }
 }
 
@@ -277,6 +278,7 @@ public class NoticeConfiguration : EntityConfiguration<Notice, NoticeId>
     builder.HasOne<NoticeLetterhead>().WithMany().HasForeignKey(x => x.LetterheadId).OnDelete(DeleteBehavior.Restrict);
     builder.HasOne<NoticeTableLayout>().WithMany().HasForeignKey(x => x.TableLayoutId).OnDelete(DeleteBehavior.Restrict);
     builder.HasOne<Demand>().WithMany().HasForeignKey(x => x.DemandId).OnDelete(DeleteBehavior.Restrict);
+    builder.HasOne<TaxFile>().WithMany().HasForeignKey(x => x.TaxFileId).OnDelete(DeleteBehavior.Restrict);
     builder.HasOne<NoticeTemplate>().WithMany().HasForeignKey(x => x.TemplateId).OnDelete(DeleteBehavior.Restrict);
     builder.HasOne<PenaltyRun>().WithMany().HasForeignKey(x => x.PenaltyRunId).OnDelete(DeleteBehavior.Restrict);
     // notice.sms_message_id is kept without a foreign key: the notice and its SMS are written in one save and
@@ -295,6 +297,7 @@ public class PenaltyConfiguration : EntityConfiguration<Penalty, PenaltyId>
     builder.Property(x => x.RuleRef).HasMaxLength(100);
     builder.HasOne<PenaltyRule>().WithMany().HasForeignKey(x => x.RuleId).OnDelete(DeleteBehavior.Restrict);
     builder.HasOne<PenaltyRun>().WithMany().HasForeignKey(x => x.RunId).OnDelete(DeleteBehavior.Restrict);
+    builder.HasOne<TaxFile>().WithMany().HasForeignKey(x => x.TaxFileId).OnDelete(DeleteBehavior.Restrict);
   }
 }
 

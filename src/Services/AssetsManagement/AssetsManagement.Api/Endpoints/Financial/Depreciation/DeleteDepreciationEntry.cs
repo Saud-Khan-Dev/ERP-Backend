@@ -13,7 +13,7 @@ public class DeleteDepreciationEntry : ICarterModule
 
       return Results.Ok(result.Value.Adapt<DeleteDepreciationEntryResponse>());
     })
-      .RequirePermission(PermissionCatalog.AssetFinance.Delete)
+      .RequireFinance(PermissionCatalog.AssetFinance.Delete)
 
       .WithName("DeleteDepreciationEntry")
       .Produces<DeleteDepreciationEntryResponse>(StatusCodes.Status200OK)

@@ -26,18 +26,25 @@ public static class ActivityKinds
         ActivityAction.UserDeleted, ActivityAction.UserUnlocked, ActivityAction.PasswordReset, ActivityAction.SessionsRevoked,
         ActivityAction.AuthorizedOfficerSet, ActivityAction.AuthorizedOfficerCleared,
         ActivityAction.EmployeeLinked, ActivityAction.EmployeeUnlinked, ActivityAction.UserRestored,
+        ActivityAction.PasswordChanged, ActivityAction.SignedOut, ActivityAction.SignedOutOtherDevices, ActivityAction.SessionTheftDetected,
+        ActivityAction.AccountLockedByPasswordChange, ActivityAction.DormantAccountsSwitchedOff, ActivityAction.SuperAdminSeeded,
       ],
       ["access"] =
       [
         ActivityAction.RoleAssigned, ActivityAction.RoleRemoved, ActivityAction.PermissionOverrideSet, ActivityAction.PermissionOverrideRemoved,
-        ActivityAction.RolesChanged,
+        ActivityAction.RolesChanged, ActivityAction.ScopeChanged, ActivityAction.ConflictAccepted, ActivityAction.ActRefused,
+        ActivityAction.AccessReviewStarted, ActivityAction.AccessReviewDecided, ActivityAction.AccessReviewClosed,
       ],
       ["roles"] =
       [
         ActivityAction.RoleCreated, ActivityAction.RoleUpdated, ActivityAction.RoleDeleted, ActivityAction.RolePermissionsAdded,
-        ActivityAction.RolePermissionRemoved, ActivityAction.RolePermissionsChanged,
+        ActivityAction.RolePermissionRemoved, ActivityAction.RolePermissionsChanged, ActivityAction.PermissionsSeeded,
       ],
-      ["settings"] = [ActivityAction.EmployeeCodeTemplateUpdated, ActivityAction.SecuritySettingsUpdated],
+      ["settings"] =
+      [
+        ActivityAction.EmployeeCodeTemplateUpdated, ActivityAction.SecuritySettingsUpdated, ActivityAction.OversightSettingsUpdated,
+        ActivityAction.DutyRuleSwitched, ActivityAction.Exported,
+      ],
     };
 }
 

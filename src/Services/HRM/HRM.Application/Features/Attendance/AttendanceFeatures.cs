@@ -52,7 +52,7 @@ public class AssignShiftToManyCommandValidator : AbstractValidator<AssignShiftTo
   }
 }
 
-public class ShiftHandlers(IApplicationDbContext context, IClock clock) :
+public class ShiftHandlers(IApplicationDbContext context, IClock clock, IAuditTrail audit) :
   IQueryHandler<GetWorkShiftsQuery, Result<GetWorkShiftsQueryResult>>,
   ICommandHandler<CreateWorkShiftCommand, Result<CreatedResult>>,
   ICommandHandler<UpdateWorkShiftCommand, Result<UpdatedResult>>,
@@ -150,7 +150,12 @@ public class ShiftHandlers(IApplicationDbContext context, IClock clock) :
     foreach (var missing in ids.Except(employees.Select(e => e.Id)))
       problems.Add($"{missing.Value}: no such employee.");
 
-    await context.SaveChangesAsync(cancellationToken);
+    using (audit.Quietly())
+    {
+      audit.Record(AuditActions.Ran, HrmRuns.ShiftAssignment, shift.Id.Value, null, shift.Name,
+        detail: $"{shift.Name} from {command.EffectiveFrom:yyyy-MM-dd} · {assigned} assigned · {problems.Count} problem(s)");
+      await context.SaveChangesAsync(cancellationToken);
+    }
     return Result<AssignShiftToManyResult>.Success(new(assigned, problems));
   }
 
@@ -334,7 +339,7 @@ public class GetAttendanceQueryValidator : AbstractValidator<GetAttendanceQuery>
   }
 }
 
-public class AttendanceHandlers(IApplicationDbContext context, WorkCalendar calendar, HrLookup lookup, IClock clock) :
+public class AttendanceHandlers(IApplicationDbContext context, WorkCalendar calendar, HrLookup lookup, IClock clock, IAuditTrail audit, OfficeScope scope) :
   IQueryHandler<GetAttendanceQuery, Result<GetAttendanceQueryResult>>,
   IQueryHandler<GetAttendanceSummaryQuery, Result<GetAttendanceSummaryQueryResult>>,
   ICommandHandler<RecordAttendanceCommand, Result<CreatedResult>>,
@@ -446,7 +451,13 @@ public class AttendanceHandlers(IApplicationDbContext context, WorkCalendar cale
     foreach (var (row, number, _) in parsed.Where(p => !employees.ContainsKey(p.Number)))
       problems.Add($"Row {row}: there is no employee {number}.");
 
-    await context.SaveChangesAsync(cancellationToken);
+    using (audit.Quietly())
+    {
+      audit.Record(AuditActions.Ran, HrmRuns.AttendanceImport,
+        detail: $"{command.Rows.Count} row(s) read · {saved} saved · {problems.Count} problem(s)"
+          + (known.Count > 0 ? $" · {known.Min(p => p.Input.AttendanceDate):yyyy-MM-dd} to {known.Max(p => p.Input.AttendanceDate):yyyy-MM-dd}" : ""));
+      await context.SaveChangesAsync(cancellationToken);
+    }
     return Result<ImportAttendanceResult>.Success(new(saved, problems.OrderBy(p => p, StringComparer.Ordinal).ToList()));
   }
 
@@ -492,7 +503,15 @@ public class AttendanceHandlers(IApplicationDbContext context, WorkCalendar cale
     }
 
     if (!command.DryRun)
-      await context.SaveChangesAsync(cancellationToken);
+    {
+      using (audit.Quietly())
+      {
+        var where = scope.IsLimited ? $" · offices: {await scope.OfficeNamesAsync(cancellationToken)}" : "";
+        audit.Record(AuditActions.Ran, HrmRuns.CloseAttendanceDay, null, date.ToString("yyyy-MM-dd"),
+          detail: $"{date:yyyy-MM-dd} closed · {absent} absent · {leave} on leave · {holiday} holiday · {weekend} day off{where}");
+        await context.SaveChangesAsync(cancellationToken);
+      }
+    }
 
     return Result<CloseAttendanceDayResult>.Success(new(date, absent, leave, holiday, weekend, command.DryRun));
   }

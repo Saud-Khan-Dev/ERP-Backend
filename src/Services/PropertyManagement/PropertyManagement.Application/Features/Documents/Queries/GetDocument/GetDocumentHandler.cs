@@ -7,9 +7,8 @@ public class GetDocumentHandler(IApplicationDbContext context, MasterLookup mast
   {
     var document = await context.LoadDocumentAsync(query.Id, cancellationToken);
 
-    // a confidential document is reported as missing to callers who may not see it
-    if (document.IsConfidential && !documents.CanSeeConfidential())
-      throw new DocumentNotFoundException($"Document {query.Id} was not found.");
+    // a confidential paper, or one filed on a legal record, is refused with the permission it needs
+    documents.EnsureMaySee(document);
 
     var isLatest = !await context.Documents.AnyAsync(d => d.SupersedesDocumentId == document.Id, cancellationToken);
     var refs = await masters.Refs().Add<DocumentType>(document.DocumentTypeId).LoadAsync(cancellationToken);

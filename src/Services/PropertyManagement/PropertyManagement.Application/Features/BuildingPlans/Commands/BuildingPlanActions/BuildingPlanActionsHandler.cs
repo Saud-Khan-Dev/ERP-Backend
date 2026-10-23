@@ -1,6 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 
-public class BuildingPlanActionsHandler(IApplicationDbContext context, MasterLookup masters, ICurrentUser currentUser)
+public class BuildingPlanActionsHandler(IApplicationDbContext context, MasterLookup masters, ICurrentUser currentUser, IAuditTrail audit)
   : ICommandHandler<UpdateBuildingPlanCommand, Result<BuildingPlanActionResult>>,
     ICommandHandler<ChangeBuildingPlanStatusCommand, Result<BuildingPlanActionResult>>,
     ICommandHandler<ApproveBuildingPlanCommand, Result<BuildingPlanActionResult>>,
@@ -40,10 +40,11 @@ public class BuildingPlanActionsHandler(IApplicationDbContext context, MasterLoo
     var warnings = plan.Approve(await Current(plan, cancellationToken), await Status(SystemMasterCodes.Approved, cancellationToken),
       new BuildingPlan.Approval(
         command.ApprovalDate,
-        picked ? command.ApprovedBy! : currentUser.Username ?? currentUser.AuditName,
+        picked ? command.ApprovedBy! : currentUser.AuditName,
         picked ? command.ApprovedByEmployeeId : currentUser.EmployeeId,
         command.ApprovalReferenceNo, command.ValidityEndDate, command.NoDuesCertificateNo),
       PropertyWriteGuard.Today(), slope);
+    audit.Record(PropertyAuditActions.Approved, plan, string.Join(" · ", new[] { $"approving officer on file: {plan.ApprovedBy}", command.ApprovalReferenceNo is { } reference ? $"order {reference}" : null, command.NoDuesCertificateNo is { } certificate ? $"no-dues certificate {certificate}" : null }.Where(x => x is not null)));
     return await SaveAsync(plan, cancellationToken, warnings);
   }
 
@@ -52,6 +53,7 @@ public class BuildingPlanActionsHandler(IApplicationDbContext context, MasterLoo
     var plan = await context.LoadBuildingPlanAsync(command.Id, cancellationToken);
     await context.EnsurePropertyActiveAsync(plan.PropertyId, cancellationToken);
     plan.Reject(await Current(plan, cancellationToken), await Status(SystemMasterCodes.Rejected, cancellationToken), command.Remarks);
+    audit.Record(PropertyAuditActions.Rejected, plan, command.Remarks);
     return await SaveAsync(plan, cancellationToken);
   }
 

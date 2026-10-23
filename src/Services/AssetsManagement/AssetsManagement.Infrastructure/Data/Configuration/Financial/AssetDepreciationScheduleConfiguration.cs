@@ -43,7 +43,8 @@ public class AssetDepreciationScheduleConfiguration : EntityConfiguration<AssetD
       .HasField("_entries")
       .UsePropertyAccessMode(PropertyAccessMode.Field);
 
-    builder.HasOne<Asset>().WithMany().HasForeignKey(x => x.AssetId).IsRequired().OnDelete(DeleteBehavior.Cascade);
+    // Restrict: an asset is only ever soft-deleted, and a hard delete must never take its history with it
+    builder.HasOne<Asset>().WithMany().HasForeignKey(x => x.AssetId).IsRequired().OnDelete(DeleteBehavior.Restrict);
     builder.HasOne<DepreciationMethod>().WithMany().HasForeignKey(x => x.MethodId).IsRequired().OnDelete(DeleteBehavior.Restrict);
 
     builder.ToTable(t =>

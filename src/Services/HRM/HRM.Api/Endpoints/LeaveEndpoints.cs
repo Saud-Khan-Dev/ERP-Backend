@@ -81,7 +81,7 @@ public class LeaveEndpoints : ICarterModule
 
     app.MapPost("/leave-entitlements/grant", async (GrantLeaveEntitlementsRequest request, ISender sender) =>
         (await sender.Send(new GrantLeaveEntitlementsCommand(request.Year, request.LeaveTypeId, request.EntitledDays, request.EmployeeIds))).ToOk())
-      .RequirePermission(PermissionCatalog.Attendance.Edit)
+      .RequirePermission(PermissionCatalog.Attendance.Run)
       .WithTags("Leave Balances")
       .WithName("GrantLeaveEntitlements")
       .Produces<GrantEntitlementsResult>()
@@ -110,7 +110,7 @@ public class LeaveEndpoints : ICarterModule
 
     app.MapPost("/employees/{id:guid}/leave-ledger", async (Guid id, PostLeaveLedgerEntryRequest r, ISender sender) =>
         (await sender.Send(new PostLeaveLedgerEntryCommand(id, r.LeaveTypeId, r.Year, r.TransactionType, r.Days, r.TransactionDate, r.Remarks))).ToOk())
-      .RequirePermission(PermissionCatalog.Attendance.Approve)
+      .RequirePermission(PermissionCatalog.Attendance.Adjust)
       .WithTags("Leave Balances")
       .WithName("PostLeaveLedgerEntry")
       .Produces<CreatedResult>()
@@ -121,7 +121,7 @@ public class LeaveEndpoints : ICarterModule
 
     app.MapPost("/leave/year-end", async (LeaveYearEndRequest request, ISender sender) =>
         (await sender.Send(new RunLeaveYearEndCommand(request.Year, request.DryRun))).ToOk())
-      .RequirePermission(PermissionCatalog.Attendance.Approve)
+      .RequirePermission(PermissionCatalog.Attendance.Run)
       .WithTags("Leave Balances")
       .WithName("RunLeaveYearEnd")
       .Produces<LeaveYearEndResult>()

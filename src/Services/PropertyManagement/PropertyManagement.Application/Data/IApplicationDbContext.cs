@@ -42,6 +42,18 @@ public interface IApplicationDbContext
   // ---- numbering ----
   DbSet<CodeSequence> CodeSequences { get; }
 
+  // ---- audit trail (audit_entry, append-only) ----
+  DbSet<AuditRecord> AuditTrail { get; }
+
+  // ---- town scope ----
+  /// The towns the signed-in person works on (ICurrentUser.TownScope); null = every town. Every query of a property and
+  /// of a record on a property is narrowed to them by the model's query filters (named TownScopeFilter.Name); a check
+  /// that must see every town (a code in use, an owner's commitments) calls IgnoreQueryFilters().
+  IReadOnlySet<Guid>? TownScope { get; }
+
+  /// Owner ↔ property links, never narrowed by the town scope (see OwnershipLink).
+  IQueryable<OwnershipLink> OwnershipLinks { get; }
+
   /// The master tables, reached generically through MasterRegistry (27 tables + attribute_group).
   DbSet<TEntity> Set<TEntity>() where TEntity : class;
 

@@ -322,7 +322,7 @@ public class AgreementSchedule : Entity<AgreementScheduleId>
       throw new DomainException("A revision takes effect after the agreement started; change the terms instead.");
     if (_revisions.Any(r => r.EffectiveFrom >= effectiveFrom))
       throw new DomainException("The agreement already has a revision from that date or later.");
-    var revision = AgreementStepRevision.Create(AgreementStepRevisionId.New(), Id, effectiveFrom, stepPct, stepIntervalYears, boardReference);
+    var revision = AgreementStepRevision.Create(AgreementStepRevisionId.New(), Id, TaxFileId, effectiveFrom, stepPct, stepIntervalYears, boardReference);
     _revisions.Add(revision);
     return revision;
   }
@@ -378,6 +378,8 @@ public class AgreementSchedule : Entity<AgreementScheduleId>
 public class AgreementStepRevision : Entity<AgreementStepRevisionId>
 {
   public AgreementScheduleId ScheduleId { get; private set; } = default!;
+  /// The agreement's tax file (its history lists the revision).
+  public TaxFileId TaxFileId { get; private set; } = default!;
   public DateOnly EffectiveFrom { get; private set; }
   public decimal StepPct { get; private set; }
   public int StepIntervalYears { get; private set; }
@@ -385,10 +387,12 @@ public class AgreementStepRevision : Entity<AgreementStepRevisionId>
 
   private AgreementStepRevision() { }
 
-  internal static AgreementStepRevision Create(AgreementStepRevisionId id, AgreementScheduleId scheduleId, DateOnly from, decimal pct, int every, string? boardReference) => new()
+  internal static AgreementStepRevision Create(AgreementStepRevisionId id, AgreementScheduleId scheduleId, TaxFileId fileId, DateOnly from, decimal pct, int every,
+      string? boardReference) => new()
   {
     Id = id,
     ScheduleId = scheduleId,
+    TaxFileId = fileId,
     EffectiveFrom = from,
     StepPct = Guard.Between(pct, 0m, 100m, "Step %"),
     StepIntervalYears = Guard.Between(every, 1, 99, "Step every (years)"),

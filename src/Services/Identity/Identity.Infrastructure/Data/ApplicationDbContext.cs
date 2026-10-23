@@ -23,6 +23,12 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
   public DbSet<RolePermission> RolePermissions => Set<RolePermission>();
   public DbSet<UserPermissionOverride> UserPermissionOverrides => Set<UserPermissionOverride>();
 
+  // ---- oversight ----
+  public DbSet<UserScope> UserScopes => Set<UserScope>();
+  public DbSet<DutyRuleSwitch> DutyRuleSwitches => Set<DutyRuleSwitch>();
+  public DbSet<AccessReview> AccessReviews => Set<AccessReview>();
+  public DbSet<AccessReviewDecision> AccessReviewDecisions => Set<AccessReviewDecision>();
+
   protected override void OnModelCreating(ModelBuilder builder)
   {
     builder.HasDefaultSchema(Schema);

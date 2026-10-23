@@ -324,6 +324,8 @@ public class LitigationParty : Entity<LitigationPartyId>
   public const int RemarksMaxLength = 300;
 
   public LitigationId LitigationId { get; private set; } = default!;
+  /// The litigation it belongs to (set by EF when both are loaded; the audit trail reads its property through it).
+  public PropertyLitigation? Litigation { get; private set; }
   public string PartyName { get; private set; } = default!;
   public OwnerId? PartyOwnerId { get; private set; }
   public LitigationPartyRole PartyRole { get; private set; }
@@ -348,6 +350,8 @@ public class LitigationHearing : Entity<LitigationHearingId>
   public const int AttendedByMaxLength = 150;
 
   public LitigationId LitigationId { get; private set; } = default!;
+  /// The litigation it belongs to (set by EF when both are loaded; the audit trail reads its property through it).
+  public PropertyLitigation? Litigation { get; private set; }
   public DateOnly HearingDate { get; private set; }
   public string? Proceedings { get; private set; }
   public string? OrderPassed { get; private set; }

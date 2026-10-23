@@ -173,6 +173,10 @@ namespace Taxation.Infrastructure.Data.Migrations
                         .HasColumnType("numeric(6,2)")
                         .HasColumnName("step_pct");
 
+                    b.Property<Guid>("TaxFileId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tax_file_id");
+
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_at");
@@ -186,6 +190,9 @@ namespace Taxation.Infrastructure.Data.Migrations
 
                     b.HasIndex("ScheduleId")
                         .HasDatabaseName("ix_agreement_step_revision_schedule_id");
+
+                    b.HasIndex("TaxFileId")
+                        .HasDatabaseName("ix_agreement_step_revision_tax_file_id");
 
                     b.ToTable("agreement_step_revision", "taxation");
                 });
@@ -357,6 +364,123 @@ namespace Taxation.Infrastructure.Data.Migrations
                         .HasDatabaseName("ix_audit_log_entity_entity_id");
 
                     b.ToTable("audit_log", "taxation");
+                });
+
+            modelBuilder.Entity("AuditRecord", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("action");
+
+                    b.Property<Guid?>("ActorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("actor_id");
+
+                    b.Property<string>("ActorName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("actor_name");
+
+                    b.Property<DateTimeOffset>("At")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("at");
+
+                    b.Property<string>("Detail")
+                        .HasColumnType("text")
+                        .HasColumnName("detail");
+
+                    b.Property<string>("Device")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
+                        .HasColumnName("device");
+
+                    b.Property<string>("Field")
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("field");
+
+                    b.Property<string>("IpAddress")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("ip_address");
+
+                    b.Property<string>("Module")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)")
+                        .HasColumnName("module");
+
+                    b.Property<string>("NewValue")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)")
+                        .HasColumnName("new_value");
+
+                    b.Property<string>("OldValue")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)")
+                        .HasColumnName("old_value");
+
+                    b.Property<string>("ParentCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("parent_code");
+
+                    b.Property<Guid?>("ParentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("parent_id");
+
+                    b.Property<string>("RecordCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("record_code");
+
+                    b.Property<Guid?>("RecordId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("record_id");
+
+                    b.Property<string>("RecordKind")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("record_kind");
+
+                    b.Property<string>("RecordLabel")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
+                        .HasColumnName("record_label");
+
+                    b.Property<string>("RequestId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("request_id");
+
+                    b.HasKey("Id")
+                        .HasName("audit_entry_pkey");
+
+                    b.HasIndex("At")
+                        .HasDatabaseName("ix_audit_entry_at");
+
+                    b.HasIndex("ActorId", "At")
+                        .HasDatabaseName("ix_audit_entry_actor_id_at");
+
+                    b.HasIndex("ParentId", "At")
+                        .HasDatabaseName("ix_audit_entry_parent_id_at");
+
+                    b.HasIndex("RecordId", "At")
+                        .HasDatabaseName("ix_audit_entry_record_id_at");
+
+                    b.HasIndex("RecordKind", "At")
+                        .HasDatabaseName("ix_audit_entry_record_kind_at");
+
+                    b.ToTable("audit_entry", "taxation");
                 });
 
             modelBuilder.Entity("CategoryMap", b =>
@@ -1477,6 +1601,10 @@ namespace Taxation.Infrastructure.Data.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("table_layout_id");
 
+                    b.Property<Guid>("TaxFileId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tax_file_id");
+
                     b.Property<Guid>("TemplateId")
                         .HasColumnType("uuid")
                         .HasColumnName("template_id");
@@ -1526,6 +1654,9 @@ namespace Taxation.Infrastructure.Data.Migrations
 
                     b.HasIndex("TableLayoutId")
                         .HasDatabaseName("ix_notice_table_layout_id");
+
+                    b.HasIndex("TaxFileId")
+                        .HasDatabaseName("ix_notice_tax_file_id");
 
                     b.HasIndex("TemplateId")
                         .HasDatabaseName("ix_notice_template_id");
@@ -2228,6 +2359,10 @@ namespace Taxation.Infrastructure.Data.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("run_id");
 
+                    b.Property<Guid>("TaxFileId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tax_file_id");
+
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_at");
@@ -2251,6 +2386,9 @@ namespace Taxation.Infrastructure.Data.Migrations
 
                     b.HasIndex("RunId")
                         .HasDatabaseName("ix_penalty_run_id");
+
+                    b.HasIndex("TaxFileId")
+                        .HasDatabaseName("ix_penalty_tax_file_id");
 
                     b.ToTable("penalty", "taxation");
                 });
@@ -3878,6 +4016,13 @@ namespace Taxation.Infrastructure.Data.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("agreement_step_revision_schedule_id_fkey");
+
+                    b.HasOne("TaxFile", null)
+                        .WithMany()
+                        .HasForeignKey("TaxFileId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("agreement_step_revision_tax_file_id_fkey");
                 });
 
             modelBuilder.Entity("Arrears", b =>
@@ -4094,6 +4239,13 @@ namespace Taxation.Infrastructure.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .HasConstraintName("notice_table_layout_id_fkey");
 
+                    b.HasOne("TaxFile", null)
+                        .WithMany()
+                        .HasForeignKey("TaxFileId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("notice_tax_file_id_fkey");
+
                     b.HasOne("NoticeTemplate", null)
                         .WithMany()
                         .HasForeignKey("TemplateId")
@@ -4214,6 +4366,13 @@ namespace Taxation.Infrastructure.Data.Migrations
                         .HasForeignKey("RunId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .HasConstraintName("penalty_run_id_fkey");
+
+                    b.HasOne("TaxFile", null)
+                        .WithMany()
+                        .HasForeignKey("TaxFileId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("penalty_tax_file_id_fkey");
                 });
 
             modelBuilder.Entity("PenaltyRule", b =>

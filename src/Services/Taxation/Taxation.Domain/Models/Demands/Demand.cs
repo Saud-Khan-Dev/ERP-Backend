@@ -226,7 +226,7 @@ public class Demand : Aggregate<DemandId>
       throw new DomainException($"{DemandNo} has nothing outstanding; no surcharge applies.");
     if (amount <= 0)
       throw new DomainException("A surcharge must be more than zero.");
-    var penalty = Penalty.Create(PenaltyId.New(), Id, rule, runId, baseAmount, amount, pct, appliedOn);
+    var penalty = Penalty.Create(PenaltyId.New(), Id, TaxFileId, rule, runId, baseAmount, amount, pct, appliedOn);
     _penalties.Add(penalty);
     Recalculate();
     return penalty;
@@ -573,6 +573,8 @@ public class Arrears : Entity<ArrearsId>
 public class Penalty : Entity<PenaltyId>
 {
   public DemandId DemandId { get; private set; } = default!;
+  /// The demand's tax file (the file's history and the town scope reach the surcharge directly).
+  public TaxFileId TaxFileId { get; private set; } = default!;
   public PenaltyRuleId? RuleId { get; private set; }
   public PenaltyRunId? RunId { get; private set; }
   public PenaltyKind Kind { get; private set; }
@@ -585,10 +587,12 @@ public class Penalty : Entity<PenaltyId>
 
   private Penalty() { }
 
-  internal static Penalty Create(PenaltyId id, DemandId demandId, PenaltyRule rule, PenaltyRunId? runId, decimal baseAmount, decimal amount, decimal? pct, DateOnly appliedOn) => new()
+  internal static Penalty Create(PenaltyId id, DemandId demandId, TaxFileId fileId, PenaltyRule rule, PenaltyRunId? runId, decimal baseAmount, decimal amount, decimal? pct,
+      DateOnly appliedOn) => new()
   {
     Id = id,
     DemandId = demandId,
+    TaxFileId = fileId,
     RuleId = rule.Id,
     RunId = runId,
     Kind = rule.Kind,

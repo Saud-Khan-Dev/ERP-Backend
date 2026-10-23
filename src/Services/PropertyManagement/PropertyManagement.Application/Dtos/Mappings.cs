@@ -73,7 +73,7 @@ public static class Mappings
     x.Parties.OrderBy(p => p.PartyRole).Select(p => new TransferPartyDto(owners.GetValueOrDefault(p.OwnerId), p.PartyRole, p.SharePct)).ToList(),
     x.CreatedAt, x.CreatedBy,
     x.ApprovalOrderRef, x.CompletedOn, x.CompletedBy, x.ClosedOn, x.ClosedBy, x.ClosingReason,
-    x.ApprovedByUserId, x.ApprovedByEmployeeId, x.NoDuesCertificateNo);
+    x.ApprovedByUserId, x.ApprovedByEmployeeId, x.NoDuesCertificateNo, x.IsRecordedPast);
 
   public static EncumbranceDto ToDto(this PropertyEncumbrance x, MasterRefs refs, IReadOnlyDictionary<OwnerId, OwnerRef> owners) => new(
     x.Id.Value, refs[x.EncumbranceTypeId], x.OwnershipId?.Value, x.HolderName,

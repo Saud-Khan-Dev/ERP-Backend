@@ -1,6 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 
-public class SetPropertyActivationHandler(IApplicationDbContext context)
+public class SetPropertyActivationHandler(IApplicationDbContext context, IAuditTrail audit)
   : ICommandHandler<SetPropertyActivationCommand, Result<SetPropertyActivationCommandResult>>
 {
   public async Task<Result<SetPropertyActivationCommandResult>> Handle(SetPropertyActivationCommand command, CancellationToken cancellationToken)
@@ -10,6 +10,7 @@ public class SetPropertyActivationHandler(IApplicationDbContext context)
     if (command.IsActive)
     {
       property.Activate();
+      audit.Record(PropertyAuditActions.Activated, property);
     }
     else
     {
@@ -19,6 +20,7 @@ public class SetPropertyActivationHandler(IApplicationDbContext context)
         throw new DomainException($"{property.PropertyCode.Value} cannot be deactivated while records on it are still open. End or cancel these first: {string.Join(", ", open)}.");
 
       property.Deactivate(command.Reason, PropertyWriteGuard.Today());
+      audit.Record(PropertyAuditActions.Deactivated, property, command.Reason);
     }
 
     await context.SaveChangesAsync(cancellationToken);

@@ -197,8 +197,10 @@ public sealed class PropertyServiceClient(HttpClient http, ILogger<PropertyServi
 
 /// Reads the holiday calendar and post holders from the HRM service. Both are open to any signed-in person: holidays
 /// through /holidays, who holds a post through the staff directory (/directory/posts/{id}/holder), so a clerk without
-/// HR access still gets the officer who signs.
-public sealed class HrmServiceClient(HttpClient http, ILogger<HrmServiceClient> logger) : IHrmDirectory
+/// HR access still gets the officer who signs. Work with no person behind it (the scheduled daily job) has no token to
+/// pass on: it reads the gazetted holidays from HRM's public directory (/directory/holidays), so a scheduled run counts
+/// notice days exactly as a run started by a person.
+public sealed class HrmServiceClient(HttpClient http, IHttpContextAccessor accessor, ILogger<HrmServiceClient> logger) : IHrmDirectory
 {
   private const string Service = "HRM";
 
@@ -206,8 +208,12 @@ public sealed class HrmServiceClient(HttpClient http, ILogger<HrmServiceClient> 
 
   public async Task<IReadOnlySet<DateOnly>> HolidaysAsync(DateOnly from, DateOnly to, CancellationToken cancellationToken)
   {
-    var result = await ServiceJson.GetAsync<HolidaysEnvelope>(http, Service, $"holidays?from={from:yyyy-MM-dd}&to={to:yyyy-MM-dd}", logger, cancellationToken);
-    return (result?.Holidays ?? []).Select(h => h.HolidayDate).ToHashSet();
+    var signedIn = !string.IsNullOrEmpty(accessor.HttpContext?.Request.Headers.Authorization.ToString());
+    var path = signedIn ? "holidays" : "directory/holidays";
+    // a list always exists: not found means HRM does not offer it (yet), which is a failure to read, not "no holidays"
+    var result = await ServiceJson.GetAsync<HolidaysEnvelope>(http, Service, $"{path}?from={from:yyyy-MM-dd}&to={to:yyyy-MM-dd}", logger, cancellationToken)
+      ?? throw new ExternalServiceException($"The HRM service has no holiday list at /{path}.");
+    return (result.Holidays ?? []).Select(h => h.HolidayDate ?? h.Date).OfType<DateOnly>().ToHashSet();
   }
 
   public async Task<PostHolderInfo?> PostHolderAsync(Guid postId, DateOnly asOf, CancellationToken cancellationToken)
@@ -219,7 +225,8 @@ public sealed class HrmServiceClient(HttpClient http, ILogger<HrmServiceClient> 
     return new PostHolderInfo(postId, post.PostCode, post.Designation, h?.Id, h?.EmployeeNumber, h?.Name, h?.Designation);
   }
 
-  private sealed record HolidayRow(DateOnly HolidayDate);
+  /// HRM's /holidays rows carry holidayDate; the public directory's rows carry date.
+  private sealed record HolidayRow(DateOnly? HolidayDate, DateOnly? Date);
   private sealed record HolidaysEnvelope(IReadOnlyList<HolidayRow> Holidays);
   private sealed record DirectoryEmployee(Guid Id, string? EmployeeNumber, string? Name, string? Designation);
   private sealed record HolderEnvelope(Guid PostId, string? PostCode, string? Designation, DirectoryEmployee? Holder);

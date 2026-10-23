@@ -4,6 +4,7 @@ public class SetDocumentActivationHandler(IApplicationDbContext context, Documen
   public async Task<Result<SetDocumentActivationCommandResult>> Handle(SetDocumentActivationCommand command, CancellationToken cancellationToken)
   {
     var document = await context.LoadDocumentAsync(command.Id, cancellationToken);
+    documents.EnsureMaySee(document);
 
     if (command.IsActive)
       document.Activate();

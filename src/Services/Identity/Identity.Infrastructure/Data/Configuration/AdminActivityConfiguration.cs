@@ -12,16 +12,17 @@ public class AdminActivityConfiguration : EntityConfiguration<AdminActivity, Act
     builder.HasKey(x => x.Id);
     builder.Property(x => x.Id).HasConversion(id => id.Value, dbId => ActivityId.Of(dbId));
 
+    // null: the system acted (startup, a scheduled switch-off)
     builder.Property(x => x.ActorUserId)
-      .HasConversion(id => id.Value, dbId => UserId.Of(dbId))
-      .IsRequired();
+      .HasConversion(id => id!.Value, dbId => UserId.Of(dbId))
+      .IsRequired(false);
     builder.Property(x => x.ActorName).HasMaxLength(150).IsRequired();
 
     builder.Property(x => x.Action).HasConversion<string>().HasMaxLength(40).IsRequired();
     builder.Property(x => x.TargetType).HasConversion<string>().HasMaxLength(20).IsRequired();
     builder.Property(x => x.TargetId).IsRequired(false);
     builder.Property(x => x.TargetLabel).HasMaxLength(200).IsRequired(false);
-    builder.Property(x => x.Detail).HasMaxLength(500).IsRequired(false);
+    builder.Property(x => x.Detail).HasMaxLength(AdminActivity.DetailMaxLength).IsRequired(false);
 
     builder.Property(x => x.IpAddress)
       .HasConversion(ip => ip!.Value, dbValue => IpAddress.OfNullable(dbValue)!)

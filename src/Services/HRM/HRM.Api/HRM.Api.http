@@ -204,7 +204,7 @@ Content-Type: application/json
 
 { "leaveTypeId": "{{casualLeave}}", "startDate": "2026-10-19", "endDate": "2026-10-20", "reason": "Family wedding" }
 
-### Approve: usage goes to the ledger
+### Approve: usage goes to the ledger. A second officer (duty rule LEAVE_APPROVE: whoever keyed it in does not decide it)
 POST {{host}}/leave-applications/{{leave}}/approve
 Authorization: Bearer {{token}}
 
@@ -263,12 +263,17 @@ Content-Type: application/json
 
 { "bankName": "Standard Chartered Bank", "branchName": "Abbottabad", "iban": "PK36SCBL0000001123456702" }
 
-### A motor car advance, recovered from November
+### A motor car advance, recovered from November: entered as an application (pending) ...
+# @name enterLoan
 POST {{host}}/employees/{{employee}}/loans
 Authorization: Bearer {{token}}
 Content-Type: application/json
 
 { "loanTypeId": "{{carAdvance}}", "principalAmount": 600000, "installmentsCount": 60, "startDate": "2026-11-01" }
+
+### ... and sanctioned by SOMEONE ELSE (duty rule LOAN_SANCTION): sign in as a second officer for this call
+POST {{host}}/loans/{{enterLoan.response.body.$.id}}/sanction
+Authorization: Bearer {{token}}
 
 
 ##############################################################################
@@ -310,11 +315,11 @@ Content-Type: application/json
 POST {{host}}/payroll-runs/{{run}}/review
 Authorization: Bearer {{token}}
 
-###
+### Approve as a SECOND officer (duty rule PAYROLL_APPROVE: not who prepared, reviewed or adjusted it)
 POST {{host}}/payroll-runs/{{run}}/approve
 Authorization: Bearer {{token}}
 
-### Posts tax, loan recoveries and GP Fund rows; issues the pay slips; locks the run
+### Posts tax, loan recoveries and GP Fund rows; issues the pay slips; locks the run - not by the approver (PAYROLL_PAY)
 POST {{host}}/payroll-runs/{{run}}/finalize
 Authorization: Bearer {{token}}
 

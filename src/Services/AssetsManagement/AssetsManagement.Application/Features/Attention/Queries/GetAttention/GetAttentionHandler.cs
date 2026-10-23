@@ -10,10 +10,12 @@ public class GetAttentionHandler(IApplicationDbContext context, IAssetDataQuerie
   {
     var items = new List<AttentionItemDto>();
     var canEdit = currentUser.HasPermission(PermissionCatalog.Assets.Edit);
+    // taking a loan back is a custody act
+    var canAssign = currentUser.HasPermission(PermissionCatalog.Assets.Assign);
     var seesMoney = currentUser.HasPermission(PermissionCatalog.AssetFinance.View);
     var today = clock.Today;
 
-    if (canEdit)
+    if (canAssign)
     {
       var overdue = Filter(q => q with { Loan = LoanFilter.Overdue });
       var (count, _) = await CountAsync(overdue, cancellationToken);
@@ -22,7 +24,10 @@ public class GetAttentionHandler(IApplicationDbContext context, IAssetDataQuerie
         .Join(context.Assets.AsNoTracking().Where(a => a.IsActive), x => x.AssetId, a => a.Id, (x, _) => x.ExpectedReturnDate)
         .MinAsync(cancellationToken);
       items.Add(new AttentionItemDto("assets.loans-overdue", count, oldest is { } day ? new DateTimeOffset(day.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero) : null));
+    }
 
+    if (canEdit)
+    {
       items.Add(new AttentionItemDto("assets.location-missing", (await CountAsync(Filter(q => q with { MissingRequiredLocation = true }), cancellationToken)).Count));
       items.Add(new AttentionItemDto("assets.out-of-service-long",
         (await CountAsync(Filter(q => q with { OutOfService = true, InStatusOverDays = OutOfServiceDays }), cancellationToken)).Count));
@@ -42,6 +47,18 @@ public class GetAttentionHandler(IApplicationDbContext context, IAssetDataQuerie
 
     if (seesMoney && currentUser.HasPermission(PermissionCatalog.AssetFinance.Post))
       items.Add(new AttentionItemDto("assets.depreciation-behind", (await CountAsync(Filter(q => q with { DepreciationBehind = true }), cancellationToken)).Count));
+
+    // disposals proposed and waiting for an approver (the caller's own proposals count too: the bell shows the queue)
+    if (seesMoney && currentUser.HasPermission(PermissionCatalog.AssetFinance.Approve))
+    {
+      var (pending, _) = await CountAsync(Filter(q => q with { Disposed = DisposalFilter.Proposed }), cancellationToken);
+      var firstProposed = pending == 0 ? null : await context.AssetDisposals.AsNoTracking()
+        .Where(d => d.State == DisposalState.Proposed)
+        .Join(context.Assets.AsNoTracking(), d => d.AssetId, a => a.Id, (d, _) => d.ProposedAt)
+        .MinAsync(cancellationToken);
+      items.Add(new AttentionItemDto("assets.disposals-pending", pending,
+        firstProposed is { } at ? new DateTimeOffset(DateTime.SpecifyKind(at, DateTimeKind.Utc)) : null));
+    }
 
     if (seesMoney && currentUser.HasPermission(PermissionCatalog.AssetFinance.Create))
       items.Add(new AttentionItemDto("assets.no-purchase", (await CountAsync(Filter(q => q with { HasPurchase = false }), cancellationToken)).Count));

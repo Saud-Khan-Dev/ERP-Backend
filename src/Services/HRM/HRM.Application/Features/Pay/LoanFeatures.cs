@@ -39,8 +39,8 @@ public sealed record GetLoansQuery(PaginationRequest Pagination, Guid? EmployeeI
 public sealed record GetLoanQueryResult(LoanDto Loan);
 public sealed record GetLoanQuery(Guid Id, Guid? OnlyForEmployee = null) : IQuery<Result<GetLoanQueryResult>>;
 
-/// Sanctions a loan or advance and lays out its installments. Interest defaults to the type's annual rate over the term.
-/// A GP Fund advance is paid out of the employee's GP Fund and cannot exceed its balance.
+/// Enters a loan or advance application (pending). Interest defaults to the type's annual rate over the term. SanctionNow:
+/// the same person sanctions it at once - only when the duty rule LOAN_SANCTION is off and they hold PAYROLL.APPROVE.
 public sealed record SanctionLoanCommand(
   Guid EmployeeId,
   Guid LoanTypeId,
@@ -48,7 +48,12 @@ public sealed record SanctionLoanCommand(
   decimal? InterestAmount,
   int InstallmentsCount,
   DateOnly StartDate,
-  int DeductionPriority) : ICommand<Result<CreatedResult>>;
+  int DeductionPriority,
+  bool SanctionNow = false) : ICommand<Result<CreatedResult>>;
+
+/// Sanctions a pending application (someone other than who entered it, while LOAN_SANCTION is on) and lays out its
+/// installments. A GP Fund advance is paid out of the employee's GP Fund and cannot exceed its balance.
+public sealed record SanctionLoanApplicationCommand(Guid Id) : ICommand<Result<UpdatedResult>>;
 
 public sealed record InstallmentPaymentDto(Guid InstallmentId, int InstallmentNumber, decimal Amount);
 public sealed record LoanRepaymentResult(decimal Applied, decimal RemainingBalance, LoanStatus Status, IReadOnlyList<InstallmentPaymentDto> Installments);
@@ -100,7 +105,7 @@ public class WaiveInstallmentCommandValidator : AbstractValidator<WaiveInstallme
   public WaiveInstallmentCommandValidator() => RuleFor(x => x.Reason).NotEmpty().WithMessage("Give the reason (the sanction) for waiving the installment.").MaximumLength(1000);
 }
 
-public class LoanHandlers(IApplicationDbContext context, HrLookup lookup, ICurrentUser currentUser, IClock clock) :
+public class LoanHandlers(IApplicationDbContext context, HrLookup lookup, ICurrentUser currentUser, IClock clock, DutyGuard duty, IAuditTrail audit) :
   IQueryHandler<GetLoanTypesQuery, Result<GetLoanTypesQueryResult>>,
   ICommandHandler<CreateLoanTypeCommand, Result<CreatedResult>>,
   ICommandHandler<UpdateLoanTypeCommand, Result<UpdatedResult>>,
@@ -108,6 +113,7 @@ public class LoanHandlers(IApplicationDbContext context, HrLookup lookup, ICurre
   IQueryHandler<GetLoansQuery, Result<GetLoansQueryResult>>,
   IQueryHandler<GetLoanQuery, Result<GetLoanQueryResult>>,
   ICommandHandler<SanctionLoanCommand, Result<CreatedResult>>,
+  ICommandHandler<SanctionLoanApplicationCommand, Result<UpdatedResult>>,
   ICommandHandler<RepayLoanCommand, Result<LoanRepaymentResult>>,
   ICommandHandler<CloseLoanCommand, Result<UpdatedResult>>,
   ICommandHandler<WaiveInstallmentCommand, Result<UpdatedResult>>,
@@ -214,29 +220,70 @@ public class LoanHandlers(IApplicationDbContext context, HrLookup lookup, ICurre
   {
     var employee = await context.LoadEmployeeAsync(command.EmployeeId, cancellationToken);
     var type = await LoadTypeAsync(command.LoanTypeId, cancellationToken);
-    var loan = EmployeeLoan.Sanction(EmployeeLoanId.New(), employee, type, command.PrincipalAmount, command.InterestAmount, command.InstallmentsCount,
-      command.StartDate, command.DeductionPriority, currentUser.UserId, clock.Today);
+    if (command.SanctionNow)
+    {
+      if (!currentUser.HasPermission(PermissionCatalog.Payroll.Approve))
+        return Result<CreatedResult>.Failure("Sanctioning a loan needs PAYROLL.APPROVE; enter the application and let an approving officer sanction it.");
+      await duty.EnsureNotOwnRecordAsync(employee.Id, "sanction a loan", employee, cancellationToken);
+      await duty.EnsureSeparateAsync(DutyRules.LoanSanction, currentUser.UserId, "sanction a loan you entered", employee, cancellationToken);
+    }
 
+    var loan = EmployeeLoan.Apply(EmployeeLoanId.New(), employee, type, command.PrincipalAmount, command.InterestAmount, command.InstallmentsCount,
+      command.StartDate, command.DeductionPriority, clock.Today);
+    context.Loans.Add(loan);
+    if (command.SanctionNow && await SanctionAsync(loan, employee, type, cancellationToken) is { } problem)
+      return Result<CreatedResult>.Failure(problem);
+
+    await context.SaveChangesAsync(cancellationToken);
+    return CommandResults.Created(loan.Id);
+  }
+
+  public async Task<Result<UpdatedResult>> Handle(SanctionLoanApplicationCommand command, CancellationToken cancellationToken)
+  {
+    var loan = await context.LoadLoanAsync(command.Id, cancellationToken);
+    if (!loan.IsPending)
+      return Result<UpdatedResult>.Failure($"The loan is {EnumText.Words(loan.Status)}; only a pending application can be sanctioned.");
+    await duty.EnsureNotOwnRecordAsync(loan.EmployeeId, "sanction a loan", loan, cancellationToken);
+    // maker-checker (LOAN_SANCTION): whoever entered the application does not sanction it
+    await duty.EnsureSeparateAsync(DutyRules.LoanSanction, loan.CreatedBy, "sanction a loan you entered", loan, cancellationToken);
+
+    var employee = await context.LoadEmployeeAsync(loan.EmployeeId.Value, cancellationToken);
+    var type = await LoadTypeAsync(loan.LoanTypeId.Value, cancellationToken);
+    if (await SanctionAsync(loan, employee, type, cancellationToken) is { } problem)
+      return Result<UpdatedResult>.Failure(problem);
+
+    await context.SaveChangesAsync(cancellationToken);
+    return CommandResults.Updated();
+  }
+
+  /// Lays out the schedule; a GP Fund advance is paid out of the fund now.
+  private async Task<string?> SanctionAsync(EmployeeLoan loan, Employee employee, LoanType type, CancellationToken cancellationToken)
+  {
     if (type.IsGpfAdvance)
     {
       var account = await context.GpFundAccounts.FirstOrDefaultAsync(a => a.EmployeeId == employee.Id, cancellationToken)
         ?? throw new DomainException($"{employee.DisplayName} has no GP Fund account to advance from.");
       account.EnsureOpen();
-      if (await context.Loans.AnyAsync(l => l.EmployeeId == employee.Id && l.LoanTypeId == type.Id && l.Status == LoanStatus.Active, cancellationToken))
-        return Result<CreatedResult>.Failure($"{employee.DisplayName} is still repaying a GP Fund advance.");
+      if (await context.Loans.AnyAsync(l => l.Id != loan.Id && l.EmployeeId == employee.Id && l.LoanTypeId == type.Id && l.Status == LoanStatus.Active, cancellationToken))
+        return $"{employee.DisplayName} is still repaying a GP Fund advance.";
 
+      loan.Sanction(employee, type, currentUser.UserId, clock.Today);
       var balance = await GpFundBalanceAsync(account.Id, cancellationToken);
       context.GpFundTransactions.Add(GpFundTransaction.Advance(account, clock.Today, loan.PrincipalAmount, loan.Id, balance));
     }
+    else
+    {
+      loan.Sanction(employee, type, currentUser.UserId, clock.Today);
+    }
 
-    context.Loans.Add(loan);
-    await context.SaveChangesAsync(cancellationToken);
-    return CommandResults.Created(loan.Id);
+    audit.Record(HrmVerbs.Sanctioned, loan, $"Rs {loan.TotalRepayable:#,##0.##} in {loan.InstallmentsCount} installment(s) of Rs {loan.MonthlyInstallment:#,##0.##} from {loan.StartDate:yyyy-MM-dd}");
+    return null;
   }
 
   public async Task<Result<LoanRepaymentResult>> Handle(RepayLoanCommand command, CancellationToken cancellationToken)
   {
     var loan = await context.LoadLoanAsync(command.Id, cancellationToken);
+    await duty.EnsureNotOwnRecordAsync(loan.EmployeeId, "record a loan repayment", loan, cancellationToken);
     await EnsureNotInPayrollAsync(loan, cancellationToken);
     var paidOn = command.PaidOn ?? clock.Today;
     var record = LoanRepayment.Record(loan, paidOn, command.Amount, command.ReceiptNumber, command.Remarks, clock.Today);
@@ -254,14 +301,17 @@ public class LoanHandlers(IApplicationDbContext context, HrLookup lookup, ICurre
   public async Task<Result<UpdatedResult>> Handle(CloseLoanCommand command, CancellationToken cancellationToken)
   {
     var loan = await context.LoadLoanAsync(command.Id, cancellationToken);
+    await duty.EnsureNotOwnRecordAsync(loan.EmployeeId, command.Action == LoanAction.Cancel ? "cancel a loan" : "write a loan off", loan, cancellationToken);
     await EnsureNotInPayrollAsync(loan, cancellationToken);
     var type = await context.LoanTypes.AsNoTracking().FirstAsync(t => t.Id == loan.LoanTypeId, cancellationToken);
 
     if (command.Action == LoanAction.Cancel)
     {
+      var wasPending = loan.IsPending;
       loan.Cancel(command.Remarks, currentUser.UserId, clock.UtcNow);
-      // nothing was recovered, so a GP Fund advance goes back into the fund in full
-      if (type.IsGpfAdvance)
+      audit.Record(wasPending ? HrmVerbs.Rejected : HrmVerbs.Cancelled, loan, $"Reason: {command.Remarks}");
+      // nothing was recovered, so a GP Fund advance goes back into the fund in full (a pending one was never paid out)
+      if (type.IsGpfAdvance && !wasPending)
         await CreditGpFundAsync(loan, clock.Today, loan.PrincipalAmount, "GP Fund advance cancelled", cancellationToken, adjustment: true);
     }
     else
@@ -269,6 +319,7 @@ public class LoanHandlers(IApplicationDbContext context, HrLookup lookup, ICurre
       if (type.IsGpfAdvance)
         return Result<UpdatedResult>.Failure("A GP Fund advance is the employee's own money; recover it or settle it against the fund, not write it off.");
       loan.WriteOff(command.Remarks, currentUser.UserId, clock.UtcNow);
+      audit.Record(HrmVerbs.WrittenOff, loan, $"Reason: {command.Remarks} · Rs {loan.RemainingBalance:#,##0.##} given up");
     }
 
     await context.SaveChangesAsync(cancellationToken);
@@ -278,12 +329,15 @@ public class LoanHandlers(IApplicationDbContext context, HrLookup lookup, ICurre
   public async Task<Result<UpdatedResult>> Handle(WaiveInstallmentCommand command, CancellationToken cancellationToken)
   {
     var loan = await context.LoadLoanAsync(command.Id, cancellationToken);
+    await duty.EnsureNotOwnRecordAsync(loan.EmployeeId, "waive a loan installment", loan, cancellationToken);
     await EnsureNotInPayrollAsync(loan, cancellationToken);
     var type = await context.LoanTypes.AsNoTracking().FirstAsync(t => t.Id == loan.LoanTypeId, cancellationToken);
     if (type.IsGpfAdvance)
       return Result<UpdatedResult>.Failure("Installments of a GP Fund advance cannot be waived; the fund must be made whole.");
 
-    loan.WaiveInstallment(LoanInstallmentId.Of(command.InstallmentId), command.Reason, currentUser.UserId, clock.UtcNow);
+    var installment = loan.Installment(LoanInstallmentId.Of(command.InstallmentId));
+    var forgiven = loan.WaiveInstallment(installment.Id, command.Reason, currentUser.UserId, clock.UtcNow);
+    audit.Record(HrmVerbs.Waived, loan, $"Installment {installment.InstallmentNumber} (due {installment.DueDate:yyyy-MM-dd}): Rs {forgiven:#,##0.##} forgiven · Reason: {command.Reason}");
     await context.SaveChangesAsync(cancellationToken);
     return CommandResults.Updated();
   }
@@ -350,7 +404,7 @@ public class LoanHandlers(IApplicationDbContext context, HrLookup lookup, ICurre
       var type = types.GetValueOrDefault(l.LoanTypeId);
       return new LoanSummaryDto(l.Id.Value, l.EmployeeId.Value, person?.EmployeeNumber ?? "", person?.FullName ?? "", l.LoanTypeId.Value,
         type?.Name, l.PrincipalAmount, l.InterestAmount, l.InstallmentsCount, l.MonthlyInstallment, l.StartDate, l.EndDate,
-        l.RemainingBalance, l.DeductionPriority, l.Status, l.ApprovedBy, l.CreatedAt, type?.IsGpfAdvance ?? false, l.ClosureReason, l.ClosedBy, l.ClosedAt);
+        l.RemainingBalance, l.DeductionPriority, l.Status, l.ApprovedBy, l.CreatedAt, type?.IsGpfAdvance ?? false, l.ClosureReason, l.ClosedBy, l.ClosedAt, l.CreatedBy);
     }).ToList();
   }
 }

@@ -5,7 +5,8 @@ public class DirectoryEndpoints : ICarterModule
 {
   public void AddRoutes(IEndpointRouteBuilder app)
   {
-    var directory = app.MapGroup("/directory").WithTags("Directory");
+    // the directory is the whole staff list for every module: never limited by the reader's office scope
+    var directory = app.MapGroup("/directory").WithTags("Directory").AllOffices();
 
     directory.MapGet("/employees", async (int? pageIndex, int? pageSize, string? search, string? ids, bool? includeLeft, ISender sender) =>
         (await sender.Send(new GetDirectoryEmployeesQuery(QueryParsing.Page(pageIndex, pageSize), search, QueryParsing.ParseGuids(ids, "ids"), includeLeft ?? false))).ToOk())
@@ -32,5 +33,27 @@ public class DirectoryEndpoints : ICarterModule
       .ProducesProblem(StatusCodes.Status404NotFound)
       .WithSummary("Who holds a post")
       .WithDescription("The post's regular holder on a date (today by default); null when vacant.");
+
+    directory.MapGet("/offices", async (ISender sender) => (await sender.Send(new GetDirectoryOfficesQuery())).ToOk())
+      .RequireSignedIn()
+      .WithName("GetDirectoryOffices")
+      .Produces<GetDirectoryOfficesQueryResult>()
+      .WithSummary("Offices for data scope")
+      .WithDescription("The active units of the structure today with their parent and type - what Administration offers when it limits a person to "
+        + "some offices (a person limited to an office works on it and every unit below it).");
+
+    // gazetted holidays are public facts: a scheduled job (Taxation's daily job) reads them without a token
+    directory.MapGet("/holidays", async (DateOnly? from, DateOnly? to, IClock clock, ISender sender) =>
+      {
+        var start = from ?? new DateOnly(clock.Today.Year, 1, 1);
+        return (await sender.Send(new GetPublicHolidaysQuery(start, to ?? new DateOnly(start.Year, 12, 31)))).ToOk();
+      })
+      .AllowAnonymous()
+      .WithName("GetPublicHolidays")
+      .Produces<GetPublicHolidaysQueryResult>()
+      .ProducesProblem(StatusCodes.Status400BadRequest)
+      .WithSummary("Gazetted holidays (public)")
+      .WithDescription("Organization-wide holidays that are not optional, between from and to (default: this year; at most three years). "
+        + "No sign-in needed: { holidays: [{ date, name, holidayType }] }.");
   }
 }

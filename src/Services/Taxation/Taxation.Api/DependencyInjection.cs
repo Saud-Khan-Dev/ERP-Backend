@@ -34,6 +34,9 @@ public static class DependencyInjection
     app.UseAuthorization();
 
     app.MapCarter();
+    // the shared audit trail (GET /audit, /audit/kinds; POST /audit/exports for TAX.EXPORT) and the system page
+    app.MapAuditTrail<ApplicationDbContext>(TaxAuthorization.Exporter);
+    app.MapSystemStatus<ApplicationDbContext>(TaxationAudit.Module);
     app.MapOpenApi();
 
     return app;

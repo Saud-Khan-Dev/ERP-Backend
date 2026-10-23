@@ -52,12 +52,13 @@ public class DemandNoticeEndpoints : ICarterModule
       .WithName("ApproveDemandRun").Produces<ApproveRunResult>().ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Approve Demand Run")
       .WithDescription("Issues the drafts: earlier years' unpaid balances move onto them as arrears by year and head, the first notices are issued with their SMS, "
-        + "and every reference is re-synced. The caller is recorded as the approver.");
+        + "and every reference is re-synced. The caller is recorded as the approver; while the duty rule TAX_DEMAND_RUN is on, the person who worked the run out "
+        + "cannot approve it. A person limited to some towns approves only a run of a circle whose towns are all theirs.");
 
-    runs.MapPost("/{id:guid}/cancel", async (Guid id, ISender sender) => (await sender.Send(new CancelDemandRunCommand(id))).ToOk())
+    runs.MapPost("/{id:guid}/cancel", async (Guid id, ReasonRequest r, ISender sender) => (await sender.Send(new CancelDemandRunCommand(id, r.Reason))).ToOk())
       .RequirePermission(PermissionCatalog.Tax.Approve)
       .WithName("CancelDemandRun").Produces<UpdatedResult>().ProducesProblem(StatusCodes.Status400BadRequest)
-      .WithSummary("Cancel Demand Run").WithDescription("A computed run only; its drafts are removed.");
+      .WithSummary("Cancel Demand Run").WithDescription("A computed run only; its drafts are removed. reason: why (kept in the audit trail).");
 
     // ---- demands ----
 
@@ -116,10 +117,10 @@ public class DemandNoticeEndpoints : ICarterModule
       .WithName("ConfirmPendingNotices").Produces<ConfirmPendingResult>()
       .WithSummary("Issue Pending Notices").WithDescription("Every pending notice dated today or earlier, as prepared (files on hold are left).");
 
-    notices.MapPost("/{id:guid}/cancel", async (Guid id, ISender sender) => (await sender.Send(new CancelNoticeCommand(id))).ToOk())
+    notices.MapPost("/{id:guid}/cancel", async (Guid id, ReasonRequest r, ISender sender) => (await sender.Send(new CancelNoticeCommand(id, r.Reason))).ToOk())
       .RequirePermission(PermissionCatalog.Tax.Edit)
       .WithName("CancelNotice").Produces<UpdatedResult>().ProducesProblem(StatusCodes.Status400BadRequest)
-      .WithSummary("Cancel Pending Notice");
+      .WithSummary("Cancel Pending Notice").WithDescription("reason: why (kept in the audit trail).");
 
     notices.MapPost("/{id:guid}/serve", async (Guid id, ServeNoticeRequest r, ISender sender) =>
         (await sender.Send(new ServeNoticeCommand(id, r.ServedByEmployeeId, r.ServedOn, r.Mode))).ToOk())
@@ -129,11 +130,11 @@ public class DemandNoticeEndpoints : ICarterModule
       .WithDescription("servedByEmployeeId: the Tax Collector (HRM employee). mode = by_hand | post | affixed | refused.");
 
     notices.MapPost("/escalate", async (ISender sender) => (await sender.Send(new EscalateNoticesCommand())).ToOk())
-      .RequirePermission(PermissionCatalog.Tax.Edit)
+      .RequirePermission(PermissionCatalog.Tax.Run)
       .WithName("EscalateNotices").Produces<EscalateResult>()
       .WithSummary("Prepare Due Notices")
       .WithDescription("For every unpaid demand of a year not yet over: the next of second, final and show cause once its day has come (days from the first notice, "
-        + "in working days by the HRM calendar), dated that day and pending confirmation. Safe to run daily.");
+        + "in working days by the HRM calendar), dated that day and pending confirmation. Safe to run daily. TAX.RUN, and every town.");
 
     app.MapGet("/tax-files/{id:guid}/notice-context", async (Guid id, int fiscalYear, ISender sender) => (await sender.Send(new GetNoticeContextQuery(id, fiscalYear))).ToOk())
       .RequirePermission(PermissionCatalog.Tax.View)

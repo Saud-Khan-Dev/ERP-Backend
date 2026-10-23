@@ -72,8 +72,7 @@ public class EmployeeLoan : Aggregate<EmployeeLoanId>
 
   public decimal TotalRepayable => PrincipalAmount + InterestAmount;
 
-  /// Sanctions a loan and lays out its schedule: equal monthly installments due from the start date, the last one
-  /// absorbing the rounding. Interest defaults to the loan type's simple annual rate over the term.
+  /// Sanctions a loan in one step (entered and sanctioned by the same act) and lays out its schedule.
   public static EmployeeLoan Sanction(
       EmployeeLoanId id,
       Employee employee,
@@ -86,11 +85,27 @@ public class EmployeeLoan : Aggregate<EmployeeLoanId>
       Guid? approvedBy,
       DateOnly? today = null)
   {
+    var loan = Apply(id, employee, loanType, principalAmount, interestAmount, installmentsCount, startDate, deductionPriority, today);
+    loan.Sanction(employee, loanType, approvedBy, today);
+    return loan;
+  }
+
+  /// Enters a loan application (pending): the terms are checked and worked out now; the schedule is laid out when someone
+  /// sanctions it. Interest defaults to the loan type's simple annual rate over the term.
+  public static EmployeeLoan Apply(
+      EmployeeLoanId id,
+      Employee employee,
+      LoanType loanType,
+      decimal principalAmount,
+      decimal? interestAmount,
+      int installmentsCount,
+      DateOnly startDate,
+      int deductionPriority,
+      DateOnly? today = null)
+  {
     ArgumentNullException.ThrowIfNull(employee);
     ArgumentNullException.ThrowIfNull(loanType);
-    // a start in a past month would make every past installment fall due in the next payroll at once
-    if (today is { } now && startDate < new DateOnly(now.Year, now.Month, 1))
-      throw new DomainException("The first installment cannot fall in a month already gone. For a loan already running, sanction the balance still owed, starting this month.");
+    EnsureStartsThisMonthOrLater(startDate, today);
     employee.EnsureInService();
     loanType.EnsureActive();
     if (loanType.SalaryComponentId is null)
@@ -112,27 +127,51 @@ public class EmployeeLoan : Aggregate<EmployeeLoanId>
       InstallmentsCount = count,
       StartDate = startDate,
       DeductionPriority = deductionPriority,
-      Status = LoanStatus.Active,
-      ApprovedBy = Guard.Actor(approvedBy, "sanction a loan")
+      Status = LoanStatus.Pending
     };
 
     var total = loan.TotalRepayable;
     var monthly = decimal.Round(total / count, 2, MidpointRounding.AwayFromZero);
     if (monthly <= 0)
       throw new DomainException("The installment would be zero; take fewer installments.");
-
-    for (var n = 1; n <= count; n++)
-    {
-      var amount = n < count ? monthly : total - monthly * (count - 1);
-      if (amount <= 0)
-        throw new DomainException("The last installment would be zero or less; take fewer installments.");
-      loan._installments.Add(LoanInstallment.Create(loan.Id, n, startDate.AddMonths(n - 1), amount));
-    }
+    if (total - monthly * (count - 1) <= 0)
+      throw new DomainException("The last installment would be zero or less; take fewer installments.");
 
     loan.MonthlyInstallment = monthly;
     loan.EndDate = startDate.AddMonths(count - 1);
     loan.RemainingBalance = total;
     return loan;
+  }
+
+  public bool IsPending => Status == LoanStatus.Pending;
+
+  /// Sanctions a pending application and lays out its installments: equal monthly installments due from the start date,
+  /// the last one absorbing the rounding.
+  public void Sanction(Employee employee, LoanType loanType, Guid? approvedBy, DateOnly? today = null)
+  {
+    if (Status != LoanStatus.Pending)
+      throw new DomainException($"The loan is {EnumText.Words(Status)}; only a pending application can be sanctioned.");
+    // a start in a past month would make every past installment fall due in the next payroll at once
+    EnsureStartsThisMonthOrLater(StartDate, today);
+    employee.EnsureInService();
+    loanType.EnsureActive();
+
+    var total = TotalRepayable;
+    for (var n = 1; n <= InstallmentsCount; n++)
+    {
+      var amount = n < InstallmentsCount ? MonthlyInstallment : total - MonthlyInstallment * (InstallmentsCount - 1);
+      _installments.Add(LoanInstallment.Create(Id, n, StartDate.AddMonths(n - 1), amount));
+    }
+
+    ApprovedBy = Guard.Actor(approvedBy, "sanction a loan");
+    RemainingBalance = total;
+    Status = LoanStatus.Active;
+  }
+
+  private static void EnsureStartsThisMonthOrLater(DateOnly startDate, DateOnly? today)
+  {
+    if (today is { } now && startDate < new DateOnly(now.Year, now.Month, 1))
+      throw new DomainException("The first installment cannot fall in a month already gone. For a loan already running, sanction the balance still owed, starting this month.");
   }
 
   public bool IsActive => Status == LoanStatus.Active;
@@ -210,10 +249,11 @@ public class EmployeeLoan : Aggregate<EmployeeLoanId>
     return forgiven;
   }
 
-  /// Withdraws a loan before anything was recovered.
+  /// Withdraws a loan before anything was recovered, or turns down a pending application.
   public void Cancel(string? reason, Guid? cancelledBy, DateTime at)
   {
-    EnsureActive();
+    if (Status != LoanStatus.Pending)
+      EnsureActive();
     if (_installments.Any(i => i.PaidAmount > 0))
       throw new DomainException("Installments have already been recovered; write the loan off instead of cancelling it.");
 

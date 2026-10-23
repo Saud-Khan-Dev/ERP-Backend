@@ -50,7 +50,8 @@ public sealed record FeePaymentInput(PaymentChannel Channel, string? ReceiptNo, 
 public sealed record QuoteFeeQuery(FeeBasisInput Basis) : IQuery<Result<FeeQuoteDto>>;
 
 /// Charges a fee (DUE). PayNow takes its receipt at once (needs TAX.POST); an exemption reason waives it at once (needs
-/// TAX.APPROVE, as waiving later does).
+/// TAX.WAIVE, as waiving later does, and - while the duty rule "Fees are waived by someone else" is on - is refused: the
+/// person who charges a fee does not exempt it).
 public sealed record ChargeFeeCommand(FeeBasisInput Basis, Guid? PartyId, FeeSourceType? SourceType, Guid? SourceId, string? SourceNo, string? ExemptionReason,
   FeePaymentInput? PayNow) : ICommand<Result<ChargeFeeResult>>;
 public sealed record ChargeFeeResult(Guid Id, string FeeNo, decimal Amount, FeeStatus Status, Guid? PaymentId, string? ReceiptNo);
@@ -131,7 +132,13 @@ public sealed record GetClearanceByNumberQuery(string ClearanceNo) : IQuery<Resu
 /// Used once by the transfer or plan it was issued for. PropertyId and Purpose, when given, must match the certificate.
 public sealed record ConsumeClearanceCommand(Guid Id, Guid? PropertyId = null, ClearancePurpose? Purpose = null, Guid? PropertyRefId = null, string? PropertyRefNo = null)
   : ICommand<Result<UpdatedResult>>;
-public sealed record RevokeClearanceCommand(Guid Id) : ICommand<Result<UpdatedResult>>;
+/// Revokes a clearance (issued in error, or no longer true), with the reason the trail keeps.
+public sealed record RevokeClearanceCommand(Guid Id, string Reason) : ICommand<Result<UpdatedResult>>;
+
+public class RevokeClearanceCommandValidator : AbstractValidator<RevokeClearanceCommand>
+{
+  public RevokeClearanceCommandValidator() => RuleFor(x => x.Reason).NotEmpty().WithMessage("Say why the clearance is revoked.").MaximumLength(300);
+}
 
 public class FeeHandlers(
   IApplicationDbContext context,
@@ -140,6 +147,8 @@ public class FeeHandlers(
   Messenger messenger,
   CodeIssuer codes,
   ICurrentUser currentUser,
+  IDutyRules dutyRules,
+  IAuditTrail audit,
   IClock clock) :
   IQueryHandler<GetPartiesQuery, Result<GetPartiesQueryResult>>,
   IQueryHandler<GetPartyQuery, Result<GetPartyQueryResult>>,
@@ -267,8 +276,12 @@ public class FeeHandlers(
 
   public async Task<Result<ChargeFeeResult>> Handle(ChargeFeeCommand command, CancellationToken cancellationToken)
   {
-    if (!string.IsNullOrWhiteSpace(command.ExemptionReason) && !currentUser.HasPermission(PermissionCatalog.Tax.Approve))
-      return Result<ChargeFeeResult>.Failure("Charging a fee as exempt waives it, which needs approval rights (TAX.APPROVE). Charge it due and ask an approver to waive it.");
+    var exempt = !string.IsNullOrWhiteSpace(command.ExemptionReason);
+    if (exempt && !currentUser.HasPermission(PermissionCatalog.Tax.Waive))
+      return Result<ChargeFeeResult>.Failure("Charging a fee as exempt waives it, which needs the right to waive fees (TAX.WAIVE). Charge it due and ask an officer to waive it.");
+    if (exempt && await dutyRules.SeparationRefusalAsync(DutyRules.TaxFeeWaive, currentUser.UserId, currentUser.UserId, "exempt a fee you are charging",
+          cancellationToken) is { } refusal)
+      return Result<ChargeFeeResult>.Failure(refusal + " Charge it due; another officer waives it.");
     if (command.PayNow is not null && !currentUser.HasPermission(PermissionCatalog.Tax.Post))
       return Result<ChargeFeeResult>.Failure("Taking the fee's receipt needs the cashier's right (TAX.POST). Charge it due; the cashier takes the receipt.");
 
@@ -290,7 +303,7 @@ public class FeeHandlers(
 
   public async Task<Result<GetFeesQueryResult>> Handle(GetFeesQuery query, CancellationToken cancellationToken)
   {
-    var rows = context.Fees.AsNoTracking();
+    var rows = context.Fees.AsNoTracking().InScope(context);
     if (query.TaxFileId is { } f)
     {
       var fileId = TaxFileId.Of(f);
@@ -353,7 +366,11 @@ public class FeeHandlers(
   public async Task<Result<UpdatedResult>> Handle(WaiveFeeCommand command, CancellationToken cancellationToken)
   {
     var fee = await context.LoadFeeAsync(command.Id, cancellationToken);
+    var actor = Guard.Actor(currentUser.UserId, "waive a fee");
+    if (await dutyRules.SeparationRefusalAsync(DutyRules.TaxFeeWaive, fee.CreatedBy, actor, "waive a fee you charged", cancellationToken) is { } refusal)
+      return Result<UpdatedResult>.Failure(refusal);
     fee.Waive(command.Reason);
+    audit.Record("Waived", fee, $"{Rupees.Text(fee.Amount)}: {command.Reason.Trim()}");
     await context.SaveChangesAsync(cancellationToken);
     return CommandResults.Updated();
   }
@@ -484,6 +501,7 @@ public class FeeHandlers(
     var clearance = Clearance.Issue(ClearanceId.New(), Numbers.ClearanceNo(await codes.NextAsync(NumberSequence.ClearanceNo, cancellationToken)), file, payer?.Name,
       command.Purpose, dues, feesDue, command.PropertyRefId, command.PropertyRefNo, feeId, today, settings.ClearanceValidDays, Guard.Actor(currentUser.UserId, "issue a clearance"));
     context.Clearances.Add(clearance);
+    audit.Record("Issued", clearance, $"For {EnumText.Words(command.Purpose).ToLowerInvariant()}{(command.PropertyRefNo is { } refNo ? " " + refNo : "")}, valid until {clearance.ValidUntil:dd MMM yyyy}");
 
     if (payer is not null)
     {
@@ -504,7 +522,7 @@ public class FeeHandlers(
   public async Task<Result<GetClearancesQueryResult>> Handle(GetClearancesQuery query, CancellationToken cancellationToken)
   {
     var today = clock.Today;
-    var rows = context.Clearances.AsNoTracking();
+    var rows = context.Clearances.AsNoTracking().InScope(context);
     if (query.TaxFileId is { } f)
     {
       var fileId = TaxFileId.Of(f);
@@ -556,7 +574,7 @@ public class FeeHandlers(
   public async Task<Result<GetClearanceQueryResult>> Handle(GetClearanceByNumberQuery query, CancellationToken cancellationToken)
   {
     var no = (query.ClearanceNo ?? "").Trim().ToUpperInvariant();
-    var c = await context.Clearances.AsNoTracking().FirstOrDefaultAsync(x => x.ClearanceNo == no, cancellationToken)
+    var c = await context.Clearances.AsNoTracking().InScope(context).FirstOrDefaultAsync(x => x.ClearanceNo == no, cancellationToken)
       ?? throw new ClearanceNotFoundException($"There is no clearance {query.ClearanceNo}.");
     return Result<GetClearanceQueryResult>.Success(new((await ClearanceDtosAsync([c], cancellationToken))[0]));
   }
@@ -586,6 +604,10 @@ public class FeeHandlers(
         return Result<UpdatedResult>.Failure($"Clearance {clearance.ClearanceNo} is for property {file.PropertyCode}, not this one.");
     }
     clearance.Consume(clock.Today, clock.UtcNow, currentUser.UserId, command.Purpose, command.PropertyRefId, command.PropertyRefNo);
+    // who used it, and for what: Property's officer when the transfer or plan is approved with it
+    var by = currentUser.HasPermission(PermissionCatalog.Tax.Issue) || currentUser.HasPermission(PermissionCatalog.Tax.Approve) ? "Taxation" : "Property";
+    audit.Record("Used", clearance, $"By {currentUser.AuditName} ({by}) for {EnumText.Words(clearance.Purpose).ToLowerInvariant()}"
+      + ((command.PropertyRefNo ?? clearance.PropertyRefNo) is { } used ? " " + used : ""));
     await context.SaveChangesAsync(cancellationToken);
     return CommandResults.Updated();
   }
@@ -594,6 +616,7 @@ public class FeeHandlers(
   {
     var clearance = await context.LoadClearanceAsync(command.Id, cancellationToken);
     clearance.Revoke(clock.Today, Guard.Actor(currentUser.UserId, "revoke a clearance"), clock.UtcNow);
+    audit.Record("Revoked", clearance, command.Reason.Trim());
     await context.SaveChangesAsync(cancellationToken);
     return CommandResults.Updated();
   }

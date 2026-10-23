@@ -99,11 +99,13 @@ public sealed record PayRegisterRow(
   int? Bps,
   decimal? DaysPayable,
   IReadOnlyDictionary<string, decimal> Amounts,
-  decimal GrossPay,
-  decimal TotalDeductions,
-  decimal NetPayable);
+  decimal? GrossPay,
+  decimal? TotalDeductions,
+  decimal? NetPayable);
 
-public sealed record PayRegisterResult(PayrollRunDto Run, IReadOnlyList<PayRegisterColumn> Columns, IReadOnlyList<PayRegisterRow> Rows, IReadOnlyDictionary<string, decimal> Totals);
+/// Restricted: "pay" when each person's figures are withheld (no HR_SENSITIVE.VIEW) - rows carry no amounts; the totals stay.
+public sealed record PayRegisterResult(PayrollRunDto Run, IReadOnlyList<PayRegisterColumn> Columns, IReadOnlyList<PayRegisterRow> Rows,
+  IReadOnlyDictionary<string, decimal> Totals, IReadOnlyList<string>? Restricted = null);
 
 /// Every slip of the run with one column per component (issued slips as issued).
 public sealed record GetPayRegisterQuery(Guid RunId) : IQuery<Result<PayRegisterResult>>;
@@ -127,8 +129,11 @@ public class PayrollRunHandlers(
   HrLookup lookup,
   ICurrentUser currentUser,
   IClock clock,
-  IOptions<PayrollOptions> options,
-  IOptions<HrmOptions> hrm) :
+  IOptions<HrmOptions> hrm,
+  OfficeScope scope,
+  DutyGuard duty,
+  Sensitive sensitive,
+  IAuditTrail audit) :
   IQueryHandler<GetPayrollRunsQuery, Result<GetPayrollRunsQueryResult>>,
   IQueryHandler<GetPayrollRunQuery, Result<GetPayrollRunQueryResult>>,
   ICommandHandler<CreatePayrollRunCommand, Result<CreatedResult>>,
@@ -179,6 +184,8 @@ public class PayrollRunHandlers(
 
   public async Task<Result<CreatedResult>> Handle(CreatePayrollRunCommand command, CancellationToken cancellationToken)
   {
+    if (await scope.WholeOrganizationRefusalAsync("create a payroll run", cancellationToken) is { } refusal)
+      return Result<CreatedResult>.Failure(refusal);
     var period = await context.LoadPayrollPeriodAsync(command.PeriodId, cancellationToken);
     PayrollRun? replaces = null;
     if (command.ReplacesRunId is { } replaced)
@@ -200,6 +207,8 @@ public class PayrollRunHandlers(
 
   public async Task<Result<UpdatedResult>> Handle(RenamePayrollRunCommand command, CancellationToken cancellationToken)
   {
+    if (await scope.WholeOrganizationRefusalAsync("rename a payroll run", cancellationToken) is { } refusal)
+      return Result<UpdatedResult>.Failure(refusal);
     var run = await context.LoadPayrollRunAsync(command.Id, cancellationToken);
     run.Rename(command.RunLabel);
     await context.SaveChangesAsync(cancellationToken);
@@ -208,20 +217,31 @@ public class PayrollRunHandlers(
 
   public async Task<Result<UpdatedResult>> Handle(DeletePayrollRunCommand command, CancellationToken cancellationToken)
   {
+    if (await scope.WholeOrganizationRefusalAsync("delete a payroll run", cancellationToken) is { } refusal)
+      return Result<UpdatedResult>.Failure(refusal);
     var run = await context.LoadPayrollRunAsync(command.Id, cancellationToken);
     run.EnsureEditable();
-    context.PayrollTransactions.RemoveRange(await engine.SlipsAsync(run.Id, cancellationToken));
-    context.PayrollRuns.Remove(run);
-    await context.SaveChangesAsync(cancellationToken);
+    var slips = await engine.SlipsAsync(run.Id, cancellationToken);
+    // the run's line keeps what it was; its slips go with it without a line each
+    using (audit.Quietly())
+    {
+      audit.Record(AuditActions.Removed, run, $"{slips.Count} pay slip(s) deleted with it");
+      context.PayrollTransactions.RemoveRange(slips);
+      context.PayrollRuns.Remove(run);
+      await context.SaveChangesAsync(cancellationToken);
+    }
     return CommandResults.Updated();
   }
 
   public async Task<Result<CalculatePayrollRunResult>> Handle(CalculatePayrollRunCommand command, CancellationToken cancellationToken)
   {
+    if (await scope.WholeOrganizationRefusalAsync("calculate a payroll run", cancellationToken) is { } refusal)
+      return Result<CalculatePayrollRunResult>.Failure(refusal);
     var run = await context.LoadPayrollRunAsync(command.Id, cancellationToken);
     var period = await context.PayrollPeriods.FirstAsync(p => p.Id == run.PayrollPeriodId, cancellationToken);
     period.EnsureOpen();
     run.EnsureEditable();
+    using var quiet = audit.Quietly();
 
     List<EmployeeId>? only = command.EmployeeIds is { Count: > 0 } given ? given.Select(EmployeeId.Of).ToList() : null;
     var slips = await engine.SlipsAsync(run.Id, cancellationToken, only);
@@ -265,24 +285,44 @@ public class PayrollRunHandlers(
     problems.AddRange(await engine.CalculateAsync(run, period, slips, employees, cancellationToken));
     problems.AddRange(PastRetirement(employees, period));
     run.MarkCalculated(currentUser.UserId, clock.UtcNow);
+
     await context.SaveChangesAsync(cancellationToken);
 
     var calculated = employees.Count - problems.Count(p => employees.Any(e => p.StartsWith(e.EmployeeNumber + ":", StringComparison.Ordinal)));
+    var net = await context.PayrollTransactions.Where(t => t.PayrollRunId == run.Id).SumAsync(t => t.NetPayable, cancellationToken);
+    audit.Record(AuditActions.Ran, HrmRuns.PayrollCalculation, run.Id.Value, period.Label, run.RunLabel ?? EnumText.Label(run.RunType), run.Id.Value,
+      detail: $"{EnumText.Label(run.RunType)} run of {period.Label} · {calculated} slip(s) worked out{(only is null ? "" : $" ({only.Count} chosen)")}"
+        + $" · {removed} removed · {problems.Count} problem(s) · net Rs {net:#,##0}");
+    await context.SaveChangesAsync(cancellationToken);
     return Result<CalculatePayrollRunResult>.Success(new(calculated, removed, problems, (await MapRunsAsync([run], cancellationToken))[0]));
   }
 
   public async Task<Result<UpdatedResult>> Handle(MovePayrollRunCommand command, CancellationToken cancellationToken)
   {
+    var act = command.Step switch
+    {
+      PayrollRunStep.Review => "mark a payroll run reviewed",
+      PayrollRunStep.SendBackToCalculated => "send a payroll run back",
+      PayrollRunStep.Approve => "approve a payroll run",
+      PayrollRunStep.SendBackToReview => "withdraw a payroll run's approval",
+      _ => "discard a payroll run's calculation"
+    };
+    if (await scope.WholeOrganizationRefusalAsync(act, cancellationToken) is { } refusal)
+      return Result<UpdatedResult>.Failure(refusal);
+
     var run = await context.LoadPayrollRunAsync(command.Id, cancellationToken);
+    string verb;
     switch (command.Step)
     {
       case PayrollRunStep.Review:
         if (!await context.PayrollTransactions.AnyAsync(t => t.PayrollRunId == run.Id, cancellationToken))
           return Result<UpdatedResult>.Failure("The run has no pay slips to review.");
         run.Review(currentUser.UserId);
+        verb = HrmVerbs.Reviewed;
         break;
       case PayrollRunStep.SendBackToCalculated:
         run.SendBackToCalculated();
+        verb = HrmVerbs.SentBack;
         break;
       case PayrollRunStep.Approve:
         if (await StaleBecauseAsync(run, cancellationToken) is { } changed)
@@ -290,26 +330,44 @@ public class PayrollRunHandlers(
         var adjusters = await context.PayrollAdjustments.AsNoTracking()
           .Where(a => a.CreatedBy != null && context.PayrollTransactions.Any(t => t.Id == a.PayrollTransactionId && t.PayrollRunId == run.Id))
           .Select(a => a.CreatedBy!.Value).Distinct().ToListAsync(cancellationToken);
-        run.Approve(currentUser.UserId, clock.UtcNow, options.Value.RequireSeparateApprover, adjusters);
+        // maker-checker (PAYROLL_APPROVE): not who prepared, reviewed or adjusted it
+        await duty.EnsureSeparateAsync(DutyRules.PayrollApprove, run.PreparedBy, "approve a payroll run you prepared", run, cancellationToken);
+        await duty.EnsureSeparateAsync(DutyRules.PayrollApprove, run.ReviewedBy, "approve a payroll run you reviewed", run, cancellationToken);
+        await duty.EnsureSeparateAsync(DutyRules.PayrollApprove, adjusters.Select(a => (Guid?)a), "approve a payroll run you entered adjustments on", run, cancellationToken);
+        run.Approve(currentUser.UserId, clock.UtcNow, requireSeparateApprover: false, adjusters);
+        verb = HrmVerbs.Approved;
         break;
       case PayrollRunStep.SendBackToReview:
         run.SendBackToReview();
+        verb = HrmVerbs.Unapproved;
         break;
-      case PayrollRunStep.ResetToDraft:
+      default:
         run.ResetToDraft();
-        context.PayrollTransactions.RemoveRange(await engine.SlipsAsync(run.Id, cancellationToken));
-        break;
+        // the slips go with the calculation; the run's line says so
+        using (audit.Quietly())
+        {
+          var slips = await engine.SlipsAsync(run.Id, cancellationToken);
+          audit.Record("Calculation discarded", run, $"{slips.Count} pay slip(s) deleted");
+          context.PayrollTransactions.RemoveRange(slips);
+          await context.SaveChangesAsync(cancellationToken);
+        }
+        return CommandResults.Updated();
     }
 
+    audit.Record(verb, run);
     await context.SaveChangesAsync(cancellationToken);
     return CommandResults.Updated();
   }
 
   public async Task<Result<FinalizePayrollRunResult>> Handle(FinalizePayrollRunCommand command, CancellationToken cancellationToken)
   {
+    if (await scope.WholeOrganizationRefusalAsync("finalize a payroll run", cancellationToken) is { } refusal)
+      return Result<FinalizePayrollRunResult>.Failure(refusal);
     var run = await context.LoadPayrollRunAsync(command.Id, cancellationToken);
     if (run.Status != PayrollRunStatus.Approved)
       return Result<FinalizePayrollRunResult>.Failure($"The run is {EnumText.Words(run.Status)}; only an approved run can be finalized.");
+    // maker-checker (PAYROLL_PAY): who approved does not post and pay
+    await duty.EnsureSeparateAsync(DutyRules.PayrollPay, run.ApprovedBy, "finalize a payroll run you approved", run, cancellationToken);
 
     var period = await context.PayrollPeriods.AsNoTracking().FirstAsync(p => p.Id == run.PayrollPeriodId, cancellationToken);
     var slips = await engine.SlipsAsync(run.Id, cancellationToken);
@@ -330,6 +388,7 @@ public class PayrollRunHandlers(
     var accounts = await context.GpFundAccounts.AsNoTracking().Where(a => employeeIds.Contains(a.EmployeeId)).ToDictionaryAsync(a => a.EmployeeId, cancellationToken);
 
     await using var transaction = await context.BeginTransactionAsync(cancellationToken);
+    using var quiet = audit.Quietly();
     int recoveries = 0, fundRows = 0, taxRows = 0;
 
     foreach (var slip in slips)
@@ -381,6 +440,9 @@ public class PayrollRunHandlers(
     foreach (var (slipId, slip) in await payslips.BuildAsync(run, period, slips, isFinal: true, now, cancellationToken))
       context.Payslips.Add(Payslip.Issue(slipId, PayslipBuilder.Serialize(slip), now));
     run.FinalizeRun(now, currentUser.UserId);
+    audit.Record(AuditActions.Ran, HrmRuns.PayrollFinalization, run.Id.Value, period.Label, run.RunLabel ?? EnumText.Label(run.RunType), run.Id.Value,
+      detail: $"Finalized: {slips.Count} slip(s) issued · {recoveries} loan recoveries · {fundRows} GP Fund entries · {taxRows} tax entries"
+        + $" · net Rs {slips.Sum(s => s.NetPayable):#,##0}");
     await context.SaveChangesAsync(cancellationToken);
     await transaction.CommitAsync(cancellationToken);
 
@@ -389,6 +451,8 @@ public class PayrollRunHandlers(
 
   public async Task<Result<ReversePayrollRunResult>> Handle(ReversePayrollRunCommand command, CancellationToken cancellationToken)
   {
+    if (await scope.WholeOrganizationRefusalAsync("reverse a payroll run", cancellationToken) is { } refusal)
+      return Result<ReversePayrollRunResult>.Failure(refusal);
     var run = await context.LoadPayrollRunAsync(command.Id, cancellationToken);
     var period = await context.PayrollPeriods.AsNoTracking().FirstAsync(p => p.Id == run.PayrollPeriodId, cancellationToken);
     if (period.Status == PayrollPeriodStatus.Locked)
@@ -402,6 +466,7 @@ public class PayrollRunHandlers(
     if (processed > 0)
       return Result<ReversePayrollRunResult>.Failure($"{processed} salary payment(s) of this run went out. Record them as returned before reversing the run.");
 
+    using var quiet = audit.Quietly();
     run.Reverse(currentUser.UserId, clock.UtcNow, command.Reason);
     var today = clock.Today;
 
@@ -451,13 +516,17 @@ public class PayrollRunHandlers(
       }
     }
 
+    audit.Record(HrmVerbs.Reversed, run, $"Reason: {command.Reason.Trim()} · {undone} loan recoveries undone · {fundRows} GP Fund entries offset · {cancelled} pending payment(s) cancelled");
     await context.SaveChangesAsync(cancellationToken);
     return Result<ReversePayrollRunResult>.Success(new(undone, fundRows, cancelled));
   }
 
   public async Task<Result<UpdatedResult>> Handle(MarkPayrollRunPaidCommand command, CancellationToken cancellationToken)
   {
+    if (await scope.WholeOrganizationRefusalAsync("mark a payroll run paid", cancellationToken) is { } refusal)
+      return Result<UpdatedResult>.Failure(refusal);
     var run = await context.LoadPayrollRunAsync(command.Id, cancellationToken);
+    await duty.EnsureSeparateAsync(DutyRules.PayrollPay, run.ApprovedBy, "mark paid a payroll run you approved", run, cancellationToken);
     var payable = await context.PayrollTransactions.AsNoTracking()
       .Where(t => t.PayrollRunId == run.Id && t.Status != PayrollTransactionStatus.Held && t.NetPayable > 0)
       .Select(t => t.Id).ToListAsync(cancellationToken);
@@ -468,6 +537,7 @@ public class PayrollRunHandlers(
       return Result<UpdatedResult>.Failure($"{payable.Count - paid} pay slip(s) have no processed payment yet.");
 
     run.MarkPaid(clock.UtcNow, currentUser.UserId);
+    audit.Record(HrmVerbs.Paid, run);
     await context.SaveChangesAsync(cancellationToken);
     return CommandResults.Updated();
   }
@@ -502,6 +572,14 @@ public class PayrollRunHandlers(
   {
     var slip = await LoadSlipAsync(query.Id, cancellationToken);
     var summary = (await SummariesAsync([slip], cancellationToken))[0];
+    if (!sensitive.CanView)
+    {
+      var codes = await lookup.PostCodesAsync(slip.Segments.Select(s => (PostId?)s.PostId), cancellationToken);
+      return Result<GetPayrollTransactionQueryResult>.Success(new(new PayrollTransactionDto(summary,
+        slip.Segments.OrderBy(s => s.PeriodFrom).Select(s => new PayrollSegmentDto(s.Id.Value, s.PostId.Value, codes.GetValueOrDefault(s.PostId.Value), s.GradeId.Value,
+          null, s.PayScaleStageId?.Value, null, s.PeriodFrom, s.PeriodTo, s.Days)).ToList(),
+        [], [], [], [Sensitive.Pay])));
+    }
     var components = await context.SalaryComponents.AsNoTracking().ToDictionaryAsync(c => c.Id, cancellationToken);
     var postCodes = await lookup.PostCodesAsync(slip.Segments.Select(s => (PostId?)s.PostId), cancellationToken);
     var grades = await lookup.GradesAsync(cancellationToken);
@@ -525,6 +603,7 @@ public class PayrollRunHandlers(
     period.EnsureOpen();
     run.EnsureEditable();
     var employee = await context.LoadEmployeeAsync(command.EmployeeId, cancellationToken);
+    await duty.EnsureNotOwnRecordAsync(employee.Id, "adjust the pay slip", employee, cancellationToken);
 
     var slips = await engine.SlipsAsync(run.Id, cancellationToken, [employee.Id]);
     var slip = slips.FirstOrDefault();
@@ -551,7 +630,9 @@ public class PayrollRunHandlers(
     var adjustmentId = PayrollAdjustmentId.Of(command.Id);
     var slipId = await context.PayrollAdjustments.AsNoTracking().Where(a => a.Id == adjustmentId).Select(a => a.PayrollTransactionId).FirstOrDefaultAsync(cancellationToken)
       ?? throw new PayrollTransactionNotFoundException($"Adjustment {command.Id} was not found.");
-    var owner = await context.PayrollTransactions.AsNoTracking().FirstAsync(t => t.Id == slipId, cancellationToken);
+    var owner = await context.PayrollTransactions.AsNoTracking().FirstOrDefaultAsync(t => t.Id == slipId, cancellationToken)
+      ?? throw new PayrollTransactionNotFoundException($"Adjustment {command.Id} was not found.");
+    await duty.EnsureNotOwnRecordAsync(owner.EmployeeId, "adjust the pay slip", owner, cancellationToken);
     var run = await context.PayrollRuns.FirstAsync(r => r.Id == owner.PayrollRunId, cancellationToken);
     var period = await context.PayrollPeriods.AsNoTracking().FirstAsync(p => p.Id == run.PayrollPeriodId, cancellationToken);
     period.EnsureOpen();
@@ -581,6 +662,7 @@ public class PayrollRunHandlers(
     var slipId = PayrollTransactionId.Of(command.Id);
     var owner = await context.PayrollTransactions.AsNoTracking().FirstOrDefaultAsync(t => t.Id == slipId, cancellationToken)
       ?? throw new PayrollTransactionNotFoundException($"Pay slip {command.Id} was not found.");
+    await duty.EnsureNotOwnRecordAsync(owner.EmployeeId, "take the pay slip off the run", owner, cancellationToken);
     var run = await context.PayrollRuns.AsNoTracking().FirstAsync(r => r.Id == owner.PayrollRunId, cancellationToken);
     run.EnsureEditable();
 
@@ -594,6 +676,7 @@ public class PayrollRunHandlers(
     var slipId = PayrollTransactionId.Of(command.Id);
     var slip = await context.PayrollTransactions.FirstOrDefaultAsync(t => t.Id == slipId, cancellationToken)
       ?? throw new PayrollTransactionNotFoundException($"Pay slip {command.Id} was not found.");
+    await duty.EnsureNotOwnRecordAsync(slip.EmployeeId, command.Hold ? "hold the salary" : "release the salary", slip, cancellationToken);
     var run = await context.PayrollRuns.AsNoTracking().FirstAsync(r => r.Id == slip.PayrollRunId, cancellationToken);
     if (run.Status == PayrollRunStatus.Reversed)
       return Result<UpdatedResult>.Failure("The run is reversed.");
@@ -610,6 +693,7 @@ public class PayrollRunHandlers(
       slip.Release(command.Remarks);
     }
 
+    audit.Record(command.Hold ? HrmVerbs.Held : HrmVerbs.Released, slip, command.Remarks);
     await context.SaveChangesAsync(cancellationToken);
     return CommandResults.Updated();
   }
@@ -624,12 +708,17 @@ public class PayrollRunHandlers(
     var issued = await context.Payslips.AsNoTracking().FirstOrDefaultAsync(p => p.PayrollTransactionId == slip.Id, cancellationToken);
     if (query.OnlyIssued && (issued is null || run.Status == PayrollRunStatus.Reversed))
       throw new PayslipNotFoundException($"Pay slip {query.TransactionId} was not found.");
+    // someone else's slip shows its figures only to those who may see pay (HR_SENSITIVE.VIEW); one's own always
+    var shows = sensitive.Shows(query.OnlyForEmployee is not null);
     if (issued is not null)
-      return Result<PayslipDto>.Success(PayslipBuilder.Deserialize(issued.SnapshotJson) with { RunStatus = run.Status });
+    {
+      var final = PayslipBuilder.Deserialize(issued.SnapshotJson) with { RunStatus = run.Status };
+      return Result<PayslipDto>.Success(shows ? final : final.Withheld());
+    }
 
     var period = await context.PayrollPeriods.AsNoTracking().FirstAsync(p => p.Id == run.PayrollPeriodId, cancellationToken);
-    var preview = await payslips.BuildAsync(run, period, [slip], isFinal: false, null, cancellationToken);
-    return Result<PayslipDto>.Success(preview[slip.Id] with { RunStatus = run.Status });
+    var preview = (await payslips.BuildAsync(run, period, [slip], isFinal: false, null, cancellationToken))[slip.Id] with { RunStatus = run.Status };
+    return Result<PayslipDto>.Success(shows ? preview : preview.Withheld());
   }
 
   public async Task<Result<PayRegisterResult>> Handle(GetPayRegisterQuery query, CancellationToken cancellationToken)
@@ -669,11 +758,16 @@ public class PayrollRunHandlers(
     }).ToList();
 
     var totals = columns.ToDictionary(c => c.Code, c => rows.Sum(r => r.Amounts.GetValueOrDefault(c.Code)));
-    totals["GROSS"] = rows.Sum(r => r.GrossPay);
-    totals["DEDUCTIONS"] = rows.Sum(r => r.TotalDeductions);
-    totals["NET"] = rows.Sum(r => r.NetPayable);
+    totals["GROSS"] = rows.Sum(r => r.GrossPay ?? 0);
+    totals["DEDUCTIONS"] = rows.Sum(r => r.TotalDeductions ?? 0);
+    totals["NET"] = rows.Sum(r => r.NetPayable ?? 0);
 
-    return Result<PayRegisterResult>.Success(new((await MapRunsAsync([run], cancellationToken))[0], columns, rows, totals));
+    // each person's figures are pay figures (HR_SENSITIVE.VIEW); the run's totals are not one person's
+    if (!sensitive.CanView)
+      rows = rows.Select(r => r with { Amounts = new Dictionary<string, decimal>(), GrossPay = null, TotalDeductions = null, NetPayable = null }).ToList();
+
+    return Result<PayRegisterResult>.Success(new((await MapRunsAsync([run], cancellationToken))[0], columns, rows, totals,
+      sensitive.CanView ? null : [Sensitive.Pay]));
   }
 
   /// Adjustments show as one column on each side.
@@ -704,11 +798,13 @@ public class PayrollRunHandlers(
       .GroupBy(p => p.PayrollTransactionId)
       .ToDictionary(g => g.Key, g => g.OrderByDescending(p => p.CreatedAt).First().PaymentStatus);
 
+    var shows = sensitive.CanView;
     return slips.Select(s =>
     {
       var person = people.GetValueOrDefault(s.EmployeeId.Value);
       return new PayrollTransactionSummaryDto(s.Id.Value, s.PayrollRunId.Value, s.EmployeeId.Value, person?.EmployeeNumber ?? "", person?.FullName ?? "",
-        s.DaysPayable, s.GrossPay, s.TotalDeductions, s.NetPayable, s.Status, payments.TryGetValue(s.Id, out var status) ? status : null, s.Remarks);
+        s.DaysPayable, shows ? s.GrossPay : null, shows ? s.TotalDeductions : null, shows ? s.NetPayable : null, s.Status,
+        payments.TryGetValue(s.Id, out var status) ? status : null, s.Remarks, shows ? null : [Sensitive.Pay]);
     }).ToList();
   }
 
@@ -747,6 +843,7 @@ public class PayrollRunHandlers(
 
   private async Task<List<PayrollRunDto>> MapRunsAsync(List<PayrollRun> runs, CancellationToken cancellationToken)
   {
+    var separate = await duty.IsOnAsync(DutyRules.PayrollApprove, cancellationToken);
     var ids = runs.Select(r => r.Id).ToList();
     var periodIds = runs.Select(r => r.PayrollPeriodId).Distinct().ToList();
     var periods = await context.PayrollPeriods.AsNoTracking().Where(p => periodIds.Contains(p.Id)).ToDictionaryAsync(p => p.Id, cancellationToken);
@@ -769,7 +866,7 @@ public class PayrollRunHandlers(
       return new PayrollRunDto(r.Id.Value, r.PayrollPeriodId.Value, periods[r.PayrollPeriodId].Label, r.RunType, r.RunLabel, r.Status, r.ReversesRunId?.Value,
         r.PreparedBy, r.ReviewedBy, r.ApprovedBy, r.ApprovalDate, r.FinalizationDate, r.PaymentDate, total?.Count ?? 0, total?.Held ?? 0,
         total?.Gross ?? 0, total?.Deductions ?? 0, total?.Net ?? 0, r.CreatedAt, r.CalculatedAt, r.FinalizedBy, r.PaidBy, r.ReversedBy, r.ReversedAt,
-        r.ReversalReason, options.Value.RequireSeparateApprover);
+        r.ReversalReason, separate);
     }).ToList();
   }
 }

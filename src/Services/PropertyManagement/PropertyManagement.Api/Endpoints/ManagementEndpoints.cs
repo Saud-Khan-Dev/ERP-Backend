@@ -16,7 +16,7 @@ public sealed record RenewRentalRequest(RentalTermsInput Terms, Guid? TenantOwne
 
 public sealed record ViolationNoticeRequest(string NoticeNo, DateOnly NoticeDate, DateOnly? NoticeDeadline = null);
 public sealed record ImposeFineRequest(decimal FineAmount);
-/// Paid: receiptNo and paidOn required. Waived: reason required (PROPERTY.APPROVE). RecoveryAsArrears: PROPERTY.APPROVE.
+/// Paid: receiptNo and paidOn required (PROPERTY.EDIT). Waived: reason required (PROPERTY.WAIVE). RecoveryAsArrears: PROPERTY.WAIVE.
 public sealed record FineStatusRequest(FineStatus FineStatus, string? ReceiptNo = null, DateOnly? PaidOn = null, string? Reason = null);
 
 public sealed record RecordBidRequest(Guid BidderOwnerId, decimal BidAmount, decimal? EarnestMoney = null, string? Remarks = null);
@@ -275,7 +275,7 @@ public class ManagementEndpoints : ICarterModule
 
     violations.MapPost("/{id:guid}/notice", async (Guid id, ViolationNoticeRequest request, ISender sender) =>
         (await sender.Send(new IssueViolationNoticeCommand(id, request.NoticeNo, request.NoticeDate, request.NoticeDeadline))).ToOk())
-      .RequirePermission(PermissionCatalog.Property.Edit)
+      .RequirePermission(PermissionCatalog.PropertyLegal.Edit)
       .WithName("IssueViolationNotice").Produces<ViolationActionResult>().ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Issue Notice").WithDescription("One notice per violation (a second is refused). The comply-by date (noticeDeadline) is the period rule 5 counts repeat violations against; without it the result carries a warning.");
 
@@ -287,10 +287,10 @@ public class ManagementEndpoints : ICarterModule
 
     violations.MapPost("/{id:guid}/fine-status", async (Guid id, FineStatusRequest request, ISender sender) =>
         (await sender.Send(new SetFineStatusCommand(id, request.FineStatus, request.ReceiptNo, request.PaidOn, request.Reason))).ToOk())
-      .RequirePermission(PermissionCatalog.Property.Edit)
+      .RequireAnyPermission(PermissionCatalog.Property.Edit, PermissionCatalog.Property.Waive)
       .WithName("SetFineStatus").Produces<ViolationActionResult>().ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Update Fine Status").WithDescription("Paid (receiptNo and paidOn required, paidOn not in the future), Waived (reason required; "
-        + "PROPERTY.APPROVE) or RecoveryAsArrears (s.28(2); PROPERTY.APPROVE). Paid and Waived are final; 403 for a decision without the approval right.");
+        + "PROPERTY.WAIVE) or RecoveryAsArrears (s.28(2); PROPERTY.WAIVE). Paid needs PROPERTY.EDIT. Paid and Waived are final; 403 without the code the act needs.");
 
     violations.MapPost("/{id:guid}/rectify", async (Guid id, RemarksRequest request, ISender sender) =>
         (await sender.Send(new RectifyViolationCommand(id, request.Remarks))).ToOk())
@@ -339,13 +339,13 @@ public class ManagementEndpoints : ICarterModule
 
     auctions.MapPost("/{id:guid}/bids", async (Guid id, RecordBidRequest request, ISender sender) =>
         (await sender.Send(new RecordBidCommand(id, request.BidderOwnerId, request.BidAmount, request.EarnestMoney, request.Remarks))).ToOk())
-      .RequirePermission(PermissionCatalog.Property.Edit)
+      .RequirePermission(PermissionCatalog.PropertyLegal.Edit)
       .WithName("RecordBid").Produces<RecordBidCommandResult>().ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Record Bid").WithDescription("Bid ranks are recalculated on every bid (highest = 1).");
 
     auctions.MapPost("/{id:guid}/award", async (Guid id, AwardAuctionRequest request, ISender sender) =>
         (await sender.Send(new AwardAuctionCommand(id, request.AwardDate, request.WinningBidId, request.SuccessfulBidderOwnerId, request.WinningBidAmount, request.AwardReferenceNo))).ToOk())
-      .RequirePermission(PermissionCatalog.Property.Approve)
+      .RequirePermission(PermissionCatalog.PropertyLegal.Approve)
       .WithName("AwardAuction").Produces<AuctionActionResult>().ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Award Auction")
       .WithDescription("With recorded bids: winningBidId (default the highest). Without: successfulBidderOwnerId + winningBidAmount. The winning bid must reach the base reserve price. The auction date must be recorded; the award date is on or after it and not in the future.");

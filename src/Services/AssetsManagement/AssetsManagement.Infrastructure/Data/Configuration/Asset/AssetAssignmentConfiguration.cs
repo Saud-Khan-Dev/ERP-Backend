@@ -41,7 +41,8 @@ public class AssetAssignmentConfiguration : EntityConfiguration<AssetAssignment,
     builder.HasIndex(x => x.AssignmentDate);
     builder.HasIndex(x => new { x.AssetId, x.AssignmentDate });
 
-    builder.HasOne<Asset>().WithMany().HasForeignKey(x => x.AssetId).IsRequired().OnDelete(DeleteBehavior.Cascade);
+    // Restrict: an asset is only ever soft-deleted, and a hard delete must never take its history with it
+    builder.HasOne<Asset>().WithMany().HasForeignKey(x => x.AssetId).IsRequired().OnDelete(DeleteBehavior.Restrict);
     builder.HasOne<Location>().WithMany().HasForeignKey(x => x.FromLocationId).IsRequired(false).OnDelete(DeleteBehavior.Restrict);
     builder.HasOne<Location>().WithMany().HasForeignKey(x => x.ToLocationId).IsRequired(false).OnDelete(DeleteBehavior.Restrict);
   }

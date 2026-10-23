@@ -64,7 +64,11 @@ public class SetHeadRatesCommandValidator : AbstractValidator<SetHeadRatesComman
   }
 }
 
-public class RateSetHandlers(IApplicationDbContext context, IPropertyDirectory property, ICurrentUser currentUser, IClock clock) :
+/// A rate set's History: its own changes and its factors' and rates' (the Board's tariff as it was drafted and approved).
+public sealed record GetRateSetHistoryQuery(Guid Id, AuditFilter Filter) : IQuery<Result<AuditResponse>>;
+
+public class RateSetHandlers(IApplicationDbContext context, IPropertyDirectory property, ICurrentUser currentUser, IDutyRules dutyRules, IAuditTrail audit, IClock clock) :
+  IQueryHandler<GetRateSetHistoryQuery, Result<AuditResponse>>,
   IQueryHandler<GetRateSetsQuery, Result<GetRateSetsQueryResult>>,
   IQueryHandler<GetRateSetQuery, Result<GetRateSetQueryResult>>,
   ICommandHandler<CreateRateSetCommand, Result<CreatedResult>>,
@@ -164,8 +168,34 @@ public class RateSetHandlers(IApplicationDbContext context, IPropertyDirectory p
     var towns = (await context.CircleTowns.Where(t => t.EffectiveTo == null || t.EffectiveTo >= set.EffectiveFrom).ToListAsync(cancellationToken))
       .GroupBy(t => t.TownId).Select(g => (g.Key, g.First().TownCode)).ToList();
     var approved = await context.RateSets.Where(s => s.Status != RateSetStatus.Draft && s.Id != set.Id).ToListAsync(cancellationToken);
-    set.Approve(Guard.Actor(currentUser.UserId, "approve a rate set"), clock.UtcNow, heads, towns, approved);
+    var actor = Guard.Actor(currentUser.UserId, "approve a rate set");
+    if (set.Status != RateSetStatus.Draft)
+      return Result<UpdatedResult>.Failure($"'{set.Name}' is already approved.");
+
+    // the tariff passes through two people: whoever drafted any part of it (the set, its factors, its rates) does not approve it
+    var setId = set.Id.Value;
+    var drafters = new HashSet<Guid?> { set.CreatedBy, set.UpdatedBy };
+    drafters.UnionWith(set.LtfFactors.Select(f => f.CreatedBy));
+    drafters.UnionWith(set.RateBands.Select(b => b.CreatedBy));
+    drafters.UnionWith(await context.AuditTrail.Where(x => (x.ParentId == setId || x.RecordId == setId) && x.ActorId != null).Select(x => x.ActorId).Distinct()
+      .ToListAsync(cancellationToken));
+    if (drafters.Contains(actor)
+        && await dutyRules.SeparationRefusalAsync(DutyRules.TaxRateSet, actor, actor, "approve a rate set you drafted", cancellationToken) is { } refusal)
+      return Result<UpdatedResult>.Failure(refusal);
+
+    set.Approve(actor, clock.UtcNow, heads, towns, approved);
+    audit.Record("Approved", set, $"In force from {set.EffectiveFrom:dd MMM yyyy} ({set.BoardReference}); {set.LtfFactors.Select(f => f.TownId).Distinct().Count()} town(s) with factors, "
+      + $"{set.RateBands.Select(b => b.HeadId).Distinct().Count()} head(s) with rates");
     await context.SaveChangesAsync(cancellationToken);
     return CommandResults.Updated();
+  }
+
+  public async Task<Result<AuditResponse>> Handle(GetRateSetHistoryQuery query, CancellationToken cancellationToken)
+  {
+    var set = await context.RateSets.AsNoTracking().FirstOrDefaultAsync(s => s.Id == RateSetId.Of(query.Id), cancellationToken)
+      ?? throw new RateSetNotFoundException($"Rate set {query.Id} was not found.");
+    var id = set.Id.Value;
+    var trail = context.AuditTrail.Where(x => x.ParentId == id || x.RecordId == id);
+    return Result<AuditResponse>.Success(new(await AuditQueries.ListAsync(trail, query.Filter with { ParentId = null, RecordId = null }, cancellationToken)));
   }
 }

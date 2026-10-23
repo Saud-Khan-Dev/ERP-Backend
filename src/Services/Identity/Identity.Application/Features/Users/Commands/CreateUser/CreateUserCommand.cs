@@ -16,7 +16,9 @@ public sealed record CreateUserInput(
   bool MustChangePassword = true,
   string? EmployeeCode = null,
   /// Ignored (Identity no longer issues employee codes).
-  bool AutoGenerateEmployeeCode = false);
+  bool AutoGenerateEmployeeCode = false,
+  /// Why the person may hold two duties that should be kept apart (needed only when the roles put such a pair together).
+  string? ConflictReason = null);
 
 /// GeneratedPassword is populated only when the server generated it — it is shown to the
 /// administrator once and never stored in plaintext or retrievable again.
