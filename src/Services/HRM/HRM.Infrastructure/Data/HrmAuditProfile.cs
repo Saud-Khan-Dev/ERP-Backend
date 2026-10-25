@@ -39,6 +39,11 @@ public static class HrmAuditProfile
     profile.Entity<EmployeeDocument>(e => e.Kind("Document").Code(x => x.DocumentNumber).Under<Employee>(x => x.EmployeeId));
     profile.Entity<EmployeeEducation>(e => e.Kind("Education").Label(x => x.DegreeTitle).Under<Employee>(x => x.EmployeeId));
     profile.Entity<RecruitmentMethod>(e => e.Kind("Recruitment method"));
+    profile.Entity<EmploymentType>(e => e.Kind("Employment type"));
+    profile.Entity<QualificationLevel>(e => e.Kind("Qualification level"));
+    profile.Entity<FamilyRelation>(e => e.Kind("Family relation"));
+    profile.Entity<EmploymentMethod>(e => e.Kind("Employment method"));
+    profile.Entity<AdjustmentType>(e => e.Kind("Adjustment type"));
 
     // ---- service ----
     profile.Entity<ServiceEventType>(e => e.Kind("Service event type"));

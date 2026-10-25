@@ -32,6 +32,11 @@ public interface IApplicationDbContext
   DbSet<EmployeeDocument> Documents { get; }
   DbSet<EmployeeEducation> Educations { get; }
   DbSet<RecruitmentMethod> RecruitmentMethods { get; }
+  DbSet<EmploymentType> EmploymentTypes { get; }
+  DbSet<QualificationLevel> QualificationLevels { get; }
+  DbSet<FamilyRelation> FamilyRelations { get; }
+  DbSet<EmploymentMethod> EmploymentMethods { get; }
+  DbSet<AdjustmentType> AdjustmentTypes { get; }
 
   // ---- 7. service ----
   DbSet<ServiceEventType> ServiceEventTypes { get; }

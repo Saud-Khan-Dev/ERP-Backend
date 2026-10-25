@@ -6,7 +6,7 @@ public sealed record PostDetailsInput(
   Guid GradeId,
   Guid OrgUnitId,
   Guid? ReportingPostId,
-  EmploymentType EmploymentType,
+  Guid EmploymentTypeId,
   Guid? LocationId,
   int SanctionedCount,
   string? NotificationRef);
@@ -39,7 +39,7 @@ public class PostDetailsInputValidator : AbstractValidator<PostDetailsInput>
     RuleFor(x => x.DesignationId).NotEmpty();
     RuleFor(x => x.GradeId).NotEmpty();
     RuleFor(x => x.OrgUnitId).NotEmpty();
-    RuleFor(x => x.EmploymentType).IsInEnum();
+    RuleFor(x => x.EmploymentTypeId).NotEmpty();
     RuleFor(x => x.SanctionedCount).InclusiveBetween(1, 10000);
     RuleFor(x => x.NotificationRef).MaximumLength(200);
   }
@@ -210,6 +210,11 @@ public class PostHandlers(IApplicationDbContext context, CodeIssuer codes, Servi
       }
     }
 
-    return new PostDetails(designationId, gradeId, unit.Id, reportingId, input.EmploymentType, locationId, input.SanctionedCount, input.NotificationRef);
+    // a type switched off stays on the posts that already have it, but is not given to another
+    var employmentType = await context.LoadEmploymentTypeAsync(input.EmploymentTypeId, cancellationToken);
+    if (!employmentType.IsActive && !await context.PostVersions.AnyAsync(v => v.PostId == postId && v.EmploymentTypeId == employmentType.Id, cancellationToken))
+      employmentType.EnsureActive();
+
+    return new PostDetails(designationId, gradeId, unit.Id, reportingId, employmentType.Id, locationId, input.SanctionedCount, input.NotificationRef);
   }
 }

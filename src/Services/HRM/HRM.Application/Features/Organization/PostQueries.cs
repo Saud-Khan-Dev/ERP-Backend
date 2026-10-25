@@ -20,7 +20,7 @@ public sealed record GetPostsQuery(
   Guid? DesignationId = null,
   Guid? GradeId = null,
   PositionStatus? Status = null,
-  EmploymentType? EmploymentType = null,
+  Guid? EmploymentTypeId = null,
   string? Search = null,
   PostSort SortBy = PostSort.Code,
   bool SortDescending = false) : IQuery<Result<GetPostsQueryResult>>;
@@ -79,8 +79,8 @@ public class PostQueryHandlers(IApplicationDbContext context, HrLookup lookup, C
       var gradeId = PayScaleGradeId.Of(grade);
       versions = versions.Where(v => v.GradeId == gradeId);
     }
-    if (query.EmploymentType is { } employmentType)
-      versions = versions.Where(v => v.EmploymentType == employmentType);
+    if (query.EmploymentTypeId is { } employmentType)
+      versions = versions.Where(v => v.EmploymentTypeId == EmploymentTypeId.Of(employmentType));
 
     var rows = versions.Select(v => new
     {
@@ -134,11 +134,12 @@ public class PostQueryHandlers(IApplicationDbContext context, HrLookup lookup, C
     var designations = await lookup.DesignationsAsync(page.Select(r => r.Version.DesignationId), cancellationToken);
     var units = await lookup.UnitNamesAsync(page.Select(r => r.Version.OrgUnitId), date, cancellationToken);
     var holders = await HoldersAsync(page.Select(r => r.Version.PostId).ToList(), date, cancellationToken);
+    var types = await context.EmploymentTypes.AsNoTracking().ToDictionaryAsync(t => t.Id, t => t.Name, cancellationToken);
 
     var data = page.Select(r => new PostListItemDto(
       r.Version.PostId.Value, r.Code, r.Version.DesignationId.Value, designations.GetValueOrDefault(r.Version.DesignationId.Value),
       r.Version.GradeId.Value, grades.TryGetValue(r.Version.GradeId.Value, out var g) ? g.BpsNumber : 0,
-      r.Version.OrgUnitId.Value, units.GetValueOrDefault(r.Version.OrgUnitId.Value), r.Version.EmploymentType,
+      r.Version.OrgUnitId.Value, units.GetValueOrDefault(r.Version.OrgUnitId.Value), r.Version.EmploymentTypeId.Value, types.GetValueOrDefault(r.Version.EmploymentTypeId),
       r.Version.SanctionedCount, r.Filled, OrganizationMappings.OccupancyStatus(r.Version.LifecycleStatus, r.Version.SanctionedCount, r.Filled),
       r.Version.LifecycleStatus, r.Version.EffectiveFrom, holders.GetValueOrDefault(r.Version.PostId.Value) ?? [])).ToList();
 
@@ -158,11 +159,12 @@ public class PostQueryHandlers(IApplicationDbContext context, HrLookup lookup, C
     var units = await lookup.UnitNamesAsync(versions.Select(v => v.OrgUnitId), today, cancellationToken);
     var reporting = await lookup.PostCodesAsync(versions.Select(v => v.ReportingPostId), cancellationToken);
     var locations = await lookup.LocationsAsync(versions.Select(v => v.LocationId), cancellationToken);
+    var types = await context.EmploymentTypes.AsNoTracking().ToDictionaryAsync(t => t.Id, t => t.Name, cancellationToken);
 
     PostVersionDto Map(PostVersion v) => new(
       v.Id.Value, v.DesignationId.Value, designations.GetValueOrDefault(v.DesignationId.Value), v.GradeId.Value,
       grades.TryGetValue(v.GradeId.Value, out var g) ? g.BpsNumber : 0, v.OrgUnitId.Value, units.GetValueOrDefault(v.OrgUnitId.Value),
-      v.ReportingPostId?.Value, v.ReportingPostId is null ? null : reporting.GetValueOrDefault(v.ReportingPostId.Value), v.EmploymentType,
+      v.ReportingPostId?.Value, v.ReportingPostId is null ? null : reporting.GetValueOrDefault(v.ReportingPostId.Value), v.EmploymentTypeId.Value, types.GetValueOrDefault(v.EmploymentTypeId),
       v.LocationId?.Value, v.LocationId is null ? null : locations.GetValueOrDefault(v.LocationId.Value), v.SanctionedCount,
       v.LifecycleStatus, v.NotificationRef, v.EffectiveFrom, v.EffectiveTo, v.ApprovedBy);
 

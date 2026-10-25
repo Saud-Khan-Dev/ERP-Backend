@@ -52,11 +52,13 @@ public class SalaryComponentRuleConfiguration : EntityConfiguration<SalaryCompon
 
     builder.HasOne<SalaryComponent>().WithMany().HasForeignKey(x => x.SalaryComponentId).OnDelete(DeleteBehavior.NoAction);
     builder.HasOne<Designation>().WithMany().HasForeignKey(x => x.ApplicableDesignationId).OnDelete(DeleteBehavior.NoAction);
+    builder.HasOne<EmploymentType>().WithMany().HasForeignKey(x => x.ApplicableEmploymentTypeId).OnDelete(DeleteBehavior.NoAction);
     builder.HasOne<OrganizationUnit>().WithMany().HasForeignKey(x => x.ApplicableOrgUnitId).OnDelete(DeleteBehavior.NoAction);
 
     builder.HasIndex(x => new { x.SalaryComponentId, x.RuleVersion }).IsUnique()
       .HasDatabaseName("salary_component_rule_salary_component_id_rule_version_key");
     builder.HasIndex(x => x.ApplicableDesignationId).HasDatabaseName("idx_salary_component_rule_applicable_designation_id");
+    builder.HasIndex(x => x.ApplicableEmploymentTypeId).HasDatabaseName("idx_salary_component_rule_applicable_employment_type_id");
     builder.HasIndex(x => x.ApplicableOrgUnitId).HasDatabaseName("idx_salary_component_rule_applicable_org_unit_id");
     builder.HasIndex(x => new { x.SalaryComponentId, x.EffectiveFrom }).HasDatabaseName("idx_scr_component_from");
   }

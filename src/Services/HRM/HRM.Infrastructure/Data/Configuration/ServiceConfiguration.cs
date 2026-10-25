@@ -111,6 +111,7 @@ public class HrActionRequestConfiguration : EntityConfiguration<HrActionRequest,
     builder.HasOne<ServiceEventType>().WithMany().HasForeignKey(x => x.EventTypeId).OnDelete(DeleteBehavior.NoAction);
     builder.HasOne<RecruitmentMethod>().WithMany().HasForeignKey(x => x.RecruitmentMethodId).OnDelete(DeleteBehavior.NoAction);
     builder.HasOne<LeaveApplication>().WithMany().HasForeignKey(x => x.LeaveApplicationId).OnDelete(DeleteBehavior.NoAction);
+    builder.HasOne<EmploymentMethod>().WithMany().HasForeignKey(x => x.EmploymentMethodId).OnDelete(DeleteBehavior.NoAction);
 
     builder.HasIndex(x => new { x.EmployeeId, x.EffectiveDate }).HasDatabaseName("idx_har_employee");
     builder.HasIndex(x => x.EventTypeId).HasDatabaseName("idx_hr_action_request_event_type_id");

@@ -13,7 +13,7 @@ public class EmployeeConfiguration : EntityConfiguration<Employee, EmployeeId>
     builder.ToTable("employee", t =>
     {
       t.HasCheckConstraint("ck_emp_method",
-        "(employment_type = 'regular' AND employment_method IS NOT NULL) OR (employment_type <> 'regular' AND employment_method IS NULL)");
+        "(employment_basis = 'regular' AND employment_method_id IS NOT NULL) OR (employment_basis <> 'regular' AND employment_method_id IS NULL)");
       t.HasCheckConstraint("ck_emp_cnic", "cnic ~ '^[0-9]{5}-?[0-9]{7}-?[0-9]$'");
       t.HasCheckConstraint("ck_emp_dob", "date_of_birth IS NULL OR date_of_birth < current_date");
       t.HasCheckConstraint("ck_emp_blood", "blood_group IS NULL OR blood_group IN ('A+','A-','B+','B-','AB+','AB-','O+','O-')");
@@ -34,7 +34,9 @@ public class EmployeeConfiguration : EntityConfiguration<Employee, EmployeeId>
     builder.HasIndex(x => x.UserId).IsUnique().HasDatabaseName("employee_user_id_key");
     builder.HasIndex(x => x.Cnic).IsUnique().HasDatabaseName("employee_cnic_key");
     builder.HasIndex(x => x.EmploymentStatus).HasDatabaseName("idx_employee_status");
-    builder.HasIndex(x => x.EmploymentType).HasDatabaseName("idx_employee_type");
+    builder.HasOne<EmploymentType>().WithMany().HasForeignKey(x => x.EmploymentTypeId).OnDelete(DeleteBehavior.NoAction);
+    builder.HasOne<EmploymentMethod>().WithMany().HasForeignKey(x => x.EmploymentMethodId).OnDelete(DeleteBehavior.NoAction);
+    builder.HasIndex(x => x.EmploymentTypeId).HasDatabaseName("idx_employee_type");
     builder.HasIndex(x => x.TermTo).HasDatabaseName("idx_employee_term_to");
 
     builder.HasMany(x => x.Contacts).WithOne().HasForeignKey(c => c.EmployeeId).OnDelete(DeleteBehavior.ClientCascade);
@@ -119,6 +121,7 @@ public class EmployeeFamilyMemberConfiguration : EntityConfiguration<EmployeeFam
     builder.ToTable("employee_family_member", t =>
       t.HasCheckConstraint("employee_family_member_cnic_check", "cnic IS NULL OR cnic ~ '^[0-9]{5}-?[0-9]{7}-?[0-9]$'"));
 
+    builder.HasOne<FamilyRelation>().WithMany().HasForeignKey(x => x.RelationId).OnDelete(DeleteBehavior.NoAction);
     builder.HasIndex(x => x.EmployeeId).HasDatabaseName("idx_employee_family_member_employee_id");
   }
 }
@@ -225,7 +228,8 @@ public class EmployeeEducationConfiguration : EntityConfiguration<EmployeeEducat
 
     builder.HasOne<Employee>().WithMany().HasForeignKey(x => x.EmployeeId).OnDelete(DeleteBehavior.NoAction);
 
-    builder.HasIndex(x => new { x.EmployeeId, x.QualificationLevel }).HasDatabaseName("idx_edu_employee_level");
+    builder.HasOne<QualificationLevel>().WithMany().HasForeignKey(x => x.QualificationLevelId).OnDelete(DeleteBehavior.NoAction);
+    builder.HasIndex(x => new { x.EmployeeId, x.QualificationLevelId }).HasDatabaseName("idx_edu_employee_level");
   }
 }
 

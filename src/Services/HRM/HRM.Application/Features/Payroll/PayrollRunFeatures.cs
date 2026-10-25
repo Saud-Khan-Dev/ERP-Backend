@@ -75,7 +75,7 @@ public sealed record GetPayrollTransactionQuery(Guid Id) : IQuery<Result<GetPayr
 
 /// A hand-entered line on an employee's slip in the run (the employee is added to the run if needed); the slip is
 /// worked out again. Positive: arrears, bonus, correction; negative: a recovery.
-public sealed record AddPayrollAdjustmentCommand(Guid RunId, Guid EmployeeId, AdjustmentType AdjustmentType, decimal Amount, string Reason) : ICommand<Result<CreatedResult>>;
+public sealed record AddPayrollAdjustmentCommand(Guid RunId, Guid EmployeeId, Guid AdjustmentTypeId, decimal Amount, string Reason) : ICommand<Result<CreatedResult>>;
 
 public sealed record RemovePayrollAdjustmentCommand(Guid Id) : ICommand<Result<UpdatedResult>>;
 
@@ -115,7 +115,7 @@ public class AddPayrollAdjustmentCommandValidator : AbstractValidator<AddPayroll
   public AddPayrollAdjustmentCommandValidator()
   {
     RuleFor(x => x.EmployeeId).NotEmpty();
-    RuleFor(x => x.AdjustmentType).IsInEnum();
+    RuleFor(x => x.AdjustmentTypeId).NotEmpty();
     RuleFor(x => x.Amount).NotEqual(0);
     RuleFor(x => x.Reason).NotEmpty().MaximumLength(2000);
   }
@@ -581,6 +581,7 @@ public class PayrollRunHandlers(
         [], [], [], [Sensitive.Pay])));
     }
     var components = await context.SalaryComponents.AsNoTracking().ToDictionaryAsync(c => c.Id, cancellationToken);
+    var adjustmentTypes = await context.AdjustmentTypes.AsNoTracking().ToDictionaryAsync(t => t.Id, t => t.Name, cancellationToken);
     var postCodes = await lookup.PostCodesAsync(slip.Segments.Select(s => (PostId?)s.PostId), cancellationToken);
     var grades = await lookup.GradesAsync(cancellationToken);
 
@@ -593,7 +594,7 @@ public class PayrollRunHandlers(
           l.SalaryComponentRuleId?.Value, l.Source, l.ComponentType, l.CalculationBase, l.BaseAmount, l.Rate, l.FormulaReference, l.CalculatedAmount,
           l.NotificationRef, l.EffectiveDate)).ToList(),
       slip.LoanDeductions.Select(d => new PayrollLoanDeductionDto(d.Id.Value, d.EmployeeLoanId.Value, d.InstallmentId.Value, d.InstallmentAmount)).ToList(),
-      slip.Adjustments.Select(a => new PayrollAdjustmentDto(a.Id.Value, a.AdjustmentType, a.Amount, a.Reason, a.CreatedBy, a.CreatedAt)).ToList())));
+      slip.Adjustments.Select(a => new PayrollAdjustmentDto(a.Id.Value, a.AdjustmentTypeId.Value, adjustmentTypes.GetValueOrDefault(a.AdjustmentTypeId), a.Amount, a.Reason, a.CreatedBy, a.CreatedAt)).ToList())));
   }
 
   public async Task<Result<CreatedResult>> Handle(AddPayrollAdjustmentCommand command, CancellationToken cancellationToken)
@@ -616,7 +617,9 @@ public class PayrollRunHandlers(
       slips.Add(slip);
     }
 
-    var adjustment = slip.AddAdjustment(command.AdjustmentType, command.Amount, command.Reason);
+    var type = await context.LoadAdjustmentTypeAsync(command.AdjustmentTypeId, cancellationToken);
+    type.EnsureActive();
+    var adjustment = slip.AddAdjustment(type, command.Amount, command.Reason);
     var problem = (await engine.CalculateAsync(run, period, slips, [employee], cancellationToken)).FirstOrDefault(p => p.StartsWith(employee.EmployeeNumber + ":", StringComparison.Ordinal));
     if (problem is not null)
       return Result<CreatedResult>.Failure(problem);

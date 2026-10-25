@@ -9,7 +9,7 @@ public sealed class HrmJobSource(ApplicationDbContext context) : ISystemJobSourc
   public static readonly string[] Jobs =
   [
     HrmRuns.PayrollCalculation, HrmRuns.PayrollFinalization, HrmRuns.SalaryPayments, HrmRuns.Arrears, HrmRuns.AnnualIncrement,
-    HrmRuns.PayRevision, HrmRuns.CloseAttendanceDay, HrmRuns.AttendanceImport, HrmRuns.ShiftAssignment, HrmRuns.LeaveEntitlements,
+    HrmRuns.PayRevision, HrmRuns.CloseAttendanceDay, HrmRuns.MarkHoliday, HrmRuns.AttendanceImport, HrmRuns.ShiftAssignment, HrmRuns.LeaveEntitlements,
     HrmRuns.LeaveYearEnd, HrmRuns.StartReviews, HrmRuns.GpFundInterest
   ];
 

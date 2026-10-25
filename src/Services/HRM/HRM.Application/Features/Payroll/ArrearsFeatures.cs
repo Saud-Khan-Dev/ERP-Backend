@@ -123,6 +123,8 @@ public class ArrearsHandlers(IApplicationDbContext context, PayrollEngine engine
         foreach (var old in slip.Adjustments.Where(a => a.Reason != null && a.Reason.StartsWith(marker, StringComparison.Ordinal)).ToList())
           slip.RemoveAdjustment(old.Id);
 
+      var arrears = await context.AdjustmentTypes.FirstAsync(t => t.Id == AdjustmentType.ArrearsId, cancellationToken);
+      var recovery = await context.AdjustmentTypes.FirstAsync(t => t.Id == AdjustmentType.RecoveryId, cancellationToken);
       foreach (var (employeeId, (amount, reason)) in differences)
       {
         var slip = slips.FirstOrDefault(s => s.EmployeeId == employeeId);
@@ -132,7 +134,7 @@ public class ArrearsHandlers(IApplicationDbContext context, PayrollEngine engine
           context.PayrollTransactions.Add(slip);
           slips.Add(slip);
         }
-        slip.AddAdjustment(amount > 0 ? AdjustmentType.Arrears : AdjustmentType.Recovery, amount, reason);
+        slip.AddAdjustment(amount > 0 ? arrears : recovery, amount, reason);
       }
 
       var touched = slips.Where(s => differences.ContainsKey(s.EmployeeId) || s.Adjustments.Count == 0).Select(s => s.EmployeeId).ToHashSet();

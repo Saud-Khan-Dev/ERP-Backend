@@ -7,12 +7,17 @@ internal static class Fixture
 
   private static int _employees;
 
-  public static Employee Employee(DateOnly? dateOfBirth = null, EmploymentType type = EmploymentType.Regular)
+  /// The employment method every regular test employee has (the list lives in Configuration).
+  public static readonly EmploymentMethodId ScheduledSeat = EmploymentMethodId.New();
+
+  public static EmploymentType Type(EmploymentBasis basis) => EmploymentType.Create(EmploymentTypeId.New(), basis.ToString(), null, basis);
+
+  public static Employee Employee(DateOnly? dateOfBirth = null, EmploymentBasis type = EmploymentBasis.Regular)
   {
     var n = ++_employees;
     return global::Employee.Create(EmployeeId.New(), $"EMP-{n:000}",
       new PersonalDetails("Test", null, $"Employee {n}", $"35202{n:0000000}1", dateOfBirth ?? D("1985-05-10"), Gender.Male, "Pakistani", null, null),
-      type, type == EmploymentType.Regular ? EmploymentMethod.ScheduledSeat : null, null, D("2026-10-06"));
+      Type(type), type == EmploymentBasis.Regular ? ScheduledSeat : null, null, D("2026-10-06"));
   }
 
   public static SalaryComponent Component(string code, ComponentType type = ComponentType.Earning, bool taxable = true) =>

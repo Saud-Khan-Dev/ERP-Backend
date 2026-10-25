@@ -21,14 +21,21 @@ public class HrActionChecks(IApplicationDbContext context, ServiceRecordReader r
     var dayBefore = date.AddDays(-1);
     var payBefore = await context.PayRecords.AnyAsync(p => p.EmployeeId == employee.Id && p.EffectiveFrom <= dayBefore
       && (p.EffectiveTo == null || p.EffectiveTo >= dayBefore), cancellationToken);
+    var regularType = await ActiveTypeAsync(EmploymentBasis.Regular, cancellationToken);
+    var deputationType = await ActiveTypeAsync(EmploymentBasis.Deputation, cancellationToken);
 
     return new HrActionFacts(employee, settings.RetirementAge, held, target, separation is not null,
-      separation?.SettlementPayrollTransactionId is not null, eventType, unpaidType is not null, clash, payBefore);
+      separation?.SettlementPayrollTransactionId is not null, eventType, unpaidType is not null, clash, payBefore,
+      regularType is not null, deputationType is not null);
   }
 
   /// Refuses the action when it cannot be carried out on its date.
   public async Task EnsureAllowedAsync(Employee employee, HrActionDetails details, CancellationToken cancellationToken) =>
       HrActionRules.Check(details, await FactsAsync(employee, details, cancellationToken));
+
+  /// The active employment type a Regularization (Regular) or a Deputation (in) gives the person; at most one of each.
+  public Task<EmploymentType?> ActiveTypeAsync(EmploymentBasis basis, CancellationToken cancellationToken) =>
+      context.EmploymentTypes.FirstOrDefaultAsync(t => t.IsActive && t.Basis == basis, cancellationToken);
 
   /// The regular post held on a date.
   public async Task<HeldPost?> HeldAsync(EmployeeId employeeId, DateOnly date, CancellationToken cancellationToken)
@@ -55,7 +62,8 @@ public class HrActionChecks(IApplicationDbContext context, ServiceRecordReader r
       .ToListAsync(cancellationToken);
     var taken = PostCapacity.MostHeld(holders, new DateRange(date, null), null, employeeId);
     var hasScale = await ScaleInForceAsync(version.GradeId, date, cancellationToken);
-    return new TargetPost(post.Id, post.PostCode, bps, version.LifecycleStatus, version.SanctionedCount, taken, hasScale);
+    var basis = await context.EmploymentTypes.AsNoTracking().Where(t => t.Id == version.EmploymentTypeId).Select(t => t.Basis).FirstAsync(cancellationToken);
+    return new TargetPost(post.Id, post.PostCode, bps, version.LifecycleStatus, version.SanctionedCount, taken, hasScale, basis);
   }
 
   public Task<bool> ScaleInForceAsync(PayScaleGradeId gradeId, DateOnly date, CancellationToken cancellationToken) =>

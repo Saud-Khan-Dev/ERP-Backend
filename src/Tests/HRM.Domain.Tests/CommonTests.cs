@@ -53,7 +53,7 @@ public class CommonTests
   public void A_regular_employee_needs_an_employment_method()
   {
     Assert.Throws<DomainException>(() => Employee.Create(EmployeeId.New(), "EMP-900",
-      new PersonalDetails("A", null, "B", "3520299999991", D("1990-01-01"), null, null, null, null), EmploymentType.Regular, null, null, D("2026-10-06")));
+      new PersonalDetails("A", null, "B", "3520299999991", D("1990-01-01"), null, null, null, null), Type(EmploymentBasis.Regular), null, null, D("2026-10-06")));
   }
 
   [Fact]

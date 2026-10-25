@@ -26,7 +26,7 @@ public sealed record TaxInput(TaxYear Year, decimal Exemptions, decimal YtdTaxab
 
 public sealed record PayrollEmployeeInput(
   EmployeeId EmployeeId,
-  EmploymentType EmploymentType,
+  EmploymentTypeId EmploymentTypeId,
   IReadOnlyList<AssignmentSlice> Assignments,
   IReadOnlyList<PostVersionSlice> PostVersions,
   IReadOnlyList<PaySlice> PayRecords,
@@ -87,7 +87,7 @@ public static class PayrollCalculator
       {
         foreach (var piece in Pieces(segment.Result.From, segment.Result.To, component, catalog.Rules, input.Overrides))
         {
-          var scope = new RuleScope(segment.Post.Bps, segment.Post.DesignationId, segment.Post.OrgUnitId, input.EmploymentType, piece.From, segment.Post.UnitPath);
+          var scope = new RuleScope(segment.Post.Bps, segment.Post.DesignationId, segment.Post.OrgUnitId, input.EmploymentTypeId, piece.From, segment.Post.UnitPath);
           var payable = PayableDays(piece.From, piece.To, input.UnpaidLeave);
           var amount = Amount(component, scope, segment, payable, periodDays, 0, input.Overrides, catalog.Rules);
           if (amount is null)
@@ -113,7 +113,7 @@ public static class PayrollCalculator
     if (segments.Count > 0 && daysPayable > 0)
     {
       var last = segments[^1];
-      var scope = new RuleScope(last.Post.Bps, last.Post.DesignationId, last.Post.OrgUnitId, input.EmploymentType, last.Result.To, last.Post.UnitPath);
+      var scope = new RuleScope(last.Post.Bps, last.Post.DesignationId, last.Post.OrgUnitId, input.EmploymentTypeId, last.Result.To, last.Post.UnitPath);
       var grossForDeductions = grossEarnings + input.TaxableAdjustments;
 
       foreach (var component in catalog.Components.Where(c => c.IsActive && c.ComponentType == ComponentType.Deduction && !c.IsSystem && !catalog.LoanComponents.Contains(c.Id)))

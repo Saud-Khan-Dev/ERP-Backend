@@ -10,6 +10,7 @@ public static class HrmRuns
   public const string AnnualIncrement = "Annual increment";
   public const string PayRevision = "Pay revision";
   public const string CloseAttendanceDay = "Close attendance day";
+  public const string MarkHoliday = "Mark a holiday";
   public const string AttendanceImport = "Attendance import";
   public const string ShiftAssignment = "Shift assignment";
   public const string LeaveEntitlements = "Leave entitlements";

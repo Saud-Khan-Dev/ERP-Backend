@@ -6,7 +6,7 @@ public sealed class FileUploadForm
   public IFormFile? File { get; set; }
 }
 
-public sealed record ChangeEmploymentRequest(EmploymentType EmploymentType, EmploymentMethod? EmploymentMethod, Guid? ProjectId, string? Reason);
+public sealed record ChangeEmploymentRequest(Guid EmploymentTypeId, Guid? EmploymentMethodId, Guid? ProjectId, string? Reason);
 public sealed record CorrectEmployeeNumberRequest(string EmployeeNumber, string? Reason);
 public sealed record SetTermRequest(DateOnly? TermFrom, DateOnly? TermTo, string? LendingDepartment, string? Reason);
 public sealed record LinkUserRequest(Guid UserId);
@@ -23,12 +23,12 @@ public class EmployeeEndpoints : ICarterModule
   {
     var employees = app.MapGroup("/employees").WithTags("Employees");
 
-    employees.MapGet("/", async (int? pageIndex, int? pageSize, string? search, string? employmentType, [FromQuery(Name = "employmentStatus")] string[]? employmentStatus,
+    employees.MapGet("/", async (int? pageIndex, int? pageSize, string? search, Guid? employmentTypeId, [FromQuery(Name = "employmentStatus")] string[]? employmentStatus,
         bool? includeInactive, Guid? orgUnitId, bool? includeSubUnits, Guid? designationId, Guid? gradeId, Guid? postId, string? gender, bool? unplaced,
         int? retiringWithinMonths, string? sortBy, string? sortDir, bool? inService, int? termEndingWithinDays, bool? withoutDateOfBirth, bool? pastRetirement,
         bool? incrementOverdue, ISender sender) =>
         (await sender.Send(new GetEmployeesQuery(
-          QueryParsing.Page(pageIndex, pageSize), search, QueryParsing.ParseEnum<EmploymentType>(employmentType, "employmentType"),
+          QueryParsing.Page(pageIndex, pageSize), search, employmentTypeId,
           (employmentStatus ?? []).SelectMany(s => s.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
             .Select(s => QueryParsing.ParseEnum<EmploymentStatus>(s, "employmentStatus")!.Value).Distinct().ToList(),
           includeInactive ?? false, orgUnitId, includeSubUnits ?? true, designationId, gradeId, postId,
@@ -82,7 +82,7 @@ public class EmployeeEndpoints : ICarterModule
       .WithSummary("Update Personal Details");
 
     employees.MapPut("/{id:guid}/employment", async (Guid id, ChangeEmploymentRequest request, ISender sender) =>
-        (await sender.Send(new ChangeEmploymentCommand(id, request.EmploymentType, request.EmploymentMethod, request.ProjectId, request.Reason))).ToOk())
+        (await sender.Send(new ChangeEmploymentCommand(id, request.EmploymentTypeId, request.EmploymentMethodId, request.ProjectId, request.Reason))).ToOk())
       .RequirePermission(PermissionCatalog.Hr.Edit)
       .WithName("ChangeEmployment")
       .Produces<UpdatedResult>()

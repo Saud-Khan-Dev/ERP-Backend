@@ -7,7 +7,7 @@ public class HrActionRuleTests
   private static readonly DateTime Now = new(2026, 10, 20, 9, 0, 0, DateTimeKind.Utc);
 
   private static HrActionDetails Action(HrActionType type, PostId? post = null, string on = "2026-11-02", string? until = null,
-      string? department = null, EmploymentMethod? method = null) =>
+      string? department = null, EmploymentMethodId? method = null) =>
     new(type, post, null, null, D(on), "GDA/HR/1", null, null, until is null ? null : D(until), null, department, method);
 
   private static HrActionFacts Facts(Employee employee, int heldBps = 11, int targetBps = 14, int seats = 1, int taken = 0,
@@ -15,7 +15,7 @@ public class HrActionRuleTests
     new(employee, 60,
       holds ? new HeldPost(Current, "POST-0001", heldBps, D("2024-01-01")) : null,
       target ? new TargetPost(Other, "POST-0009", targetBps, PostLifecycle.Sanctioned, seats, taken, scale) : null,
-      separated, false, null, unpaidType, null, payBefore);
+      separated, false, null, unpaidType, null, payBefore, true, true);
 
   [Fact]
   public void A_promotion_needs_a_higher_grade_when_it_is_drafted()
@@ -119,17 +119,17 @@ public class HrActionRuleTests
   [Fact]
   public void Only_a_non_regular_employee_is_regularized()
   {
-    var contract = Employee(type: EmploymentType.Contract);
+    var contract = Employee(type: EmploymentBasis.FixedTerm);
 
     Assert.NotNull(HrActionRules.Fit(HrActionType.Regularization, Facts(Employee())));
-    Assert.Null(HrActionRules.Why(Action(HrActionType.Regularization, method: EmploymentMethod.ScheduledSeat), Facts(contract, target: false)));
+    Assert.Null(HrActionRules.Why(Action(HrActionType.Regularization, method: ScheduledSeat), Facts(contract, target: false)));
   }
 
   [Fact]
   public void A_contract_ends_only_for_contract_staff_and_a_deputation_only_for_deputationists()
   {
     Assert.NotNull(HrActionRules.Fit(HrActionType.EndOfContract, Facts(Employee())));
-    Assert.Null(HrActionRules.Fit(HrActionType.EndOfContract, Facts(Employee(type: EmploymentType.Contract))));
+    Assert.Null(HrActionRules.Fit(HrActionType.EndOfContract, Facts(Employee(type: EmploymentBasis.FixedTerm))));
     Assert.NotNull(HrActionRules.Fit(HrActionType.DeputationEnd, Facts(Employee())));
   }
 
@@ -227,30 +227,32 @@ public class HrActionRuleTests
   [Fact]
   public void A_contract_employee_becomes_regular_only_through_a_regularization()
   {
-    var contract = Employee(type: EmploymentType.Contract);
+    var contract = Employee(type: EmploymentBasis.FixedTerm);
 
-    Assert.Throws<DomainException>(() => contract.CorrectEmployment(EmploymentType.Regular, EmploymentMethod.ScheduledSeat, null));
-    contract.Regularize(EmploymentMethod.ScheduledSeat);
-    Assert.Equal(EmploymentType.Regular, contract.EmploymentType);
+    var regular = Type(EmploymentBasis.Regular);
+    Assert.Throws<DomainException>(() => contract.CorrectEmployment(regular, ScheduledSeat, null));
+    contract.Regularize(regular, ScheduledSeat);
+    Assert.Equal(EmploymentBasis.Regular, contract.EmploymentBasis);
   }
 
   [Fact]
   public void A_term_belongs_to_non_regular_staff_and_a_deputationist_names_the_parent_department()
   {
     Assert.Throws<DomainException>(() => Employee().SetTerm(D("2026-01-01"), D("2026-12-31"), null));
-    var deputationist = Employee(type: EmploymentType.DeputationIn);
+    var deputationist = Employee(type: EmploymentBasis.Deputation);
     Assert.Throws<DomainException>(() => deputationist.SetTerm(D("2026-01-01"), D("2028-12-31"), null));
     deputationist.SetTerm(D("2026-01-01"), D("2028-12-31"), "C&W Department");
     Assert.Equal(D("2028-12-31"), deputationist.TermTo);
   }
 
   [Fact]
-  public void A_family_relation_and_an_event_group_come_from_fixed_lists()
+  public void A_family_member_takes_a_configured_relation_and_an_event_group_comes_from_a_fixed_list()
   {
     var employee = Employee();
+    var son = FamilyRelation.Create(FamilyRelationId.New(), "Son");
 
-    Assert.Throws<DomainException>(() => employee.AddFamilyMember(new FamilyMemberDetails("Cousin", "Ali", null, null, null), D("2026-10-20")));
-    Assert.Equal("Son", employee.AddFamilyMember(new FamilyMemberDetails("son", "Ali", null, null, null), D("2026-10-20")).Relation);
+    Assert.Throws<DomainException>(() => employee.AddFamilyMember(new FamilyMemberDetails(null, null, null, null, null), D("2026-10-20")));
+    Assert.Equal(son.Id, employee.AddFamilyMember(new FamilyMemberDetails(son.Id, "Ali", null, null, null), D("2026-10-20")).RelationId);
     Assert.Throws<DomainException>(() => ServiceEventType.Create(ServiceEventTypeId.New(), "Training", "other"));
   }
 

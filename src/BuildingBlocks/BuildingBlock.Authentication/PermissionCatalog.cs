@@ -453,7 +453,7 @@ public static class PermissionCatalog
     Crud(Modules.Attendance, "attendance and leave");
     One(Attendance.Approve, "Approve leave");
     One(Attendance.Export, "Download attendance and leave reports");
-    One(Attendance.Run, "Close days, grant entitlements, import attendance, close the leave year");
+    One(Attendance.Run, "Close days, mark holidays, grant entitlements, import attendance, close the leave year");
     One(Attendance.Adjust, "Correct leave balances by hand");
     Crud(Modules.Payroll, "payroll");
     One(Payroll.Approve, "Approve payroll runs, sanction loans, hold salaries");

@@ -4,7 +4,7 @@ public sealed record CreatePayrollRunRequest(Guid PeriodId, PayrollRunType RunTy
 public sealed record RenamePayrollRunRequest(string? RunLabel);
 public sealed record CalculatePayrollRunRequest(IReadOnlyList<Guid>? EmployeeIds);
 public sealed record ReversePayrollRunRequest(string Reason);
-public sealed record PayrollAdjustmentRequest(Guid EmployeeId, AdjustmentType AdjustmentType, decimal Amount, string Reason);
+public sealed record PayrollAdjustmentRequest(Guid EmployeeId, Guid AdjustmentTypeId, decimal Amount, string Reason);
 public sealed record HoldRequest(string? Remarks);
 public sealed record GeneratePaymentsRequest(PaymentMethod? PaymentMethod);
 public sealed record WorkOutArrearsRequest(Guid SourcePeriodId, IReadOnlyList<Guid>? EmployeeIds, bool DryRun);
@@ -214,7 +214,7 @@ public class PayrollEndpoints : ICarterModule
         + "working-out of the same month, and the run is recalculated (only the extra tax they cause). Loans, GP Fund and that month's tax are not touched.");
 
     runs.MapPost("/{id:guid}/adjustments", async (Guid id, PayrollAdjustmentRequest r, ISender sender) =>
-        (await sender.Send(new AddPayrollAdjustmentCommand(id, r.EmployeeId, r.AdjustmentType, r.Amount, r.Reason))).ToOk())
+        (await sender.Send(new AddPayrollAdjustmentCommand(id, r.EmployeeId, r.AdjustmentTypeId, r.Amount, r.Reason))).ToOk())
       .RequirePermission(PermissionCatalog.Payroll.Adjust)
       .WithTags("Pay Slips")
       .WithName("AddPayrollAdjustment")

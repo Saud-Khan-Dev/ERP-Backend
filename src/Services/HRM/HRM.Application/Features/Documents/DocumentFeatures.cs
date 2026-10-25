@@ -266,7 +266,7 @@ public class DocumentHandlers(IApplicationDbContext context, FileUploads files, 
 // ---- education ----
 
 public sealed record EducationInput(
-  QualificationLevel QualificationLevel,
+  Guid QualificationLevelId,
   string DegreeTitle,
   string InstitutionName,
   string? BoardOrUniversity,
@@ -274,7 +274,7 @@ public sealed record EducationInput(
   string? GradeOrCgpa,
   bool IsHighestQualification)
 {
-  public EducationDetails ToDetails() => new(QualificationLevel, DegreeTitle, InstitutionName, BoardOrUniversity, PassingYear, GradeOrCgpa, IsHighestQualification);
+  public EducationDetails ToDetails() => new(global::QualificationLevelId.Of(QualificationLevelId), DegreeTitle, InstitutionName, BoardOrUniversity, PassingYear, GradeOrCgpa, IsHighestQualification);
 }
 
 public sealed record GetEducationQueryResult(IReadOnlyList<EducationDto> Education);
@@ -296,7 +296,7 @@ public class EducationInputValidator : AbstractValidator<EducationInput>
 {
   public EducationInputValidator()
   {
-    RuleFor(x => x.QualificationLevel).IsInEnum();
+    RuleFor(x => x.QualificationLevelId).NotEmpty();
     RuleFor(x => x.DegreeTitle).NotEmpty().MaximumLength(200);
     RuleFor(x => x.InstitutionName).NotEmpty().MaximumLength(200);
     RuleFor(x => x.BoardOrUniversity).MaximumLength(200);
@@ -314,7 +314,7 @@ public class UpdateEducationCommandValidator : AbstractValidator<UpdateEducation
   public UpdateEducationCommandValidator() => RuleFor(x => x.Education).NotNull().SetValidator(new EducationInputValidator());
 }
 
-public class EducationHandlers(IApplicationDbContext context, FileUploads files, IClock clock, IAuditTrail audit) :
+public class EducationHandlers(IApplicationDbContext context, FileUploads files, IClock clock, IAuditTrail audit, DutyGuard duty) :
   IQueryHandler<GetEducationQuery, Result<GetEducationQueryResult>>,
   IQueryHandler<GetEducationContentQuery, Result<StoredFile>>,
   ICommandHandler<AddEducationCommand, Result<CreatedResult>>,
@@ -329,8 +329,11 @@ public class EducationHandlers(IApplicationDbContext context, FileUploads files,
       throw new EmployeeNotFoundException($"Employee {query.EmployeeId} was not found.");
 
     var rows = await context.Educations.AsNoTracking().Where(e => e.EmployeeId == employeeId)
-      .OrderByDescending(e => e.PassingYear).ThenBy(e => e.QualificationLevel).ToListAsync(cancellationToken);
-    return Result<GetEducationQueryResult>.Success(new(rows.Select(r => r.ToDto()).ToList()));
+      .OrderByDescending(e => e.PassingYear).ToListAsync(cancellationToken);
+    var levels = await context.QualificationLevels.AsNoTracking().ToDictionaryAsync(l => l.Id, cancellationToken);
+    return Result<GetEducationQueryResult>.Success(new(rows
+      .OrderByDescending(r => r.PassingYear).ThenByDescending(r => levels.GetValueOrDefault(r.QualificationLevelId)?.Rank ?? 0)
+      .Select(r => r.ToDto(levels.ToDictionary(l => l.Key, l => l.Value.Name))).ToList()));
   }
 
   public async Task<Result<StoredFile>> Handle(GetEducationContentQuery query, CancellationToken cancellationToken)
@@ -348,6 +351,8 @@ public class EducationHandlers(IApplicationDbContext context, FileUploads files,
   {
     var employee = await context.LoadEmployeeAsync(command.EmployeeId, cancellationToken);
     employee.EnsureProfileActive();
+    await duty.EnsureNotOwnRecordAsync(employee.Id, "change the qualifications", employee, cancellationToken);
+    (await context.LoadQualificationLevelAsync(command.Education.QualificationLevelId, cancellationToken)).EnsureActive();
     var others = await context.Educations.Where(e => e.EmployeeId == employee.Id).ToListAsync(cancellationToken);
     var education = EmployeeEducation.Create(EducationId.New(), employee.Id, command.Education.ToDetails(), others, clock.Today.Year);
     context.Educations.Add(education);
@@ -358,6 +363,10 @@ public class EducationHandlers(IApplicationDbContext context, FileUploads files,
   public async Task<Result<UpdatedResult>> Handle(UpdateEducationCommand command, CancellationToken cancellationToken)
   {
     var education = await LoadAsync(command.Id, cancellationToken);
+    await duty.EnsureNotOwnRecordAsync(education.EmployeeId, "change the qualifications", education, cancellationToken);
+    var level = await context.LoadQualificationLevelAsync(command.Education.QualificationLevelId, cancellationToken);
+    if (level.Id != education.QualificationLevelId)
+      level.EnsureActive();
     var others = await context.Educations.Where(e => e.EmployeeId == education.EmployeeId && e.Id != education.Id).ToListAsync(cancellationToken);
     education.Update(command.Education.ToDetails(), others, clock.Today.Year);
     await context.SaveChangesAsync(cancellationToken);
@@ -367,6 +376,7 @@ public class EducationHandlers(IApplicationDbContext context, FileUploads files,
   public async Task<Result<UpdatedResult>> Handle(RemoveEducationCommand command, CancellationToken cancellationToken)
   {
     var education = await LoadAsync(command.Id, cancellationToken);
+    await duty.EnsureNotOwnRecordAsync(education.EmployeeId, "change the qualifications", education, cancellationToken);
     context.Educations.Remove(education);
     await context.SaveChangesAsync(cancellationToken);
     return CommandResults.Updated();

@@ -38,7 +38,7 @@ public class PayrollCalculatorTests
       decimal taxableAdjustments = 0,
       decimal netAdjustments = 0,
       TaxInput? tax = null) =>
-      new(EmployeeId.New(), EmploymentType.Regular,
+      new(EmployeeId.New(), EmploymentTypeId.New(),
         assignments ?? [new AssignmentSlice(PostA, D("2020-01-01"), null)],
         versions ?? [Version(PostA, 17)],
         pay ?? [Pay(60_000)],

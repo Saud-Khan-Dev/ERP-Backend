@@ -29,9 +29,9 @@ public sealed record AddressInput(AddressType AddressType, string? AddressLine, 
 
 public sealed record EmergencyContactInput(string Name, string? Relation, string? Phone);
 
-public sealed record FamilyMemberInput(string? Relation, string? Name, DateOnly? DateOfBirth, string? Cnic, string? Occupation)
+public sealed record FamilyMemberInput(Guid? RelationId, string? Name, DateOnly? DateOfBirth, string? Cnic, string? Occupation)
 {
-  public FamilyMemberDetails ToDetails() => new(Relation, Name, DateOfBirth, Cnic, Occupation);
+  public FamilyMemberDetails ToDetails() => new(RelationId is { } relation ? FamilyRelationId.Of(relation) : null, Name, DateOfBirth, Cnic, Occupation);
 }
 
 /// The first post: the appointment (or deputation-in) date, the post, and the pay to start on (stage 0 unless given).
@@ -51,8 +51,8 @@ public sealed record AppointmentInput(
 public sealed record RegisterEmployeeCommand(
   string? EmployeeNumber,
   PersonalDetailsInput Personal,
-  EmploymentType EmploymentType,
-  EmploymentMethod? EmploymentMethod,
+  Guid EmploymentTypeId,
+  Guid? EmploymentMethodId,
   Guid? ProjectId,
   Guid? UserId,
   IReadOnlyList<ContactInput>? Contacts,
@@ -68,7 +68,7 @@ public sealed record UpdatePersonalDetailsCommand(Guid Id, PersonalDetailsInput 
 
 /// Corrects the employment type / method / project entered by mistake, with the reason. Making a contract (or other)
 /// employee regular is a regularization: an HR action, approved and recorded in the service book.
-public sealed record ChangeEmploymentCommand(Guid Id, EmploymentType EmploymentType, EmploymentMethod? EmploymentMethod, Guid? ProjectId, string? Reason = null) : ICommand<Result<UpdatedResult>>;
+public sealed record ChangeEmploymentCommand(Guid Id, Guid EmploymentTypeId, Guid? EmploymentMethodId, Guid? ProjectId, string? Reason = null) : ICommand<Result<UpdatedResult>>;
 
 /// Corrects a typing mistake in the employee number.
 public sealed record CorrectEmployeeNumberCommand(Guid Id, string EmployeeNumber, string? Reason = null) : ICommand<Result<UpdatedResult>>;
@@ -114,8 +114,7 @@ public class ChangeEmploymentCommandValidator : AbstractValidator<ChangeEmployme
   public ChangeEmploymentCommandValidator()
   {
     RuleFor(x => x.Id).NotEmpty();
-    RuleFor(x => x.EmploymentType).IsInEnum();
-    RuleFor(x => x.EmploymentMethod).IsInEnum().When(x => x.EmploymentMethod.HasValue);
+    RuleFor(x => x.EmploymentTypeId).NotEmpty();
     RuleFor(x => x.Reason).NotEmpty().WithMessage("Say why the employment is corrected.").MaximumLength(1000);
   }
 }
@@ -168,7 +167,6 @@ public class FamilyMemberInputValidator : AbstractValidator<FamilyMemberInput>
 {
   public FamilyMemberInputValidator()
   {
-    RuleFor(x => x.Relation).MaximumLength(60);
     RuleFor(x => x.Name).MaximumLength(150);
     RuleFor(x => x.Cnic).MaximumLength(20);
     RuleFor(x => x.Occupation).MaximumLength(100);
@@ -194,8 +192,7 @@ public class RegisterEmployeeCommandValidator : AbstractValidator<RegisterEmploy
   {
     RuleFor(x => x.EmployeeNumber).MaximumLength(Employee.NumberMaxLength);
     RuleFor(x => x.Personal).NotNull().SetValidator(new PersonalDetailsInputValidator());
-    RuleFor(x => x.EmploymentType).IsInEnum();
-    RuleFor(x => x.EmploymentMethod).IsInEnum().When(x => x.EmploymentMethod.HasValue);
+    RuleFor(x => x.EmploymentTypeId).NotEmpty();
     RuleForEach(x => x.Contacts).SetValidator(new ContactInputValidator());
     RuleForEach(x => x.Addresses).SetValidator(new AddressInputValidator());
     RuleForEach(x => x.EmergencyContacts).SetValidator(new EmergencyContactInputValidator());

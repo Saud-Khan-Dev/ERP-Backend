@@ -257,7 +257,7 @@ namespace HRM.Infrastructure.Data.Migrations
                         .HasColumnType("varchar")
                         .HasColumnName("employee_number");
 
-                    b.Property<EmploymentMethod?>("EmploymentMethod")
+                    b.Property<string>("EmploymentMethod")
                         .HasColumnType("hrms.employment_method_enum")
                         .HasColumnName("employment_method");
 
@@ -266,7 +266,7 @@ namespace HRM.Infrastructure.Data.Migrations
                         .HasDefaultValue(EmploymentStatus.Active)
                         .HasColumnName("employment_status");
 
-                    b.Property<EmploymentType>("EmploymentType")
+                    b.Property<string>("EmploymentType")
                         .HasColumnType("hrms.employment_type_enum")
                         .HasColumnName("employment_type");
 
@@ -715,7 +715,7 @@ namespace HRM.Infrastructure.Data.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("passing_year");
 
-                    b.Property<QualificationLevel>("QualificationLevel")
+                    b.Property<string>("QualificationLevel")
                         .HasColumnType("hrms.qualification_level_enum")
                         .HasColumnName("qualification_level");
 
@@ -1967,7 +1967,7 @@ namespace HRM.Infrastructure.Data.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("employee_id");
 
-                    b.Property<EmploymentMethod?>("EmploymentMethod")
+                    b.Property<string>("EmploymentMethod")
                         .HasColumnType("hrms.employment_method_enum")
                         .HasColumnName("employment_method");
 
@@ -2952,7 +2952,7 @@ namespace HRM.Infrastructure.Data.Migrations
                         .HasColumnName("id")
                         .HasDefaultValueSql("gen_random_uuid()");
 
-                    b.Property<AdjustmentType>("AdjustmentType")
+                    b.Property<string>("AdjustmentType")
                         .HasColumnType("hrms.adjustment_type_enum")
                         .HasColumnName("adjustment_type");
 
@@ -3958,9 +3958,9 @@ namespace HRM.Infrastructure.Data.Migrations
                         .HasColumnType("date")
                         .HasColumnName("effective_to");
 
-                    b.Property<EmploymentType>("EmploymentType")
+                    b.Property<string>("EmploymentType")
                         .HasColumnType("hrms.employment_type_enum")
-                        .HasDefaultValue(EmploymentType.Regular)
+                        .HasDefaultValueSql("'regular'::hrms.employment_type_enum")
                         .HasColumnName("employment_type");
 
                     b.Property<Guid>("GradeId")
@@ -4104,7 +4104,7 @@ namespace HRM.Infrastructure.Data.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("applicable_designation_id");
 
-                    b.Property<EmploymentType?>("ApplicableEmploymentType")
+                    b.Property<string>("ApplicableEmploymentType")
                         .HasColumnType("hrms.employment_type_enum")
                         .HasColumnName("applicable_employment_type");
 

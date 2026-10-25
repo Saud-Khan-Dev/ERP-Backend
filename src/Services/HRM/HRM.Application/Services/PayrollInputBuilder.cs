@@ -127,7 +127,7 @@ public class PayrollInputBuilder(IApplicationDbContext context)
       var adjustments = existing.GetValueOrDefault(e.Id)?.Adjustments ?? [];
       return new PayrollEmployeeInput(
         e.Id,
-        e.EmploymentType,
+        e.EmploymentTypeId,
         assignments.Where(a => a.EmployeeId == e.Id).Select(a => new AssignmentSlice(a.PostId, a.EffectiveFrom, a.EffectiveTo)).ToList(),
         versions.Where(v => assignments.Any(a => a.EmployeeId == e.Id && a.PostId == v.PostId)).ToList(),
         pay.Where(p => p.EmployeeId == e.Id).Select(p => p.Slice).ToList(),

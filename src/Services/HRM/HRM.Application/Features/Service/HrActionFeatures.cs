@@ -31,7 +31,7 @@ public sealed record HrActionDto(
   Guid? EventTypeId,
   string? EventType,
   string? ExternalReferenceOrg,
-  EmploymentMethod? EmploymentMethod,
+  Guid? EmploymentMethodId,
   Guid? RecruitmentMethodId,
   int? StageNumber,
   decimal? BasicPay,
@@ -63,7 +63,7 @@ public sealed record HrActionInput(
   DateOnly? EndDate = null,
   Guid? EventTypeId = null,
   string? ExternalReferenceOrg = null,
-  EmploymentMethod? EmploymentMethod = null,
+  Guid? EmploymentMethodId = null,
   Guid? RecruitmentMethodId = null,
   int? StageNumber = null,
   decimal? BasicPay = null,
@@ -135,7 +135,7 @@ public sealed record HrActionOptionsDto(
   Guid EmployeeId,
   DateOnly Date,
   EmploymentStatus EmploymentStatus,
-  EmploymentType EmploymentType,
+  EmploymentBasis EmploymentBasis,
   HeldPostDto? Current,
   CurrentPayDto? Pay,
   Guid? LienPostId,
@@ -174,7 +174,7 @@ public class HrActionInputValidator : AbstractValidator<HrActionInput>
     RuleFor(x => x.OrderNumber).MaximumLength(100);
     RuleFor(x => x.Reason).MaximumLength(4000);
     RuleFor(x => x.ExternalReferenceOrg).MaximumLength(200);
-    RuleFor(x => x.EmploymentMethod).IsInEnum().When(x => x.EmploymentMethod is not null);
+    RuleFor(x => x.EmploymentMethodId).NotEqual(Guid.Empty).When(x => x.EmploymentMethodId is not null);
     RuleFor(x => x.StageNumber).InclusiveBetween(0, 100).When(x => x.StageNumber is not null);
     RuleFor(x => x.BasicPay).GreaterThanOrEqualTo(0).When(x => x.BasicPay is not null);
     RuleFor(x => x.NoticePeriodDays).GreaterThanOrEqualTo(0).When(x => x.NoticePeriodDays is not null);
@@ -213,7 +213,7 @@ public class ApplyHrActionCommandValidator : AbstractValidator<ApplyHrActionComm
   {
     RuleFor(x => x.Input).NotNull();
     RuleFor(x => x.Input.ExternalReferenceOrg).MaximumLength(200);
-    RuleFor(x => x.Input.EmploymentMethod).IsInEnum().When(x => x.Input?.EmploymentMethod is not null);
+    RuleFor(x => x.Input.EmploymentMethodId).NotEqual(Guid.Empty).When(x => x.Input?.EmploymentMethodId is not null);
     RuleFor(x => x.Input.StageNumber).GreaterThanOrEqualTo(0).When(x => x.Input?.StageNumber is not null);
     RuleFor(x => x.Input.NoticePeriodDays).GreaterThanOrEqualTo(0).When(x => x.Input?.NoticePeriodDays is not null);
     RuleFor(x => x.Input.Remarks).MaximumLength(4000);
@@ -354,7 +354,7 @@ public class HrActionHandlers(
       .FirstOrDefaultAsync(cancellationToken);
     var lienCode = lien?.OldPostId is { } lienPost ? (await lookup.PostCodesAsync([lienPost], cancellationToken)).GetValueOrDefault(lienPost.Value) : null;
 
-    return Result<HrActionOptionsDto>.Success(new(employee.Id.Value, date, employee.EmploymentStatus, employee.EmploymentType, current,
+    return Result<HrActionOptionsDto>.Success(new(employee.Id.Value, date, employee.EmploymentStatus, employee.EmploymentBasis, current,
       await CurrentPayAsync(employee.Id, date, cancellationToken), lien?.OldPostId?.Value, lienCode, await duty.IsOnAsync(DutyRules.HrAction, cancellationToken), options, custom));
   }
 
@@ -491,7 +491,7 @@ public class HrActionHandlers(
             line = $"Deputed to {details.ExternalReferenceOrg} from {day}; post {facts.Current?.PostCode ?? "-"} is released and kept on lien. GDA stops paying from that day.";
             break;
           case HrActionType.Regularization:
-            line = $"Becomes a regular employee ({EnumText.Words(details.EmploymentMethod!.Value)}) from {day}.";
+            line = $"Becomes a regular employee from {day}.";
             break;
           case HrActionType.Joining:
           case HrActionType.Reinstatement:
@@ -652,7 +652,8 @@ public class HrActionHandlers(
 
     var current = await reader.RegularPostOnAsync(employeeId, input.EffectiveDate, cancellationToken);
     var details = new HrActionDetails(input.ActionType, newPostId, newGrade, newUnit, input.EffectiveDate, input.OrderNumber, input.Reason, documentId,
-      input.EndDate, input.EventTypeId is { } eventType ? ServiceEventTypeId.Of(eventType) : null, input.ExternalReferenceOrg, input.EmploymentMethod,
+      input.EndDate, input.EventTypeId is { } eventType ? ServiceEventTypeId.Of(eventType) : null, input.ExternalReferenceOrg,
+      input.EmploymentMethodId is { } employmentMethod ? global::EmploymentMethodId.Of(employmentMethod) : null,
       input.RecruitmentMethodId is { } method ? RecruitmentMethodId.Of(method) : null, input.StageNumber, input.BasicPay, input.NoticePeriodDays);
     return (details, current?.AsOld() ?? ServiceChange.None);
   }
@@ -703,7 +704,7 @@ public class HrActionHandlers(
         UnitOn(a.OldOrgUnitId, a.EffectiveDate), UnitOn(a.NewOrgUnitId, a.EffectiveDate),
         a.EffectiveDate, a.OrderNumber, a.Reason, a.SupportingDocumentId?.Value, a.Status, a.ApprovalRequestId, a.ApprovedBy, a.ApprovedAt,
         a.ResultingServiceHistoryId?.Value, a.CreatedBy, a.CreatedAt, a.UpdatedAt,
-        a.EndDate, a.EventTypeId?.Value, a.EventTypeId is null ? null : events.GetValueOrDefault(a.EventTypeId), a.ExternalReferenceOrg, a.EmploymentMethod,
+        a.EndDate, a.EventTypeId?.Value, a.EventTypeId is null ? null : events.GetValueOrDefault(a.EventTypeId), a.ExternalReferenceOrg, a.EmploymentMethodId?.Value,
         a.RecruitmentMethodId?.Value, a.StageNumber, a.BasicPay, a.NoticePeriodDays, a.SubmittedBy, a.SubmittedAt, a.DecidedBy, a.DecidedAt, a.DecisionRemarks,
         a.AppliedBy, a.AppliedAt, a.LeaveApplicationId?.Value, dated, a.Status == HrActionStatus.Approved && dated && a.EffectiveDate > today);
     }).ToList();

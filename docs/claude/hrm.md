@@ -171,13 +171,16 @@ touches).
   and the bell list those ending.
 - **Attendance.** Recorded, imported by employee number, or created by "close day". Close day marks everyone holding a
   post without a record as on leave, holiday, weekend or absent. Future dates are refused.
+- **Holidays are marked, not planned** (`POST /holidays/mark`, ATTENDANCE.RUN): the day before, or after when nobody came
+  in, From..To (at most 7 days, at most 7 days ahead) become holidays and everyone holding a post without a check-in is
+  marked Holiday (a closed absence too; leave and days worked are kept). `POST /holidays/unmark` undoes a day. The
+  holiday rows stay the calendar leave days, close day and Taxation read.
 - **Leave.** Balance = entitlement + the signed `leave_ledger`. Days are the working days of the employee's calendar
   (a half day takes 0.5 off). Applying checks overlap and the days available (pending applications count against
   them). No one approves their own leave; reject needs a reason; cancelling an approved leave needs ATTENDANCE.APPROVE
   and a reason; the decider, date and reason are kept. Approving writes usage rows per calendar year and turns closed
   absences into leave. Cancelling reverses the ledger rows. An inactive leave type is offered to no one. The year-end
   is idempotent (a carry-forward or a lapse per balance) and opens placeholder entitlements that a later grant fills.
-  Optional holidays are not days off for everyone.
 - **Performance.** Periods; reviews opened one by one or in bulk. The evaluator in bulk is the holder of the post's
   reporting post. draft → submitted → (countersigned, when a countersigning officer is named) → acknowledged →
   finalized. Everything is locked after submit; the employee sees the review only once submitted (and countersigned).
@@ -261,6 +264,16 @@ maps each key to a filtered screen in `features/hrm/hrm.attention.ts`; keep the 
 - **Lists:** `QueryParsing.Page` and `PaginatedResult<T>`. Labels come from `HrLookup` in a fixed number of queries.
   Never query once per row.
 - **Name uniqueness in catalogues** is checked case-insensitively in the handler; the DB unique index is the backstop.
+- **Employment types** are a catalogue (`/employment-types`, seeded Regular and Contract by the `EmploymentTypes`
+  migration). Each follows one `EmploymentBasis` (Regular, FixedTerm, Deputation, Project), fixed once employees, posts
+  or salary rules use it; at most one active type per Regular and Deputation basis, which a Regularization / a
+  Deputation (in) gives the person. The employee keeps the type id and a copy of its basis; every rule reads the basis.
+- **Sanctioned vs contract posts**: a post whose type follows the Regular rules is sanctioned (regular staff and
+  deputationists); one of a fixed-term type is a contract post (GDA's own approved strength) and takes fixed-term staff
+  only (`PostKinds`, checked on every appointment and move).
+- **Configured lists** (`/qualification-levels` with a rank, `/family-relations`, `/employment-methods`,
+  `/adjustment-types` with a direction): records keep the id; a used value is deactivated, not deleted. Adjustment types
+  Arrears and Recovery have fixed ids (the arrears run writes them) and stay on.
 - **Batch operations** (import, grant entitlements, start reviews, assign shifts, generate payments) save the good rows
   and return the bad ones in `problems`.
 

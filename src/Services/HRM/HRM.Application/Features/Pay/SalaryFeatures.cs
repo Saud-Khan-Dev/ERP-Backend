@@ -43,7 +43,7 @@ public sealed record SalaryRuleInput(
   int? MaxBps,
   Guid? ApplicableDesignationId,
   Guid? ApplicableOrgUnitId,
-  EmploymentType? ApplicableEmploymentType,
+  Guid? ApplicableEmploymentTypeId,
   decimal? MinAmount,
   decimal? MaxAmount,
   int Priority,
@@ -53,7 +53,8 @@ public sealed record SalaryRuleInput(
 {
   public SalaryRuleDefinition ToDefinition() => new(RuleVersion, CalculationMethod, FixedAmount, Percentage, CalculationBase, FormulaExpression,
     MinBps, MaxBps, ApplicableDesignationId is { } designation ? DesignationId.Of(designation) : null,
-    ApplicableOrgUnitId is { } unit ? OrganizationUnitId.Of(unit) : null, ApplicableEmploymentType, MinAmount, MaxAmount, Priority, NotificationRef,
+    ApplicableOrgUnitId is { } unit ? OrganizationUnitId.Of(unit) : null,
+    ApplicableEmploymentTypeId is { } type ? EmploymentTypeId.Of(type) : null, MinAmount, MaxAmount, Priority, NotificationRef,
     EffectiveFrom, EffectiveTo);
 }
 
@@ -467,6 +468,7 @@ public class SalaryHandlers(IApplicationDbContext context, HrLookup lookup, ICur
     var componentIds = rules.Select(r => r.SalaryComponentId).Distinct().ToList();
     var components = await context.SalaryComponents.AsNoTracking().Where(c => componentIds.Contains(c.Id)).ToDictionaryAsync(c => c.Id, cancellationToken);
     var designations = await lookup.DesignationsAsync(rules.Select(r => r.ApplicableDesignationId), cancellationToken);
+    var types = await context.EmploymentTypes.AsNoTracking().ToDictionaryAsync(t => t.Id, t => t.Name, cancellationToken);
     var units = await lookup.UnitNamesAsync(rules.Select(r => r.ApplicableOrgUnitId), clock.Today, cancellationToken);
     var ruleIds = rules.Select(r => r.Id).ToList();
     var used = (await context.PayrollLines.AsNoTracking()
@@ -482,7 +484,8 @@ public class SalaryHandlers(IApplicationDbContext context, HrLookup lookup, ICur
       return new SalaryRuleDto(r.Id.Value, r.SalaryComponentId.Value, component.ComponentCode, component.ComponentName, r.RuleVersion, r.CalculationMethod,
         r.FixedAmount, r.Percentage, r.CalculationBase, r.FormulaExpression, r.MinBps, r.MaxBps, r.ApplicableDesignationId?.Value,
         r.ApplicableDesignationId is null ? null : designations.GetValueOrDefault(r.ApplicableDesignationId.Value), r.ApplicableOrgUnitId?.Value,
-        r.ApplicableOrgUnitId is null ? null : units.GetValueOrDefault(r.ApplicableOrgUnitId.Value), r.ApplicableEmploymentType, r.MinAmount, r.MaxAmount,
+        r.ApplicableOrgUnitId is null ? null : units.GetValueOrDefault(r.ApplicableOrgUnitId.Value), r.ApplicableEmploymentTypeId?.Value,
+        r.ApplicableEmploymentTypeId is null ? null : types.GetValueOrDefault(r.ApplicableEmploymentTypeId), r.MinAmount, r.MaxAmount,
         r.Priority, r.NotificationRef, r.EffectiveFrom, r.EffectiveTo, r.Status, r.ApprovedBy, used.Contains(r.Id));
     }).ToList();
   }
