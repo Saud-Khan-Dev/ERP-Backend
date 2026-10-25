@@ -11,6 +11,19 @@ namespace HRM.Infrastructure.Data.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
+            // keep each record's type as text: the enum columns and their type are dropped below (copying a value is
+            // not an edit, so no employee is stamped as changed)
+            migrationBuilder.Sql("""
+                ALTER TABLE hrms.employee ADD COLUMN old_employment_type text;
+                ALTER TABLE hrms.employee DISABLE TRIGGER trg_employee_updated_at;
+                UPDATE hrms.employee SET old_employment_type = employment_type::text;
+                ALTER TABLE hrms.employee ENABLE TRIGGER trg_employee_updated_at;
+                ALTER TABLE hrms.post_version ADD COLUMN old_employment_type text;
+                UPDATE hrms.post_version SET old_employment_type = employment_type::text;
+                ALTER TABLE hrms.salary_component_rule ADD COLUMN old_employment_type text;
+                UPDATE hrms.salary_component_rule SET old_employment_type = applicable_employment_type::text;
+                """);
+
             migrationBuilder.DropIndex(
                 name: "idx_employee_type",
                 schema: "hrms",
@@ -179,12 +192,6 @@ namespace HRM.Infrastructure.Data.Migrations
                 table: "employee",
                 column: "employment_type_id");
 
-            migrationBuilder.AddCheckConstraint(
-                name: "ck_emp_method",
-                schema: "hrms",
-                table: "employee",
-                sql: "(employment_basis = 'regular' AND employment_method IS NOT NULL) OR (employment_basis <> 'regular' AND employment_method IS NULL)");
-
             migrationBuilder.CreateIndex(
                 name: "employment_type_name_key",
                 schema: "hrms",
@@ -192,14 +199,44 @@ namespace HRM.Infrastructure.Data.Migrations
                 column: "name",
                 unique: true);
 
-            // the starting types; every existing post and employee was regular
+            // the starting types, plus a type for each other old value a record still uses; every employee, post and
+            // pay rule keeps the type it had
             migrationBuilder.Sql("""
                 INSERT INTO hrms.employment_type (id, name, description, basis, is_active) VALUES
                   ('6f1d2c3a-0001-4c1e-9a10-000000000001', 'Regular', 'On the permanent establishment', 'regular', true),
                   ('6f1d2c3a-0002-4c1e-9a10-000000000002', 'Contract', 'For a fixed term', 'fixed_term', true);
-                UPDATE hrms.post_version SET employment_type_id = '6f1d2c3a-0001-4c1e-9a10-000000000001';
-                UPDATE hrms.employee SET employment_type_id = '6f1d2c3a-0001-4c1e-9a10-000000000001';
+                CREATE TEMP TABLE employment_type_map (old text, name text, description text, basis hrms.employment_basis_enum) ON COMMIT DROP;
+                INSERT INTO employment_type_map VALUES
+                  ('regular', 'Regular', NULL, 'regular'),
+                  ('contract', 'Contract', NULL, 'fixed_term'),
+                  ('deputation_in', 'Deputation', 'Lent by another government department', 'deputation'),
+                  ('project_based', 'Project', 'Engaged for a development project', 'project'),
+                  ('adhoc', 'Adhoc', 'Appointed on an adhoc basis', 'fixed_term'),
+                  ('daily_wage', 'Daily wage', 'Paid by the day', 'fixed_term');
+                INSERT INTO hrms.employment_type (name, description, basis)
+                  SELECT m.name, m.description, m.basis FROM employment_type_map m
+                  WHERE m.old NOT IN ('regular', 'contract')
+                    AND (EXISTS (SELECT 1 FROM hrms.employee e WHERE e.old_employment_type = m.old)
+                      OR EXISTS (SELECT 1 FROM hrms.post_version p WHERE p.old_employment_type = m.old)
+                      OR EXISTS (SELECT 1 FROM hrms.salary_component_rule r WHERE r.old_employment_type = m.old));
+                ALTER TABLE hrms.employee DISABLE TRIGGER trg_employee_updated_at;
+                UPDATE hrms.employee e SET employment_type_id = t.id, employment_basis = t.basis
+                  FROM employment_type_map m JOIN hrms.employment_type t ON t.name = m.name WHERE m.old = e.old_employment_type;
+                ALTER TABLE hrms.employee ENABLE TRIGGER trg_employee_updated_at;
+                UPDATE hrms.post_version p SET employment_type_id = t.id
+                  FROM employment_type_map m JOIN hrms.employment_type t ON t.name = m.name WHERE m.old = p.old_employment_type;
+                UPDATE hrms.salary_component_rule r SET applicable_employment_type_id = t.id
+                  FROM employment_type_map m JOIN hrms.employment_type t ON t.name = m.name WHERE m.old = r.old_employment_type;
+                ALTER TABLE hrms.employee DROP COLUMN old_employment_type;
+                ALTER TABLE hrms.post_version DROP COLUMN old_employment_type;
+                ALTER TABLE hrms.salary_component_rule DROP COLUMN old_employment_type;
                 """);
+
+            migrationBuilder.AddCheckConstraint(
+                name: "ck_emp_method",
+                schema: "hrms",
+                table: "employee",
+                sql: "(employment_basis = 'regular' AND employment_method IS NOT NULL) OR (employment_basis <> 'regular' AND employment_method IS NULL)");
 
             migrationBuilder.AddForeignKey(
                 name: "employee_employment_type_id_fkey",

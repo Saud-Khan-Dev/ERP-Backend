@@ -11,6 +11,27 @@ namespace HRM.Infrastructure.Data.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
+            // keep each record's value as text: the old columns and their enum types are dropped below. Copying a value
+            // is not an edit: a closed run's adjustments stay locked to everyone else, and no record is stamped as changed.
+            migrationBuilder.Sql("""
+                ALTER TABLE hrms.payroll_adjustment DISABLE TRIGGER trg_lock_padj;
+                ALTER TABLE hrms.employee DISABLE TRIGGER trg_employee_updated_at;
+                ALTER TABLE hrms.hr_action_request DISABLE TRIGGER trg_hr_action_request_updated_at;
+                ALTER TABLE hrms.employee ADD COLUMN old_employment_method text;
+                UPDATE hrms.employee SET old_employment_method = employment_method::text;
+                ALTER TABLE hrms.hr_action_request ADD COLUMN old_employment_method text;
+                UPDATE hrms.hr_action_request SET old_employment_method = employment_method::text;
+                ALTER TABLE hrms.employee_family_member ADD COLUMN old_relation text;
+                UPDATE hrms.employee_family_member SET old_relation = relation::text;
+                ALTER TABLE hrms.employee_education ADD COLUMN old_qualification_level text;
+                UPDATE hrms.employee_education SET old_qualification_level = qualification_level::text;
+                ALTER TABLE hrms.payroll_adjustment ADD COLUMN old_adjustment_type text;
+                UPDATE hrms.payroll_adjustment SET old_adjustment_type = adjustment_type::text;
+                ALTER TABLE hrms.payroll_adjustment ENABLE TRIGGER trg_lock_padj;
+                ALTER TABLE hrms.employee ENABLE TRIGGER trg_employee_updated_at;
+                ALTER TABLE hrms.hr_action_request ENABLE TRIGGER trg_hr_action_request_updated_at;
+                """);
+
             migrationBuilder.DropIndex(
                 name: "idx_edu_employee_level",
                 schema: "hrms",
@@ -225,12 +246,6 @@ namespace HRM.Infrastructure.Data.Migrations
                 table: "employee_education",
                 columns: new[] { "employee_id", "qualification_level_id" });
 
-            migrationBuilder.AddCheckConstraint(
-                name: "ck_emp_method",
-                schema: "hrms",
-                table: "employee",
-                sql: "(employment_basis = 'regular' AND employment_method_id IS NOT NULL) OR (employment_basis <> 'regular' AND employment_method_id IS NULL)");
-
             migrationBuilder.CreateIndex(
                 name: "adjustment_type_name_key",
                 schema: "hrms",
@@ -259,7 +274,7 @@ namespace HRM.Infrastructure.Data.Migrations
                 column: "name",
                 unique: true);
 
-            // the starting values (the lists were fixed in code before; no record used them yet)
+            // the starting values (the lists were fixed in code before)
             migrationBuilder.Sql("""
                 INSERT INTO hrms.qualification_level (name, rank) VALUES
                   ('Primary', 1), ('Middle', 2), ('Matric', 3), ('Intermediate', 4), ('Diploma', 5),
@@ -274,6 +289,52 @@ namespace HRM.Infrastructure.Data.Migrations
                   ('7a2e1c40-0002-4b6f-8d21-000000000002', 'Recovery', 'lowers');
                 INSERT INTO hrms.adjustment_type (name, direction) VALUES ('Bonus', 'raises'), ('Correction', 'either');
                 """);
+
+            // every existing record keeps its value, now as a row of the list: a wife or husband becomes Spouse, a
+            // relation the list lacks is added to it, the old catch-all adjustment is a Correction, and the old
+            // catch-all qualification gets a level only when a record still uses it (the triggers are paused as above)
+            migrationBuilder.Sql("""
+                ALTER TABLE hrms.payroll_adjustment DISABLE TRIGGER trg_lock_padj;
+                ALTER TABLE hrms.employee DISABLE TRIGGER trg_employee_updated_at;
+                ALTER TABLE hrms.hr_action_request DISABLE TRIGGER trg_hr_action_request_updated_at;
+
+                INSERT INTO hrms.family_relation (name)
+                  SELECT DISTINCT initcap(btrim(f.old_relation)) FROM hrms.employee_family_member f
+                  WHERE btrim(coalesce(f.old_relation, '')) <> '' AND lower(btrim(f.old_relation)) NOT IN ('wife', 'husband')
+                    AND NOT EXISTS (SELECT 1 FROM hrms.family_relation r WHERE lower(r.name) = lower(btrim(f.old_relation)));
+                UPDATE hrms.employee_family_member f SET relation_id = r.id FROM hrms.family_relation r
+                  WHERE lower(r.name) = CASE WHEN lower(btrim(f.old_relation)) IN ('wife', 'husband') THEN 'spouse' ELSE lower(btrim(f.old_relation)) END;
+
+                INSERT INTO hrms.qualification_level (name, rank)
+                  SELECT 'Other', 99 WHERE EXISTS (SELECT 1 FROM hrms.employee_education WHERE old_qualification_level = 'other');
+                UPDATE hrms.employee_education e SET qualification_level_id = q.id FROM hrms.qualification_level q
+                  WHERE lower(q.name) = e.old_qualification_level;
+
+                UPDATE hrms.employee e SET employment_method_id = m.id FROM hrms.employment_method m
+                  WHERE m.name = CASE e.old_employment_method WHEN 'scheduled_seat' THEN 'Scheduled seat' WHEN 'gda_personal' THEN 'GDA personal' END;
+                UPDATE hrms.hr_action_request h SET employment_method_id = m.id FROM hrms.employment_method m
+                  WHERE m.name = CASE h.old_employment_method WHEN 'scheduled_seat' THEN 'Scheduled seat' WHEN 'gda_personal' THEN 'GDA personal' END;
+
+                UPDATE hrms.payroll_adjustment p SET adjustment_type_id = a.id FROM hrms.adjustment_type a
+                  WHERE a.name = CASE p.old_adjustment_type WHEN 'arrears' THEN 'Arrears' WHEN 'recovery' THEN 'Recovery'
+                    WHEN 'bonus' THEN 'Bonus' ELSE 'Correction' END;
+
+                ALTER TABLE hrms.payroll_adjustment ENABLE TRIGGER trg_lock_padj;
+                ALTER TABLE hrms.employee ENABLE TRIGGER trg_employee_updated_at;
+                ALTER TABLE hrms.hr_action_request ENABLE TRIGGER trg_hr_action_request_updated_at;
+
+                ALTER TABLE hrms.employee DROP COLUMN old_employment_method;
+                ALTER TABLE hrms.hr_action_request DROP COLUMN old_employment_method;
+                ALTER TABLE hrms.employee_family_member DROP COLUMN old_relation;
+                ALTER TABLE hrms.employee_education DROP COLUMN old_qualification_level;
+                ALTER TABLE hrms.payroll_adjustment DROP COLUMN old_adjustment_type;
+                """);
+
+            migrationBuilder.AddCheckConstraint(
+                name: "ck_emp_method",
+                schema: "hrms",
+                table: "employee",
+                sql: "(employment_basis = 'regular' AND employment_method_id IS NOT NULL) OR (employment_basis <> 'regular' AND employment_method_id IS NULL)");
 
             migrationBuilder.AddForeignKey(
                 name: "employee_employment_method_id_fkey",
