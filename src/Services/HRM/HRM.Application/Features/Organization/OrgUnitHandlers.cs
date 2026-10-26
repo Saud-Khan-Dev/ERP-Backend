@@ -35,7 +35,7 @@ public class OrgUnitHandlers(IApplicationDbContext context, IClock clock) :
   {
     var unit = await context.LoadOrgUnitAsync(command.Id, cancellationToken);
     var asOf = command.AsOf ?? clock.Today;
-    var version = unit.VersionOn(asOf) ?? throw new DomainException($"Unit {unit.Code} has no version in force on {asOf:dd MMM yyyy}.");
+    var version = unit.VersionOn(asOf) ?? throw new DomainException($"Unit {unit.Code} has no version in force on {asOf:dd'/'MM'/'yyyy}.");
     var details = await ResolveAsync(unit.Id, command.Details, version.EffectiveFrom, version.Details, cancellationToken);
     unit.CorrectOn(asOf, details);
 

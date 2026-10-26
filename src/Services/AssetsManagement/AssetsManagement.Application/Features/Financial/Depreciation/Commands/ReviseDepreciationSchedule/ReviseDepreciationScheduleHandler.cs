@@ -30,7 +30,7 @@ public class ReviseDepreciationScheduleHandler(IApplicationDbContext context, IC
     await context.AssetDepreciationSchedules.AddAsync(revised, cancellationToken);
     var details = JsonSerializer.SerializeToElement(new Dictionary<string, string>
     {
-      ["From"] = revised.StartDate.ToString("d MMM yyyy", CultureInfo.InvariantCulture),
+      ["From"] = revised.StartDate.ToString("dd'/'MM'/'yyyy", CultureInfo.InvariantCulture),
       ["Book value then"] = revised.OpeningBookValue.ToString("N2", CultureInfo.InvariantCulture),
       ["Remaining life"] = $"{command.RemainingLifeMonths} months",
       ["Value at the end"] = command.SalvageValue.ToString("N2", CultureInfo.InvariantCulture),

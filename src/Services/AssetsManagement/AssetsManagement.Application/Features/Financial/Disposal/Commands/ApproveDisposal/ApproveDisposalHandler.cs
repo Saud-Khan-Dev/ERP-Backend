@@ -36,7 +36,7 @@ public class ApproveDisposalHandler(IApplicationDbContext context, ICurrentUser 
 
     // months posted after the disposal date would be depreciation of an asset GDA no longer had
     if (AssetBookValue.PostedThrough(schedules) is { } posted && posted > disposal.DisposalDate)
-      return Result<ApproveDisposalCommandResult>.Failure($"Depreciation is posted up to {posted:d MMM yyyy}, after the disposal date. Reverse those months first, or reject the proposal and propose a later date.");
+      return Result<ApproveDisposalCommandResult>.Failure($"Depreciation is posted up to {posted:dd'/'MM'/'yyyy}, after the disposal date. Reverse those months first, or reject the proposal and propose a later date.");
 
     // depreciate up to the disposal date first, so the book value at disposal is right
     var monthsPosted = 0;

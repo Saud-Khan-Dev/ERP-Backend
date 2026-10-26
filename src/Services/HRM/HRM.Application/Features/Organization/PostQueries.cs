@@ -141,7 +141,7 @@ public class PostQueryHandlers(IApplicationDbContext context, HrLookup lookup, C
       r.Version.GradeId.Value, grades.TryGetValue(r.Version.GradeId.Value, out var g) ? g.BpsNumber : 0,
       r.Version.OrgUnitId.Value, units.GetValueOrDefault(r.Version.OrgUnitId.Value), r.Version.EmploymentTypeId.Value, types.GetValueOrDefault(r.Version.EmploymentTypeId),
       r.Version.SanctionedCount, r.Filled, OrganizationMappings.OccupancyStatus(r.Version.LifecycleStatus, r.Version.SanctionedCount, r.Filled),
-      r.Version.LifecycleStatus, r.Version.EffectiveFrom, holders.GetValueOrDefault(r.Version.PostId.Value) ?? [])).ToList();
+      r.Version.LifecycleStatus, r.Version.EffectiveFrom, holders.GetValueOrDefault(r.Version.PostId.Value) ?? [], r.Version.ReportingPostId?.Value)).ToList();
 
     return Result<GetPostsQueryResult>.Success(new(date, new PaginatedResult<PostListItemDto>(query.Pagination.Pageindex, query.Pagination.PageSize, total, data)));
   }

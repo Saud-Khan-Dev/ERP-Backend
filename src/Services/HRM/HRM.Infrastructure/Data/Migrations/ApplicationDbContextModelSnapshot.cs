@@ -55,6 +55,7 @@ namespace HRM.Infrastructure.Data.Migrations
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "hrms", "task_priority_enum", new[] { "high", "low", "medium", "urgent" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "hrms", "task_status_enum", new[] { "cancelled", "completed", "in_progress", "on_hold", "pending" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "hrms", "verification_status_enum", new[] { "pending", "rejected", "unverified", "verified" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "hrms", "wage_basis_enum", new[] { "daily", "monthly" });
             NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "btree_gist");
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
@@ -1947,6 +1948,89 @@ namespace HRM.Infrastructure.Data.Migrations
                         .HasDatabaseName("employment_type_name_key");
 
                     b.ToTable("employment_type", "hrms");
+                });
+
+            modelBuilder.Entity("EngagementOrder", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<string>("CancelReason")
+                        .HasColumnType("varchar")
+                        .HasColumnName("cancel_reason");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<Guid>("DesignationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("designation_id");
+
+                    b.Property<Guid>("EmployeeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("employee_id");
+
+                    b.Property<DateOnly>("EndDate")
+                        .HasColumnType("date")
+                        .HasColumnName("end_date");
+
+                    b.Property<Guid>("LetterDocumentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("letter_document_id");
+
+                    b.Property<Guid>("OrgUnitId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("org_unit_id");
+
+                    b.Property<decimal>("Rate")
+                        .HasPrecision(14, 2)
+                        .HasColumnType("numeric(14,2)")
+                        .HasColumnName("rate");
+
+                    b.Property<DateOnly>("StartDate")
+                        .HasColumnType("date")
+                        .HasColumnName("start_date");
+
+                    b.Property<RecordStatus>("Status")
+                        .HasColumnType("hrms.record_status_enum")
+                        .HasDefaultValue(RecordStatus.Active)
+                        .HasColumnName("status");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.Property<WageBasis>("WageBasis")
+                        .HasColumnType("hrms.wage_basis_enum")
+                        .HasColumnName("wage_basis");
+
+                    b.HasKey("Id")
+                        .HasName("engagement_order_pkey");
+
+                    b.HasIndex("OrgUnitId")
+                        .HasDatabaseName("idx_engagement_order_org_unit_id");
+
+                    b.HasIndex("EmployeeId", "StartDate")
+                        .HasDatabaseName("idx_engagement_order_employee_start");
+
+                    b.ToTable("engagement_order", "hrms", t =>
+                        {
+                            t.HasCheckConstraint("ck_eo_dates", "end_date >= start_date");
+
+                            t.HasCheckConstraint("ck_eo_rate", "rate > 0");
+                        });
                 });
 
             modelBuilder.Entity("FamilyRelation", b =>
@@ -4850,9 +4934,8 @@ namespace HRM.Infrastructure.Data.Migrations
                         .HasColumnType("time without time zone")
                         .HasColumnName("end_time");
 
-                    b.Property<int>("GraceMinutes")
+                    b.Property<int?>("GraceMinutes")
                         .HasColumnType("integer")
-                        .HasDefaultValue(0)
                         .HasColumnName("grace_minutes");
 
                     b.Property<bool>("IsActive")
@@ -4886,7 +4969,7 @@ namespace HRM.Infrastructure.Data.Migrations
                         {
                             t.HasCheckConstraint("ck_ws_days", "working_weekdays <@ ARRAY[1,2,3,4,5,6,7]::smallint[] AND cardinality(working_weekdays) > 0");
 
-                            t.HasCheckConstraint("work_shift_grace_minutes_check", "grace_minutes >= 0");
+                            t.HasCheckConstraint("work_shift_grace_minutes_check", "grace_minutes IS NULL OR grace_minutes >= 0");
                         });
                 });
 
@@ -5282,6 +5365,37 @@ namespace HRM.Infrastructure.Data.Migrations
                         .OnDelete(DeleteBehavior.NoAction)
                         .IsRequired()
                         .HasConstraintName("employee_tax_opening_tax_year_id_fkey");
+                });
+
+            modelBuilder.Entity("EngagementOrder", b =>
+                {
+                    b.HasOne("Designation", null)
+                        .WithMany()
+                        .HasForeignKey("DesignationId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired()
+                        .HasConstraintName("engagement_order_designation_id_fkey");
+
+                    b.HasOne("Employee", null)
+                        .WithMany()
+                        .HasForeignKey("EmployeeId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired()
+                        .HasConstraintName("engagement_order_employee_id_fkey");
+
+                    b.HasOne("EmployeeDocument", null)
+                        .WithMany()
+                        .HasForeignKey("LetterDocumentId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired()
+                        .HasConstraintName("engagement_order_letter_document_id_fkey");
+
+                    b.HasOne("OrganizationUnit", null)
+                        .WithMany()
+                        .HasForeignKey("OrgUnitId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired()
+                        .HasConstraintName("engagement_order_org_unit_id_fkey");
                 });
 
             modelBuilder.Entity("GpFundAccount", b =>

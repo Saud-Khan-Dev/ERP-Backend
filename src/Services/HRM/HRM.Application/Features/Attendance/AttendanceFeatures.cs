@@ -3,7 +3,7 @@ using Microsoft.EntityFrameworkCore;
 
 // ---- shifts ----
 
-public sealed record WorkShiftInput(string Name, TimeOnly StartTime, TimeOnly EndTime, int GraceMinutes, IReadOnlyList<int>? WorkingWeekdays);
+public sealed record WorkShiftInput(string Name, TimeOnly StartTime, TimeOnly EndTime, int? GraceMinutes, IReadOnlyList<int>? WorkingWeekdays);
 
 public sealed record GetWorkShiftsQueryResult(IReadOnlyList<WorkShiftDto> Shifts);
 public sealed record GetWorkShiftsQuery(bool IncludeInactive) : IQuery<Result<GetWorkShiftsQueryResult>>;
@@ -28,7 +28,7 @@ public class WorkShiftInputValidator : AbstractValidator<WorkShiftInput>
   public WorkShiftInputValidator()
   {
     RuleFor(x => x.Name).NotEmpty().MaximumLength(100);
-    RuleFor(x => x.GraceMinutes).InclusiveBetween(0, 240);
+    RuleFor(x => x.GraceMinutes).InclusiveBetween(0, 240).When(x => x.GraceMinutes.HasValue);
     RuleForEach(x => x.WorkingWeekdays).InclusiveBetween(1, 7);
   }
 }
@@ -254,7 +254,9 @@ public class HolidayHandlers(IApplicationDbContext context, HrLookup lookup, ICl
         // everyone holding a post that day: a new Holiday mark, or an absence (closed earlier) turned into one
         var employeeIds = await context.PositionAssignments.AsNoTracking()
           .Where(a => a.Status == RecordStatus.Active && a.EffectiveFrom <= date && (a.EffectiveTo == null || a.EffectiveTo >= date))
-          .Select(a => a.EmployeeId).Distinct()
+          .Select(a => a.EmployeeId)
+          .Union(context.EngagementOrders.Where(o => o.Status == RecordStatus.Active && o.StartDate <= date && o.EndDate >= date).Select(o => o.EmployeeId))
+          .Distinct()
           .Where(id => context.Employees.Any(e => e.Id == id && e.ProfileStatus == RecordStatus.Active))
           .ToListAsync(cancellationToken);
         var records = await context.AttendanceRecords.Where(r => r.AttendanceDate == date && employeeIds.Contains(r.EmployeeId))
@@ -505,9 +507,12 @@ public class AttendanceHandlers(IApplicationDbContext context, WorkCalendar cale
 
     // everyone holding a post that day without a record. Holding the post on the date is what counts, not today's
     // status: someone who retired or was deputed out later was still serving then (both end the assignment).
+    // contingent staff count on the days their orders cover
     var employeeIds = await context.PositionAssignments.AsNoTracking()
       .Where(a => a.Status == RecordStatus.Active && a.EffectiveFrom <= date && (a.EffectiveTo == null || a.EffectiveTo >= date))
-      .Select(a => a.EmployeeId).Distinct()
+      .Select(a => a.EmployeeId)
+      .Union(context.EngagementOrders.Where(o => o.Status == RecordStatus.Active && o.StartDate <= date && o.EndDate >= date).Select(o => o.EmployeeId))
+      .Distinct()
       .Where(id => !context.AttendanceRecords.Any(r => r.EmployeeId == id && r.AttendanceDate == date))
       .Where(id => context.Employees.Any(e => e.Id == id && e.ProfileStatus == RecordStatus.Active))
       .ToListAsync(cancellationToken);
@@ -595,11 +600,11 @@ public class AttendanceHandlers(IApplicationDbContext context, WorkCalendar cale
     switch (input.Status)
     {
       case AttendanceStatus.OnLeave when !day.Leave.ContainsKey((employeeId, date)):
-        throw new DomainException($"There is no approved leave on {date:dd MMM yyyy}; apply for the leave first, then the day is marked on leave.");
+        throw new DomainException($"There is no approved leave on {date:dd'/'MM'/'yyyy}; apply for the leave first, then the day is marked on leave.");
       case AttendanceStatus.Holiday when !day.Calendar.IsHoliday(date):
-        throw new DomainException($"{date:dd MMM yyyy} is not a holiday where the employee works.");
+        throw new DomainException($"{date:dd'/'MM'/'yyyy} is not a holiday where the employee works.");
       case AttendanceStatus.Weekend when day.Calendar.IsWorkingDay(date) && !day.Calendar.IsHoliday(date):
-        throw new DomainException($"{date:dd MMM yyyy} is a working day of the employee's shift.");
+        throw new DomainException($"{date:dd'/'MM'/'yyyy} is a working day of the employee's shift.");
     }
 
     var shift = day.Calendar.ShiftOn(date);

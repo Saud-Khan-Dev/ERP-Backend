@@ -139,7 +139,7 @@ public static class TaxCalculator
           var fromNote = "";
           if (head.EffectiveFrom is { } headFrom && headFrom > FiscalYear.End(fy))
           {
-            notes.Add($"{head.Name}: charged from {headFrom:dd MMM yyyy}, after this year.");
+            notes.Add($"{head.Name}: charged from {headFrom:dd'/'MM'/'yyyy}, after this year.");
             continue;
           }
           if (head.ChargedFrom == ChargedFrom.Registration)

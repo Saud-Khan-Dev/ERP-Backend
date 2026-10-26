@@ -191,7 +191,7 @@ public class AssetDisposal : Aggregate<AssetDisposalId>
       throw new DomainException("The disposal date cannot be in the future.");
 
     if (purchaseDate.HasValue && disposalDate < purchaseDate.Value)
-      throw new DomainException($"The disposal date cannot be before the purchase date ({purchaseDate.Value:d MMM yyyy}).");
+      throw new DomainException($"The disposal date cannot be before the purchase date ({purchaseDate.Value:dd'/'MM'/'yyyy}).");
 
     if (method.RequiresValue && disposalValue is null)
       throw new DomainException($"'{method.Name.Value}' records what was received: enter the proceeds.");

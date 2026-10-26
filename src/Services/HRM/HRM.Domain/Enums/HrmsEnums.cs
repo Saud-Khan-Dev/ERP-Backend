@@ -113,3 +113,6 @@ public enum InstallmentStatus { Pending, Partial, Paid, Waived }
 /// GP Fund ledger transaction. Opening / subscription / interest / advance recovery credit (+), advance / withdrawal /
 /// final payment debit (-), adjustment either way.
 public enum GpFundTransactionType { Opening, Subscription, Interest, Advance, AdvanceRecovery, Withdrawal, FinalPayment, Adjustment }
+
+/// How a contingent order's wage is set: a sum for each day of the order, or a sum for the month.
+public enum WageBasis { Daily, Monthly }

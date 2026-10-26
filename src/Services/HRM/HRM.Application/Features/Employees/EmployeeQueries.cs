@@ -135,17 +135,21 @@ public class EmployeeQueryHandlers(
       join v in context.PostVersions on a.PostId equals v.PostId
       where v.EffectiveFrom <= today && (v.EffectiveTo == null || v.EffectiveTo >= today)
       select new { a.EmployeeId, a.PostId, v.OrgUnitId, v.DesignationId, v.GradeId };
+    // contingent staff: the order covering today
+    var onOrder = context.EngagementOrders.Where(o => o.Status == RecordStatus.Active && o.StartDate <= today && o.EndDate >= today);
 
     if (query.OrgUnitId is { } unit)
     {
       var root = OrganizationUnitId.Of(unit);
       var units = query.IncludeSubUnits ? (await lookup.SubtreeAsync(root, today, cancellationToken)).ToList() : [root];
-      employees = employees.Where(e => placements.Any(p => p.EmployeeId == e.Id && units.Contains(p.OrgUnitId)));
+      employees = employees.Where(e => placements.Any(p => p.EmployeeId == e.Id && units.Contains(p.OrgUnitId))
+        || onOrder.Any(o => o.EmployeeId == e.Id && units.Contains(o.OrgUnitId)));
     }
     if (query.DesignationId is { } designation)
     {
       var designationId = DesignationId.Of(designation);
-      employees = employees.Where(e => placements.Any(p => p.EmployeeId == e.Id && p.DesignationId == designationId));
+      employees = employees.Where(e => placements.Any(p => p.EmployeeId == e.Id && p.DesignationId == designationId)
+        || onOrder.Any(o => o.EmployeeId == e.Id && o.DesignationId == designationId));
     }
     if (query.GradeId is { } grade)
     {
@@ -158,7 +162,9 @@ public class EmployeeQueryHandlers(
       employees = employees.Where(e => placements.Any(p => p.EmployeeId == e.Id && p.PostId == postId));
     }
     if (query.Unplaced is { } unplaced)
-      employees = unplaced ? employees.Where(e => !placements.Any(p => p.EmployeeId == e.Id)) : employees.Where(e => placements.Any(p => p.EmployeeId == e.Id));
+      employees = unplaced
+        ? employees.Where(e => !placements.Any(p => p.EmployeeId == e.Id) && !onOrder.Any(o => o.EmployeeId == e.Id))
+        : employees.Where(e => placements.Any(p => p.EmployeeId == e.Id) || onOrder.Any(o => o.EmployeeId == e.Id));
 
     var total = await employees.LongCountAsync(cancellationToken);
 
@@ -181,6 +187,7 @@ public class EmployeeQueryHandlers(
 
     var ids = page.Select(e => e.Id).ToList();
     var placed = await lookup.PlacementsAsync(ids, today, cancellationToken);
+    var orders = await CurrentOrdersAsync(page.Select(e => e.Id).ToList(), today, cancellationToken);
     var mobiles = (await context.EmployeeContacts.AsNoTracking()
         .Where(c => ids.Contains(c.EmployeeId) && c.IsPrimary && (c.ContactType == ContactType.Mobile || c.ContactType == ContactType.Phone))
         .ToListAsync(cancellationToken))
@@ -197,7 +204,8 @@ public class EmployeeQueryHandlers(
       e.EmploymentTypeId.Value, typeNames.GetValueOrDefault(e.EmploymentTypeId, ""), e.EmploymentBasis, e.EmploymentMethodId?.Value,
       e.EmploymentMethodId is null ? null : methods.GetValueOrDefault(e.EmploymentMethodId),
       e.EmploymentStatus, e.ProfileStatus, e.UserId, placed.GetValueOrDefault(e.Id.Value)?.ToDto(), settings.SuperannuationDate(e),
-      shows ? mobiles.GetValueOrDefault(e.Id.Value) : null, e.CreatedAt, e.TermTo, !e.HasLeftService, withheld)).ToList();
+      shows ? mobiles.GetValueOrDefault(e.Id.Value) : null, e.CreatedAt, e.TermTo, !e.HasLeftService, withheld,
+      orders.GetValueOrDefault(e.Id.Value))).ToList();
 
     return Result<GetEmployeesQueryResult>.Success(new(new PaginatedResult<EmployeeListItemDto>(query.Pagination.Pageindex, query.Pagination.PageSize, total, data)));
   }
@@ -242,7 +250,8 @@ public class EmployeeQueryHandlers(
       shows ? employee.FamilyMembers.Select(m => m.ToDto(relations)).ToList() : [],
       employee.CreatedAt, employee.UpdatedAt, employee.TermFrom, employee.TermTo, employee.LendingDepartment, !employee.HasLeftService,
       sensitive.Withheld(query.Own, Sensitive.Cnic, Sensitive.DateOfBirth, Sensitive.Contacts, Sensitive.Addresses, Sensitive.EmergencyContacts,
-        Sensitive.FamilyMembers, Sensitive.BasicPay));
+        Sensitive.FamilyMembers, Sensitive.BasicPay),
+      (await CurrentOrdersAsync([employee.Id], today, cancellationToken)).GetValueOrDefault(employee.Id.Value));
 
     return Result<GetEmployeeQueryResult>.Success(new(dto));
   }
@@ -265,6 +274,21 @@ public class EmployeeQueryHandlers(
       throw new StoredFileNotFoundException("The employee has no photo.");
 
     return Result<StoredFile>.Success(await files.OpenAsync(employee.PhotoReference, $"{employee.EmployeeNumber}-photo", cancellationToken));
+  }
+
+  private async Task<Dictionary<Guid, OrderPlacementDto>> CurrentOrdersAsync(List<EmployeeId> ids, DateOnly date, CancellationToken cancellationToken)
+  {
+    var orders = await context.EngagementOrders.AsNoTracking()
+      .Where(o => ids.Contains(o.EmployeeId) && o.Status == RecordStatus.Active && o.StartDate <= date && o.EndDate >= date)
+      .ToListAsync(cancellationToken);
+    var designations = await lookup.DesignationsAsync(orders.Select(o => (DesignationId?)o.DesignationId), cancellationToken);
+    var offices = await lookup.UnitNamesAsync(orders.Select(o => (OrganizationUnitId?)o.OrgUnitId), date, cancellationToken);
+    return orders.GroupBy(o => o.EmployeeId.Value).ToDictionary(g => g.Key, g =>
+    {
+      var o = g.First();
+      return new OrderPlacementDto(o.Id.Value, o.OrgUnitId.Value, offices.GetValueOrDefault(o.OrgUnitId.Value), o.DesignationId.Value,
+        designations.GetValueOrDefault(o.DesignationId.Value), o.StartDate, o.EndDate);
+    });
   }
 
   private async Task<CurrentPayDto?> CurrentPayAsync(EmployeeId employeeId, DateOnly date, CancellationToken cancellationToken)

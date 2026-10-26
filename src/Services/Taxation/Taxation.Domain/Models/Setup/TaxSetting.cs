@@ -50,7 +50,7 @@ public class TaxSetting : Aggregate<TaxSettingId>
   public static TaxSetting? Void(TaxSetting future, IReadOnlyList<TaxSetting> history, DateOnly today)
   {
     if (future.EffectiveFrom <= today)
-      throw new DomainException($"The value from {future.EffectiveFrom:dd MMM yyyy} is already in force; change it from a new date instead.");
+      throw new DomainException($"The value from {future.EffectiveFrom:dd'/'MM'/'yyyy} is already in force; change it from a new date instead.");
     if (history.Any(h => h.Key == future.Key && h.EffectiveFrom > future.EffectiveFrom))
       throw new DomainException($"A later value follows it; take that one back first.");
     var previous = history.Where(h => h.Key == future.Key && h.EffectiveFrom < future.EffectiveFrom).OrderByDescending(h => h.EffectiveFrom).FirstOrDefault();

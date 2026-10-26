@@ -70,7 +70,7 @@ public class AssetDepreciationEntry : Entity<AssetDepreciationEntryId>
       throw new DomainException("This month is already posted.");
 
     if (LastDay > today)
-      throw new DomainException($"The period {PeriodStart:d MMM yyyy} - {LastDay:d MMM yyyy} has not ended yet. A month is posted once it is over.");
+      throw new DomainException($"The period {PeriodStart:dd'/'MM'/'yyyy} - {LastDay:dd'/'MM'/'yyyy} has not ended yet. A month is posted once it is over.");
 
     Posted = true;
     PostedAt = postedAt;

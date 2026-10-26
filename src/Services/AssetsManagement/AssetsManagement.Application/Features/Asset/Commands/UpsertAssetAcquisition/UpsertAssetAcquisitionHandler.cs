@@ -66,7 +66,7 @@ public class UpsertAssetAcquisitionHandler(IApplicationDbContext context, ICurre
 
   private static string Money(decimal amount, string currency) => $"{amount.ToString("N2", CultureInfo.InvariantCulture)} {currency}";
 
-  private static string? Day(DateOnly? date) => date?.ToString("d MMM yyyy", CultureInfo.InvariantCulture);
+  private static string? Day(DateOnly? date) => date?.ToString("dd'/'MM'/'yyyy", CultureInfo.InvariantCulture);
 
   private static string? Clean(string? text) => string.IsNullOrWhiteSpace(text) ? null : text.Trim();
 }

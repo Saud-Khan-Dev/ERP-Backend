@@ -16,7 +16,7 @@ public class CreateAssetValuationHandler(IApplicationDbContext context, ICurrent
       throw new CurrencyNotFoundException($"The currency {currency.Value} was not found or is switched off.");
 
     if (await context.AssetValuations.AnyAsync(v => v.AssetId == assetId && v.ValuationDate == command.ValuationDate, cancellationToken))
-      return Result<CreateAssetValuationCommandResult>.Failure($"The asset already has a valuation on {command.ValuationDate:d MMM yyyy}.");
+      return Result<CreateAssetValuationCommandResult>.Failure($"The asset already has a valuation on {command.ValuationDate:dd'/'MM'/'yyyy}.");
 
     var actor = currentUser.Actor();
     var valuation = AssetValuation.Create(

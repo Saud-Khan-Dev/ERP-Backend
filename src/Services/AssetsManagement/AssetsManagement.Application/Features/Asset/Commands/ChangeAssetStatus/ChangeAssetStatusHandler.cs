@@ -45,7 +45,7 @@ public static class EventDates
 
     // a record registered today for an asset bought years ago may log older events, but not before the purchase
     if (purchaseDate is { } bought && clock.DayOf(at) < bought)
-      throw new DomainException($"It cannot be dated before the asset was acquired ({bought:d MMM yyyy}).");
+      throw new DomainException($"It cannot be dated before the asset was acquired ({bought:dd'/'MM'/'yyyy}).");
 
     return at;
   }

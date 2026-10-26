@@ -12,12 +12,11 @@ public class WorkShiftConfiguration : EntityConfiguration<WorkShift, WorkShiftId
     base.Configure(builder);
     builder.ToTable("work_shift", t =>
     {
-      t.HasCheckConstraint("work_shift_grace_minutes_check", "grace_minutes >= 0");
+      t.HasCheckConstraint("work_shift_grace_minutes_check", "grace_minutes IS NULL OR grace_minutes >= 0");
       t.HasCheckConstraint("ck_ws_days", "working_weekdays <@ ARRAY[1,2,3,4,5,6,7]::smallint[] AND cardinality(working_weekdays) > 0");
     });
 
     builder.Property(x => x.Name).IsRequired();
-    builder.Property(x => x.GraceMinutes).HasDefaultValue(0);
     builder.Property(x => x.WorkingWeekdays).HasColumnType("smallint[]").HasDefaultValueSql("'{1,2,3,4,5}'::smallint[]");
     builder.Property(x => x.IsActive).HasDefaultValue(true);
     builder.HasIndex(x => x.Name).IsUnique().HasDatabaseName("work_shift_name_key");

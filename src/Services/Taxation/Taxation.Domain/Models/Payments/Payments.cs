@@ -404,8 +404,8 @@ public class Clearance : Aggregate<ClearanceId>
   /// Why the certificate cannot be used today, in words; null when it can.
   public string? Unusable(DateOnly today) => StatusOn(today) switch
   {
-    ClearanceStatus.Consumed => $"Clearance {ClearanceNo} was already used{(ConsumedAt is { } at ? $" on {at:dd MMM yyyy}" : "")}; a clearance is used once.",
-    ClearanceStatus.Expired => $"Clearance {ClearanceNo} expired after {ValidUntil:dd MMM yyyy}. Issue a new one.",
+    ClearanceStatus.Consumed => $"Clearance {ClearanceNo} was already used{(ConsumedAt is { } at ? $" on {at:dd'/'MM'/'yyyy}" : "")}; a clearance is used once.",
+    ClearanceStatus.Expired => $"Clearance {ClearanceNo} expired after {ValidUntil:dd'/'MM'/'yyyy}. Issue a new one.",
     ClearanceStatus.Revoked => $"Clearance {ClearanceNo} was revoked; it cannot be used.",
     _ => null
   };

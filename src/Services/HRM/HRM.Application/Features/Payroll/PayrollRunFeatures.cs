@@ -823,6 +823,8 @@ public class PayrollRunHandlers(
       return "A pay record";
     if (await context.PositionAssignments.AnyAsync(a => employees.Contains(a.EmployeeId) && a.CreatedAt > at, cancellationToken))
       return "A post held";
+    if (await context.EngagementOrders.AnyAsync(o => employees.Contains(o.EmployeeId) && (o.CreatedAt > at || o.UpdatedAt > at), cancellationToken))
+      return "An order";
     if (await context.SalaryRules.AnyAsync(r => r.CreatedAt > at, cancellationToken))
       return "A salary rule";
     if (await context.SalaryOverrides.AnyAsync(o => employees.Contains(o.EmployeeId) && o.CreatedAt > at, cancellationToken))
@@ -840,7 +842,7 @@ public class PayrollRunHandlers(
     foreach (var e in employees)
     {
       if (e.SuperannuationDate(retirementAge) is { } due && due <= period.EndDate && !e.HasLeftService)
-        yield return $"{e.EmployeeNumber}: reached the retirement age on {due:dd MMM yyyy} but no retirement is recorded - check before approving.";
+        yield return $"{e.EmployeeNumber}: reached the retirement age on {due:dd'/'MM'/'yyyy} but no retirement is recorded - check before approving.";
     }
   }
 

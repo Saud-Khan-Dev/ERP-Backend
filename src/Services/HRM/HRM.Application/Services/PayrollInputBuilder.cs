@@ -24,12 +24,18 @@ public class PayrollInputBuilder(IApplicationDbContext context)
       components.FirstOrDefault(c => c.ComponentCode == SystemComponents.GpFund), loanComponents);
   }
 
-  /// Employees holding a regular post at some point of the period.
-  public Task<List<EmployeeId>> PostedEmployeesAsync(PayrollPeriod period, CancellationToken cancellationToken) =>
-      context.PositionAssignments.AsNoTracking()
-        .Where(a => a.AssignmentType == AssignmentType.Regular && a.Status == RecordStatus.Active
-          && a.EffectiveFrom <= period.EndDate && (a.EffectiveTo == null || a.EffectiveTo >= period.StartDate))
-        .Select(a => a.EmployeeId).Distinct().ToListAsync(cancellationToken);
+  /// Employees paid for the period: holding a regular post, or on a contingent order, at some point of it.
+  public async Task<List<EmployeeId>> PostedEmployeesAsync(PayrollPeriod period, CancellationToken cancellationToken)
+  {
+    var posted = await context.PositionAssignments.AsNoTracking()
+      .Where(a => a.AssignmentType == AssignmentType.Regular && a.Status == RecordStatus.Active
+        && a.EffectiveFrom <= period.EndDate && (a.EffectiveTo == null || a.EffectiveTo >= period.StartDate))
+      .Select(a => a.EmployeeId).Distinct().ToListAsync(cancellationToken);
+    var ordered = await context.EngagementOrders.AsNoTracking()
+      .Where(o => o.Status == RecordStatus.Active && o.StartDate <= period.EndDate && o.EndDate >= period.StartDate)
+      .Select(o => o.EmployeeId).Distinct().ToListAsync(cancellationToken);
+    return posted.Union(ordered).ToList();
+  }
 
   /// The tax year the period's pay is taxed in (the active one covering its last day), with its slabs.
   public Task<TaxYear?> TaxYearAsync(PayrollPeriod period, CancellationToken cancellationToken) =>
@@ -119,6 +125,12 @@ public class PayrollInputBuilder(IApplicationDbContext context)
         })
       .ToListAsync(cancellationToken);
 
+    // ---- contingent orders: the wage for the days each covers ----
+    var orders = await context.EngagementOrders.AsNoTracking()
+      .Where(o => ids.Contains(o.EmployeeId) && o.Status == RecordStatus.Active && o.StartDate <= end && o.EndDate >= start)
+      .Select(o => new { o.EmployeeId, Slice = new WageSlice(o.WageBasis, o.Rate, o.StartDate, o.EndDate) })
+      .ToListAsync(cancellationToken);
+
     // ---- tax position ----
     var tax = taxYear is null ? null : await TaxPositionsAsync(run, period, taxYear, ids, cancellationToken);
 
@@ -137,7 +149,8 @@ public class PayrollInputBuilder(IApplicationDbContext context)
         run.IsComputed ? installments.Where(i => i.EmployeeId == e.Id).Select(i => i.Due).ToList() : [],
         adjustments.Where(a => a.Amount > 0).Sum(a => a.Amount),
         adjustments.Sum(a => a.Amount),
-        tax?.GetValueOrDefault(e.Id));
+        tax?.GetValueOrDefault(e.Id),
+        orders.Where(o => o.EmployeeId == e.Id).Select(o => o.Slice).ToList());
     });
   }
 

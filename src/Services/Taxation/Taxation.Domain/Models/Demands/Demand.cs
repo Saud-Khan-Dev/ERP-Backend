@@ -109,7 +109,7 @@ public class Demand : Aggregate<DemandId>
     if (Status != DemandStatus.Draft)
       throw new DomainException($"{DemandNo} is already issued.");
     if (dueDate < issuedOn)
-      throw new DomainException($"{DemandNo} cannot be due ({dueDate:dd MMM yyyy}) before it is issued ({issuedOn:dd MMM yyyy}).");
+      throw new DomainException($"{DemandNo} cannot be due ({dueDate:dd'/'MM'/'yyyy}) before it is issued ({issuedOn:dd'/'MM'/'yyyy}).");
     foreach (var row in billedArrears)
       AttachArrears(row);
     Status = DemandStatus.Issued;
@@ -194,7 +194,7 @@ public class Demand : Aggregate<DemandId>
     var yearEnd = global::FiscalYear.End(FiscalYear);
     var yearLabel = global::FiscalYear.Label(FiscalYear);
     if (today <= yearEnd && Status is not (DemandStatus.Draft or DemandStatus.Cancelled or DemandStatus.Carried or DemandStatus.Paid))
-      throw new DomainException($"FY {yearLabel} is not over until {yearEnd:dd MMM yyyy}; its balance is carried only after that.");
+      throw new DomainException($"FY {yearLabel} is not over until {yearEnd:dd'/'MM'/'yyyy}; its balance is carried only after that.");
     if (Status is DemandStatus.Draft or DemandStatus.Cancelled or DemandStatus.Carried or DemandStatus.Paid || Balance <= 0)
       return [];
 

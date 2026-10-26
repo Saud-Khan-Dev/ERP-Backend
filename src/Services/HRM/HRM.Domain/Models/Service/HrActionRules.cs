@@ -269,7 +269,7 @@ public static class HrActionRules
     _ => "transfer"
   };
 
-  private static string Day(DateOnly date) => date.ToString("dd MMM yyyy");
+  private static string Day(DateOnly date) => date.ToString("dd'/'MM'/'yyyy");
 
   private static string Capitalize(string text) => char.ToUpperInvariant(text[0]) + text[1..];
 }

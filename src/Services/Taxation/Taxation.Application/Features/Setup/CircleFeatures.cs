@@ -124,7 +124,7 @@ public class CircleHandlers(IApplicationDbContext context, IPropertyDirectory pr
       return Result<UpdatedResult>.Failure($"Circle {circle.Code} has tax files, runs or notices; deactivate it instead.");
     var today = clock.Today;
     if (circle.Towns.FirstOrDefault(t => t.EffectiveTo is null || t.EffectiveTo >= today) is { } town)
-      return Result<UpdatedResult>.Failure($"{town.TownCode} is in circle {circle.Code}{(town.EffectiveFrom > today ? $" from {town.EffectiveFrom:dd MMM yyyy}" : "")}. Take the town out first.");
+      return Result<UpdatedResult>.Failure($"{town.TownCode} is in circle {circle.Code}{(town.EffectiveFrom > today ? $" from {town.EffectiveFrom:dd'/'MM'/'yyyy}" : "")}. Take the town out first.");
     var staff = await context.CircleStaff.Where(s => s.CircleId == circle.Id).ToListAsync(cancellationToken);
     context.CircleStaff.RemoveRange(staff);
     context.TaxCircles.Remove(circle);

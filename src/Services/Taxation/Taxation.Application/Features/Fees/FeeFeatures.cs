@@ -501,7 +501,7 @@ public class FeeHandlers(
     var clearance = Clearance.Issue(ClearanceId.New(), Numbers.ClearanceNo(await codes.NextAsync(NumberSequence.ClearanceNo, cancellationToken)), file, payer?.Name,
       command.Purpose, dues, feesDue, command.PropertyRefId, command.PropertyRefNo, feeId, today, settings.ClearanceValidDays, Guard.Actor(currentUser.UserId, "issue a clearance"));
     context.Clearances.Add(clearance);
-    audit.Record("Issued", clearance, $"For {EnumText.Words(command.Purpose).ToLowerInvariant()}{(command.PropertyRefNo is { } refNo ? " " + refNo : "")}, valid until {clearance.ValidUntil:dd MMM yyyy}");
+    audit.Record("Issued", clearance, $"For {EnumText.Words(command.Purpose).ToLowerInvariant()}{(command.PropertyRefNo is { } refNo ? " " + refNo : "")}, valid until {clearance.ValidUntil:dd'/'MM'/'yyyy}");
 
     if (payer is not null)
     {

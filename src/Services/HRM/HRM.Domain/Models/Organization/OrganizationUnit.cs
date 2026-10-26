@@ -61,7 +61,7 @@ public class OrganizationUnit : Aggregate<OrganizationUnitId>
   public OrganizationUnitVersion CorrectOn(DateOnly asOf, OrganizationUnitDetails details)
   {
     EnsureNotOwnParent(details);
-    var version = VersionOn(asOf) ?? throw new DomainException($"Unit {Code} has no version in force on {asOf:dd MMM yyyy}.");
+    var version = VersionOn(asOf) ?? throw new DomainException($"Unit {Code} has no version in force on {asOf:dd'/'MM'/'yyyy}.");
     version.Correct(details);
     return version;
   }

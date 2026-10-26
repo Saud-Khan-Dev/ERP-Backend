@@ -54,6 +54,7 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
   public DbSet<EmployeeEducation> Educations => Set<EmployeeEducation>();
   public DbSet<RecruitmentMethod> RecruitmentMethods => Set<RecruitmentMethod>();
   public DbSet<EmploymentType> EmploymentTypes => Set<EmploymentType>();
+  public DbSet<EngagementOrder> EngagementOrders => Set<EngagementOrder>();
   public DbSet<QualificationLevel> QualificationLevels => Set<QualificationLevel>();
   public DbSet<FamilyRelation> FamilyRelations => Set<FamilyRelation>();
   public DbSet<EmploymentMethod> EmploymentMethods => Set<EmploymentMethod>();

@@ -100,7 +100,7 @@ public class SetUserRolesHandler(IApplicationDbContext context, IdentityGuard gu
     {
       given.Count > 0 ? $"Given: {string.Join(", ", given)}" : null,
       taken.Count > 0 ? $"Taken away: {string.Join(", ", taken)}" : null,
-      redated.Count > 0 ? $"New end date: {string.Join(", ", redated.Select(g => $"{roles[g.RoleId].RoleName.Value} {(wanted[g.RoleId] is { } d ? d.ToString("dd MMM yyyy") : "none")}"))}" : null,
+      redated.Count > 0 ? $"New end date: {string.Join(", ", redated.Select(g => $"{roles[g.RoleId].RoleName.Value} {(wanted[g.RoleId] is { } d ? d.ToString("dd'/'MM'/'yyyy") : "none")}"))}" : null,
     }.Where(p => p is not null));
     await activity.RecordAsync(ActivityAction.RolesChanged, ActivityTargetType.User, userId.Value, user.DisplayName.Value, detail, cancellationToken);
 

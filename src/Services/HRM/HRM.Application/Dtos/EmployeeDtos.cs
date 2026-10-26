@@ -10,6 +10,9 @@ public sealed record PlacementDto(
   string OrgUnit,
   DateOnly Since);
 
+/// A contingent person's order covering today: the office and designation they work as.
+public sealed record OrderPlacementDto(Guid OrderId, Guid OrgUnitId, string? Office, Guid DesignationId, string? Designation, DateOnly From, DateOnly To);
+
 public sealed record EmployeeListItemDto(
   Guid Id,
   string EmployeeNumber,
@@ -32,7 +35,8 @@ public sealed record EmployeeListItemDto(
   DateOnly? TermTo = null,
   bool InService = true,
   /// Fields withheld from this caller (no HR_SENSITIVE.VIEW): "cnic", "dateOfBirth", "mobile" - shown as "Restricted".
-  IReadOnlyList<string>? Restricted = null);
+  IReadOnlyList<string>? Restricted = null,
+  OrderPlacementDto? Order = null);
 
 public sealed record EmployeeContactDto(Guid Id, ContactType ContactType, string Value, bool IsPrimary);
 
@@ -86,7 +90,8 @@ public sealed record EmployeeDto(
   bool InService = true,
   /// Fields withheld from this caller (no HR_SENSITIVE.VIEW, and not their own record): "cnic", "dateOfBirth", "contacts",
   /// "addresses", "emergencyContacts", "familyMembers", "basicPay" - null or empty here, "Restricted" on screen.
-  IReadOnlyList<string>? Restricted = null);
+  IReadOnlyList<string>? Restricted = null,
+  OrderPlacementDto? Order = null);
 
 
 public sealed record PayRecordDto(

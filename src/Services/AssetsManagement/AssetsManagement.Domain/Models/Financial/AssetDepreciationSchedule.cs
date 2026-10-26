@@ -221,7 +221,7 @@ public class AssetDepreciationSchedule : Aggregate<AssetDepreciationScheduleId>
       throw new DomainException("This schedule is already closed.");
 
     if (PostedThrough is { } posted && endDate <= posted)
-      throw new DomainException($"Months are posted up to {posted:d MMM yyyy}. The schedule can only close after them - reverse those months first.");
+      throw new DomainException($"Months are posted up to {posted:dd'/'MM'/'yyyy}. The schedule can only close after them - reverse those months first.");
 
     RemoveDraftsAfter(endDate.AddDays(-1));
     IsActive = false;

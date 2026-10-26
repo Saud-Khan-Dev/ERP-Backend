@@ -31,7 +31,7 @@ public class RecordLifecycleEventHandler(IApplicationDbContext context, ICurrent
       ? string.Join(" · ", details.EnumerateObject().Select(p => $"{p.Name}: {(p.Value.ValueKind == JsonValueKind.String ? p.Value.GetString() : p.Value.GetRawText())}"))
       : null;
     var local = clock.LocalOf(eventDate);
-    var when = $"{local.ToString("d MMM yyyy, h:mm", CultureInfo.InvariantCulture)} {(local.Hour < 12 ? "am" : "pm")}";
+    var when = $"{local.ToString("dd'/'MM'/'yyyy, h:mm", CultureInfo.InvariantCulture)} {(local.Hour < 12 ? "am" : "pm")}";
     audit.Line(AssetAuditActions.Recorded, AssetAuditKinds.Event, asset, lifecycleEvent.Id.Value, recordLabel: eventType.Name.Value,
       detail: AssetAudit.Join($"On {when}", command.Notes, extras));
     await context.SaveChangesAsync(cancellationToken);

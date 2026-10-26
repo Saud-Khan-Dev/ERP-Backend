@@ -84,7 +84,8 @@ public class AttentionHandlers(IApplicationDbContext context, ICurrentUser curre
       items.Add(new("employees.noDateOfBirth", await people.CountAsync(e => e.DateOfBirth == null, cancellationToken)));
       items.Add(new("employees.unplaced", await people.CountAsync(e => !context.PositionAssignments.Any(a => a.EmployeeId == e.Id
         && a.AssignmentType == AssignmentType.Regular && a.Status == RecordStatus.Active && a.EffectiveFrom <= today
-        && (a.EffectiveTo == null || a.EffectiveTo >= today)), cancellationToken)));
+        && (a.EffectiveTo == null || a.EffectiveTo >= today))
+        && !context.EngagementOrders.Any(o => o.EmployeeId == e.Id && o.Status == RecordStatus.Active && o.StartDate <= today && o.EndDate >= today), cancellationToken)));
     }
     if (Can(PermissionCatalog.Hr.Approve))
     {

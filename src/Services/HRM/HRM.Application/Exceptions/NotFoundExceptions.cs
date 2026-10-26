@@ -13,6 +13,7 @@ public class EmployeeDocumentNotFoundException(string message) : NotFoundExcepti
 public class EducationNotFoundException(string message) : NotFoundException(message);
 public class RecruitmentMethodNotFoundException(string message) : NotFoundException(message);
 public class EmploymentTypeNotFoundException(string message) : NotFoundException(message);
+public class EngagementOrderNotFoundException(string message) : NotFoundException(message);
 public class HrListValueNotFoundException(string message) : NotFoundException(message);
 public class ServiceEventTypeNotFoundException(string message) : NotFoundException(message);
 public class PositionAssignmentNotFoundException(string message) : NotFoundException(message);

@@ -259,7 +259,7 @@ public class NoticeHandlers(
         continue;
       if (file.HoldOn(today) is { } hold)
       {
-        skipped.Add(new(notice.Id.Value, notice.NoticeNo, $"{file.FileNo} is on litigation hold since {hold.StartedOn:dd MMM yyyy}"));
+        skipped.Add(new(notice.Id.Value, notice.NoticeNo, $"{file.FileNo} is on litigation hold since {hold.StartedOn:dd'/'MM'/'yyyy}"));
         continue;
       }
       if (demand.Balance <= 0)
@@ -342,7 +342,7 @@ public class NoticeHandlers(
     var next = demand is null || demand.Balance <= 0 ? NoticeStage.First : Ladder[Math.Min(reached + 1, Ladder.Length - 1)];
     var yearStart = FiscalYear.Start(fy);
     if (demand is null && today < yearStart)
-      notes.Insert(0, $"FY {FiscalYear.Label(fy)} starts on {yearStart:dd MMM yyyy}; its demand is created from that day.");
+      notes.Insert(0, $"FY {FiscalYear.Label(fy)} starts on {yearStart:dd'/'MM'/'yyyy}; its demand is created from that day.");
 
     var heads = (await setup.HeadsAsync(cancellationToken)).ToDictionary(h => h.Id);
     var options = new List<HeadOptionDto>();
@@ -434,16 +434,16 @@ public class NoticeHandlers(
       // creating the year's demand with a notice stands in for the run's approval
       var yearStart = FiscalYear.Start(fy);
       if (today < yearStart)
-        return Result<ManualNoticeResult>.Failure($"FY {FiscalYear.Label(fy)} starts on {yearStart:dd MMM yyyy}; its demand is created from that day.");
+        return Result<ManualNoticeResult>.Failure($"FY {FiscalYear.Label(fy)} starts on {yearStart:dd'/'MM'/'yyyy}; its demand is created from that day.");
       if (issueDate < yearStart)
-        return Result<ManualNoticeResult>.Failure($"FY {FiscalYear.Label(fy)}'s demand cannot be dated before the year starts ({yearStart:dd MMM yyyy}).");
+        return Result<ManualNoticeResult>.Failure($"FY {FiscalYear.Label(fy)}'s demand cannot be dated before the year starts ({yearStart:dd'/'MM'/'yyyy}).");
       if (!canApprove)
         return Result<ManualNoticeResult>.Failure($"FY {FiscalYear.Label(fy)} has no demand on {file.FileNo} yet. Creating it with a notice stands in for the run's approval and needs approval rights (TAX.APPROVE).");
       if (file.TaxStatus != TaxStatus.Active)
         return Result<ManualNoticeResult>.Failure($"{file.FileNo} is {EnumText.Words(file.TaxStatus)}; no demand is created for it.");
     }
     else if (demand!.IssuedOn is { } issuedOn && issueDate < issuedOn)
-      return Result<ManualNoticeResult>.Failure($"{demand.DemandNo} was issued on {issuedOn:dd MMM yyyy}; a notice on it cannot be dated before that.");
+      return Result<ManualNoticeResult>.Failure($"{demand.DemandNo} was issued on {issuedOn:dd'/'MM'/'yyyy}; a notice on it cannot be dated before that.");
     if (command.Stage == NoticeStage.Surcharge && (demand is null || demand.PenaltySum(PenaltyKind.IntraYear) <= 0))
       return Result<ManualNoticeResult>.Failure("A surcharge notice follows a surcharge run; this year's demand has no in-year surcharge.");
 

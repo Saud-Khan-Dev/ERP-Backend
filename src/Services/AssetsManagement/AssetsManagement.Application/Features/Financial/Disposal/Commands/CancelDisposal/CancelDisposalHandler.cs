@@ -40,7 +40,7 @@ public class CancelDisposalHandler(IApplicationDbContext context, ICurrentUser c
     var method = await context.DisposalMethods.AsNoTracking().FirstOrDefaultAsync(m => m.Id == disposal.DisposalMethodId, cancellationToken);
     var details = JsonSerializer.SerializeToElement(new Dictionary<string, string>
     {
-      ["Was disposed on"] = disposal.DisposalDate.ToString("d MMM yyyy", CultureInfo.InvariantCulture),
+      ["Was disposed on"] = disposal.DisposalDate.ToString("dd'/'MM'/'yyyy", CultureInfo.InvariantCulture),
       ["How"] = method?.Name.Value ?? "—",
     });
     await SystemEvents.AddAsync(context, assetId, EventPurpose.DisposalCancelled, clock.UtcNow, actor, command.Reason, details,

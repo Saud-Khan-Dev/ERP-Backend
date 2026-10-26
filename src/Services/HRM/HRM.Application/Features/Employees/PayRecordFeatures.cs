@@ -91,18 +91,18 @@ public class PayRecordHandlers(IApplicationDbContext context, PayService pay, Hr
     var stageId = PayScaleStageId.Of(command.PayScaleStageId);
     var scale = await pay.ScaleOfStageAsync(stageId, cancellationToken);
     if (scale.Status != RecordStatus.Active || !scale.Range.Contains(date))
-      return Result<RecordPayChangeResult>.Failure($"That stage belongs to a scale not in force on {date:dd MMM yyyy}.");
+      return Result<RecordPayChangeResult>.Failure($"That stage belongs to a scale not in force on {date:dd'/'MM'/'yyyy}.");
 
     // the pay follows the grade of the regular post held that day
     var held = await reader.RegularPostOnAsync(employee.Id, date, cancellationToken);
     if (held is null)
-      return Result<RecordPayChangeResult>.Failure($"{employee.DisplayName} holds no regular post on {date:dd MMM yyyy}; the pay follows the post's grade. Place the employee on a post first.");
+      return Result<RecordPayChangeResult>.Failure($"{employee.DisplayName} holds no regular post on {date:dd'/'MM'/'yyyy}; the pay follows the post's grade. Place the employee on a post first.");
     if (held.Version.GradeId != scale.GradeId)
     {
       var grades = await lookup.GradesAsync(cancellationToken);
       var postBps = grades[held.Version.GradeId.Value].BpsNumber;
       var stageBps = grades[scale.GradeId.Value].BpsNumber;
-      return Result<RecordPayChangeResult>.Failure($"Post {held.Post.PostCode} is BPS-{postBps} on {date:dd MMM yyyy}, but that stage is of the BPS-{stageBps} scale. "
+      return Result<RecordPayChangeResult>.Failure($"Post {held.Post.PostCode} is BPS-{postBps} on {date:dd'/'MM'/'yyyy}, but that stage is of the BPS-{stageBps} scale. "
         + $"Choose a stage of the BPS-{postBps} scale; a move to another grade is a promotion or a demotion.");
     }
 
@@ -173,7 +173,7 @@ public class PayRecordHandlers(IApplicationDbContext context, PayService pay, Hr
       if (record.DeferIncrement((from, to) => leave.Sum(r => r.Clip(from, to)?.Days ?? 0)) && record.NextIncrementDate > date)
       {
         skipped.Add(new(employee.Id.Value, employee.EmployeeNumber,
-          $"Deferred to {record.NextIncrementDate:dd MMM yyyy} by {record.IncrementDeferredDays} day(s) of leave without pay."));
+          $"Deferred to {record.NextIncrementDate:dd'/'MM'/'yyyy} by {record.IncrementDeferredDays} day(s) of leave without pay."));
         continue;
       }
 

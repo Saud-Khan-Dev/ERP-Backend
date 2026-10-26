@@ -271,6 +271,14 @@ maps each key to a filtered screen in `features/hrm/hrm.attention.ts`; keep the 
 - **Sanctioned vs contract posts**: a post whose type follows the Regular rules is sanctioned (regular staff and
   deputationists); one of a fixed-term type is a contract post (GDA's own approved strength) and takes fixed-term staff
   only (`PostKinds`, checked on every appointment and move).
+- **Contingent orders** (`EngagementOrder`, `/employees/{id}/orders`, `/orders/{id}/cancel`): a fixed-term (contingent)
+  person holds no post; each order gives an office, a designation, from-until, a Daily or Monthly wage and the letter (an
+  uploaded document). A renewal is a new order; orders never overlap; the days between two are not paid. The person's
+  term follows their latest order. Payroll (`PayrollCalculator.WagesOnly`, used when the person holds no post in the
+  month) pays the rate x days (Daily) or rate x days / month days (Monthly), less leave without pay; no allowances, GP
+  Fund or rule deductions, only loans and income tax. Attendance close-day and holidays, office scope, the register's
+  office/designation filters and "unplaced" count the order covering the day. Cancelling is refused once a finalized
+  run paid its days.
 - **Configured lists** (`/qualification-levels` with a rank, `/family-relations`, `/employment-methods`,
   `/adjustment-types` with a direction): records keep the id; a used value is deactivated, not deleted. Adjustment types
   Arrears and Recovery have fixed ids (the arrears run writes them) and stay on.

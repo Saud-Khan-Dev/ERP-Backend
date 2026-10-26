@@ -271,7 +271,7 @@ public class ServiceRecordWriter(IApplicationDbContext context, ServiceRecordRea
   {
     var date = spec.SeparationDate;
     var now = clock.UtcNow;
-    var remark = $"Closed: {employee.DisplayName} left service on {date:dd MMM yyyy} ({EnumText.Words(spec.Type)}).";
+    var remark = $"Closed: {employee.DisplayName} left service on {date:dd'/'MM'/'yyyy} ({EnumText.Words(spec.Type)}).";
     var closed = new List<string>();
 
     var actions = await context.HrActions.Where(a => a.EmployeeId == employee.Id && a.Id != spec.FromActionId
@@ -376,7 +376,7 @@ public class ServiceRecordWriter(IApplicationDbContext context, ServiceRecordRea
     var runningOn = await context.LeaveApplications.AsNoTracking().Where(a => a.EmployeeId == employee.Id && a.Status == LeaveStatus.Approved
       && a.StartDate <= date && a.EndDate > date).ToListAsync(cancellationToken);
     foreach (var leave in runningOn)
-      items.Add(new("leave", "Leave runs past the last day", $"Approved leave from {leave.StartDate:dd MMM yyyy} to {leave.EndDate:dd MMM yyyy} runs past the last day of service.", false, leave.Id.Value));
+      items.Add(new("leave", "Leave runs past the last day", $"Approved leave from {leave.StartDate:dd'/'MM'/'yyyy} to {leave.EndDate:dd'/'MM'/'yyyy} runs past the last day of service.", false, leave.Id.Value));
 
     var appraisals = await context.PerformanceReviews.AsNoTracking().CountAsync(r => r.EmployeeId == employee.Id && r.Status == ReviewStatus.Draft, cancellationToken);
     if (appraisals > 0)

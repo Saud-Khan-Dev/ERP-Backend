@@ -87,7 +87,7 @@ public class DemandAndNoticeTests
     demand.AddManualArrears(Lease, 2024, 10000, "Arrears 2024-25", "Old register", Officer, Now);
     var early = SurchargeRules.Candidate(demand, file, IntraYearRule(), terms, Settings, D("2025-09-30"))!;
     Assert.False(early.Eligible);
-    Assert.Contains("period runs until 01 Oct 2025", early.Reason);
+    Assert.Contains("period runs until 01/10/2025", early.Reason);
 
     var due = SurchargeRules.Candidate(demand, file, IntraYearRule(), terms, Settings, D("2025-10-01"))!;
     Assert.True(due.Eligible);

@@ -184,7 +184,7 @@ public class HrActionRequest : Aggregate<HrActionRequestId>
       throw new DomainException("The employee's post has changed since this action was drafted. Cancel it and draft a new one.");
 
     if (TakesEffectOnItsDate(ActionType) && EffectiveDate > today)
-      throw new DomainException($"This {EnumText.Words(ActionType)} takes effect on {EffectiveDate:dd MMM yyyy}; apply it on or after that day.");
+      throw new DomainException($"This {EnumText.Words(ActionType)} takes effect on {EffectiveDate:dd'/'MM'/'yyyy}; apply it on or after that day.");
   }
 
   public void MarkApplied(ServiceHistoryId serviceHistoryId, Guid? appliedBy, DateTime at)

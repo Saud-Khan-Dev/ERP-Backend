@@ -87,6 +87,6 @@ public class HrActionChecks(IApplicationDbContext context, ServiceRecordReader r
       .FirstOrDefaultAsync(cancellationToken);
     return clash is null
       ? null
-      : $"The leave without pay overlaps {EnumText.WithArticle(clash.Status)} leave from {clash.StartDate:dd MMM yyyy} to {clash.EndDate:dd MMM yyyy}. Cancel or change it first.";
+      : $"The leave without pay overlaps {EnumText.WithArticle(clash.Status)} leave from {clash.StartDate:dd'/'MM'/'yyyy} to {clash.EndDate:dd'/'MM'/'yyyy}. Cancel or change it first.";
   }
 }
