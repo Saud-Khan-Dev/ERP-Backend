@@ -9,6 +9,10 @@ public static class PropertyAuditActions
   /// A past transfer entered while the PROPERTY_TRANSFER rule is on: it waits for a second officer.
   public const string RecordedForApproval = "Recorded for approval";
   public const string Registered = "Registered";
+  /// An ownership history entry taken back by the clerk before a decision.
+  public const string Withdrawn = "Withdrawn";
+  /// A registered transfer, a holding or the original registration put right from the old papers (the reason in the detail).
+  public const string Corrected = "Corrected";
   public const string Allotted = "Allotted";
   public const string Restored = "Restored";
   public const string Confirmed = "Confirmed";

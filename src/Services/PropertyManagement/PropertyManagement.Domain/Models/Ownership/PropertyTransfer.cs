@@ -14,6 +14,9 @@ public class PropertyTransfer : Aggregate<TransferId>
   public BusinessCode TransferNo { get; private set; } = default!;
   public MasterId TransferTypeId { get; private set; } = default!;
   public DateOnly TransferDate { get; private set; }
+  /// How well TransferDate is known: Exact for every transfer made today; an old one entered through an ownership
+  /// history may be known only to the month or year, or roughly.
+  public DatePrecision TransferDatePrecision { get; private set; }
   /// Mutation / registry / order no.
   public string? TransferReferenceNo { get; private set; }
   /// Portion of the property moved: the transferors' shares added up.
@@ -284,6 +287,97 @@ public class PropertyTransfer : Aggregate<TransferId>
 
   public sealed record OwnershipChange(IReadOnlyList<PropertyOwnership> Closed, IReadOnlyList<PropertyOwnership> Opened);
 
+  /// A transfer from the old records is dated as precisely as the papers allow; the rows it opened follow.
+  internal void MarkDatePrecision(DatePrecision precision, IEnumerable<PropertyOwnership> opened)
+  {
+    TransferDatePrecision = precision;
+    foreach (var row in opened)
+      row.MarkDatePrecision(precision);
+  }
+
+  /// The rows this registered transfer closed (parties' rows that ended on its date) and opened (rows that point at
+  /// it, and givers' remainders written by it).
+  public (IReadOnlyList<PropertyOwnership> Closed, IReadOnlyList<PropertyOwnership> Opened) RowsOf(OwnershipRecord record)
+  {
+    ArgumentNullException.ThrowIfNull(record);
+    var parties = _parties.Select(p => p.OwnerId).ToHashSet();
+    var remainder = $"Remainder after {TransferNo.Value}.";
+
+    var opened = record.Ownerships
+      .Where(r => parties.Contains(r.OwnerId) && r.EffectiveFrom == TransferDate && (r.AcquiredViaTransferId == Id || r.Remarks == remainder))
+      .ToList();
+    var openedIds = opened.Select(r => r.Id).ToHashSet();
+    var closed = record.Ownerships
+      .Where(r => parties.Contains(r.OwnerId) && r.EffectiveTo == TransferDate && !openedIds.Contains(r.Id))
+      .ToList();
+    return (closed, opened);
+  }
+
+  /// An approving officer corrects a registered transfer as the old papers show it: its kind, date (and how well it
+  /// is known), deed / mutation no., price, relationship, approval order and remarks. Moving the date moves the ends of
+  /// the holdings it closed and the starts of those it opened, so it must stay after each closed holding began and
+  /// before each opened holding ended (a later transfer); one entry per owner per day still holds.
+  public void CorrectHistory(
+      TransferType transferType,
+      DateOnly transferDate,
+      DatePrecision precision,
+      string? transferReferenceNo,
+      decimal? considerationAmount,
+      string? relationship,
+      string? approvalOrderRef,
+      string? remarks,
+      OwnershipRecord record)
+  {
+    ArgumentNullException.ThrowIfNull(transferType);
+    ArgumentNullException.ThrowIfNull(record);
+    EnsureOn(record.Property);
+
+    if (TransferStatus != TransferStatus.Completed)
+      throw new DomainException($"{TransferNo.Value} is {Describe(TransferStatus)}; only a registered transfer is corrected this way.");
+
+    if (transferType.Id != TransferTypeId)
+      transferType.EnsureActive();
+
+    relationship = Guard.Text(relationship, 100, "Relationship");
+    if (transferType.RequiresRelationship && relationship is null)
+      throw new DomainException($"A {transferType.Name.Value} transfer must record the relationship between the parties (e.g. Father -> Son).");
+
+    if (transferDate != TransferDate)
+    {
+      if (transferDate > record.Today)
+        throw new DomainException($"A transfer that happened cannot be dated in the future ({transferDate:yyyy-MM-dd}); today is {record.Today:yyyy-MM-dd}.");
+
+      var (closed, opened) = RowsOf(record);
+      if (closed.FirstOrDefault(r => r.EffectiveFrom >= transferDate) is { } earlier)
+        throw new DomainException(
+          $"{record.NameOf(earlier.OwnerId)} held the share given in {TransferNo.Value} only from {earlier.EffectiveFrom:yyyy-MM-dd}; the transfer must be dated after that.");
+      if (opened.FirstOrDefault(r => r.EffectiveTo is { } end && end <= transferDate) is { } later)
+        throw new DomainException(
+          $"{record.NameOf(later.OwnerId)}'s holding from {TransferNo.Value} passed on again on {later.EffectiveTo:yyyy-MM-dd}; the transfer must be dated before that.");
+
+      var openedIds = opened.Select(r => r.Id).ToHashSet();
+      if (opened.FirstOrDefault(r => record.RowsOf(r.OwnerId).Any(o => !openedIds.Contains(o.Id) && o.EffectiveFrom == transferDate)) is { } clash)
+        throw new DomainException($"{record.NameOf(clash.OwnerId)} already has a holding on this property starting {transferDate:yyyy-MM-dd}.");
+
+      foreach (var row in closed)
+        row.MoveEnd(transferDate);
+      foreach (var row in opened)
+        row.MoveStart(transferDate);
+      TransferDate = transferDate;
+    }
+
+    foreach (var row in RowsOf(record).Opened)
+      row.MarkDatePrecision(precision);
+
+    TransferTypeId = transferType.Id;
+    TransferDatePrecision = precision;
+    TransferReferenceNo = Guard.Text(transferReferenceNo, 100, "Transfer reference no.");
+    ConsiderationAmount = Guard.NotNegative(considerationAmount, "Consideration amount");
+    Relationship = relationship;
+    ApprovalOrderRef = Guard.Text(approvalOrderRef, 100, "Approval order ref");
+    Remarks = Guard.Text(remarks, 4000, "Remarks");
+  }
+
   /// Applies the transfer to the property's current ownership.
   ///
   /// For every party the net change is worked out (received − given):
@@ -427,6 +521,18 @@ public class PropertyTransfer : Aggregate<TransferId>
 
       if (!owner.IsActive)
         throw new DomainException($"{owner.OwnerName.Value} ({owner.OwnerCode.Value}) is inactive; reactivate the owner record before using it in a transfer.");
+
+      if (received.GetValueOrDefault(ownerId) - given.GetValueOrDefault(ownerId) > 0)
+      {
+        if (owner.DateOfDeath is { } died && TransferDate > died)
+          throw new DomainException(
+            $"{owner.OwnerName.Value} died on {died:yyyy-MM-dd}, before this transfer ({TransferDate:yyyy-MM-dd}); a share cannot pass to them after that - it goes to their heirs.");
+
+        // a share registered as it stands today needs a holder with a CNIC; people from the old records receive
+        // shares only inside an ownership history being played forward
+        if (!record.ReplayingHistory)
+          owner.EnsureCanHoldToday();
+      }
     }
 
     // a charge on the whole property stops every transfer (an enforced one: every transfer except to its holder)

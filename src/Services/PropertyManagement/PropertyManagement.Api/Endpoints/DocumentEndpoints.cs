@@ -154,7 +154,7 @@ public class DocumentEndpoints : ICarterModule
       .WithDescription("Documents are never deleted; one filed in error is deactivated.");
   }
 
-  private static Stream OpenUpload(IFormFile? file, out DocumentService.Upload upload)
+  internal static Stream OpenUpload(IFormFile? file, out DocumentService.Upload upload)
   {
     if (file is null || file.Length == 0)
       throw new BadHttpRequestException("Attach the file in the 'file' form field.");

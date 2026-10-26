@@ -17,7 +17,8 @@ public class CreateOwnerHandler(IApplicationDbContext context, MasterLookup mast
       await masters.GetAsync<OwnerType>(input.OwnerTypeId, cancellationToken),
       Name.Of(input.OwnerName, PropertyOwner.NameMaxLength),
       input.FatherHusbandName, cnic, ntn,
-      EmailAddress.OfNullable(input.Email), input.Remarks);
+      EmailAddress.OfNullable(input.Email), input.Remarks,
+      input.OldIdentity, input.IsDeceased, input.DateOfDeath, PropertyWriteGuard.Today());
 
     foreach (var contact in command.Contacts ?? Array.Empty<ContactInput>())
       owner.AddContact(await masters.GetAsync<ContactType>(contact.ContactTypeId, cancellationToken), contact.ContactNumber, contact.IsPrimary, contact.Remarks);

@@ -12,6 +12,7 @@ public interface IApplicationDbContext
   DbSet<PropertyOwner> Owners { get; }
   DbSet<PropertyOwnership> Ownerships { get; }
   DbSet<PropertyTransfer> Transfers { get; }
+  DbSet<OwnershipHistoryEntry> HistoryEntries { get; }
   DbSet<PropertyEncumbrance> Encumbrances { get; }
 
   // ---- management ----

@@ -26,6 +26,12 @@ public class PropertyOwnerConfiguration : EntityConfiguration<PropertyOwner, Own
       .HasConversion(e => e!.Value, value => EmailAddress.Of(value))
       .HasMaxLength(EmailAddress.MaxLength);
     builder.Property(x => x.CnicDocumentId).HasConversion(id => id!.Value, value => DocumentId.Of(value));
+    // individuals from the old records: OLD_NIC, PASSPORT or NOT_RECORDED instead of a CNIC
+    builder.Property(x => x.OldIdType).HasNullableUpperSnakeEnum(20);
+    builder.Property(x => x.OldIdNo).HasMaxLength(PropertyOwner.OldIdNoMaxLength);
+    builder.Property(x => x.IsDeceased).IsRequired().HasDefaultValue(false);
+    builder.Property(x => x.DateOfDeath);
+    builder.Ignore(x => x.CanHoldToday);
     builder.Property(x => x.IsActive).IsRequired().HasDefaultValue(true);
 
     builder.HasIndex(x => x.OwnerCode).IsUnique();

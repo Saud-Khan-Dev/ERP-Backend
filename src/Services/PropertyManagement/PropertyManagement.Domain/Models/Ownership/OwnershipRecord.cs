@@ -16,11 +16,13 @@ public sealed class OwnershipRecord
       IEnumerable<PropertyTransfer> pendingTransfers,
       IEnumerable<PropertyEncumbrance> encumbrances,
       DateOnly today,
-      PropertyAllotment.InForce? allotmentInForce = null)
+      PropertyAllotment.InForce? allotmentInForce = null,
+      bool replayingHistory = false)
   {
     ArgumentNullException.ThrowIfNull(property);
 
     Property = property;
+    ReplayingHistory = replayingHistory;
     Ownerships = ownerships.Where(o => o.PropertyId == property.Id).ToList();
     _owners = owners.GroupBy(o => o.Id).ToDictionary(g => g.Key, g => g.First());
     PendingTransfers = pendingTransfers.Where(t => t.PropertyId == property.Id && t.IsPending).ToList();
@@ -30,6 +32,9 @@ public sealed class OwnershipRecord
   }
 
   public Property Property { get; }
+  /// The record is an ownership history entry being played forward from its first owners: people from the old records
+  /// (no CNIC) may receive a share on the way; the holders it ends with are checked by the entry itself.
+  public bool ReplayingHistory { get; }
   public IReadOnlyList<PropertyOwnership> Ownerships { get; }
   public IReadOnlyList<PropertyTransfer> PendingTransfers { get; }
   /// The charges that hold shares in place: ACTIVE ones and ENFORCED ones (see the class comment).

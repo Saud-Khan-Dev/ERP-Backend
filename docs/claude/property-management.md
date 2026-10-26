@@ -54,6 +54,10 @@ src/Tests/PropertyManagement.Domain.Tests/   xUnit tests of domain rules (287), 
   stored 12345-1234567-1, never starting with 0 (`Cnic`). NTN: FBR 7+1 stored 1234567-8, or a 13-digit CNIC-based
   number stored 12345-1234567-1 (`Ntn`); duplicates are compared on the digits. By owner type (system codes):
   INDIVIDUAL needs a CNIC; COMPANY / TRUST / GOVERNMENT / JOINT_ENTITY have no CNIC and no father / husband name.
+  Old records (2026-10-26): an individual who never had a CNIC is entered with `oldIdType` OLD_NIC / PASSPORT (+ `oldIdNo`)
+  or NOT_RECORDED instead, and may be `isDeceased` (`dateOfDeath` not in the future). `CanHoldToday`: a share registered
+  today (first owners, a transfer's receiver) needs a CNIC unless the holder has died - people known only by an old ID
+  appear in a property's history (below); no share passes to someone after their known date of death.
   There is no registration number.
 - **Ownership**: `PropertyOwnership` (share %, effective from/to; `AcquiredViaTransferId`,
   `AcquiredViaAllotmentId`), `PropertyTransfer` + `PropertyTransferParty` (TRF-), `PropertyEncumbrance`.
@@ -186,6 +190,30 @@ property's records at the same moment…"). `property`, `property_transfer` and 
   never back to ACTIVE. Cancel only from in force. Cancel / surrender end the ownership confirmed through the allotment
   (remark "Ended by cancellation of ALT-…"); restore does not reopen it. Confirm as owner: in force, not confirmed since the
   last restoration, effectiveFrom between the allotment (or restoration) date and today, refused when someone holds 100%.
+- **Ownership history (old records, 2026-10-26)**: `OwnershipHistoryEntry` (HIS-00001, `ownership_history_entry`, steps
+  as jsonb). A clerk (EDIT) enters a property's ownership from 1960 onwards in one go - step 1 the first owner(s) on record
+  (100%, how acquired e.g. FIRST_REGISTRATION), then each transfer oldest first - with each date's precision (EXACT,
+  MONTH, YEAR, ABOUT; a month / year is stored as its first day). It is played forward at once in a sandbox through
+  `RegisterFirstOwners` + `PropertyTransfer.RecordCompleted` (every transfer rule; `OwnershipRecord.ReplayingHistory`
+  lets old-ID owners receive shares on the way) and waits (WAITING); a second officer (APPROVE, PROPERTY_TRANSFER duty
+  rule) registers it ONCE: it is replayed against the property as it stands, COMPLETED transfers get new TRF numbers
+  (precision kept on transfers and the rows they open), papers filed per step (`POST /ownership-history/{id}/steps/{n}/documents`,
+  entity type OWNERSHIP_HISTORY) move to the step's transfer / first holding. With the rule off, an APPROVE holder's entry
+  registers at once. Fits only a property with no history in the register (no ended rows, present rows not acquired via
+  a transfer or allotment, none waiting): nobody holds it (the last holders must be able to hold today), or the history
+  must end with EXACTLY the present holders (owner, share, start date) - their rows then adopt how they were acquired
+  (`AdoptHistoryOf`). Revise (EDIT, WAITING), reject (APPROVE) / withdraw (EDIT) with a reason. `DomainException.Reason`
+  is the bare rule sentence (a refusal is re-worded "Step 3 (about 1975): ...").
+- **Corrections (APPROVE, reason required, audit "Corrected")**: `POST /transfers/{id}/corrections` (COMPLETED: kind, date +
+  precision, refs, price, relationship, approval order, remarks; a new date moves the ends of the rows it closed and the
+  starts of those it opened - after each closed row began, before each opened row passed on, one entry per owner per day);
+  `POST /ownerships/{id}/corrections` (acquisition kind, ref, remarks; start date + precision only for a row no transfer /
+  allotment opened). `PUT /properties/{id}/original-registration` (EDIT): `registeredOn` + precision + reference, not
+  after the first holding. `GET /properties/{id}/ownership-timeline` (VIEW): the story for the screens - owners numbered
+  in the order they came to hold it (identity incl. old ID / deceased), events (FirstOwners / Transfer / Allotment) with
+  papers (latest version, `MaySee`), present holdings, `canEnterHistory`, `waitingHistoryId`. Bell key `history.waiting`
+  (APPROVE). The 14 "OTHER" master values were switched off by migration OwnershipHistoryRecords (no catch-all rule);
+  transfer types FIRST_REGISTRATION and COURT_DECREE are added where missing (`MasterDataSeed.AddedLater`).
 - **Charges (encumbrances)**: only against a current ownership row; start date not in the future; release date between
   start and today. Release / enforce need APPROVE; enforce needs `holderOwnerId`. An ENFORCED charge still blocks the share
   except a transfer to the charge holder, and that transfer, once registered, releases it (`releaseReferenceNo` = TRF no.).
@@ -284,7 +312,7 @@ every town call `IgnoreQueryFilters()` (codes in use, case numbers, an owner's c
 `GET /directory/towns` (signed in): every active town `{ towns: [{ id, code, name }] }` for Administration's scope picker.
 
 Bell: `GET /attention` (any signed-in user; counts follow the caller's rights and towns): transfers.pending,
-transfers.unregistered, plans.waiting, allotments.unconfirmed (APPROVE); appeals.overdue (LEGAL.APPROVE); agreements.ending
+transfers.unregistered, history.waiting, plans.waiting, allotments.unconfirmed (APPROVE); appeals.overdue (LEGAL.APPROVE); agreements.ending
 (60 days), agreements.overdue (EDIT); hearings.week, legal.next-passed, encroachments.open (LEGAL.EDIT); fines.unpaid (EDIT
 or WAIVE). The frontend maps them in
 `features/property/property.attention.ts`.
@@ -302,7 +330,7 @@ or WAIVE). The frontend maps them in
 | Fines | fine-status WAIVED / RECOVERY_AS_ARREARS (PAID needs EDIT; the route accepts either) | `PROPERTY.WAIVE` |
 | Register | `GET /properties` (filters incl. transferPending, allotted, agreementInForce, hasHolder, charged, disputed, measured, hasBoundary; sort incl. holder; paging 1-200), `GET /properties/next-code`, `POST /properties` (can also save owners, boundary and custom fields in one transaction), `/properties/{id}/status`, `/measurements`, `/regularizations`, `/area`, `/attributes` | `PROPERTY.VIEW/CREATE/EDIT` |
 | Owners | `/owners` (search: code, CNIC or its first 5+ digits, NTN, name; `cnic` / `ntn` exact lookup; `hasHoldings`; `role` holder / allottee / lessee / tenant / contractor / bidder / encroacher / litigant / appellant / violator; `sortBy` code / name / type / holdings), contacts, addresses, documents | `PROPERTY.*` |
-| Ownership | `/properties/{id}/ownerships` (GET; POST = first owners, only while nobody holds the property), `/transfers` (initiate), `/transfers/completed` (past transfer), `/transfers/{id}/approve|reject|complete|cancel`, `/encumbrances/*` | first owners `PROPERTY.EDIT` (+ APPROVE on a property held before); approve, reject, complete and the past-transfer record need `PROPERTY.APPROVE`; cancel needs `PROPERTY_LEGAL.EDIT` (+ APPROVE for a legacy APPROVED one); disputes `PROPERTY_LEGAL.EDIT` |
+| Ownership | `/properties/{id}/ownership-timeline`, `/properties/{id}/ownership-history` (+ `/ownership-history/{id}` revise / steps/{n}/documents / register / reject / withdraw), `/transfers/{id}/corrections`, `/ownerships/{id}/corrections`, `/properties/{id}/original-registration`, `/properties/{id}/ownerships` (GET; POST = first owners, only while nobody holds the property), `/transfers` (initiate), `/transfers/completed` (past transfer), `/transfers/{id}/approve|reject|complete|cancel`, `/encumbrances/*` | first owners `PROPERTY.EDIT` (+ APPROVE on a property held before); approve, reject, complete and the past-transfer record need `PROPERTY.APPROVE`; cancel needs `PROPERTY_LEGAL.EDIT` (+ APPROVE for a legacy APPROVED one); disputes `PROPERTY_LEGAL.EDIT` |
 | Management | `/properties/{id}/allotments|leases|rentals|violations|auctions|outsourcing-contracts` + action routes (`/leases/{id}/renew`, `/violations/{id}/fine` …) | official orders need `PROPERTY.APPROVE` |
 | Compliance | `/properties/{id}/boundaries|encroachments|litigations|appeals|building-plans` + action routes | official orders need `PROPERTY.APPROVE` |
 | Documents | `/properties/{id}/documents` (PROPERTY kinds), `/owners/{id}/documents` (OWNER kinds, no `propertyId`), `/documents/{id}` (details, re-type within scope), `/documents/{id}/versions|content|activate|deactivate` | `PROPERTY.*`; an owner upload is `PROPERTY.EDIT`, or `PROPERTY.CREATE` for an owner's FIRST CNIC copy only (other kinds, or a second copy, 403) - who registers owners files the copy with the registration |

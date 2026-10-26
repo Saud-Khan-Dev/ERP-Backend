@@ -13,6 +13,7 @@ public class OwnerNotFoundException(string message) : NotFoundException(message)
 public class OwnershipNotFoundException(string message) : NotFoundException(message);
 
 public class TransferNotFoundException(string message) : NotFoundException(message);
+public class HistoryEntryNotFoundException(string message) : NotFoundException(message);
 
 public class EncumbranceNotFoundException(string message) : NotFoundException(message);
 

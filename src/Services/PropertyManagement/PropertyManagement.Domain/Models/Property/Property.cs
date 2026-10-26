@@ -19,6 +19,12 @@ public class Property : Aggregate<PropertyId>
   public string? KhasraSurveyNo { get; private set; }
   public string? Description { get; private set; }
   public string? Remarks { get; private set; }
+  /// When the property was first registered (with GDA or the revenue record) - often long before it was entered in
+  /// this system (created_at). Null when nobody has recorded it.
+  public DateOnly? RegisteredOn { get; private set; }
+  public DatePrecision RegisteredOnPrecision { get; private set; }
+  /// The original registration's reference (register / file / mutation no.).
+  public string? RegistrationReference { get; private set; }
   public bool IsActive { get; private set; }
   /// Why and when the property was taken off the register (cleared when it is reactivated).
   public DateOnly? DeactivatedOn { get; private set; }
@@ -67,6 +73,27 @@ public class Property : Aggregate<PropertyId>
         $"{PropertyCode.Value} is allotted to {allotted.AllotteeName} ({allotted.Allotment.AllotmentNo.Value}); its classification cannot change while the allotment is in force.");
 
     Apply(propertyName, town, propertyType, classification, addressLine, khasraSurveyNo, description, remarks);
+  }
+
+  /// Records (or corrects) when and under what reference the property was first registered, as the old papers give
+  /// it. Not in the future, and not after the first holding on record began (a property is registered before anyone
+  /// holds it in the register).
+  public void SetOriginalRegistration(DateOnly? registeredOn, DatePrecision precision, string? reference, DateOnly? firstHoldingFrom, DateOnly today)
+  {
+    EnsureActive();
+
+    if (registeredOn is { } on)
+    {
+      if (on > today)
+        throw new DomainException($"The registration date cannot be in the future ({on:yyyy-MM-dd}); today is {today:yyyy-MM-dd}.");
+      if (firstHoldingFrom is { } held && on > held)
+        throw new DomainException(
+          $"{PropertyCode.Value}'s first owner on record holds it from {held:yyyy-MM-dd}; it was registered on or before that date.");
+    }
+
+    RegisteredOn = registeredOn;
+    RegisteredOnPrecision = registeredOn is null ? DatePrecision.Exact : precision;
+    RegistrationReference = Guard.Text(reference, 100, "Registration reference");
   }
 
   /// Opening row of the status history, written when the property is registered.

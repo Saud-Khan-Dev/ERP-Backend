@@ -101,6 +101,19 @@ public class PropertyDocument : Aggregate<DocumentId>
       throw new DomainException("The document must point at the record it belongs to.");
   }
 
+  /// A paper filed with an ownership history entry follows its step once the entry is registered: to the transfer
+  /// the step became, or to the first ownership of the first step. The stored file stays where it is.
+  public void MoveToRegisteredRecord(DocumentEntityType entityType, Guid entityId)
+  {
+    if (EntityType != DocumentEntityType.OwnershipHistory)
+      throw new DomainException("Only a paper filed with an ownership history entry moves to the record it became.");
+    if (entityType is not (DocumentEntityType.Transfer or DocumentEntityType.Ownership) || entityId == Guid.Empty)
+      throw new DomainException("A history paper moves to a transfer or an ownership.");
+
+    EntityType = entityType;
+    EntityId = entityId;
+  }
+
   /// A corrected or updated file: a new row with version_no + 1 that supersedes this one. This row stays
   /// as the older version.
   public PropertyDocument NewVersion(DocumentId id, string originalFileName, StoredFile file, Guid uploadedBy, DateTime uploadedAt)

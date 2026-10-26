@@ -126,6 +126,7 @@ public static class CodeSequenceKeys
   public const string Encroachment = "ENCROACHMENT";
   public const string Appeal = "APPEAL";
   public const string BuildingPlan = "BUILDING_PLAN";
+  public const string History = "HISTORY";
 
   public sealed record Default(string Key, string Prefix, string Separator, int MinimumDigits);
 
@@ -142,5 +143,6 @@ public static class CodeSequenceKeys
     new Default(Encroachment, "ENC", "-", 5),
     new Default(Appeal, "APL", "-", 5),
     new Default(BuildingPlan, "BP", "-", 5),
+    new Default(History, "HIS", "-", 5),
   };
 }

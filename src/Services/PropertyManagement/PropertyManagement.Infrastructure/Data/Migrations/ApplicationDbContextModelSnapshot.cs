@@ -1878,6 +1878,99 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
                     b.ToTable("owner_type", "property");
                 });
 
+            modelBuilder.Entity("OwnershipHistoryEntry", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime?>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("DecidedBy")
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("decided_by");
+
+                    b.Property<Guid?>("DecidedByUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("decided_by_user_id");
+
+                    b.Property<DateOnly?>("DecidedOn")
+                        .HasColumnType("date")
+                        .HasColumnName("decided_on");
+
+                    b.Property<string>("DecisionReason")
+                        .HasColumnType("text")
+                        .HasColumnName("decision_reason");
+
+                    b.Property<string>("EntryNo")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("entry_no");
+
+                    b.Property<Guid>("PropertyId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("property_id");
+
+                    b.Property<string>("RecordedBy")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("recorded_by");
+
+                    b.Property<DateOnly>("RecordedOn")
+                        .HasColumnType("date")
+                        .HasColumnName("recorded_on");
+
+                    b.Property<string>("Remarks")
+                        .HasColumnType("text")
+                        .HasColumnName("remarks");
+
+                    b.Property<uint>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("status");
+
+                    b.Property<string>("Steps")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("steps");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.HasKey("Id")
+                        .HasName("pk_ownership_history_entry");
+
+                    b.HasIndex("EntryNo")
+                        .IsUnique()
+                        .HasDatabaseName("ix_ownership_history_entry_entry_no");
+
+                    b.HasIndex("PropertyId", "Status")
+                        .HasDatabaseName("ix_ownership_history_entry_property_id_status");
+
+                    b.ToTable("ownership_history_entry", "property");
+                });
+
             modelBuilder.Entity("OwnershipLink", b =>
                 {
                     b.Property<Guid>("OwnerId")
@@ -1952,6 +2045,23 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
                     b.Property<Guid>("PropertyTypeId")
                         .HasColumnType("uuid")
                         .HasColumnName("property_type_id");
+
+                    b.Property<DateOnly?>("RegisteredOn")
+                        .HasColumnType("date")
+                        .HasColumnName("registered_on");
+
+                    b.Property<string>("RegisteredOnPrecision")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(12)
+                        .HasColumnType("character varying(12)")
+                        .HasColumnName("registered_on_precision")
+                        .HasDefaultValueSql("'EXACT'");
+
+                    b.Property<string>("RegistrationReference")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("registration_reference");
 
                     b.Property<string>("Remarks")
                         .HasColumnType("text")
@@ -3582,6 +3692,10 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("created_by");
 
+                    b.Property<DateOnly?>("DateOfDeath")
+                        .HasColumnType("date")
+                        .HasColumnName("date_of_death");
+
                     b.Property<string>("Email")
                         .HasMaxLength(150)
                         .HasColumnType("character varying(150)")
@@ -3598,10 +3712,26 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
                         .HasDefaultValue(true)
                         .HasColumnName("is_active");
 
+                    b.Property<bool>("IsDeceased")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_deceased");
+
                     b.Property<string>("Ntn")
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)")
                         .HasColumnName("ntn");
+
+                    b.Property<string>("OldIdNo")
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)")
+                        .HasColumnName("old_id_no");
+
+                    b.Property<string>("OldIdType")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("old_id_type");
 
                     b.Property<string>("OwnerCode")
                         .IsRequired()
@@ -3687,6 +3817,14 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
                     b.Property<DateOnly>("EffectiveFrom")
                         .HasColumnType("date")
                         .HasColumnName("effective_from");
+
+                    b.Property<string>("EffectiveFromPrecision")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(12)
+                        .HasColumnType("character varying(12)")
+                        .HasColumnName("effective_from_precision")
+                        .HasDefaultValueSql("'EXACT'");
 
                     b.Property<DateOnly?>("EffectiveTo")
                         .HasColumnType("date")
@@ -4096,6 +4234,14 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
                     b.Property<DateOnly>("TransferDate")
                         .HasColumnType("date")
                         .HasColumnName("transfer_date");
+
+                    b.Property<string>("TransferDatePrecision")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(12)
+                        .HasColumnType("character varying(12)")
+                        .HasColumnName("transfer_date_precision")
+                        .HasDefaultValueSql("'EXACT'");
 
                     b.Property<string>("TransferNo")
                         .IsRequired()
@@ -4655,6 +4801,16 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("fk_owner_contact_property_owner_owner_id");
+                });
+
+            modelBuilder.Entity("OwnershipHistoryEntry", b =>
+                {
+                    b.HasOne("Property", null)
+                        .WithMany()
+                        .HasForeignKey("PropertyId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_ownership_history_entry_property_property_id");
                 });
 
             modelBuilder.Entity("Property", b =>

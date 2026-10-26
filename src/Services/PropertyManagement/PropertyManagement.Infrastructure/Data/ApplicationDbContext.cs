@@ -39,6 +39,7 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
   public DbSet<PropertyOwner> Owners => Set<PropertyOwner>();
   public DbSet<PropertyOwnership> Ownerships => Set<PropertyOwnership>();
   public DbSet<PropertyTransfer> Transfers => Set<PropertyTransfer>();
+  public DbSet<OwnershipHistoryEntry> HistoryEntries => Set<OwnershipHistoryEntry>();
   public DbSet<PropertyEncumbrance> Encumbrances => Set<PropertyEncumbrance>();
 
   // ---- management ----
@@ -167,6 +168,7 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
     builder.Entity<PropertyAreaRegularization>().HasQueryFilter(TownScopeFilter, x => !_scoped || Set<Property>().Any(p => p.Id == x.PropertyId && _towns.Contains(p.TownId)));
     builder.Entity<PropertyOwnership>().HasQueryFilter(TownScopeFilter, x => !_scoped || Set<Property>().Any(p => p.Id == x.PropertyId && _towns.Contains(p.TownId)));
     builder.Entity<PropertyTransfer>().HasQueryFilter(TownScopeFilter, x => !_scoped || Set<Property>().Any(p => p.Id == x.PropertyId && _towns.Contains(p.TownId)));
+    builder.Entity<OwnershipHistoryEntry>().HasQueryFilter(TownScopeFilter, x => !_scoped || Set<Property>().Any(p => p.Id == x.PropertyId && _towns.Contains(p.TownId)));
     builder.Entity<PropertyEncumbrance>().HasQueryFilter(TownScopeFilter, x => !_scoped || Set<Property>().Any(p => p.Id == x.PropertyId && _towns.Contains(p.TownId)));
     builder.Entity<PropertyAllotment>().HasQueryFilter(TownScopeFilter, x => !_scoped || Set<Property>().Any(p => p.Id == x.PropertyId && _towns.Contains(p.TownId)));
     builder.Entity<PropertyLease>().HasQueryFilter(TownScopeFilter, x => !_scoped || Set<Property>().Any(p => p.Id == x.PropertyId && _towns.Contains(p.TownId)));

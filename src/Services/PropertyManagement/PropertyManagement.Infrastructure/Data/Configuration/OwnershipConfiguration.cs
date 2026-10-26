@@ -24,6 +24,8 @@ public class PropertyOwnershipConfiguration : EntityConfiguration<PropertyOwners
     builder.Property(x => x.AcquiredViaAllotmentId).HasConversion(id => id!.Value, value => AllotmentId.Of(value));
     builder.Property(x => x.ReferenceNo).HasMaxLength(100);
     builder.Property(x => x.EndReferenceNo).HasMaxLength(PropertyOwnership.ReferenceMaxLength);
+    // EXACT, MONTH, YEAR, ABOUT: how well effective_from is known (old records)
+    builder.Property(x => x.EffectiveFromPrecision).HasUpperSnakeEnum(12).IsRequired().HasDefaultValueSql("'EXACT'");
     builder.Ignore(x => x.IsCurrent);
     builder.Ignore(x => x.IsTransferable);
 
@@ -58,6 +60,8 @@ public class PropertyTransferConfiguration : EntityConfiguration<PropertyTransfe
     builder.Property(x => x.TransferNo).HasBusinessCode(50).IsRequired();
     builder.Property(x => x.TransferTypeId).HasMasterId().IsRequired();
     builder.Property(x => x.TransferReferenceNo).HasMaxLength(100);
+    // EXACT, MONTH, YEAR, ABOUT: how well transfer_date is known (old records)
+    builder.Property(x => x.TransferDatePrecision).HasUpperSnakeEnum(12).IsRequired().HasDefaultValueSql("'EXACT'");
     builder.Property(x => x.ShareTransferredPct).HasPrecision(7, 4);
     builder.Property(x => x.ConsiderationAmount).HasPrecision(18, 2);
     builder.Property(x => x.Relationship).HasMaxLength(100);
@@ -135,5 +139,61 @@ public class PropertyEncumbranceConfiguration : EntityConfiguration<PropertyEncu
     builder.HasOne<EncumbranceType>().WithMany().HasForeignKey(x => x.EncumbranceTypeId).OnDelete(DeleteBehavior.Restrict);
     builder.HasOne<PropertyOwnership>().WithMany().HasForeignKey(x => x.OwnershipId).OnDelete(DeleteBehavior.Restrict);
     builder.HasOne<PropertyOwner>().WithMany().HasForeignKey(x => x.HolderOwnerId).OnDelete(DeleteBehavior.Restrict);
+  }
+}
+
+/// ownership_history_entry - a property's ownership from the old records, entered at once and approved once. The steps
+/// are kept as one jsonb document (they are read and written only as a whole, with the entry).
+public class OwnershipHistoryEntryConfiguration : EntityConfiguration<OwnershipHistoryEntry, HistoryEntryId>
+{
+  private static readonly System.Text.Json.JsonSerializerOptions Json = new(System.Text.Json.JsonSerializerDefaults.Web)
+  {
+    Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() },
+  };
+
+  private static string Write(IReadOnlyList<HistoryStep> steps) => System.Text.Json.JsonSerializer.Serialize(steps, Json);
+
+  private static IReadOnlyList<HistoryStep> Read(string json) =>
+      System.Text.Json.JsonSerializer.Deserialize<List<HistoryStep>>(json, Json) ?? new List<HistoryStep>();
+
+  public override void Configure(EntityTypeBuilder<OwnershipHistoryEntry> builder)
+  {
+    base.Configure(builder);
+    builder.ToTable("ownership_history_entry");
+
+    builder.HasKey(x => x.Id);
+    builder.Property(x => x.Id).HasConversion(id => id.Value, value => HistoryEntryId.Of(value));
+    builder.Property(x => x.PropertyId).HasConversion(id => id.Value, value => PropertyId.Of(value)).IsRequired();
+    builder.Property(x => x.EntryNo).HasBusinessCode(50).IsRequired();
+    // WAITING, REGISTERED, REJECTED, WITHDRAWN
+    builder.Property(x => x.Status).HasUpperSnakeEnum(20).IsRequired();
+    builder.Property(x => x.Steps)
+      .HasColumnType("jsonb")
+      .UsePropertyAccessMode(PropertyAccessMode.Property)
+      .HasConversion(
+        steps => Write(steps),
+        json => Read(json),
+        new Microsoft.EntityFrameworkCore.ChangeTracking.ValueComparer<IReadOnlyList<HistoryStep>>(
+          (a, b) => Write(a!) == Write(b!),
+          steps => Write(steps).GetHashCode(),
+          steps => Read(Write(steps))))
+      .IsRequired();
+    builder.Property(x => x.Remarks);
+    builder.Property(x => x.RecordedBy).HasMaxLength(Approver.NameMaxLength).IsRequired();
+    builder.Property(x => x.RecordedOn).IsRequired();
+    builder.Property(x => x.DecidedBy).HasMaxLength(Approver.NameMaxLength);
+    builder.Property(x => x.DecidedByUserId);
+    builder.Property(x => x.DecidedOn);
+    builder.Property(x => x.DecisionReason);
+    builder.Ignore(x => x.IsWaiting);
+    builder.Ignore(x => x.TransferCount);
+    builder.Ignore(x => x.DocumentIds);
+
+    builder.HasXminRowVersion();
+
+    builder.HasIndex(x => x.EntryNo).IsUnique();
+    builder.HasIndex(x => new { x.PropertyId, x.Status });
+
+    builder.HasOne<Property>().WithMany().HasForeignKey(x => x.PropertyId).OnDelete(DeleteBehavior.Restrict);
   }
 }

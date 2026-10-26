@@ -84,7 +84,10 @@ public sealed record PropertyDto(
   DateTime? UpdatedAt,
   Guid? UpdatedBy,
   DateOnly? DeactivatedOn = null,
-  string? DeactivationReason = null);
+  string? DeactivationReason = null,
+  DateOnly? RegisteredOn = null,
+  DatePrecision RegisteredOnPrecision = DatePrecision.Exact,
+  string? RegistrationReference = null);
 
 public sealed record StatusHistoryDto(
   Guid Id,
@@ -152,6 +155,9 @@ public sealed record OwnerListItemDto(
   bool IsActive);
 
 /// CnicDocumentId: the owner's current CNIC copy (latest active, latest-version CNIC_COPY owner document).
+/// OldIdType / OldIdNo: an individual from the old records identified by an old NIC, a passport or "no ID on record"
+/// instead of a CNIC. IsDeceased / DateOfDeath: the person has died. CanHoldToday: a share may be registered in their
+/// name today (false for a living person known only by an old ID).
 public sealed record OwnerDto(
   Guid Id,
   string OwnerCode,
@@ -167,7 +173,12 @@ public sealed record OwnerDto(
   IReadOnlyList<OwnerContactDto> Contacts,
   IReadOnlyList<OwnerAddressDto> Addresses,
   DateTime? CreatedAt,
-  Guid? CreatedBy);
+  Guid? CreatedBy,
+  OldIdType? OldIdType = null,
+  string? OldIdNo = null,
+  bool IsDeceased = false,
+  DateOnly? DateOfDeath = null,
+  bool CanHoldToday = true);
 
 public sealed record OwnerContactDto(Guid Id, MasterRef? ContactType, string ContactNumber, bool IsPrimary, bool IsActive, string? Remarks);
 
@@ -207,7 +218,8 @@ public sealed record OwnershipDto(
   string? AcquiredViaTransferNo,
   Guid? AcquiredViaAllotmentId,
   string? AcquiredViaAllotmentNo,
-  string? EndReferenceNo = null);
+  string? EndReferenceNo = null,
+  DatePrecision EffectiveFromPrecision = DatePrecision.Exact);
 
 /// Read-side facts about an ownership row that need other rows: see OwnershipDto.
 public sealed record OwnershipLinks(DateOnly HoldingSince, string? TransferNo, string? AllotmentNo);
@@ -248,7 +260,8 @@ public sealed record TransferDto(
   Guid? ApprovedByUserId = null,
   Guid? ApprovedByEmployeeId = null,
   string? NoDuesCertificateNo = null,
-  bool RecordedPast = false);
+  bool RecordedPast = false,
+  DatePrecision TransferDatePrecision = DatePrecision.Exact);
 
 public sealed record EncumbranceDto(
   Guid Id,

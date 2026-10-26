@@ -28,6 +28,7 @@ public static class PropertyAudit
 
       .Entity<PropertyOwnership>(e => e.Kind("Ownership").Under<Property>(x => x.PropertyId))
       .Entity<PropertyTransfer>(e => e.Kind("Transfer").Code(x => x.TransferNo.Value).Under<Property>(x => x.PropertyId))
+      .Entity<OwnershipHistoryEntry>(e => e.Kind("Ownership history").Code(x => x.EntryNo.Value).Under<Property>(x => x.PropertyId))
       .Entity<PropertyTransferParty>(e => e.Kind("Transfer party").Code(x => x.Transfer == null ? null : x.Transfer.TransferNo.Value)
         .Under<Property>(x => x.Transfer == null ? null : x.Transfer.PropertyId))
       .Entity<PropertyEncumbrance>(e => e.Kind("Encumbrance").Under<Property>(x => x.PropertyId))

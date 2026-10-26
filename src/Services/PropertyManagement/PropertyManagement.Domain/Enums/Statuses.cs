@@ -16,6 +16,18 @@ public enum TransferPartyRole { Transferor, Transferee }
 /// property_encumbrance.status
 public enum EncumbranceStatus { Active, Released, Enforced }
 
+/// How well a date from the old records is known: the day, only the month, only the year, or roughly ("about
+/// 1972"). The date itself is stored as the first day of what is known (1972-03-01 for March 1972). Dates entered
+/// today are Exact.
+public enum DatePrecision { Exact, Month, Year, About }
+
+/// property_owner.old_id_type: what an individual from the old records was identified by instead of a CNIC.
+public enum OldIdType { OldNic, Passport, NotRecorded }
+
+/// ownership_history_entry.status. Waiting: entered, a second officer has not decided yet. Registered: approved,
+/// the owners and transfers it describes are in the register. Rejected / Withdrawn: closed, nothing changed.
+public enum HistoryEntryStatus { Waiting, Registered, Rejected, Withdrawn }
+
 /// property_area_regularization.regularization_status
 public enum RegularizationStatus { Applied, Pending, Regularized, Rejected }
 
@@ -40,7 +52,10 @@ public enum DocumentEntityType
   BuildingPlan,
   Encumbrance,
   Violation,
-  Regularization
+  Regularization,
+  /// A paper filed with an ownership history entry while it waits; when the entry is registered the paper moves to
+  /// the transfer (or first ownership) of its step.
+  OwnershipHistory
 }
 
 /// attribute_definition.data_type — custom fields admins add on top of the schema.

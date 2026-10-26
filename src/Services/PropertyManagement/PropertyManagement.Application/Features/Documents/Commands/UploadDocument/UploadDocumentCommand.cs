@@ -40,6 +40,8 @@ public class UploadDocumentCommandValidator : AbstractValidator<UploadDocumentCo
       .WithMessage("An owner's paper is filed on the owner (POST /owners/{id}/documents), not on a property.");
     RuleFor(x => x.DocumentTypeId).NotEmpty();
     RuleFor(x => x.EntityType).IsInEnum();
+    RuleFor(x => x.EntityType).NotEqual(DocumentEntityType.OwnershipHistory)
+      .WithMessage("A paper of an ownership history belongs to one of its steps: file it with POST /ownership-history/{id}/steps/{step}/documents.");
     RuleFor(x => x.File).NotNull();
     RuleFor(x => x.Details.Title).MaximumLength(200);
     RuleFor(x => x.Details.ReferenceNo).MaximumLength(100);

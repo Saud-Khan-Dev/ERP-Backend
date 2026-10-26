@@ -23,6 +23,7 @@ public static class DependencyInjection
     services.AddScoped<DocumentService>();
     services.AddScoped<PropertyReadService>();
     services.AddScoped<TransferReader>();
+    services.AddScoped<OwnershipHistoryService>();
 
     return services;
   }

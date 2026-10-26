@@ -12,6 +12,9 @@ public class PropertyOwnership : Aggregate<OwnershipId>
   public MasterId TenureTypeId { get; private set; } = default!;
   public decimal OwnershipSharePct { get; private set; }
   public DateOnly EffectiveFrom { get; private set; }
+  /// How well EffectiveFrom is known (old records: "March 1972", "1972", "about 1972"). A row opened by a transfer
+  /// takes the transfer's.
+  public DatePrecision EffectiveFromPrecision { get; private set; }
   /// Null while current.
   public DateOnly? EffectiveTo { get; private set; }
   public OwnershipStatus OwnershipStatus { get; private set; }
@@ -72,7 +75,8 @@ public class PropertyOwnership : Aggregate<OwnershipId>
       DateOnly EffectiveFrom,
       TransferType? AcquisitionTransferType = null,
       string? ReferenceNo = null,
-      string? Remarks = null);
+      string? Remarks = null,
+      DatePrecision Precision = DatePrecision.Exact);
 
   /// The "add the first owner(s)" act, also used when a property is registered with its owners: the owners of a
   /// property that NOBODY holds now, entered in one go (joint owners together) with shares that add up to exactly 100%.
@@ -120,10 +124,84 @@ public class PropertyOwnership : Aggregate<OwnershipId>
     foreach (var o in owners)
       OwnershipHistory.EnsureCanStart(o.Owner.OwnerName.Value, record.RowsOf(o.Owner.Id), o.EffectiveFrom, "the new share");
 
+    // a share registered as it stands today needs a holder with a CNIC (or the estate of one who has died); people
+    // from the old records hold shares only inside an ownership history being played forward
+    if (!record.ReplayingHistory)
+      foreach (var o in owners)
+        o.Owner.EnsureCanHoldToday();
+
     return owners
-      .Select(o => Register(OwnershipId.New(), record.Property, o.Owner, o.TenureType, o.SharePct, o.EffectiveFrom,
-        o.AcquisitionTransferType, o.ReferenceNo, o.Remarks, record.Today))
+      .Select(o =>
+      {
+        var row = Register(OwnershipId.New(), record.Property, o.Owner, o.TenureType, o.SharePct, o.EffectiveFrom,
+          o.AcquisitionTransferType, o.ReferenceNo, o.Remarks, record.Today);
+        row.EffectiveFromPrecision = o.Precision;
+        return row;
+      })
       .ToList();
+  }
+
+  /// A row opened by a transfer from the old records starts as precisely as the transfer's date is known.
+  internal void MarkDatePrecision(DatePrecision precision) => EffectiveFromPrecision = precision;
+
+  /// The transfer that opened / closed this row was re-dated (PropertyTransfer.CorrectHistory checks the order).
+  internal void MoveStart(DateOnly effectiveFrom) => EffectiveFrom = effectiveFrom;
+
+  internal void MoveEnd(DateOnly effectiveTo) => EffectiveTo = effectiveTo;
+
+  /// An ownership history entry that ends with the property's present holders explains how this holding (entered from
+  /// the register, nothing behind it) came about: it takes the acquisition the history worked out for the same owner,
+  /// share and start - the transfer that brought it, or the earlier holding it is the remainder of.
+  internal void AdoptHistoryOf(PropertyOwnership replayed)
+  {
+    if (AcquiredViaTransferId is not null || AcquiredViaAllotmentId is not null)
+      throw new DomainException("This holding already says how it was acquired.");
+
+    AcquiredViaTransferId = replayed.AcquiredViaTransferId;
+    AcquisitionTransferTypeId = replayed.AcquisitionTransferTypeId ?? AcquisitionTransferTypeId;
+    ReferenceNo ??= replayed.ReferenceNo;
+    EffectiveFromPrecision = replayed.EffectiveFromPrecision;
+    Remarks ??= replayed.Remarks;
+  }
+
+  /// An approving officer corrects how a holding was entered from the old papers: how it was acquired, the deed /
+  /// mutation no., remarks - and, for a holding that no transfer or allotment opened (a first owner), its start date
+  /// and how well that date is known. Rows a transfer opened start on the transfer's date: correct the transfer instead.
+  public void CorrectHistory(
+      TransferType? acquisitionTransferType,
+      string? referenceNo,
+      string? remarks,
+      DateOnly effectiveFrom,
+      DatePrecision precision,
+      OwnershipRecord record)
+  {
+    ArgumentNullException.ThrowIfNull(record);
+    acquisitionTransferType?.EnsureActive();
+    var opener = AcquiredViaTransferId is not null ? "transfer" : AcquiredViaAllotmentId is not null ? "allotment" : null;
+
+    if (effectiveFrom != EffectiveFrom || precision != EffectiveFromPrecision)
+    {
+      if (opener is not null || (Remarks ?? "").StartsWith("Remainder after", StringComparison.Ordinal))
+        throw new DomainException(
+          $"This holding started with the {opener ?? "transfer"} that created it, so its start date is that {opener ?? "transfer"}'s date - correct the {opener ?? "transfer"} instead.");
+      if (effectiveFrom > record.Today)
+        throw new DomainException($"A holding cannot start in the future ({effectiveFrom:yyyy-MM-dd}); today is {record.Today:yyyy-MM-dd}.");
+      if (EffectiveTo is { } end && effectiveFrom > end)
+        throw new DomainException($"This holding ended on {end:yyyy-MM-dd}; it cannot start after that.");
+
+      // the other entries of the same owner on the property keep their order, one entry per day
+      var others = record.RowsOf(OwnerId).Where(r => r.Id != Id).ToList();
+      if (others.Any(r => r.EffectiveFrom == effectiveFrom))
+        throw new DomainException($"{record.NameOf(OwnerId)} already has a holding on this property starting {effectiveFrom:yyyy-MM-dd}.");
+      if (others.Any(r => r.EffectiveFrom < EffectiveFrom && (r.EffectiveTo ?? DateOnly.MaxValue) > effectiveFrom))
+        throw new DomainException($"The new start date overlaps {record.NameOf(OwnerId)}'s earlier holding on this property.");
+    }
+
+    AcquisitionTransferTypeId = acquisitionTransferType?.Id;
+    ReferenceNo = Guard.Text(referenceNo, ReferenceMaxLength, "Reference no.");
+    Remarks = Guard.Text(remarks, 4000, "Remarks");
+    EffectiveFrom = effectiveFrom;
+    EffectiveFromPrecision = precision;
   }
 
   /// "A (60%) and B (40%)": the current holders, largest share first.

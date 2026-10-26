@@ -30,7 +30,8 @@ public static class Mappings
     x.Id.Value, x.PropertyCode.Value, x.PropertyName.Value,
     refs[x.TownId], refs[x.PropertyTypeId], refs[x.PropertyStatusId], refs[x.PropertyClassificationId],
     x.AddressLine, x.KhasraSurveyNo, x.Description, x.Remarks, x.IsActive, area, currentOwners,
-    x.CreatedAt, x.CreatedBy, x.UpdatedAt, x.UpdatedBy, x.DeactivatedOn, x.DeactivationReason);
+    x.CreatedAt, x.CreatedBy, x.UpdatedAt, x.UpdatedBy, x.DeactivatedOn, x.DeactivationReason,
+    x.RegisteredOn, x.RegisteredOnPrecision, x.RegistrationReference);
 
   public static StatusHistoryDto ToDto(this PropertyStatusHistory x, MasterRefs refs) => new(
     x.Id.Value, refs[x.PropertyStatusId], x.EffectiveFrom, x.EffectiveTo, x.Reason, x.ReferenceNo, x.CreatedAt, x.CreatedBy);
@@ -55,7 +56,7 @@ public static class Mappings
       .Select(c => new OwnerContactDto(c.Id.Value, refs[c.ContactTypeId], c.ContactNumber, c.IsPrimary, c.IsActive, c.Remarks)).ToList(),
     x.Addresses.OrderByDescending(a => a.IsActive).ThenByDescending(a => a.IsPrimary)
       .Select(a => new OwnerAddressDto(a.Id.Value, a.AddressType, a.FullAddress, a.CityTown, a.District, a.Province, a.Country, a.PostalCode, a.IsPrimary, a.IsActive)).ToList(),
-    x.CreatedAt, x.CreatedBy);
+    x.CreatedAt, x.CreatedBy, x.OldIdType, x.OldIdNo, x.IsDeceased, x.DateOfDeath, x.CanHoldToday);
 
   /// Links: what the read side worked out for the row (holding since, transfer and allotment codes).
   public static OwnershipDto ToDto(
@@ -65,7 +66,7 @@ public static class Mappings
     x.OwnershipSharePct, x.EffectiveFrom, x.EffectiveTo, x.OwnershipStatus,
     x.AcquisitionTransferTypeId is null ? null : refs[x.AcquisitionTransferTypeId],
     x.AcquiredViaTransferId?.Value, x.ReferenceNo, x.Remarks,
-    links.HoldingSince, links.TransferNo, x.AcquiredViaAllotmentId?.Value, links.AllotmentNo, x.EndReferenceNo);
+    links.HoldingSince, links.TransferNo, x.AcquiredViaAllotmentId?.Value, links.AllotmentNo, x.EndReferenceNo, x.EffectiveFromPrecision);
 
   public static TransferDto ToDto(this PropertyTransfer x, MasterRefs refs, PropertyRef? property, IReadOnlyDictionary<OwnerId, OwnerRef> owners) => new(
     x.Id.Value, property, x.TransferNo.Value, refs[x.TransferTypeId], x.TransferDate, x.TransferReferenceNo,
@@ -73,7 +74,7 @@ public static class Mappings
     x.Parties.OrderBy(p => p.PartyRole).Select(p => new TransferPartyDto(owners.GetValueOrDefault(p.OwnerId), p.PartyRole, p.SharePct)).ToList(),
     x.CreatedAt, x.CreatedBy,
     x.ApprovalOrderRef, x.CompletedOn, x.CompletedBy, x.ClosedOn, x.ClosedBy, x.ClosingReason,
-    x.ApprovedByUserId, x.ApprovedByEmployeeId, x.NoDuesCertificateNo, x.IsRecordedPast);
+    x.ApprovedByUserId, x.ApprovedByEmployeeId, x.NoDuesCertificateNo, x.IsRecordedPast, x.TransferDatePrecision);
 
   public static EncumbranceDto ToDto(this PropertyEncumbrance x, MasterRefs refs, IReadOnlyDictionary<OwnerId, OwnerRef> owners) => new(
     x.Id.Value, refs[x.EncumbranceTypeId], x.OwnershipId?.Value, x.HolderName,

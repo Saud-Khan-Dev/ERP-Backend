@@ -7,12 +7,21 @@
 /// What an owner must carry depends on the owner type (by system code): an INDIVIDUAL needs a CNIC; a COMPANY,
 /// TRUST, GOVERNMENT body or JOINT_ENTITY is identified by its NTN and has neither a CNIC nor a father / husband
 /// name. Owner types an administrator adds have no such rule.
+///
+/// Old records: an individual who never had a CNIC (owners of the 1960s-1990s) is entered with the identity they had
+/// instead - an old NIC, a passport, or "no ID on record" - and may be marked deceased. Such a person can appear in a
+/// property's history, but a share registered today needs a living holder with a CNIC (CanHoldToday); a deceased
+/// holder is allowed, since an estate is often still in the dead owner's name until it is transferred.
 public class PropertyOwner : Aggregate<OwnerId>
 {
   public const int NameMaxLength = 200;
   public const int FatherHusbandNameMaxLength = 200;
   public const int NtnMaxLength = global::Ntn.MaxLength;
   public const int RemarksMaxLength = 4000;
+  public const int OldIdNoMaxLength = 30;
+
+  /// An individual's identity from before CNICs, as the old papers give it.
+  public sealed record OldIdentity(OldIdType Type, string? Number);
 
   /// The organization owner types, with how a message names them ("A company has no CNIC ...").
   private static readonly Dictionary<string, string> Organizations = new()
@@ -39,7 +48,15 @@ public class PropertyOwner : Aggregate<OwnerId>
   /// The owner's current CNIC copy: the latest active, latest-version CNIC_COPY document filed on this owner
   /// (kept by RefreshCnicDocument).
   public DocumentId? CnicDocumentId { get; private set; }
+  /// Individuals without a CNIC (old records): the identity they had instead. Null for everyone else.
+  public OldIdType? OldIdType { get; private set; }
+  /// The old NIC or passport number (none for NotRecorded).
+  public string? OldIdNo { get; private set; }
+  /// The person has died (individuals only); the date when it is known.
+  public bool IsDeceased { get; private set; }
+  public DateOnly? DateOfDeath { get; private set; }
   public string? Remarks { get; private set; }
+  /// On the register (not whether the person is alive - see IsDeceased).
   public bool IsActive { get; private set; }
 
   public IReadOnlyList<OwnerContact> Contacts => _contacts.AsReadOnly();
@@ -54,12 +71,16 @@ public class PropertyOwner : Aggregate<OwnerId>
       Cnic? cnic,
       Ntn? ntn,
       EmailAddress? email,
-      string? remarks)
+      string? remarks,
+      OldIdentity? oldIdentity = null,
+      bool isDeceased = false,
+      DateOnly? dateOfDeath = null,
+      DateOnly? today = null)
   {
     ArgumentNullException.ThrowIfNull(ownerCode);
 
     var owner = new PropertyOwner { Id = id, OwnerCode = ownerCode, IsActive = true };
-    owner.Apply(ownerType, ownerName, fatherHusbandName, cnic, ntn, email, remarks);
+    owner.Apply(ownerType, ownerName, fatherHusbandName, cnic, ntn, email, remarks, oldIdentity, isDeceased, dateOfDeath, today);
     return owner;
   }
 
@@ -70,11 +91,36 @@ public class PropertyOwner : Aggregate<OwnerId>
       Cnic? cnic,
       Ntn? ntn,
       EmailAddress? email,
-      string? remarks)
+      string? remarks,
+      OldIdentity? oldIdentity = null,
+      bool isDeceased = false,
+      DateOnly? dateOfDeath = null,
+      DateOnly? today = null)
   {
     EnsureActive();
-    Apply(ownerType, ownerName, fatherHusbandName, cnic, ntn, email, remarks);
+    Apply(ownerType, ownerName, fatherHusbandName, cnic, ntn, email, remarks, oldIdentity, isDeceased, dateOfDeath, today);
   }
+
+  /// May a share be registered in this person's name today (as a first owner, or as the receiver of a transfer)?
+  /// An individual needs a CNIC - unless they have died: an estate often stays in the dead owner's name until it is
+  /// transferred. People known only from the old records (old NIC, passport, no ID) appear in a property's history.
+  public bool CanHoldToday => Cnic is not null || IsDeceased || OldIdType is null;
+
+  public void EnsureCanHoldToday()
+  {
+    if (!CanHoldToday)
+      throw new DomainException(
+        $"{OwnerName.Value} ({OwnerCode.Value}) has no CNIC on record - only {OldIdLabel(OldIdType)}. A share registered "
+        + "today needs a CNIC: add it on the owner's record first. People from the old records belong in the property's history.");
+  }
+
+  /// "an old NIC", "a passport", "no ID".
+  private static string OldIdLabel(OldIdType? type) => type switch
+  {
+    global::OldIdType.OldNic => "an old NIC",
+    global::OldIdType.Passport => "a passport",
+    _ => "no ID",
+  };
 
   /// Points cnic_document_id at the owner's current CNIC copy: of the CNIC_COPY documents filed on this owner,
   /// the active ones that no later version supersedes, the most recently uploaded. None left = no pointer.
@@ -267,7 +313,11 @@ public class PropertyOwner : Aggregate<OwnerId>
       Cnic? cnic,
       Ntn? ntn,
       EmailAddress? email,
-      string? remarks)
+      string? remarks,
+      OldIdentity? oldIdentity,
+      bool isDeceased,
+      DateOnly? dateOfDeath,
+      DateOnly? today)
   {
     ArgumentNullException.ThrowIfNull(ownerType);
     ArgumentNullException.ThrowIfNull(ownerName);
@@ -279,9 +329,25 @@ public class PropertyOwner : Aggregate<OwnerId>
       throw new DomainException($"Owner name cannot exceed {NameMaxLength} characters.");
 
     var fatherHusband = Guard.Text(fatherHusbandName, FatherHusbandNameMaxLength, "Father / husband name");
+    var individual = ownerType.Is(SystemMasterCodes.OwnerTypeIndividual);
 
-    if (ownerType.Is(SystemMasterCodes.OwnerTypeIndividual) && cnic is null)
-      throw new DomainException("An individual needs a CNIC (13 digits, e.g. 12345-1234567-1).");
+    // an old identity stands in for the CNIC of someone from the old records; with a CNIC it is not needed
+    var oldId = cnic is null ? oldIdentity : null;
+    var oldIdNo = oldId is null ? null : Guard.Text(oldId.Number, OldIdNoMaxLength, "Old ID number");
+    if (oldId is not null)
+    {
+      if (!individual)
+        throw new DomainException("Only a person is entered with an old NIC, a passport or \"no ID on record\"; an organization is identified by its NTN.");
+      if (oldId.Type == global::OldIdType.NotRecorded && oldIdNo is not null)
+        throw new DomainException("\"No ID on record\" takes no number - leave the number empty, or choose old NIC or passport.");
+      if (oldId.Type != global::OldIdType.NotRecorded && oldIdNo is null)
+        throw new DomainException($"Give the {(oldId.Type == global::OldIdType.OldNic ? "old NIC" : "passport")} number as it is written on the old papers.");
+    }
+
+    if (individual && cnic is null && oldId is null)
+      throw new DomainException(
+        "An individual needs a CNIC (13 digits, e.g. 12345-1234567-1). For someone in the old records who never had one, "
+        + "choose the old NIC or passport they had, or \"No ID on record\".");
 
     if (Organizations.TryGetValue(ownerType.Code.Value, out var organization))
     {
@@ -292,6 +358,13 @@ public class PropertyOwner : Aggregate<OwnerId>
         throw new DomainException($"{organization} has no father / husband name - leave it empty.");
     }
 
+    if (!isDeceased && dateOfDeath is not null)
+      throw new DomainException("A date of death is given only for someone marked as deceased.");
+    if (isDeceased && !individual)
+      throw new DomainException("Only a person can be marked as deceased.");
+    if (dateOfDeath is { } died && today is { } day && died > day)
+      throw new DomainException($"The date of death cannot be in the future ({died:yyyy-MM-dd}); today is {day:yyyy-MM-dd}.");
+
     OwnerTypeId = ownerType.Id;
     OwnerName = ownerName;
     FatherHusbandName = fatherHusband;
@@ -299,5 +372,9 @@ public class PropertyOwner : Aggregate<OwnerId>
     Ntn = ntn?.Value;
     Email = email;
     Remarks = Guard.Text(remarks, RemarksMaxLength, "Remarks");
+    OldIdType = oldId?.Type;
+    OldIdNo = oldIdNo;
+    IsDeceased = isDeceased;
+    DateOfDeath = dateOfDeath;
   }
 }

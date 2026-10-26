@@ -112,5 +112,11 @@ public static class MasterDataSeed
   public static IReadOnlyDictionary<string, Value[]> AddedLater { get; } = new Dictionary<string, Value[]>
   {
     ["document-types"] = OwnerDocumentTypes,
+    // how the first owner on record got the property, and a share passed by a court's order (ownership history, 2026-10)
+    ["transfer-types"] = new[]
+    {
+      new Value("FIRST_REGISTRATION", "First Registration"),
+      new Value("COURT_DECREE", "Court Decree"),
+    },
   };
 }

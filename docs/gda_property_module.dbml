@@ -316,6 +316,9 @@ Table property {
   is_active                   boolean [default: true]
   deactivated_on              date [note: 'day it was taken off the register (Pakistan date)']
   deactivation_reason         varchar(500) [note: 'required when deactivating']
+  registered_on               date [note: 'when the property was FIRST registered (old papers), not created_at; NULL = not recorded; not after its first holding']
+  registered_on_precision     varchar(12) [not null, default: 'EXACT', note: 'EXACT, MONTH, YEAR, ABOUT - how well registered_on is known (the date is the first day of it)']
+  registration_reference      varchar(100) [note: 'register / file / mutation no. of the original registration']
   xmin                        xid [note: 'row version: every ownership / allotment / charge act touches the property, so two clashing acts get 409']
   created_at  timestamp [default: `now()`]
   created_by  bigint
@@ -440,6 +443,10 @@ Table property_owner {
   ntn             varchar(20) [note: 'NTN stored 1234567-8 (FBR 7+1) or 12345-1234567-1 (CNIC-based); unique on its digits']
   email           varchar(150)
   cnic_document_id bigint [note: 'FK -> property_document: the latest active, latest-version CNIC_COPY document filed on this owner']
+  old_id_type     varchar(20) [note: 'OLD_NIC, PASSPORT, NOT_RECORDED: an individual from the old records with no CNIC (then required instead of it); NULL otherwise']
+  old_id_no       varchar(30) [note: 'the old NIC / passport no. (none for NOT_RECORDED)']
+  is_deceased     boolean [not null, default: false, note: 'individuals only; a living person known only by an old ID cannot hold a share registered today']
+  date_of_death   date [note: 'only when is_deceased; not in the future; no share passes to them after it']
   remarks         text
   is_active       boolean [default: true]
   created_at timestamp [default: `now()`]
@@ -496,6 +503,7 @@ Table property_ownership {
   tenure_type_id      bigint [not null]
   ownership_share_pct decimal(7,4) [not null, default: 100, note: '0 < share <= 100']
   effective_from      date [not null]
+  effective_from_precision varchar(12) [not null, default: 'EXACT', note: 'EXACT, MONTH, YEAR, ABOUT (old records); a row opened by a transfer takes its transfer_date_precision']
   effective_to        date [note: 'NULL = current']
   ownership_status    varchar(20) [not null, default: 'ACTIVE', note: 'ACTIVE, ENDED, DISPUTED (still held, cannot be transferred)']
   acquisition_transfer_type_id bigint [note: 'how this owner acquired (FK transfer_type)']
@@ -532,6 +540,7 @@ Table property_transfer {
   transfer_no           varchar(50) [unique, note: 'TRF-00001']
   transfer_type_id      bigint [not null]
   transfer_date         date [not null]
+  transfer_date_precision varchar(12) [not null, default: 'EXACT', note: 'EXACT, MONTH, YEAR, ABOUT - an old transfer entered through an ownership history may be known only roughly']
   transfer_reference_no varchar(100) [note: 'mutation / registry / order no.']
   share_transferred_pct decimal(7,4) [note: 'portion of property moved in this transfer']
   consideration_amount  decimal(18,2) [note: 'sale price / exchange value, informational only']
@@ -560,6 +569,38 @@ Table property_transfer {
   }
   Note: 'Header. Parties in property_transfer_party. Approving an INITIATED transfer completes it in the same step: old property_ownership rows are closed and new ones inserted.'
 }
+
+Table ownership_history_entry {
+  id             bigint [pk, increment]
+  property_id    bigint [not null]
+  entry_no       varchar(50) [not null, unique, note: 'HIS-00001 (code sequence HISTORY)']
+  status         varchar(20) [not null, note: 'WAITING, REGISTERED, REJECTED, WITHDRAWN']
+  steps          jsonb [not null, note: 'oldest first: [0] FIRST_OWNERS (receivers = first owners, 100%), then TRANSFER steps (givers -> receivers, balanced): date, precision, transfer_type_id, reference_no, consideration, relationship, approval_order_ref, remarks, document_ids; once registered each step keeps registered_transfer_id / registered_ownership_ids']
+  remarks        text
+  recorded_by    varchar(150) [not null]
+  recorded_on    date [not null]
+  decided_by     varchar(150)
+  decided_by_user_id uuid
+  decided_on     date
+  decision_reason text [note: 'rejection / withdrawal reason']
+  xmin           xid [note: 'row version']
+  created_at timestamp [default: `now()`]
+  created_by bigint [note: 'the clerk who entered it: the PROPERTY_TRANSFER rule keeps them from registering it']
+  updated_at timestamp
+  updated_by bigint
+
+  indexes {
+    (property_id, status)
+  }
+
+  Note: '''A property's ownership from the old records (1960 onwards), entered once and approved once by a second officer.
+  Registering plays the steps forward through the transfer rules and writes COMPLETED transfers (new TRF numbers) and
+  holdings; when the property is already held (holders entered with nothing behind them) the history must end with
+  exactly them, and their rows take on how they were acquired. Papers are filed per step (property_document entity_type
+  OWNERSHIP_HISTORY) and move to the step's transfer / first holding on registration.'''
+}
+
+Ref: ownership_history_entry.property_id > property.id
 
 Table property_transfer_party {
   id                    bigint [pk, increment]

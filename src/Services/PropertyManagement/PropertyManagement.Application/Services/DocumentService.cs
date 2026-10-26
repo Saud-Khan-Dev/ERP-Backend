@@ -55,6 +55,7 @@ public class DocumentService(
       DocumentEntityType.Litigation => await context.Litigations.AnyAsync(x => x.Id == LitigationId.Of(id) && x.PropertyId == propertyId, cancellationToken),
       DocumentEntityType.Appeal => await context.Appeals.AnyAsync(x => x.Id == AppealId.Of(id) && x.PropertyId == propertyId, cancellationToken),
       DocumentEntityType.BuildingPlan => await context.BuildingPlans.AnyAsync(x => x.Id == BuildingPlanId.Of(id) && x.PropertyId == propertyId, cancellationToken),
+      DocumentEntityType.OwnershipHistory => await context.HistoryEntries.AnyAsync(x => x.Id == HistoryEntryId.Of(id) && x.PropertyId == propertyId && x.Status == HistoryEntryStatus.Waiting, cancellationToken),
       _ => throw new DomainException($"Unknown document entity type {entityType}.")
     };
 

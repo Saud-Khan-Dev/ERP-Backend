@@ -27,6 +27,10 @@ public class PropertyConfiguration : EntityConfiguration<Property, PropertyId>
     builder.Property(x => x.IsActive).IsRequired().HasDefaultValue(true);
     builder.Property(x => x.DeactivatedOn);
     builder.Property(x => x.DeactivationReason);
+    // the original registration, as the old papers give it (not created_at, the day it was entered here)
+    builder.Property(x => x.RegisteredOn);
+    builder.Property(x => x.RegisteredOnPrecision).HasUpperSnakeEnum(12).IsRequired().HasDefaultValueSql("'EXACT'");
+    builder.Property(x => x.RegistrationReference).HasMaxLength(100);
     builder.HasXminRowVersion();
 
     builder.HasIndex(x => x.PropertyCode).IsUnique();
