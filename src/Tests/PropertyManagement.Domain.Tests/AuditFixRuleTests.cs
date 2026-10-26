@@ -17,7 +17,7 @@ public class OwnershipApprovalRuleTests
       Array.Empty<PropertyEncumbrance>(), Today, new PropertyAllotment.InForce(allotment, "Shazia Bibi"));
 
     Assert.Contains("only by confirming the allottee as owner",
-      Message(() => PropertyOwnership.AddOwner(OwnershipId.New(), someone, Owned, 100, D("2026-01-01"), null, null, null, record)));
+      Message(() => PropertyOwnership.RegisterFirstOwners(new[] { new PropertyOwnership.FirstOwner(someone, Owned, 100, D("2026-01-01")) }, record)));
   }
 
   [Fact]
@@ -28,36 +28,6 @@ public class OwnershipApprovalRuleTests
 
     Assert.False(Record(property, Array.Empty<PropertyOwnership>(), new[] { b }).HasHolderHistory);
     Assert.True(Record(property, new[] { Own(property, b, 100) }, new[] { b }).HasHolderHistory);
-  }
-
-  [Fact]
-  public void Ending_a_share_needs_the_order_it_ends_under()
-  {
-    var (property, _) = NewPlot();
-    var b = Owner("B");
-    var ownB = Own(property, b, 100);
-    var record = Record(property, new[] { ownB }, new[] { b });
-
-    Assert.Contains("Give the order or reference", Message(() => ownB.EndHolding(D("2026-10-01"), null, null, record)));
-
-    ownB.EndHolding(D("2026-10-01"), "DG/EST/77", "Surrendered to GDA.", record);
-    Assert.Equal(OwnershipStatus.Ended, ownB.OwnershipStatus);
-    Assert.Equal("DG/EST/77", ownB.EndReferenceNo);
-  }
-
-  [Fact]
-  public void A_share_confirmed_through_an_allotment_in_force_is_not_ended_by_hand()
-  {
-    var (property, classification) = NewPlot();
-    var allottee = Owner("Shazia Bibi");
-    var allotment = Allot(property, classification, allottee, "2025-01-01", "ALT-00007");
-    var confirmed = allotment.ConfirmOwnership(OwnershipId.New(), Active, allottee, Owned, 100, D("2025-02-01"), null, null,
-      Record(property, Array.Empty<PropertyOwnership>(), new[] { allottee }));
-    var record = new OwnershipRecord(property, new[] { confirmed }, new[] { allottee }, Array.Empty<PropertyTransfer>(),
-      Array.Empty<PropertyEncumbrance>(), Today, new PropertyAllotment.InForce(allotment, "Shazia Bibi"));
-
-    Assert.Equal("This share was confirmed through ALT-00007, which is still in force; surrender or cancel the allotment to end it.",
-      Message(() => confirmed.EndHolding(D("2026-10-01"), "ORDER-1", null, record)));
   }
 }
 
@@ -176,8 +146,6 @@ public class EnforcedChargeRuleTests
 
     Assert.Contains("which was enforced; it can only be transferred to Bank of Khyber",
       Message(() => Initiate(record, "2026-10-01", "TRF-00061", Gives(b, 100), Gets(d, 100))));
-    Assert.Contains("which was enforced; the share can only be transferred to Bank of Khyber",
-      Message(() => ownB.EndHolding(D("2026-10-01"), "ORDER-1", null, record)));
 
     Assert.Equal(TransferStatus.Initiated, Initiate(record, "2026-10-01", "TRF-00062", Gives(b, 100), Gets(bank, 100)).TransferStatus);
   }

@@ -134,6 +134,22 @@ public class AllotmentRuleTests
   }
 
   [Fact]
+  public void A_cancellation_does_not_end_a_share_being_given_away_in_a_waiting_transfer()
+  {
+    var (property, classification) = NewPlot();
+    PropertyOwner allottee = Owner("Shazia Bibi"), buyer = Owner("D");
+    var allotment = Allot(property, classification, allottee, "2025-01-01", "ALT-00041");
+    var confirmed = allotment.ConfirmOwnership(OwnershipId.New(), Active, allottee, Owned, 100, D("2025-06-01"), null, null,
+      Record(property, Array.Empty<PropertyOwnership>(), new[] { allottee }));
+    var pending = Initiate(Record(property, new[] { confirmed }, new[] { allottee, buyer }), "2026-10-01", "TRF-00041", Gives(allottee, 50), Gets(buyer, 50));
+    var record = Record(property, new[] { confirmed }, new[] { allottee, buyer }, pending: new[] { pending });
+
+    Assert.Equal("Shazia Bibi's share is being transferred in TRF-00041; cancel or approve that first.",
+      Message(() => allotment.Cancel(Active, Cancelled, D("2026-10-10"), "x", null, record)));
+    Assert.Equal(OwnershipStatus.Active, confirmed.OwnershipStatus);
+  }
+
+  [Fact]
   public void Status_machine_in_force_to_surrendered_or_expired_never_back()
   {
     var (property, classification) = NewPlot();
@@ -223,7 +239,7 @@ public class AllotmentRuleTests
     var confirmed = allotment.ConfirmOwnership(OwnershipId.New(), Active, allottee, Owned, 100, D("2025-02-01"), null, null,
       Record(property, Array.Empty<PropertyOwnership>(), new[] { allottee }));
 
-    Assert.Contains("cancel the allotment or end that ownership first", Message(() => allotment.Deactivate(property, new[] { confirmed })));
+    Assert.Contains("cancel or surrender the allotment instead, which ends that ownership", Message(() => allotment.Deactivate(property, new[] { confirmed })));
   }
 
   [Fact]

@@ -334,13 +334,13 @@ public class PropertyAllotment : Aggregate<AllotmentId>
 
     if (ConfirmedOwnership(ownerships) is { IsCurrent: true } confirmed)
       throw new DomainException(
-        $"{AllotmentNo.Value} was confirmed as ownership ({confirmed.OwnershipSharePct:0.####}% from {confirmed.EffectiveFrom:yyyy-MM-dd}); cancel the allotment or end that ownership first.");
+        $"{AllotmentNo.Value} was confirmed as ownership ({confirmed.OwnershipSharePct:0.####}% from {confirmed.EffectiveFrom:yyyy-MM-dd}); cancel or surrender the allotment instead, which ends that ownership.");
 
     IsActive = false;
   }
 
   /// Ends the current ownership rows produced by this allotment (the confirmation and a remainder after a
-  /// partial sale) on the given date, under the same rules as ending an ownership by hand.
+  /// partial sale) on the given date. A charged share, or one being given away in a waiting transfer, is not ended.
   private IReadOnlyList<PropertyOwnership> EndConfirmedOwnership(DateOnly date, string act, OwnershipRecord record)
   {
     var rows = record.Current.Where(o => o.AcquiredViaAllotmentId == Id).ToList();

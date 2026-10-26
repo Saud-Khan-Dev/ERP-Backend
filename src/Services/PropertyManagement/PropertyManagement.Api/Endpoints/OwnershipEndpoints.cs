@@ -1,4 +1,5 @@
-public sealed record EndOwnershipRequest(DateOnly EffectiveTo, string? EndReferenceNo = null, string? Remarks = null);
+/// The first owners of a property nobody holds, all at once (joint owners together): exactly 100% between them.
+public sealed record RegisterFirstOwnersRequest(IReadOnlyList<OwnershipInput> Owners);
 public sealed record RemarksRequest(string? Remarks = null);
 /// The approver is the signed-in officer: there is no "approved by" to type.
 public sealed record ApproveTransferRequest(DateOnly? ApprovalDate = null, string? ApprovalOrderRef = null, Guid? TenureTypeId = null, string? NoDuesCertificateNo = null);
@@ -24,31 +25,23 @@ public class OwnershipEndpoints : ICarterModule
       .WithSummary("Get Owners Of Property")
       .WithDescription("Current owners (active and disputed shares; a disputed share still counts) and the share allocated so far (at most 100%); includeHistory=true adds the ended rows.");
 
-    properties.MapPost("/{id:guid}/ownerships", async (Guid id, OwnershipInput ownership, ISender sender) =>
-        (await sender.Send(new RegisterOwnershipCommand(id, ownership))).ToOk())
+    properties.MapPost("/{id:guid}/ownerships", async (Guid id, RegisterFirstOwnersRequest request, ISender sender) =>
+        (await sender.Send(new RegisterFirstOwnersCommand(id, request.Owners ?? Array.Empty<OwnershipInput>()))).ToOk())
       .RequirePermission(PermissionCatalog.Property.Edit)
-      .WithName("RegisterOwnership")
-      .Produces<RegisterOwnershipCommandResult>()
+      .WithName("RegisterFirstOwners")
+      .Produces<RegisterFirstOwnersCommandResult>()
       .ProducesProblem(StatusCodes.Status400BadRequest)
       .ProducesProblem(StatusCodes.Status403Forbidden)
-      .WithSummary("Register Ownership")
-      .WithDescription("Records an owner's share directly. On a property nobody has held yet this is \"entered from the register\" (PROPERTY.EDIT); once the "
-        + "property has any holder history it changes who holds the land and needs PROPERTY.APPROVE (403 otherwise). Refused while an allotment is in force "
-        + "(confirm the allottee as owner instead), if the owner already holds a share, if the shares held would exceed 100%, if effectiveFrom is in the "
-        + "future or overlaps the owner's earlier entries. Changes between owners go through a transfer.");
+      .WithSummary("Register First Owners")
+      .WithDescription("Enters the owners of a property NOBODY holds now (no ACTIVE or DISPUTED share), all in one request - joint owners together - "
+        + "with shares that add up to exactly 100%. Once a property is held, a new owner comes in only through a transfer (POST /properties/{id}/transfers, "
+        + "or /transfers/completed for one that already happened), so this is refused (400) on a held property. On a property nobody has held yet the "
+        + "clerk enters them from the register (PROPERTY.EDIT); on one that was held before it needs PROPERTY.APPROVE (403 otherwise). Also refused "
+        + "while an allotment is in force (confirm the allottee as owner instead), for an owner listed twice, an effectiveFrom in the future or one "
+        + "that overlaps the owner's earlier entries on the property. There is no act that ends a share by hand: a share ends through a transfer, or "
+        + "through the cancellation or surrender of the allotment it was confirmed by.");
 
     var ownerships = app.MapGroup("/ownerships").WithTags("Ownership");
-
-    ownerships.MapPost("/{id:guid}/end", async (Guid id, EndOwnershipRequest request, ISender sender) =>
-        (await sender.Send(new EndOwnershipCommand(id, request.EffectiveTo, request.EndReferenceNo, request.Remarks))).ToOk())
-      .RequirePermission(PermissionCatalog.Property.Approve)
-      .WithName("EndOwnership")
-      .Produces<EndOwnershipCommandResult>()
-      .ProducesProblem(StatusCodes.Status400BadRequest)
-      .WithSummary("End Ownership")
-      .WithDescription("An approver closes a share without a transfer (effectiveTo not in the future; endReferenceNo, the order it ends under, required). "
-        + "The row stays as ownership history. Refused while a charge holds the share or the whole property, while the share is being given away in a "
-        + "pending transfer, and for a share confirmed through an allotment still in force (surrender or cancel the allotment).");
 
     ownerships.MapPost("/{id:guid}/dispute", async (Guid id, RemarksRequest request, ISender sender) =>
         (await sender.Send(new SetOwnershipDisputeCommand(id, true, request.Remarks))).ToOk())
@@ -163,7 +156,7 @@ public class OwnershipEndpoints : ICarterModule
       .ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Register Encumbrance")
       .WithDescription("A mortgage, lien or charge (Act s.6(4)(c)), optionally on one owner's current share; startDate not in the future. While it is "
-        + "ACTIVE the share (or, without ownershipId, every share) cannot be transferred or ended.");
+        + "ACTIVE the share (or, without ownershipId, every share) cannot be transferred.");
 
     properties.MapGet("/{id:guid}/encumbrances", async (Guid id, EncumbranceStatus? status, ISender sender) =>
         (await sender.Send(new GetPropertyEncumbrancesQuery(id, status))).ToOk())

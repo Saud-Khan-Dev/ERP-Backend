@@ -3764,6 +3764,11 @@ namespace PropertyManagement.Infrastructure.Data.Migrations
                         .IsUnique()
                         .HasDatabaseName("ix_property_ownership_property_id_owner_id_effective_from");
 
+                    b.HasIndex(new[] { "PropertyId", "OwnerId" }, "ux_property_ownership_current_holding")
+                        .IsUnique()
+                        .HasDatabaseName("ux_property_ownership_current_holding")
+                        .HasFilter("ownership_status IN ('ACTIVE', 'DISPUTED')");
+
                     b.ToTable("property_ownership", "property", t =>
                         {
                             t.HasCheckConstraint("ck_property_ownership_period", "effective_to IS NULL OR effective_to >= effective_from");

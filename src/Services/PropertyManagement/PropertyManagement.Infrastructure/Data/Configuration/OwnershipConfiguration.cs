@@ -30,6 +30,11 @@ public class PropertyOwnershipConfiguration : EntityConfiguration<PropertyOwners
     builder.HasIndex(x => new { x.PropertyId, x.OwnershipStatus });
     builder.HasIndex(x => x.OwnerId);
     builder.HasIndex(x => new { x.PropertyId, x.OwnerId, x.EffectiveFrom }).IsUnique();
+    // one current holding per owner per property (a change of share is a transfer, which closes the old row first)
+    builder.HasIndex(x => new { x.PropertyId, x.OwnerId }, "ux_property_ownership_current_holding")
+      .HasDatabaseName("ux_property_ownership_current_holding")
+      .IsUnique()
+      .HasFilter("ownership_status IN ('ACTIVE', 'DISPUTED')");
 
     builder.HasOne<Property>().WithMany().HasForeignKey(x => x.PropertyId).OnDelete(DeleteBehavior.Restrict);
     builder.HasOne<PropertyOwner>().WithMany().HasForeignKey(x => x.OwnerId).OnDelete(DeleteBehavior.Restrict);

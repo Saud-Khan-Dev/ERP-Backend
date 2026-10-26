@@ -14,10 +14,18 @@ public class SetPropertyActivationHandler(IApplicationDbContext context, IAuditT
     }
     else
     {
-      // a property taken off the register may not leave anything running on it, nor anyone holding it
+      // a property taken off the register may not leave anything running on it, nor anyone holding it - and a share
+      // held ends only through a transfer (or an allotment's cancellation / surrender), so a held property stays on it
+      var holders = await HoldersAsync(property.Id, cancellationToken);
       var open = await OpenRecordsAsync(property.Id, cancellationToken);
-      if (open.Count > 0)
-        throw new DomainException($"{property.PropertyCode.Value} cannot be deactivated while records on it are still open. End or cancel these first: {string.Join(", ", open)}.");
+      if (holders.Count > 0 || open.Count > 0)
+        throw new DomainException(string.Join(" ", new[]
+        {
+          holders.Count > 0
+            ? $"{property.PropertyCode.Value} is held by {string.Join(" and ", holders)}, so it stays on the register: a share held ends only when it is transferred."
+            : $"{property.PropertyCode.Value} cannot be deactivated while records on it are still open.",
+          open.Count > 0 ? $"{(holders.Count > 0 ? "Also open" : "End or cancel these first")}: {string.Join(", ", open)}." : null,
+        }.Where(x => x is not null)));
 
       property.Deactivate(command.Reason, PropertyWriteGuard.Today());
       audit.Record(PropertyAuditActions.Deactivated, property, command.Reason);
@@ -27,21 +35,28 @@ public class SetPropertyActivationHandler(IApplicationDbContext context, IAuditT
     return Result<SetPropertyActivationCommandResult>.Success(new SetPropertyActivationCommandResult(property.IsActive));
   }
 
-  /// Current holders, pending transfers, charges in force, the allotment in force, active or draft leases / rentals /
-  /// contracts, running auctions, building plans under consideration and open legal matters (encroachments, court
-  /// cases, appeals, violations — the rules of OpenMatters), by code.
+  /// The current holders (ACTIVE or DISPUTED shares) as "A (60%)".
+  private async Task<List<string>> HoldersAsync(PropertyId propertyId, CancellationToken cancellationToken)
+  {
+    var holders = await context.CurrentOwnershipsAsync(propertyId, cancellationToken);
+    if (holders.Count == 0)
+      return new List<string>();
+
+    var ownerIds = holders.Select(h => h.OwnerId).Distinct().ToList();
+    var names = await context.Owners.AsNoTracking().Where(o => ownerIds.Contains(o.Id)).ToDictionaryAsync(o => o.Id, o => o.OwnerName.Value, cancellationToken);
+    return holders.GroupBy(h => h.OwnerId)
+      .Select(g => (Name: names.GetValueOrDefault(g.Key, "an owner"), Pct: g.Sum(h => h.OwnershipSharePct)))
+      .OrderByDescending(h => h.Pct)
+      .Select(h => $"{h.Name} ({h.Pct:0.####}%)")
+      .ToList();
+  }
+
+  /// Pending transfers, charges in force, the allotment in force, active or draft leases / rentals / contracts, running
+  /// auctions, building plans under consideration and open legal matters (encroachments, court cases, appeals,
+  /// violations — the rules of OpenMatters), by code.
   private async Task<List<string>> OpenRecordsAsync(PropertyId propertyId, CancellationToken cancellationToken)
   {
     var open = new List<string>();
-
-    var holders = await context.CurrentOwnershipsAsync(propertyId, cancellationToken);
-    if (holders.Count > 0)
-    {
-      var ownerIds = holders.Select(h => h.OwnerId).Distinct().ToList();
-      var names = await context.Owners.AsNoTracking().Where(o => ownerIds.Contains(o.Id)).ToDictionaryAsync(o => o.Id, o => o.OwnerName.Value, cancellationToken);
-      open.AddRange(holders.GroupBy(h => h.OwnerId)
-        .Select(g => $"the {g.Sum(h => h.OwnershipSharePct):0.####}% share held by {names.GetValueOrDefault(g.Key, "an owner")}"));
-    }
 
     open.AddRange((await context.Encumbrances.AsNoTracking()
         .Where(e => e.PropertyId == propertyId && (e.Status == EncumbranceStatus.Active || e.Status == EncumbranceStatus.Enforced))

@@ -503,7 +503,7 @@ Table property_ownership {
   acquired_via_allotment_id    bigint [note: 'FK property_allotment if ownership arises from allotment']
   reference_no        varchar(100) [note: 'mutation / registry / deed no.']
   remarks             text
-  end_reference_no  varchar(100) [note: 'order / reference the share ended under (required to end one)']
+  end_reference_no  varchar(100) [note: 'order / reference a share was ended under by hand (the "end ownership" act, removed 2026-10-26; kept on old rows)']
   created_at timestamp [default: `now()`]
   created_by bigint
   updated_at timestamp
@@ -513,10 +513,14 @@ Table property_ownership {
     (property_id, ownership_status)
     (owner_id)
     (property_id, owner_id, effective_from) [unique]
+    (property_id, owner_id) [unique, name: 'ux_property_ownership_current_holding', note: 'partial: WHERE ownership_status IN (\'ACTIVE\',\'DISPUTED\') - one current holding per owner per property']
   }
   Note: '''
-  Validation (app/trigger): SUM(ownership_share_pct) WHERE property_id=? AND ownership_status IN ('ACTIVE','DISPUTED') <= 100
-  (== 100 if GDA mandates fully-owned totals). Old rows are closed (effective_to) never deleted.
+  Validation (app): SUM(ownership_share_pct) WHERE property_id=? AND ownership_status IN ('ACTIVE','DISPUTED') <= 100.
+  Owners are entered directly only while NOBODY holds the property, all at once, with shares that add up to exactly 100
+  (first owners, POST /properties/{id}/ownerships or with POST /properties); once held, an owner comes in and a share ends
+  only through a transfer (or the cancellation / surrender of the allotment a share was confirmed through).
+  Old rows are closed (effective_to) never deleted.
   A partial seller's remainder row keeps the closed row's acquisition_transfer_type_id, acquired_via_transfer_id,
   acquired_via_allotment_id and reference_no (remarks "Remainder after TRF-…").
   '''

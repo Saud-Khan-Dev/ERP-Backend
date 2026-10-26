@@ -307,7 +307,7 @@ public class TransferRuleTests
   // ---- charged (mortgaged) shares ----
 
   [Fact]
-  public void A_mortgaged_share_cannot_be_transferred_or_ended_until_released()
+  public void A_mortgaged_share_cannot_be_transferred_until_released()
   {
     var (property, _) = NewPlot();
     PropertyOwner b = Owner("B"), d = Owner("D");
@@ -317,7 +317,6 @@ public class TransferRuleTests
 
     Assert.Equal("B's share is under the charge held by Bank of Khyber (ref MRT-1); release it before the share is transferred.",
       Message(() => Initiate(record, "2026-10-01", "TRF-00001", Gives(b, 50), Gets(d, 50))));
-    Assert.Contains("release it before the ownership is ended", Message(() => ownB.EndHolding(D("2026-10-01"), "ORDER-1", null, record)));
 
     mortgage.Release(property, D("2026-10-02"), "REL-1", Today);
     var released = Record(property, new[] { ownB }, new[] { b, d }, charges: new[] { mortgage });
@@ -400,40 +399,7 @@ public class TransferRuleTests
     Assert.Contains("inactive", Message(() => Approve(transfer, record)));
     Assert.Contains("inactive", Message(() => transfer.Cancel(property, "x", "clerk1", Today)));
     Assert.Contains("inactive", Message(() => ownB.MarkDisputed(property, null)));
-    Assert.Contains("inactive", Message(() => ownB.EndHolding(D("2026-10-01"), "ORDER-1", null, record)));
-  }
-
-  [Fact]
-  public void Ending_a_share_is_refused_in_the_future_and_while_it_is_being_transferred()
-  {
-    var (property, _) = NewPlot();
-    PropertyOwner b = Owner("B"), d = Owner("D");
-    var ownB = Own(property, b, 100);
-    var pending = Initiate(Record(property, new[] { ownB }, new[] { b, d }), "2026-10-01", "TRF-00041", Gives(b, 50), Gets(d, 50));
-    var record = Record(property, new[] { ownB }, new[] { b, d }, pending: new[] { pending });
-
-    Assert.Contains("cannot end in the future", Message(() => ownB.EndHolding(D("2026-10-14"), "ORDER-1", null, record)));
-    Assert.Equal("B's share is being transferred in TRF-00041; cancel or approve that first.",
-      Message(() => ownB.EndHolding(D("2026-10-10"), "ORDER-1", null, record)));
-  }
-
-  [Fact]
-  public void Adding_an_owner_checks_duplicates_the_100_percent_and_dates()
-  {
-    var (property, _) = NewPlot();
-    PropertyOwner b = Owner("B"), c = Owner("C");
-    var ownB = Own(property, b, 60, "2015-01-01");
-    ownB.MarkDisputed(property, null);
-    var record = Record(property, new[] { ownB }, new[] { b, c });
-
-    Assert.Contains("B already holds 60%", Message(() =>
-      PropertyOwnership.AddOwner(OwnershipId.New(), b, Owned, 10, D("2026-01-01"), null, null, null, record)));
-    Assert.Contains("Only 40%", Message(() =>
-      PropertyOwnership.AddOwner(OwnershipId.New(), c, Owned, 50, D("2026-01-01"), null, null, null, record)));
-    Assert.Contains("cannot start in the future", Message(() =>
-      PropertyOwnership.AddOwner(OwnershipId.New(), c, Owned, 40, D("2026-10-14"), null, null, null, record)));
-
-    var added = PropertyOwnership.AddOwner(OwnershipId.New(), c, Owned, 40, D("2026-01-01"), null, null, null, record);
-    Assert.Equal(40, added.OwnershipSharePct);
+    Assert.Contains("inactive", Message(() => PropertyOwnership.RegisterFirstOwners(
+      new[] { new PropertyOwnership.FirstOwner(d, Owned, 100, D("2026-01-01")) }, Record(property, Array.Empty<PropertyOwnership>(), new[] { d }))));
   }
 }

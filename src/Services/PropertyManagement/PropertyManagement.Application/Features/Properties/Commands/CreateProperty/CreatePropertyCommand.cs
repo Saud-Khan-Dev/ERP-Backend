@@ -5,7 +5,8 @@ public sealed record CreatePropertyCommandResult(Guid Id, string PropertyCode, I
 
 /// Registers a property: PROP-00001 is generated, the opening status-history row is written and,
 /// optionally, the first measurement, the first owners, the boundary survey and the custom-field values are
-/// recorded — all in the same save, so either everything is registered or nothing is.
+/// recorded — all in the same save, so either everything is registered or nothing is. Owners, when given, hold exactly
+/// 100% between them (PropertyOwnership.RegisterFirstOwners): later owners come in only through a transfer.
 public sealed record CreatePropertyCommand(
   PropertyInput Property,
   Guid PropertyStatusId,

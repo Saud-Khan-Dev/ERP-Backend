@@ -43,7 +43,7 @@ PropertyManagement.Infrastructure/
 PropertyManagement.Api/
   Endpoints/*.cs       Carter modules, one per area; request records sit at the top of each file
   PropertyExceptionHandler.cs   exception → ProblemDetails status mapping
-src/Tests/PropertyManagement.Domain.Tests/   xUnit tests of domain rules (232), in ERP.slnx under /Tests/
+src/Tests/PropertyManagement.Domain.Tests/   xUnit tests of domain rules (287), in ERP.slnx under /Tests/
 ```
 
 ## Domain model (DBML tables → classes)
@@ -82,7 +82,10 @@ Ids are Guids wrapped in strongly typed ids. Users live in the Identity service,
 
 1. Current ownership shares on a property never exceed 100%. "Current" = ACTIVE + DISPUTED everywhere: a disputed
    share is still held (100% total, duplicate-owner check, `allocatedSharePct`, current owners, registers), it just
-   cannot be transferred until the dispute is resolved.
+   cannot be transferred until the dispute is resolved. An owner holds at most ONE current row per property (partial
+   unique index `ux_property_ownership_current_holding` on (property_id, owner_id) where ACTIVE / DISPUTED).
+   **Owners come in only through a transfer once a property is held** (2026-10-26): owners are entered directly only
+   while nobody holds it, all at once with exactly 100% between them (see "First owners" below).
 2. History is never overwritten. A status change closes the old row (it starts on or before today and not before
    the current one), a new measurement or boundary survey supersedes the current one when it is the **latest dated**
    (same day or newer; an older survey is stored as history with `is_current = false` and a warning), lease terms are
@@ -158,11 +161,21 @@ property's records at the same moment…"). `property`, `property_transfer` and 
   details ("Remainder after TRF-…"); a net receiver's free rows are merged into one new row; a receiver's disputed or
   charged row is left as it is. `OwnershipDto.HoldingSince` walks back through the owner's rows that ended where the next
   began (`OwnershipHistory.HoldingSince`).
-- **Add owner / end ownership**: effectiveFrom / effectiveTo not in the future; add refuses an owner who already holds a
-  share and dates before the owner's earlier entries, and is refused while an allotment is in force (the plot gets an owner
-  only by confirming the allottee). Adding needs EDIT only on a property nobody has held yet (entered from the register),
-  otherwise APPROVE. End needs APPROVE and `endReferenceNo` (the order it ends under); it refuses a charged share (row or
-  whole property), a share being given in a waiting transfer, and a share confirmed through an allotment still in force.
+- **First owners** (`POST /properties/{id}/ownerships` `{ owners: [...] }`, `PropertyOwnership.RegisterFirstOwners`; also
+  the `owners` of `POST /properties`): only while the property has NO current owner (no ACTIVE or DISPUTED row) - a held
+  property is refused (400 "PROP-x is already registered in the name of A (60%) and B (40%). A new owner can only come in
+  through a transfer: use "Start transfer", or "Record a completed transfer" …"). Several owners in one request (joint
+  owners), each once, shares adding up to EXACTLY 100% (a partial first entry is refused: the rest could never be added
+  later), effectiveFrom not in the future and after each owner's own earlier entries on the property; refused while an
+  allotment is in force (confirm the allottee instead). PROPERTY.EDIT on a property nobody has held yet (entered from the
+  register); a property that was held before (its shares ended through an allotment's cancellation / surrender, or by
+  hand before 2026-10-26) needs PROPERTY.APPROVE (403). Every `POST /properties` with owners obeys the same 100% rule
+  (the data had no partial totals when the rule came in).
+- **No "end ownership"**: the route `POST /ownerships/{id}/end` and its command were removed on 2026-10-26 (404 now). A
+  share ends only when it is transferred (approve / record a completed transfer) or when the allotment it was confirmed
+  through is cancelled or surrendered. Rows ended by hand earlier keep their `end_reference_no`. Consequence: a property
+  somebody holds cannot be deactivated ("PROP-x is held by A (100%), so it stays on the register: a share held ends only
+  when it is transferred."), and neither can an owner holding a share of an active property.
 - **Allotments** (allot, cancel, restore, surrender, confirm: APPROVE): only GDA_PROPERTY
   (`PropertyAllotment.GdaPropertyClassificationCode`) is allotted, and only land no private holder has a share in (a
   GOVERNMENT owner's share is fine; "PROP-x is held by A (61%)…; only land GDA holds can be allotted"). `TakesEffectOn`
@@ -176,8 +189,9 @@ property's records at the same moment…"). `property`, `property_transfer` and 
 - **Charges (encumbrances)**: only against a current ownership row; start date not in the future; release date between
   start and today. Release / enforce need APPROVE; enforce needs `holderOwnerId`. An ENFORCED charge still blocks the share
   except a transfer to the charge holder, and that transfer, once registered, releases it (`releaseReferenceNo` = TRF no.).
-- **Deactivating a property** needs a reason (`deactivated_on`, `deactivation_reason`) and is refused while it has a
-  waiting transfer, a current share or charge, an allotment in force, an ACTIVE or DRAFT lease, rental or contract, a
+- **Deactivating a property** needs a reason (`deactivated_on`, `deactivation_reason`) and is refused while somebody holds
+  it (the message names the holders: a share ends only through a transfer, so a held property stays on the register), and
+  while it has a waiting transfer, a charge, an allotment in force, an ACTIVE or DRAFT lease, rental or contract, a
   running auction, a plan under consideration, or an open legal matter (OpenMatters); the message lists them. Every write in this area refuses a
   deactivated property.
 
@@ -249,8 +263,9 @@ is the profile: kinds in words, codes, and the parent - every record on a proper
 hearings, bids and transfer parties through their back-navigations `Litigation` / `Auction` / `Transfer`), an owner's
 contacts, addresses and own papers off the OWNER; boundary points are skipped (the survey line keeps the facts; capturing
 an encroached polygon writes one "Encroached area boundary" line). Decisions add a verb line (`PropertyAuditActions`:
-Approved, Rejected, Cancelled, Recorded for approval, Allotted, Restored, Confirmed, Terminated, Ended, Released, Enforced,
-Decided, Resolved, Awarded, Imposed, Waived, Sent for recovery, Activated, Deactivated) with the reason / order; opening a
+Approved, Rejected, Cancelled, Recorded for approval, Allotted, Restored, Confirmed, Terminated, Released, Enforced,
+Decided, Resolved, Awarded, Imposed, Waived, Sent for recovery, Activated, Deactivated; older "Ended" lines are from the
+removed "end ownership" act) with the reason / order; opening a
 paper writes "Downloaded". Handlers get the same DbContext instance the trail writes to (`IApplicationDbContext` resolves
 `ApplicationDbContext`). `GET /properties/{id}/history` and `/owners/{id}/history` (PROPERTY.VIEW; `before`, `from`, `to`,
 `action`, `search`, `pageSize`) answer `{ audit: { data, count }, restrictedCount }`; without PROPERTY_LEGAL.VIEW legal
@@ -287,10 +302,10 @@ or WAIVE). The frontend maps them in
 | Fines | fine-status WAIVED / RECOVERY_AS_ARREARS (PAID needs EDIT; the route accepts either) | `PROPERTY.WAIVE` |
 | Register | `GET /properties` (filters incl. transferPending, allotted, agreementInForce, hasHolder, charged, disputed, measured, hasBoundary; sort incl. holder; paging 1-200), `GET /properties/next-code`, `POST /properties` (can also save owners, boundary and custom fields in one transaction), `/properties/{id}/status`, `/measurements`, `/regularizations`, `/area`, `/attributes` | `PROPERTY.VIEW/CREATE/EDIT` |
 | Owners | `/owners` (search: code, CNIC or its first 5+ digits, NTN, name; `cnic` / `ntn` exact lookup; `hasHoldings`; `role` holder / allottee / lessee / tenant / contractor / bidder / encroacher / litigant / appellant / violator; `sortBy` code / name / type / holdings), contacts, addresses, documents | `PROPERTY.*` |
-| Ownership | `/properties/{id}/ownerships`, `/transfers` (initiate), `/transfers/completed` (past transfer), `/transfers/{id}/approve|reject|complete|cancel`, `/encumbrances/*` | approve, reject, complete and the past-transfer record need `PROPERTY.APPROVE`; cancel needs `PROPERTY_LEGAL.EDIT` (+ APPROVE for a legacy APPROVED one); disputes `PROPERTY_LEGAL.EDIT` |
+| Ownership | `/properties/{id}/ownerships` (GET; POST = first owners, only while nobody holds the property), `/transfers` (initiate), `/transfers/completed` (past transfer), `/transfers/{id}/approve|reject|complete|cancel`, `/encumbrances/*` | first owners `PROPERTY.EDIT` (+ APPROVE on a property held before); approve, reject, complete and the past-transfer record need `PROPERTY.APPROVE`; cancel needs `PROPERTY_LEGAL.EDIT` (+ APPROVE for a legacy APPROVED one); disputes `PROPERTY_LEGAL.EDIT` |
 | Management | `/properties/{id}/allotments|leases|rentals|violations|auctions|outsourcing-contracts` + action routes (`/leases/{id}/renew`, `/violations/{id}/fine` …) | official orders need `PROPERTY.APPROVE` |
 | Compliance | `/properties/{id}/boundaries|encroachments|litigations|appeals|building-plans` + action routes | official orders need `PROPERTY.APPROVE` |
-| Documents | `/properties/{id}/documents` (PROPERTY kinds), `/owners/{id}/documents` (OWNER kinds, no `propertyId`), `/documents/{id}` (details, re-type within scope), `/documents/{id}/versions|content|activate|deactivate` | `PROPERTY.*` |
+| Documents | `/properties/{id}/documents` (PROPERTY kinds), `/owners/{id}/documents` (OWNER kinds, no `propertyId`), `/documents/{id}` (details, re-type within scope), `/documents/{id}/versions|content|activate|deactivate` | `PROPERTY.*`; an owner upload is `PROPERTY.EDIT`, or `PROPERTY.CREATE` for an owner's FIRST CNIC copy only (other kinds, or a second copy, 403) - who registers owners files the copy with the registration |
 | Cross-property lists | `GET /agreements` (+ `direction`, `unconfirmed`), `/legal-matters` (+ `fineUnpaid`), `/transfers`, `/building-plans` (`awaitingDecision`, latest revision per plan) (pageSize 1-5000) | `PROPERTY.VIEW` |
 | Reports | `GET /property-reports/register` (same filters as `/properties`, max 5000, or picked `ids`), `/property-reports/ownership?asOf=` | `PROPERTY.VIEW` |
 
@@ -341,6 +356,11 @@ Migrations:
 6. `PropertyScopesAndChangeLog` (2026-10-20): custom-field scope arrays, `property_change`.
 7. `AuditTrail` (2026-10-22): `audit_entry` with append-only triggers, the old change log copied into it. (The snapshot's
    `OwnershipLink` view line is `b.ToTable((string)null)`: EF writes `ToTable(null, "property")`, which throws.)
+8. `OwnershipOnlyThroughTransfers` (2026-10-26): partial unique index `ux_property_ownership_current_holding` on
+   `property_ownership (property_id, owner_id) WHERE ownership_status IN ('ACTIVE','DISPUTED')`. It stops with directions
+   if an owner already holds two current rows of one property. (Hand-fixed `ToTable((string)null)` again in the designer
+   and snapshot.) A transfer that leaves a seller a remainder or merges a receiver's rows closes the old row and opens the
+   new one in one save; EF orders the UPDATE before the INSERT, so the index holds (checked on a copy of the data).
 
 Create migrations from `src/` with
 `dotnet ef migrations add <Name> -p Services/PropertyManagement/PropertyManagement.Infrastructure -s Services/PropertyManagement/PropertyManagement.Api`.
@@ -367,6 +387,8 @@ Config (`appsettings.json`):
 - Master values added after the first release (the owner document kinds) are in `MasterDataSeed.AddedLater`: the
   seeder adds each by code where missing, also to existing databases, and leaves existing rows alone.
 - Transfers move shares: the transferor side and the transferee side must balance. A gift needs `relationship`.
+  Once a property is held a transfer is the ONLY way a new owner comes in, and the only way a share ends (besides an
+  allotment's cancellation / surrender) - there is no "end ownership" act and no "add owner" on a held property.
   Approving a transfer registers it (there is no separate "complete" step for new transfers). `/transfers/completed`
   records a past transfer with the same rules: COMPLETED in one step only while the PROPERTY_TRANSFER rule is off, else it waits for a second officer.
 - An appeal against a fine marks the violation APPEALED. A decided appeal is final; its decision (or a withdrawal)

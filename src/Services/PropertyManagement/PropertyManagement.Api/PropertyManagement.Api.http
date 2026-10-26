@@ -206,19 +206,18 @@ Authorization: Bearer {{token}}
 ### 4. Ownership, transfers, encumbrances
 ##############################################################################
 
-### B holds 60% (rule 1: current shares never exceed 100%)
+### The first owners, all at once: B 60% and C 40% (together exactly 100%). Only while nobody holds the property -
+### once it is held, a new owner comes in only through a transfer (a second call here is refused).
 POST {{host}}/properties/{{createProperty.response.body.$.id}}/ownerships
 Authorization: Bearer {{token}}
 Content-Type: application/json
 
-{ "ownerId": "{{ownerB.response.body.$.id}}", "tenureTypeId": "{{owned}}", "ownershipSharePct": 60, "effectiveFrom": "2020-01-01" }
-
-### C holds 40%
-POST {{host}}/properties/{{createProperty.response.body.$.id}}/ownerships
-Authorization: Bearer {{token}}
-Content-Type: application/json
-
-{ "ownerId": "{{ownerC.response.body.$.id}}", "tenureTypeId": "{{owned}}", "ownershipSharePct": 40, "effectiveFrom": "2020-01-01" }
+{
+  "owners": [
+    { "ownerId": "{{ownerB.response.body.$.id}}", "tenureTypeId": "{{owned}}", "ownershipSharePct": 60, "effectiveFrom": "2020-01-01", "referenceNo": "Mutation No. 1588" },
+    { "ownerId": "{{ownerC.response.body.$.id}}", "tenureTypeId": "{{owned}}", "ownershipSharePct": 40, "effectiveFrom": "2020-01-01", "referenceNo": "Mutation No. 1588" }
+  ]
+}
 
 ### The guide's example: B gives 60 and C gives 20; C receives 30 and D receives 50 → C 50%, D 50%
 # @name transfer

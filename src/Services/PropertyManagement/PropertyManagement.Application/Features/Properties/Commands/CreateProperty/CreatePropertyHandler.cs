@@ -63,22 +63,26 @@ public class CreatePropertyHandler(IApplicationDbContext context, MasterLookup m
       warnings.AddRange(measurementWarnings);
     }
 
-    // ---- first owners: rule 1, the shares may total at most 100% ----
+    // ---- first owners: the same rule as entering them later - together exactly 100%, each owner once, no future date ----
 
-    var ownerships = new List<PropertyOwnership>();
-    foreach (var ownerInput in ownerInputs)
+    if (ownerInputs.Count > 0)
     {
-      var tenure = await masters.GetAsync<TenureType>(ownerInput.TenureTypeId, cancellationToken);
-      var acquiredBy = await masters.GetOptionalAsync<TransferType>(ownerInput.AcquisitionTransferTypeId, cancellationToken);
+      var firstOwners = new List<PropertyOwnership.FirstOwner>();
+      foreach (var ownerInput in ownerInputs)
+        firstOwners.Add(new PropertyOwnership.FirstOwner(
+          owners[OwnerId.Of(ownerInput.OwnerId)],
+          await masters.GetAsync<TenureType>(ownerInput.TenureTypeId, cancellationToken),
+          ownerInput.OwnershipSharePct,
+          ownerInput.EffectiveFrom,
+          await masters.GetOptionalAsync<TransferType>(ownerInput.AcquisitionTransferTypeId, cancellationToken),
+          ownerInput.ReferenceNo,
+          ownerInput.Remarks));
 
-      OwnershipShares.EnsureRoomFor(ownerships, ownerInput.OwnershipSharePct);
-
-      ownerships.Add(PropertyOwnership.Register(
-        OwnershipId.New(), property, owners[OwnerId.Of(ownerInput.OwnerId)], tenure, ownerInput.OwnershipSharePct,
-        ownerInput.EffectiveFrom, acquiredBy, ownerInput.ReferenceNo, ownerInput.Remarks, PropertyWriteGuard.Today()));
+      // a new property: nobody holds it, nothing waits, no charge or allotment on it
+      var record = new OwnershipRecord(property, Array.Empty<PropertyOwnership>(), owners.Values,
+        Array.Empty<PropertyTransfer>(), Array.Empty<PropertyEncumbrance>(), today);
+      await context.Ownerships.AddRangeAsync(PropertyOwnership.RegisterFirstOwners(firstOwners, record), cancellationToken);
     }
-
-    await context.Ownerships.AddRangeAsync(ownerships, cancellationToken);
 
     // ---- boundary survey ----
 

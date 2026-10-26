@@ -70,15 +70,17 @@ public class DocumentEndpoints : ICarterModule
     })
       .DisableAntiforgery()
       .Accepts<UploadDocumentForm>("multipart/form-data")
-      .RequirePermission(PermissionCatalog.Property.Edit)
+      .RequireAnyPermission(PermissionCatalog.Property.Edit, PermissionCatalog.Property.Create)
       .WithTags("Documents")
       .WithName("UploadOwnerDocument")
       .Produces<UploadDocumentCommandResult>(StatusCodes.Status201Created)
       .ProducesProblem(StatusCodes.Status400BadRequest)
+      .ProducesProblem(StatusCodes.Status403Forbidden)
       .WithSummary("Upload Owner Document")
       .WithDescription("An owner's own paper (CNIC copy, NTN certificate ...). It belongs to no property: sending propertyId is refused. The document type must "
         + "apply to OWNER and the owner must be active; both are checked before the file is stored. Stored at /owner-documents/{OWN code}/{document type folder}/. "
-        + "The owner's latest active CNIC Copy becomes the owner's cnicDocumentId.");
+        + "The owner's latest active CNIC Copy becomes the owner's cnicDocumentId. PROPERTY.EDIT files any owner paper; PROPERTY.CREATE (who registers owners) "
+        + "may file only a CNIC copy, and only for an owner with none on file yet (403 otherwise).");
 
     app.MapGet("/owners/{id:guid}/documents", async (Guid id, bool? includeSuperseded, bool? includeInactive, ISender sender) =>
         (await sender.Send(new GetDocumentsQuery(null, id, null, null, null, includeSuperseded ?? false, includeInactive ?? false))).ToOk())

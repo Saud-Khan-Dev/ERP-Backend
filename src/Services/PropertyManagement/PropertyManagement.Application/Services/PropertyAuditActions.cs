@@ -13,7 +13,6 @@ public static class PropertyAuditActions
   public const string Restored = "Restored";
   public const string Confirmed = "Confirmed";
   public const string Terminated = "Terminated";
-  public const string Ended = "Ended";
   public const string Released = "Released";
   public const string Enforced = "Enforced";
   public const string Decided = "Decided";
