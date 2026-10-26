@@ -81,7 +81,7 @@ public class DocumentEndpoints : ICarterModule
       .WithSummary("Replace Document Scan")
       .WithDescription("A better scan of the same paper. A rejected paper goes back to unverified; a verified one cannot be replaced.");
 
-    documents.MapGet("/{id:guid}/content", async (Guid id, ISender sender) => (await sender.Send(new GetDocumentContentQuery(id))).ToFile())
+    documents.MapGet("/{id:guid}/content", async (Guid id, bool? download, HttpResponse response, ISender sender) => (await sender.Send(new GetDocumentContentQuery(id, null, download ?? true))).ToFile(response))
       .RequirePermission(PermissionCatalog.Hr.View)
       .WithName("GetDocumentContent")
       .ProducesProblem(StatusCodes.Status404NotFound)
@@ -157,7 +157,7 @@ public class DocumentEndpoints : ICarterModule
       .ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Attach Degree Scan");
 
-    education.MapGet("/{id:guid}/content", async (Guid id, ISender sender) => (await sender.Send(new GetEducationContentQuery(id))).ToFile())
+    education.MapGet("/{id:guid}/content", async (Guid id, bool? download, HttpResponse response, ISender sender) => (await sender.Send(new GetEducationContentQuery(id, download ?? true))).ToFile(response))
       .RequirePermission(PermissionCatalog.Hr.View)
       .WithName("GetEducationContent")
       .ProducesProblem(StatusCodes.Status404NotFound)

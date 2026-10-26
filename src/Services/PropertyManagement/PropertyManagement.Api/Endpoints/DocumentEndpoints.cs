@@ -101,18 +101,19 @@ public class DocumentEndpoints : ICarterModule
       .ProducesProblem(StatusCodes.Status404NotFound)
       .WithSummary("Get Document");
 
-    documents.MapGet("/{id:guid}/content", async (Guid id, ISender sender) =>
+    documents.MapGet("/{id:guid}/content", async (Guid id, bool? download, HttpResponse response, ISender sender) =>
     {
-      var result = await sender.Send(new GetDocumentContentQuery(id));
+      var result = await sender.Send(new GetDocumentContentQuery(id, download ?? true));
       var file = result.Value!;
-      return Results.File(file.Content, file.MimeType, file.FileName);
+      return SafeFiles.File(response, file.Content, file.FileName);
     })
       .RequirePermission(PermissionCatalog.Property.View)
       .WithName("DownloadDocument")
       .Produces(StatusCodes.Status200OK)
       .ProducesProblem(StatusCodes.Status404NotFound)
       .WithSummary("Download Document")
-      .WithDescription("Streams the file with its original name.");
+      .WithDescription("Streams the file with its original name; its type comes from the extension, with nosniff and a sandbox CSP. "
+        + "download=false (the screen's viewer) is recorded as Viewed in the audit trail, otherwise Downloaded.");
 
     documents.MapPut("/{id:guid}", async (Guid id, UpdateDocumentRequest request, ISender sender) =>
         (await sender.Send(new UpdateDocumentDetailsCommand(id, request.DocumentTypeId, request.Details))).ToOk())

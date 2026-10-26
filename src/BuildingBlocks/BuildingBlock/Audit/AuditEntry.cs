@@ -41,8 +41,10 @@ public static class AuditActions
   public const string Exported = "Exported";
   /// A notice, certificate, slip or report was printed.
   public const string Printed = "Printed";
-  /// A document or file was downloaded.
+  /// A document or file was downloaded (saved to the person's computer).
   public const string Downloaded = "Downloaded";
+  /// A document or file was opened on screen in the viewer.
+  public const string Viewed = "Viewed";
   /// A run over many records at once (the daily job, a depreciation run, closing a day).
   public const string Ran = "Ran";
   /// A refused attempt worth keeping (an act blocked by a duty rule).

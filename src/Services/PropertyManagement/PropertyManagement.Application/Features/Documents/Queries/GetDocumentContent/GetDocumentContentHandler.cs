@@ -9,8 +9,8 @@ public class GetDocumentContentHandler(IApplicationDbContext context, IFileStora
     var stream = await storage.OpenReadAsync(document.RelativePath, cancellationToken)
       ?? throw new DocumentNotFoundException($"The file for document {query.Id} is missing from storage.");
 
-    // who opened which paper (a CNIC copy, a deed) is kept: a sensitive read
-    audit.Record(AuditActions.Downloaded, document, document.OriginalFileName);
+    // who opened which paper (a CNIC copy, a deed) is kept: a sensitive read - looked at, or taken away
+    audit.Record(query.Download ? AuditActions.Downloaded : AuditActions.Viewed, document, document.OriginalFileName);
     await audit.SaveAsync(cancellationToken);
 
     return Result<DocumentContent>.Success(new DocumentContent(stream, document.MimeType, document.OriginalFileName));

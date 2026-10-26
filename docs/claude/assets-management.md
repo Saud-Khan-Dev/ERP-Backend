@@ -239,7 +239,8 @@ directly (no `MapGroup`), with request and response records at the top of the fi
   and the choices' labels (`AttributeSchemaService` - `asset_attribute_history` is no longer written, kept read-only);
   Removed (asset deleted, with the reason); Recorded (hand event); Posted / Reversed / Added / Removed (a month);
   one Ran line per depreciation run (`audit.Quietly()` around the bulk save); Approved / Rejected / Withdrawn /
-  Cancelled (disposal); Downloaded (`…/content?download=true`).
+  Cancelled (disposal); Downloaded (`…/content?download=true`; without it - a thumbnail or a look in the viewer - no
+  line is written).
 - `GET /assets/{id}/history` (ASSETS.VIEW): the trail by parent, newest first (`before`, `from`, `to`, `action`, `kind`,
   `search`, `pageSize`); money kinds (Purchase, Depreciation schedule / month / run, Valuation, Disposal) come back
   `restricted: true` with no values or detail without ASSET_FINANCE.VIEW.

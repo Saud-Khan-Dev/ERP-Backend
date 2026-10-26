@@ -170,7 +170,7 @@ public class EmployeeEndpoints : ICarterModule
       .WithSummary("Upload Photo")
       .WithDescription("jpg, png or webp, up to 5 MB. Replaces the current photo.");
 
-    employees.MapGet("/{id:guid}/photo", async (Guid id, ISender sender) => (await sender.Send(new GetEmployeePhotoQuery(id))).ToFile())
+    employees.MapGet("/{id:guid}/photo", async (Guid id, HttpResponse response, ISender sender) => (await sender.Send(new GetEmployeePhotoQuery(id))).ToFile(response))
       .RequireAnyPermission(PermissionCatalog.Hr.View, PermissionCatalog.Attendance.View, PermissionCatalog.Payroll.View)
       .WithName("GetEmployeePhoto")
       .ProducesProblem(StatusCodes.Status404NotFound)
@@ -293,8 +293,9 @@ public static class Uploads
     return stream;
   }
 
-  public static IResult ToFile(this Result<StoredFile> result) =>
+  /// The file served safely (type from its name, nosniff, sandbox - see SafeFiles).
+  public static IResult ToFile(this Result<StoredFile> result, HttpResponse response) =>
       result.IsSuccess
-        ? Results.File(result.Value!.Content, result.Value.ContentType, result.Value.FileName)
+        ? SafeFiles.File(response, result.Value!.Content, result.Value.FileName)
         : Results.BadRequest(new { result.Message });
 }

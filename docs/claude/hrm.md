@@ -101,7 +101,7 @@ need only a signed-in token. `/me/*` needs a token carrying the `emp` claim (see
   assignment, entitlements, leave year end, reviews, GPF interest); `HrmJobSource` reports their last lines on
   `GET /system/status`. Decisions get verbs (`HrmVerbs`). Identity and employment changes are written by `ChangeLog`
   with the reason (their saves are quiet so the reason line is the only one). Document and education scans write
-  `Downloaded`. `GET /audit`, `GET /audit/kinds` (IAM_AUDIT.VIEW) and `POST /audit/exports` (HR / ATTENDANCE / PAYROLL
+  `Viewed` (`…/content?download=false`, the viewer; also `/me/documents/{id}/content`) or `Downloaded` (the default). `GET /audit`, `GET /audit/kinds` (IAM_AUDIT.VIEW) and `POST /audit/exports` (HR / ATTENDANCE / PAYROLL
   .EXPORT) come from `MapAuditTrail`; `/me/payslips/{id}/printed` notes one's own print. The rows of the old
   `employee_change_log` were copied in by the `AuditTrail` migration; the table is no longer written. The seeder acts as
   "System · Startup".

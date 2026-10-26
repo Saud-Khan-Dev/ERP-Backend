@@ -129,6 +129,13 @@ X.Api             Carter endpoint modules, exception handler, Program.cs, Depend
     `Quietly()` around bulk runs, `ActingAs("Daily job")` for the system. `app.MapAuditTrail<TContext>(exportCodes)`
     serves `GET /audit`, `GET /audit/kinds` (IAM_AUDIT.VIEW) and `POST /audit/exports` (a screen's CSV or print noted).
     Kept forever (government records).
+  - **Stored files** (`Files/SafeFiles.cs`): every endpoint that hands back an uploaded file returns
+    `SafeFiles.File(response, stream, fileName)` - the type comes from the file's extension (pdf, jpg/png/webp/gif,
+    tif, doc(x), xls(x), csv, txt; anything else `application/octet-stream`), never from what the uploader's browser
+    claimed, and the response carries `X-Content-Type-Options: nosniff` and `Content-Security-Policy: sandbox`, so a
+    file opened straight from the API can run nothing. `SafeFiles.Protect(response)` adds only the headers. A file's
+    `/content` takes `?download=` (default true): false is a look in the app's viewer and writes `AuditActions.Viewed`;
+    true writes `Downloaded`.
   - **System page** (`System/`): `app.MapSystemStatus<TContext>("Module words")` = `GET /system/status`
     (IAM_SYSTEM.VIEW): database, pending migrations, audit lines, jobs from `ISystemJobSource`.
 - **BuildingBlock.Messaging**: an empty placeholder; there is no message bus yet.

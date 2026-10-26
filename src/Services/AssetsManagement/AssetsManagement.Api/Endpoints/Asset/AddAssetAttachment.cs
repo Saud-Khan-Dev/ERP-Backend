@@ -41,11 +41,11 @@ public class AddAssetAttachment : ICarterModule
       .WithSummary("Upload Asset Attachment")
       .WithDescription("Uploads a document or photo of the asset (multipart/form-data, field 'file'). Stored under /asset-files/{asset code}/; the first photo becomes the main picture, isPrimaryImage=true makes this one the main picture.");
 
-    app.MapGet("/assets/{id}/attachments/{attachmentId}/content", async (Guid id, Guid attachmentId, bool? download, ISender sender) =>
+    app.MapGet("/assets/{id}/attachments/{attachmentId}/content", async (Guid id, Guid attachmentId, bool? download, HttpResponse response, ISender sender) =>
     {
       var result = await sender.Send(new GetAssetAttachmentContentQuery(id, attachmentId, download == true));
       var file = result.Value!;
-      return Results.File(file.Content, file.MimeType, file.FileName);
+      return SafeFiles.File(response, file.Content, file.FileName);
     })
       .RequirePermission(PermissionCatalog.Assets.View)
 

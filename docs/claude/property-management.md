@@ -294,7 +294,8 @@ an encroached polygon writes one "Encroached area boundary" line). Decisions add
 Approved, Rejected, Cancelled, Recorded for approval, Allotted, Restored, Confirmed, Terminated, Released, Enforced,
 Decided, Resolved, Awarded, Imposed, Waived, Sent for recovery, Activated, Deactivated; older "Ended" lines are from the
 removed "end ownership" act) with the reason / order; opening a
-paper writes "Downloaded". Handlers get the same DbContext instance the trail writes to (`IApplicationDbContext` resolves
+paper in the viewer writes "Viewed" (`/documents/{id}/content?download=false`), taking a copy writes "Downloaded"
+(the default). The stored MIME type is decided from the file's extension (`SafeFiles.ContentTypeOf`). Handlers get the same DbContext instance the trail writes to (`IApplicationDbContext` resolves
 `ApplicationDbContext`). `GET /properties/{id}/history` and `/owners/{id}/history` (PROPERTY.VIEW; `before`, `from`, `to`,
 `action`, `search`, `pageSize`) answer `{ audit: { data, count }, restrictedCount }`; without PROPERTY_LEGAL.VIEW legal
 kinds and hidden papers are left out. `GET /audit`, `/audit/kinds` (IAM_AUDIT.VIEW), `POST /audit/exports` (PROPERTY.EXPORT,

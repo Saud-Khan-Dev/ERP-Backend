@@ -178,7 +178,8 @@ public class DocumentService(
 
     var stored = await storage.SaveAsync(upload.Content, $"{rootFolder}/{documentType.StorageFolder}", extension, cancellationToken);
 
-    var mimeType = string.IsNullOrWhiteSpace(upload.ContentType) ? "application/octet-stream" : upload.ContentType;
+    // the type is the file name's, never what the uploader's browser claimed (a .pdf sent as text/html stays a PDF)
+    var mimeType = SafeFiles.ContentTypeOf(upload.FileName);
     return new PropertyDocument.StoredFile(stored.StoredFileName, stored.RelativePath, mimeType, stored.FileSizeBytes, stored.ChecksumSha256);
   }
 

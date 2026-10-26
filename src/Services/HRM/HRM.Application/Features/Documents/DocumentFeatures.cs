@@ -21,7 +21,8 @@ public sealed record GetExpiringDocumentsQuery(int WithinDays, bool IncludeExpir
 public sealed record GetDocumentsToVerifyQuery(Guid? DocumentTypeId, string? Search) : IQuery<Result<GetExpiringDocumentsQueryResult>>;
 
 /// OnlyForEmployee: self-service may open only its own documents.
-public sealed record GetDocumentContentQuery(Guid Id, Guid? OnlyForEmployee = null) : IQuery<Result<StoredFile>>;
+/// Download: saved to the person's computer (audit "Downloaded"); otherwise opened in the viewer ("Viewed").
+public sealed record GetDocumentContentQuery(Guid Id, Guid? OnlyForEmployee = null, bool Download = true) : IQuery<Result<StoredFile>>;
 
 public sealed record UploadEmployeeDocumentCommand(Guid EmployeeId, DocumentDetailsInput Details, UploadedFile File) : ICommand<Result<CreatedResult>>;
 
@@ -135,7 +136,7 @@ public class DocumentHandlers(IApplicationDbContext context, FileUploads files, 
     var type = await context.DocumentTypes.AsNoTracking().Where(t => t.Id == document.DocumentTypeId).Select(t => t.Name).FirstAsync(cancellationToken);
     var number = await context.Employees.AsNoTracking().Where(e => e.Id == document.EmployeeId).Select(e => e.EmployeeNumber).FirstAsync(cancellationToken);
     // a scanned paper (CNIC, degree, order) leaving the system is kept in the trail
-    audit.Record(AuditActions.Downloaded, document, query.OnlyForEmployee is null ? $"{type} scan" : $"{type} scan (own, through the portal)");
+    audit.Record(query.Download ? AuditActions.Downloaded : AuditActions.Viewed, document, query.OnlyForEmployee is null ? $"{type} scan" : $"{type} scan (own, through the portal)");
     await audit.SaveAsync(cancellationToken);
     return Result<StoredFile>.Success(await files.OpenAsync(document.FileReference, $"{number}-{type}{(document.DocumentNumber is null ? "" : "-" + document.DocumentNumber)}", cancellationToken));
   }
@@ -290,7 +291,7 @@ public sealed record RemoveEducationCommand(Guid Id) : ICommand<Result<UpdatedRe
 /// The scanned degree / certificate.
 public sealed record AttachEducationFileCommand(Guid Id, UploadedFile File) : ICommand<Result<UpdatedResult>>;
 
-public sealed record GetEducationContentQuery(Guid Id) : IQuery<Result<StoredFile>>;
+public sealed record GetEducationContentQuery(Guid Id, bool Download = true) : IQuery<Result<StoredFile>>;
 
 public class EducationInputValidator : AbstractValidator<EducationInput>
 {
@@ -342,7 +343,7 @@ public class EducationHandlers(IApplicationDbContext context, FileUploads files,
     if (education.FileReference is null)
       throw new StoredFileNotFoundException("No scan is attached to this qualification.");
     var number = await context.Employees.AsNoTracking().Where(e => e.Id == education.EmployeeId).Select(e => e.EmployeeNumber).FirstAsync(cancellationToken);
-    audit.Record(AuditActions.Downloaded, education, "Qualification scan");
+    audit.Record(query.Download ? AuditActions.Downloaded : AuditActions.Viewed, education, "Qualification scan");
     await audit.SaveAsync(cancellationToken);
     return Result<StoredFile>.Success(await files.OpenAsync(education.FileReference, $"{number}-{education.DegreeTitle}", cancellationToken));
   }

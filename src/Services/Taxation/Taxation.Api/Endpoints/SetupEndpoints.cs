@@ -367,9 +367,10 @@ public class SetupEndpoints : ICarterModule
       .WithTags("Notices Setup").WithName("UploadLogo").Produces<UploadLogoResult>().ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Upload Logo").WithDescription("PNG, JPG, SVG or WEBP up to 1 MB. Returns the fileRef to pass to Revise Letterhead.");
 
-    app.MapGet("/letterheads/{id:guid}/logo/{side}", async (Guid id, string side, ISender sender) =>
+    app.MapGet("/letterheads/{id:guid}/logo/{side}", async (Guid id, string side, HttpResponse response, ISender sender) =>
       {
         var result = await sender.Send(new GetLogoQuery(id, side));
+        SafeFiles.Protect(response);
         return result.IsSuccess ? Results.File(result.Value!.Content, result.Value.ContentType, result.Value.FileName) : Results.BadRequest(new { result.Message });
       })
       .RequireAnyPermission(TaxAuthorization.AnyTaxReader)
