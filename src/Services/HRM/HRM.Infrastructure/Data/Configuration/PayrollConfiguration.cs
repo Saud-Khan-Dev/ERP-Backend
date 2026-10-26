@@ -337,6 +337,37 @@ public class EmployeeRequestConfiguration : EntityConfiguration<EmployeeRequest,
   }
 }
 
+public class ProfileChangeRequestConfiguration : EntityConfiguration<ProfileChangeRequest, ProfileChangeRequestId>
+{
+  protected override AuditColumns Audit => AuditColumns.None;
+
+  public override void Configure(EntityTypeBuilder<ProfileChangeRequest> builder)
+  {
+    base.Configure(builder);
+    builder.ToTable("profile_change_request", t =>
+    {
+      t.HasCheckConstraint("ck_pcr_review", "status NOT IN ('approved','rejected') OR (reviewed_by IS NOT NULL AND reviewed_at IS NOT NULL)");
+      t.HasCheckConstraint("ck_pcr_rejection_reason", "status <> 'rejected' OR review_remarks IS NOT NULL");
+      t.HasCheckConstraint("ck_pcr_photo", "(area = 'photo') = (photo_path IS NOT NULL)");
+    });
+
+    builder.Property(x => x.Proposed).Jsonb();
+    builder.Property(x => x.Summary).IsRequired();
+    builder.Property(x => x.Status).HasDefaultValue(ProfileChangeStatus.Pending);
+    builder.Property(x => x.SubmittedAt).HasDefaultValueSql("now()");
+
+    builder.HasOne<Employee>().WithMany().HasForeignKey(x => x.EmployeeId).OnDelete(DeleteBehavior.NoAction);
+    builder.HasOne<EmployeeDocument>().WithMany().HasForeignKey(x => x.SupportingDocumentId).OnDelete(DeleteBehavior.NoAction);
+
+    builder.HasIndex(x => x.EmployeeId).HasDatabaseName("idx_pcr_employee");
+    builder.HasIndex(x => x.Status).HasDatabaseName("idx_pcr_status");
+    builder.HasIndex(x => x.SupportingDocumentId).HasDatabaseName("idx_pcr_supporting_document");
+    // one waiting change per entry (and one waiting photo): a second would be decided against a record the first changes
+    builder.HasIndex(x => new { x.EmployeeId, x.Area, x.TargetId }).IsUnique().AreNullsDistinct(false)
+      .HasFilter("status = 'pending' AND (target_id IS NOT NULL OR area = 'photo')").HasDatabaseName("ux_pcr_one_waiting");
+  }
+}
+
 // ---- views (keyless, read-only) ----
 
 public class HrmsViewConfiguration :

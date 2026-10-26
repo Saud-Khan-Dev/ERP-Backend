@@ -105,6 +105,9 @@ CREATE TYPE record_status_enum       AS ENUM ('active','inactive');
 CREATE TYPE task_priority_enum AS ENUM ('low','medium','high','urgent');
 CREATE TYPE task_status_enum   AS ENUM ('pending','in_progress','completed','on_hold','cancelled');
 CREATE TYPE employee_request_status_enum AS ENUM ('pending','approved','rejected','cancelled');
+CREATE TYPE profile_change_area_enum AS ENUM ('contact','address','emergency_contact','family_member','photo');
+CREATE TYPE profile_change_action_enum AS ENUM ('add','change','remove');
+CREATE TYPE profile_change_status_enum AS ENUM ('pending','approved','rejected','withdrawn');
 
 CREATE TYPE contact_type_enum  AS ENUM ('mobile','phone','email','whatsapp','other');
 CREATE TYPE address_type_enum  AS ENUM ('permanent','current','mailing','other');
@@ -1762,6 +1765,35 @@ CREATE TABLE employee_request (
 CREATE INDEX idx_er_employee ON employee_request (employee_id);
 CREATE INDEX idx_er_type     ON employee_request (request_type_id);
 CREATE INDEX idx_er_status   ON employee_request (status);
+
+-- A change an employee asks for to their own personal details (portal); made on the record only when HR approves.
+CREATE TABLE profile_change_request (
+  id                     uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  employee_id            uuid NOT NULL REFERENCES employee(id),
+  area                   profile_change_area_enum NOT NULL,
+  action                 profile_change_action_enum NOT NULL,
+  target_id              uuid,                    -- the contact / address / emergency contact / family member changed or removed
+  proposed               jsonb,                   -- the new values, as HR's own form takes them
+  summary                varchar NOT NULL,
+  before                 varchar,
+  photo_path             varchar,
+  note                   varchar,
+  supporting_document_id uuid REFERENCES employee_document(id),
+  status                 profile_change_status_enum NOT NULL DEFAULT 'pending',
+  submitted_at           timestamptz NOT NULL DEFAULT now(),
+  submitted_by           uuid NOT NULL,
+  reviewed_by            uuid,
+  reviewed_at            timestamptz,
+  review_remarks         varchar,
+  CONSTRAINT ck_pcr_review CHECK (status NOT IN ('approved','rejected') OR (reviewed_by IS NOT NULL AND reviewed_at IS NOT NULL)),
+  CONSTRAINT ck_pcr_rejection_reason CHECK (status <> 'rejected' OR review_remarks IS NOT NULL),
+  CONSTRAINT ck_pcr_photo CHECK ((area = 'photo') = (photo_path IS NOT NULL))
+);
+CREATE INDEX idx_pcr_employee ON profile_change_request (employee_id);
+CREATE INDEX idx_pcr_status   ON profile_change_request (status);
+CREATE INDEX idx_pcr_supporting_document ON profile_change_request (supporting_document_id);
+CREATE UNIQUE INDEX ux_pcr_one_waiting ON profile_change_request (employee_id, area, target_id) NULLS NOT DISTINCT
+  WHERE status = 'pending' AND (target_id IS NOT NULL OR area = 'photo');
 
 CREATE OR REPLACE FUNCTION fn_request_validate() RETURNS trigger
 LANGUAGE plpgsql AS $$

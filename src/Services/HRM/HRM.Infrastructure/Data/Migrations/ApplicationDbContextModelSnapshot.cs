@@ -49,6 +49,9 @@ namespace HRM.Infrastructure.Data.Migrations
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "hrms", "payroll_txn_status_enum", new[] { "calculated", "held", "released" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "hrms", "position_status_enum", new[] { "abolished", "filled", "frozen", "partially_filled", "sanctioned", "vacant" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "hrms", "post_lifecycle_enum", new[] { "abolished", "frozen", "sanctioned" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "hrms", "profile_change_action_enum", new[] { "add", "change", "remove" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "hrms", "profile_change_area_enum", new[] { "address", "contact", "emergency_contact", "family_member", "photo" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "hrms", "profile_change_status_enum", new[] { "approved", "pending", "rejected", "withdrawn" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "hrms", "record_status_enum", new[] { "active", "inactive" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "hrms", "review_status_enum", new[] { "acknowledged", "countersigned", "draft", "finalized", "submitted" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "hrms", "separation_type_enum", new[] { "compulsory_retirement", "death", "deputation_end", "dismissal", "end_of_contract", "other", "premature_retirement", "removal_from_service", "resignation", "retirement", "termination" });
@@ -4470,6 +4473,109 @@ namespace HRM.Infrastructure.Data.Migrations
                         });
                 });
 
+            modelBuilder.Entity("ProfileChangeRequest", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<ProfileChangeAction>("Action")
+                        .HasColumnType("hrms.profile_change_action_enum")
+                        .HasColumnName("action");
+
+                    b.Property<ProfileChangeArea>("Area")
+                        .HasColumnType("hrms.profile_change_area_enum")
+                        .HasColumnName("area");
+
+                    b.Property<string>("Before")
+                        .HasColumnType("varchar")
+                        .HasColumnName("before");
+
+                    b.Property<Guid>("EmployeeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("employee_id");
+
+                    b.Property<string>("Note")
+                        .HasColumnType("varchar")
+                        .HasColumnName("note");
+
+                    b.Property<string>("PhotoPath")
+                        .HasColumnType("varchar")
+                        .HasColumnName("photo_path");
+
+                    b.Property<string>("Proposed")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("proposed");
+
+                    b.Property<string>("ReviewRemarks")
+                        .HasColumnType("varchar")
+                        .HasColumnName("review_remarks");
+
+                    b.Property<DateTime?>("ReviewedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("reviewed_at");
+
+                    b.Property<Guid?>("ReviewedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("reviewed_by");
+
+                    b.Property<ProfileChangeStatus>("Status")
+                        .HasColumnType("hrms.profile_change_status_enum")
+                        .HasDefaultValue(ProfileChangeStatus.Pending)
+                        .HasColumnName("status");
+
+                    b.Property<DateTime>("SubmittedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("submitted_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid>("SubmittedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("submitted_by");
+
+                    b.Property<string>("Summary")
+                        .IsRequired()
+                        .HasColumnType("varchar")
+                        .HasColumnName("summary");
+
+                    b.Property<Guid?>("SupportingDocumentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("supporting_document_id");
+
+                    b.Property<Guid?>("TargetId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("target_id");
+
+                    b.HasKey("Id")
+                        .HasName("profile_change_request_pkey");
+
+                    b.HasIndex("EmployeeId")
+                        .HasDatabaseName("idx_pcr_employee");
+
+                    b.HasIndex("Status")
+                        .HasDatabaseName("idx_pcr_status");
+
+                    b.HasIndex("SupportingDocumentId")
+                        .HasDatabaseName("idx_pcr_supporting_document");
+
+                    b.HasIndex("EmployeeId", "Area", "TargetId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_pcr_one_waiting")
+                        .HasFilter("status = 'pending' AND (target_id IS NOT NULL OR area = 'photo')");
+
+                    NpgsqlIndexBuilderExtensions.AreNullsDistinct(b.HasIndex("EmployeeId", "Area", "TargetId"), false);
+
+                    b.ToTable("profile_change_request", "hrms", t =>
+                        {
+                            t.HasCheckConstraint("ck_pcr_photo", "(area = 'photo') = (photo_path IS NOT NULL)");
+
+                            t.HasCheckConstraint("ck_pcr_rejection_reason", "status <> 'rejected' OR review_remarks IS NOT NULL");
+
+                            t.HasCheckConstraint("ck_pcr_review", "status NOT IN ('approved','rejected') OR (reviewed_by IS NOT NULL AND reviewed_at IS NOT NULL)");
+                        });
+                });
+
             modelBuilder.Entity("QualificationLevel", b =>
                 {
                     b.Property<Guid>("Id")
@@ -5865,6 +5971,22 @@ namespace HRM.Infrastructure.Data.Migrations
                         .HasForeignKey("ReportingPostId")
                         .OnDelete(DeleteBehavior.NoAction)
                         .HasConstraintName("post_version_reporting_post_id_fkey");
+                });
+
+            modelBuilder.Entity("ProfileChangeRequest", b =>
+                {
+                    b.HasOne("Employee", null)
+                        .WithMany()
+                        .HasForeignKey("EmployeeId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired()
+                        .HasConstraintName("profile_change_request_employee_id_fkey");
+
+                    b.HasOne("EmployeeDocument", null)
+                        .WithMany()
+                        .HasForeignKey("SupportingDocumentId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .HasConstraintName("profile_change_request_supporting_document_id_fkey");
                 });
 
             modelBuilder.Entity("SalaryComponentRule", b =>

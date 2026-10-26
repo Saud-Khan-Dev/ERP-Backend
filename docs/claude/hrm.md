@@ -228,7 +228,8 @@ touches).
 ## Attention (the bell)
 
 `GET /attention` counts only queues the caller may act on (oldest item's date where it means something). HR.APPROVE:
-`hrActions.toApprove` (not the caller's own while HR_ACTION is on), `requests.toDecide`, `documents.toVerify`,
+`hrActions.toApprove` (not the caller's own while HR_ACTION is on), `requests.toDecide`, `profileChanges.toDecide` (also
+HR_SENSITIVE.VIEW), `documents.toVerify`,
 `increments.overdue`, `reviews.toFinalize`. HR.EDIT: `hrActions.toApply`, `hrActions.takeEffectLater`,
 `hrActions.myDrafts` (forMe), `tasks.overdue`, `documents.expiring`, `separations.unsettled`, `retirements.past`,
 `retirements.due`, `contracts.ending`, `employees.noDateOfBirth`, `employees.unplaced`. ATTENDANCE.APPROVE: `leave.toDecide`. PAYROLL.EDIT
@@ -261,6 +262,16 @@ maps each key to a filtered screen in `features/hrm/hrm.attention.ts`; keep the 
   Numbers are refused.
 - **Self-service** reuses the HR queries and commands with an `OnlyForEmployee` / `ReviewActor` parameter. Someone
   else's row is reported as 404, not 403.
+- **Profile changes** (`ProfileChangeRequest`, table `profile_change_request`): an employee asks for ONE change to their
+  own contacts, addresses, emergency contacts, family members or photo (`POST /me/profile-changes`, area + action add |
+  change | remove + targetId + the new values as HR's own input; `POST /me/profile-changes/photo` multipart; `GET`,
+  `…/{id}/withdraw`, `…/{id}/photo`). It is tried on an untracked copy of the record when asked (the record's own rules
+  answer at once) and stored with a summary in words and what the record said before. Nothing changes until HR decides:
+  `GET /profile-changes` (HR.VIEW + HR_SENSITIVE.VIEW), `POST /profile-changes/{id}/approve|reject` (HR.APPROVE +
+  HR_SENSITIVE.VIEW, never one's own - OWN_RECORD; a rejection needs the reason). Approval sends HR's own command
+  (`AddFamilyMemberCommand`, `UpdateContactCommand`, ...) in the same save, so every rule of the record applies; a
+  change the record no longer allows is refused and stays waiting. One waiting change per entry and one waiting photo
+  (`ux_pcr_one_waiting`). Bell key `profileChanges.toDecide`.
 - **Lists:** `QueryParsing.Page` and `PaginatedResult<T>`. Labels come from `HrLookup` in a fixed number of queries.
   Never query once per row.
 - **Name uniqueness in catalogues** is checked case-insensitively in the handler; the DB unique index is the backstop.

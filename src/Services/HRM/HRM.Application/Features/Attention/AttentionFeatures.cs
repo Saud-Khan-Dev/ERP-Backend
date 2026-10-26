@@ -46,6 +46,12 @@ public class AttentionHandlers(IApplicationDbContext context, ICurrentUser curre
       var requests = context.Requests.Where(r => r.Status == EmployeeRequestStatus.Pending);
       items.Add(new("requests.toDecide", await requests.CountAsync(cancellationToken), At(await requests.MinAsync(r => (DateTime?)r.SubmittedAt, cancellationToken))));
 
+      if (Can(PermissionCatalog.HrSensitive.View))
+      {
+        var changes = context.ProfileChanges.Where(r => r.Status == ProfileChangeStatus.Pending);
+        items.Add(new("profileChanges.toDecide", await changes.CountAsync(cancellationToken), At(await changes.MinAsync(r => (DateTime?)r.SubmittedAt, cancellationToken))));
+      }
+
       var toVerify = context.Documents.Where(d => (d.VerificationStatus == VerificationStatus.Unverified || d.VerificationStatus == VerificationStatus.Pending)
         && context.Employees.Any(e => e.Id == d.EmployeeId && e.ProfileStatus == RecordStatus.Active && inService.Contains(e.EmploymentStatus)));
       items.Add(new("documents.toVerify", await toVerify.CountAsync(cancellationToken), At(await toVerify.MinAsync(d => d.CreatedAt, cancellationToken))));

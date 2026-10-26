@@ -55,6 +55,13 @@ public enum EmployeeTaskStatus { Pending, InProgress, Completed, OnHold, Cancell
 
 public enum EmployeeRequestStatus { Pending, Approved, Rejected, Cancelled }
 
+/// What part of their own record an employee asks to change (Employee Portal › My profile).
+public enum ProfileChangeArea { Contact, Address, EmergencyContact, FamilyMember, Photo }
+
+public enum ProfileChangeAction { Add, Change, Remove }
+
+public enum ProfileChangeStatus { Pending, Approved, Rejected, Withdrawn }
+
 public enum ContactType { Mobile, Phone, Email, Whatsapp, Other }
 
 public enum AddressType { Permanent, Current, Mailing, Other }

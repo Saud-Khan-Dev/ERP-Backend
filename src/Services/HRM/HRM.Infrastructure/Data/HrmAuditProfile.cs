@@ -104,5 +104,6 @@ public static class HrmAuditProfile
     profile.Entity<EmployeeTaskUpdate>(e => e.Kind("Task progress").Under<EmployeeTask>(x => x.TaskId));
     profile.Entity<EmployeeRequestType>(e => e.Kind("Request type"));
     profile.Entity<EmployeeRequest>(e => e.Kind("Request").Label(x => x.Subject).Under<Employee>(x => x.EmployeeId));
+    profile.Entity<ProfileChangeRequest>(e => e.Kind("Profile change").Label(x => x.Summary).Under<Employee>(x => x.EmployeeId));
   }
 }

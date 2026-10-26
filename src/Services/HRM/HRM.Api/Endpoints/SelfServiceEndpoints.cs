@@ -43,7 +43,7 @@ public class SelfServiceEndpoints : ICarterModule
       .WithName("GetMyProfile")
       .Produces<GetEmployeeQueryResult>()
       .WithSummary("My Profile")
-      .WithDescription("Changes are asked for through a profile correction request.");
+      .WithDescription("Changes to contacts, addresses, emergency contacts, family and the photo are asked for through /me/profile-changes; HR approves them.");
 
     me.MapGet("/photo", async (CurrentEmployee current, HttpResponse response, ISender sender, CancellationToken ct) =>
         (await sender.Send(new GetEmployeePhotoQuery(await Self(current, ct)))).ToFile(response))
@@ -279,6 +279,52 @@ public class SelfServiceEndpoints : ICarterModule
       .ProducesProblem(StatusCodes.Status400BadRequest)
       .ProducesProblem(StatusCodes.Status404NotFound)
       .WithSummary("Withdraw My Request");
+
+    // ---- my profile: changes HR approves ----
+
+    me.MapGet("/profile-changes", async (int? pageIndex, int? pageSize, string? status, CurrentEmployee current, ISender sender, CancellationToken ct) =>
+        (await sender.Send(new GetProfileChangesQuery(QueryParsing.Page(pageIndex, pageSize), null, QueryParsing.ParseEnum<ProfileChangeStatus>(status, "status"),
+          null, await Self(current, ct)))).ToOk())
+      .WithName("GetMyProfileChanges")
+      .Produces<GetProfileChangesQueryResult>()
+      .ProducesProblem(StatusCodes.Status400BadRequest)
+      .WithSummary("My Profile Changes");
+
+    me.MapPost("/profile-changes", async (ProfileChangeInput change, CurrentEmployee current, ISender sender, CancellationToken ct) =>
+        (await sender.Send(new SubmitProfileChangeCommand(await Self(current, ct), change))).ToOk())
+      .WithName("AskForProfileChange")
+      .Produces<CreatedResult>()
+      .ProducesProblem(StatusCodes.Status400BadRequest)
+      .WithSummary("Ask for a Profile Change")
+      .WithDescription("One change: area contact | address | emergencyContact | familyMember, action add | change | remove, targetId for a change or "
+        + "a removal, and the new values in the matching field (as HR's own form takes them). Checked against the record's rules now; made when HR approves.");
+
+    me.MapPost("/profile-changes/photo", async ([Microsoft.AspNetCore.Mvc.FromForm] PhotoChangeForm form, CurrentEmployee current, ISender sender, CancellationToken ct) =>
+    {
+      await using var content = Uploads.Open(form.File, out var file);
+      return (await sender.Send(new SubmitPhotoChangeCommand(await Self(current, ct), file, form.Note))).ToOk();
+    })
+      .DisableAntiforgery()
+      .Accepts<PhotoChangeForm>("multipart/form-data")
+      .WithName("AskForNewPhoto")
+      .Produces<CreatedResult>()
+      .ProducesProblem(StatusCodes.Status400BadRequest)
+      .WithSummary("Ask for a New Photo")
+      .WithDescription("jpg, png or webp, up to 5 MB; it replaces the photo when HR approves.");
+
+    me.MapGet("/profile-changes/{id:guid}/photo", async (Guid id, CurrentEmployee current, HttpResponse response, ISender sender, CancellationToken ct) =>
+        (await sender.Send(new GetProfileChangePhotoQuery(id, await Self(current, ct)))).ToFile(response))
+      .WithName("GetMyProposedPhoto")
+      .ProducesProblem(StatusCodes.Status404NotFound)
+      .WithSummary("My Proposed Photo");
+
+    me.MapPost("/profile-changes/{id:guid}/withdraw", async (Guid id, CurrentEmployee current, ISender sender, CancellationToken ct) =>
+        (await sender.Send(new WithdrawProfileChangeCommand(id, await Self(current, ct)))).ToOk())
+      .WithName("WithdrawMyProfileChange")
+      .Produces<UpdatedResult>()
+      .ProducesProblem(StatusCodes.Status400BadRequest)
+      .ProducesProblem(StatusCodes.Status404NotFound)
+      .WithSummary("Withdraw My Profile Change");
 
     // ---- performance ----
 
