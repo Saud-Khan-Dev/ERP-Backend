@@ -77,7 +77,7 @@ public sealed class AuditTrail<TContext>(TContext context, AuditProfile profile,
     var parent = profile.ParentOf(record);
     Guid? parentId = parent is { } p ? AuditValues.Guid(p.Key) : null;
     string? parentCode = null;
-    if (parent is { Key: not null } pk && context.Find(pk.Type, pk.Key) is { } parentEntity)
+    if (parent is { Key: not null } pk && ParentType(pk.Type, pk.Key) is { } parentType && context.Find(parentType, pk.Key) is { } parentEntity)
       parentCode = profile.Name(parentEntity);
     Add(action, profile.KindOf(type), id, code, label, parentId ?? id, parentCode, field, oldValue, newValue, detail);
   }
@@ -87,6 +87,17 @@ public sealed class AuditTrail<TContext>(TContext context, AuditProfile profile,
     Add(action, recordKind, recordId, recordCode, recordLabel, parentId, parentCode, field, oldValue, newValue, detail);
 
   public Task SaveAsync(CancellationToken cancellationToken = default) => context.SaveChangesAsync(cancellationToken);
+
+  /// The entity the parent key belongs to: the declared one, or - when a record hangs off one of two parents (a paper
+  /// filed on a property or on an owner) - the entity whose key is of the key's own type.
+  private Type? ParentType(Type declared, object key)
+  {
+    static bool Fits(Microsoft.EntityFrameworkCore.Metadata.IEntityType? type, object key) =>
+        type?.FindPrimaryKey()?.Properties is [var property] && property.ClrType == key.GetType();
+    if (Fits(context.Model.FindEntityType(declared), key))
+      return declared;
+    return context.Model.GetEntityTypes().FirstOrDefault(t => Fits(t, key))?.ClrType;
+  }
 
   public IDisposable Quietly() => AuditScope.Quietly();
 
