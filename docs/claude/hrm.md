@@ -288,8 +288,10 @@ maps each key to a filtered screen in `features/hrm/hrm.attention.ts`; keep the 
   changes it and sends it again) or approves / rejects it (a rejection needs the remark; never the writer). The writer
   may withdraw it before a decision. Every step is a movement (append-only: action, from, to, remark, time, a paper);
   `POST /{id}/steps` (multipart: step, toEmployeeId, remarks, file). Only the writer, the holder and anyone it passed
-  through see it (others 404). Boxes `with-me`, `mine`, `seen`. Bell keys `my.notesheets` (waiting with me),
-  `my.notesheetsReturned`.
+  through see it (others 404) - and HR, through the register: `GET /notesheets` (HR.VIEW; every notesheet sent, drafts
+  excluded; writers within the reader's offices; status, search, from / to, employeeId = wrote it or it passed through
+  them; each row with who decided it and when) and `GET /notesheets/{id}` (+ its papers) with the whole trail. Boxes
+  `with-me`, `mine`, `seen`. Bell keys `my.notesheets` (waiting with me), `my.notesheetsReturned`.
 - **My team** (`MyTeam`, `/me/team`): a supervisor's team is the people whose post (today's version) reports to a post
   the supervisor holds today in any way (regular, acting, additional charge, look after) - the reporting line appraisals
   follow. `GET /me/team` (members with open / overdue tasks), `/me/team/tasks` (list, get, give - to a member only -,

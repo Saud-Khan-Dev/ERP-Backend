@@ -8,11 +8,51 @@ public sealed class NotesheetStepForm
 }
 
 /// Notesheets in the portal (/me/notesheets): written by an employee and moved from officer to officer until approved,
-/// rejected, returned or withdrawn. Seen only by its writer and the people it passed through (others: 404).
+/// rejected, returned or withdrawn. Seen only by its writer and the people it passed through (others: 404) - and by HR
+/// through the register (/notesheets, HR.VIEW).
 public class NotesheetEndpoints : ICarterModule
 {
   public void AddRoutes(IEndpointRouteBuilder app)
   {
+    // ---- HR's register: every notesheet sent, with its whole trail (HR.VIEW; writers within the reader's offices) ----
+
+    var register = app.MapGroup("/notesheets").WithTags("Notesheets");
+
+    register.MapGet("/", async (int? pageIndex, int? pageSize, string? status, string? search, DateOnly? from, DateOnly? to, Guid? employeeId, ISender sender) =>
+        (await sender.Send(new GetNotesheetRegisterQuery(QueryParsing.Page(pageIndex, pageSize), QueryParsing.ParseEnum<NotesheetStatus>(status, "status"),
+          search, from, to, employeeId))).ToOk())
+      .RequirePermission(PermissionCatalog.Hr.View)
+      .WithName("GetNotesheetRegister")
+      .Produces<GetNotesheetRegisterQueryResult>()
+      .ProducesProblem(StatusCodes.Status400BadRequest)
+      .WithSummary("Notesheet Register")
+      .WithDescription("Every notesheet sent (drafts stay with their writer), newest first: who wrote it, where it is, who decided it and when. "
+        + "status = in_progress | returned | approved | rejected | withdrawn; search = number, subject, writer; from / to = written on; "
+        + "employeeId = written by or passed through that person.");
+
+    register.MapGet("/{id:guid}", async (Guid id, ISender sender) => (await sender.Send(new GetNotesheetQuery(id, null))).ToOk())
+      .RequirePermission(PermissionCatalog.Hr.View)
+      .WithName("GetNotesheetForHr")
+      .Produces<GetNotesheetQueryResult>()
+      .ProducesProblem(StatusCodes.Status404NotFound)
+      .WithSummary("A Notesheet with Its Whole Trail");
+
+    register.MapGet("/{id:guid}/file", async (Guid id, bool? download, HttpResponse response, ISender sender) =>
+        (await sender.Send(new GetNotesheetFileQuery(id, null, null, download ?? true))).ToFile(response))
+      .RequirePermission(PermissionCatalog.Hr.View)
+      .WithName("GetNotesheetFileForHr")
+      .ProducesProblem(StatusCodes.Status404NotFound)
+      .WithSummary("The Paper of a Notesheet");
+
+    register.MapGet("/{id:guid}/movements/{movementId:guid}/file", async (Guid id, Guid movementId, bool? download, HttpResponse response, ISender sender) =>
+        (await sender.Send(new GetNotesheetFileQuery(id, movementId, null, download ?? true))).ToFile(response))
+      .RequirePermission(PermissionCatalog.Hr.View)
+      .WithName("GetNotesheetMovementFileForHr")
+      .ProducesProblem(StatusCodes.Status404NotFound)
+      .WithSummary("The Paper of a Step");
+
+    // ---- the portal ----
+
     var notes = app.MapGroup("/me/notesheets").WithTags("Self Service").RequireAuthorization().AllOffices();
     static async Task<Guid> Self(CurrentEmployee current, CancellationToken cancellationToken) => (await current.IdAsync(cancellationToken)).Value;
 

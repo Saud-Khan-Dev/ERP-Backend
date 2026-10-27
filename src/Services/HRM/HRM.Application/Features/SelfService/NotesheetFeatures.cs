@@ -44,10 +44,32 @@ public sealed record GetNotesheetPeopleQueryResult(IReadOnlyList<NotesheetPerson
 
 /// box: with-me (waiting for me), mine (I wrote), seen (passed through me), or everything I can see (null).
 public sealed record GetNotesheetsQuery(Guid Me, string? Box) : IQuery<Result<GetNotesheetsQueryResult>>;
-public sealed record GetNotesheetQuery(Guid Id, Guid Me) : IQuery<Result<GetNotesheetQueryResult>>;
+/// Me = the portal user (only one it passed through); null = HR's register (HR.VIEW; writers in the office scope).
+public sealed record GetNotesheetQuery(Guid Id, Guid? Me) : IQuery<Result<GetNotesheetQueryResult>>;
 public sealed record GetNotesheetPeopleQuery(Guid Me, string? Search) : IQuery<Result<GetNotesheetPeopleQueryResult>>;
 /// The note's own paper (movementId null) or a movement's.
-public sealed record GetNotesheetFileQuery(Guid Id, Guid? MovementId, Guid Me, bool Download) : IQuery<Result<StoredFile>>;
+public sealed record GetNotesheetFileQuery(Guid Id, Guid? MovementId, Guid? Me, bool Download) : IQuery<Result<StoredFile>>;
+
+/// One row of HR's register: the notesheet, its writer's number and post, and who decided it when.
+public sealed record NotesheetRegisterRowDto(
+  NotesheetSummaryDto Notesheet,
+  string WriterNumber,
+  string? WriterDesignation,
+  string? DecidedBy,
+  DateTime? DecidedAt,
+  int Steps);
+
+public sealed record GetNotesheetRegisterQueryResult(PaginatedResult<NotesheetRegisterRowDto> Notesheets);
+
+/// HR's register of every notesheet (HR.VIEW): newest first; status, search (number, subject, writer), written from / to,
+/// employeeId = written by or passed through that person.
+public sealed record GetNotesheetRegisterQuery(
+  PaginationRequest Pagination,
+  NotesheetStatus? Status,
+  string? Search,
+  DateOnly? From,
+  DateOnly? To,
+  Guid? EmployeeId) : IQuery<Result<GetNotesheetRegisterQueryResult>>;
 
 public sealed record WriteNotesheetCommand(Guid Me, NotesheetInput Note) : ICommand<Result<CreatedResult>>;
 public sealed record RewriteNotesheetCommand(Guid Id, Guid Me, NotesheetInput Note) : ICommand<Result<UpdatedResult>>;
@@ -93,6 +115,7 @@ public class NotesheetHandlers(IApplicationDbContext context, FileUploads files,
   IQueryHandler<GetNotesheetQuery, Result<GetNotesheetQueryResult>>,
   IQueryHandler<GetNotesheetPeopleQuery, Result<GetNotesheetPeopleQueryResult>>,
   IQueryHandler<GetNotesheetFileQuery, Result<StoredFile>>,
+  IQueryHandler<GetNotesheetRegisterQuery, Result<GetNotesheetRegisterQueryResult>>,
   ICommandHandler<WriteNotesheetCommand, Result<CreatedResult>>,
   ICommandHandler<RewriteNotesheetCommand, Result<UpdatedResult>>,
   ICommandHandler<AttachNotesheetFileCommand, Result<UpdatedResult>>,
@@ -114,9 +137,59 @@ public class NotesheetHandlers(IApplicationDbContext context, FileUploads files,
     return Result<GetNotesheetsQueryResult>.Success(new(await SummariesAsync(list, me, cancellationToken)));
   }
 
+  public async Task<Result<GetNotesheetRegisterQueryResult>> Handle(GetNotesheetRegisterQuery query, CancellationToken cancellationToken)
+  {
+    var rows = context.Notesheets.AsNoTracking().Include(n => n.Movements).Where(n => n.Status != NotesheetStatus.Draft);
+    // a person limited to some offices sees the notesheets written by the staff there
+    if (scope.Employees is { } inScope)
+      rows = rows.Where(n => inScope.Contains(n.WriterId));
+    using var all = scope.Unrestricted();
+    if (query.Status is { } status)
+      rows = rows.Where(n => n.Status == status);
+    if (query.EmployeeId is { } who)
+    {
+      var person = EmployeeId.Of(who);
+      rows = rows.Where(n => n.WriterId == person || n.Movements.Any(m => m.FromId == person || m.ToId == person));
+    }
+    if (query.From is { } from)
+    {
+      var start = from.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc).AddHours(-5);
+      rows = rows.Where(n => n.CreatedAt >= start);
+    }
+    if (query.To is { } to)
+    {
+      var end = to.AddDays(1).ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc).AddHours(-5);
+      rows = rows.Where(n => n.CreatedAt < end);
+    }
+    if (!string.IsNullOrWhiteSpace(query.Search))
+    {
+      var text = query.Search.Trim();
+      var pattern = SearchPattern.Contains(text);
+      var serial = int.TryParse(new string(text.Where(char.IsAsciiDigit).ToArray()), out var n0) ? n0 : -1;
+      rows = rows.Where(n => n.Serial == serial || EF.Functions.Like(n.Subject.ToLower(), pattern, SearchPattern.Escape)
+        || context.Employees.Any(e => e.Id == n.WriterId && (EF.Functions.Like(e.FullName!.ToLower(), pattern, SearchPattern.Escape)
+          || EF.Functions.Like(e.EmployeeNumber.ToLower(), pattern, SearchPattern.Escape))));
+    }
+
+    var total = await rows.LongCountAsync(cancellationToken);
+    var page = await rows.OrderByDescending(n => n.Serial)
+      .Skip(query.Pagination.Pageindex * query.Pagination.PageSize).Take(query.Pagination.PageSize).ToListAsync(cancellationToken);
+    var summaries = await SummariesAsync(page, null, cancellationToken);
+    var deciders = page.Select(n => n.Movements.LastOrDefault(m => m.Action is NotesheetAction.Approved or NotesheetAction.Rejected)).ToList();
+    var people = await PeopleAsync(page.Select(n => (EmployeeId?)n.WriterId).Concat(deciders.Select(d => d?.FromId)), cancellationToken);
+    var numbers = await lookup.EmployeesAsync(page.Select(n => (EmployeeId?)n.WriterId), cancellationToken);
+    var data = page.Select((n, i) =>
+    {
+      var decision = deciders[i];
+      return new NotesheetRegisterRowDto(summaries[i], numbers.GetValueOrDefault(n.WriterId.Value)?.EmployeeNumber ?? "", people.GetValueOrDefault(n.WriterId.Value).Designation,
+        decision is null ? null : people.GetValueOrDefault(decision.FromId.Value).Name, decision?.At, n.Movements.Count);
+    }).ToList();
+    return Result<GetNotesheetRegisterQueryResult>.Success(new(new PaginatedResult<NotesheetRegisterRowDto>(query.Pagination.Pageindex, query.Pagination.PageSize, total, data)));
+  }
+
   public async Task<Result<GetNotesheetQueryResult>> Handle(GetNotesheetQuery query, CancellationToken cancellationToken)
   {
-    var me = EmployeeId.Of(query.Me);
+    EmployeeId? me = query.Me is { } self ? EmployeeId.Of(self) : null;
     var note = await LoadAsync(query.Id, me, cancellationToken);
     var summary = (await SummariesAsync([note], me, cancellationToken))[0];
     var people = await PeopleAsync(note.Movements.SelectMany(m => new[] { m.FromId, m.ToId }), cancellationToken);
@@ -152,7 +225,7 @@ public class NotesheetHandlers(IApplicationDbContext context, FileUploads files,
 
   public async Task<Result<StoredFile>> Handle(GetNotesheetFileQuery query, CancellationToken cancellationToken)
   {
-    var note = await LoadAsync(query.Id, EmployeeId.Of(query.Me), cancellationToken);
+    var note = await LoadAsync(query.Id, query.Me is { } self ? EmployeeId.Of(self) : null, cancellationToken);
     var (path, name) = query.MovementId is { } movementId
       ? note.Movements.FirstOrDefault(m => m.Id.Value == movementId) is { } m ? (m.FilePath, m.FileName) : (null, null)
       : (note.FilePath, note.FileName);
@@ -231,16 +304,21 @@ public class NotesheetHandlers(IApplicationDbContext context, FileUploads files,
     return CommandResults.Updated();
   }
 
-  /// The notesheet, if the person may see it (its writer, its holder, or someone it passed through); else not found.
-  private async Task<Notesheet> LoadAsync(Guid id, EmployeeId me, CancellationToken cancellationToken)
+  /// The notesheet, if the person may see it (its writer, its holder, or someone it passed through) - or, for HR's register
+  /// (`me` null), if its writer is within the reader's offices and it has been sent; else not found.
+  private async Task<Notesheet> LoadAsync(Guid id, EmployeeId? me, CancellationToken cancellationToken)
   {
     var key = NotesheetId.Of(id);
+    var inScope = scope.Employees;
     Notesheet? note;
     using (scope.Unrestricted())
       note = await context.Notesheets.Include(n => n.Movements).FirstOrDefaultAsync(n => n.Id == key, cancellationToken);
-    if (note is null || !note.IsSeenBy(me))
+    var visible = note is not null && (me is { } person
+      ? note.IsSeenBy(person)
+      : note.Status != NotesheetStatus.Draft && (inScope is null || inScope.Contains(note.WriterId)));
+    if (!visible)
       throw new NotesheetNotFoundException($"Notesheet {id} was not found.");
-    return note;
+    return note!;
   }
 
   private async Task<Dictionary<Guid, (string? Name, string? Designation)>> PeopleAsync(IEnumerable<EmployeeId?> ids, CancellationToken cancellationToken)
@@ -252,11 +330,11 @@ public class NotesheetHandlers(IApplicationDbContext context, FileUploads files,
     return list.ToDictionary(i => i.Value, i => (names.GetValueOrDefault(i.Value)?.FullName, seats.GetValueOrDefault(i.Value)?.Designation));
   }
 
-  private async Task<List<NotesheetSummaryDto>> SummariesAsync(List<Notesheet> notes, EmployeeId me, CancellationToken cancellationToken)
+  private async Task<List<NotesheetSummaryDto>> SummariesAsync(List<Notesheet> notes, EmployeeId? me, CancellationToken cancellationToken)
   {
     var people = await PeopleAsync(notes.SelectMany(n => new[] { (EmployeeId?)n.WriterId, n.HolderId }), cancellationToken);
     return notes.Select(n => new NotesheetSummaryDto(n.Id.Value, n.Number, n.Subject, n.Status, n.WriterId.Value, people.GetValueOrDefault(n.WriterId.Value).Name ?? "",
       n.HolderId?.Value, n.HolderId is { } h ? people.GetValueOrDefault(h.Value).Name : null, n.Movements.LastOrDefault()?.At ?? n.CreatedAt, n.CreatedAt,
-      n.HolderId == me && n.Status == NotesheetStatus.InProgress)).ToList();
+      me is not null && n.HolderId == me && n.Status == NotesheetStatus.InProgress)).ToList();
   }
 }
