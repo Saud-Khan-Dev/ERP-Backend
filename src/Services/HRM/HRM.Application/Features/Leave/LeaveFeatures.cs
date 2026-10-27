@@ -3,7 +3,7 @@ using Microsoft.EntityFrameworkCore;
 
 // ---- leave types ----
 
-public sealed record LeaveTypeInput(string Name, bool IsPaid, decimal? MaxDaysPerYear, string? AccrualRule, bool CarryForwardAllowed, bool AffectsPayroll);
+public sealed record LeaveTypeInput(string Name, bool IsPaid, decimal? MaxDaysPerYear, string? AccrualRule, bool CarryForwardAllowed, bool AffectsPayroll, bool RequiresDocument = false);
 
 public sealed record GetLeaveTypesQueryResult(IReadOnlyList<LeaveTypeDto> LeaveTypes);
 public sealed record GetLeaveTypesQuery : IQuery<Result<GetLeaveTypesQueryResult>>;
@@ -108,7 +108,8 @@ public class PostLeaveLedgerEntryCommandValidator : AbstractValidator<PostLeaveL
 
 // ---- applications ----
 
-public sealed record LeaveApplicationInput(Guid LeaveTypeId, DateOnly StartDate, DateOnly EndDate, decimal? Days, string? Reason);
+/// supportingDocumentId: one of the employee's own documents (uploaded first); needed when the leave type asks for a paper.
+public sealed record LeaveApplicationInput(Guid LeaveTypeId, DateOnly StartDate, DateOnly EndDate, decimal? Days, string? Reason, Guid? SupportingDocumentId = null);
 
 public sealed record GetLeaveApplicationsQueryResult(PaginatedResult<LeaveApplicationDto> LeaveApplications);
 
@@ -209,7 +210,7 @@ public class LeaveHandlers(IApplicationDbContext context, LeaveService leave, Hr
   public async Task<Result<CreatedResult>> Handle(CreateLeaveTypeCommand command, CancellationToken cancellationToken)
   {
     var i = command.Type;
-    var type = LeaveType.Create(LeaveTypeId.New(), i.Name, i.IsPaid, i.MaxDaysPerYear, i.AccrualRule, i.CarryForwardAllowed, i.AffectsPayroll);
+    var type = LeaveType.Create(LeaveTypeId.New(), i.Name, i.IsPaid, i.MaxDaysPerYear, i.AccrualRule, i.CarryForwardAllowed, i.AffectsPayroll, i.RequiresDocument);
     if (await context.LeaveTypes.AnyAsync(t => t.Name.ToLower() == type.Name.ToLower(), cancellationToken))
       return Result<CreatedResult>.Failure($"A leave type named '{type.Name}' already exists.");
 
@@ -228,7 +229,7 @@ public class LeaveHandlers(IApplicationDbContext context, LeaveService leave, Hr
     if (used && (type.AffectsPayroll != i.AffectsPayroll || type.IsPaid != i.IsPaid))
       return Result<UpdatedResult>.Failure($"'{type.Name}' is already used on leave applications; whether it is paid or deducted from pay cannot change. Create a new type instead.");
 
-    type.Update(i.Name, i.IsPaid, i.MaxDaysPerYear, i.AccrualRule, i.CarryForwardAllowed, i.AffectsPayroll);
+    type.Update(i.Name, i.IsPaid, i.MaxDaysPerYear, i.AccrualRule, i.CarryForwardAllowed, i.AffectsPayroll, i.RequiresDocument);
     if (await context.LeaveTypes.AnyAsync(t => t.Id != type.Id && t.Name.ToLower() == type.Name.ToLower(), cancellationToken))
       return Result<UpdatedResult>.Failure($"Another leave type is named '{type.Name}'.");
 
@@ -541,8 +542,9 @@ public class LeaveHandlers(IApplicationDbContext context, LeaveService leave, Hr
 
     var days = await leave.DaysAsync(employee.Id, input.StartDate, input.EndDate, input.Days, cancellationToken);
     var others = await LiveApplicationsAsync(employee.Id, cancellationToken);
+    var paper = input.SupportingDocumentId is { } paperId ? await context.LoadDocumentAsync(paperId, cancellationToken) : null;
     var application = LeaveApplication.Apply(LeaveApplicationId.New(), employee, type, input.StartDate, input.EndDate, days.Sum(d => d.Days),
-      input.Reason, clock.Today, others);
+      input.Reason, clock.Today, others, paper);
     await leave.EnsureAvailableAsync(employee.Id, type, days, null, cancellationToken);
 
     context.LeaveApplications.Add(application);
@@ -560,7 +562,9 @@ public class LeaveHandlers(IApplicationDbContext context, LeaveService leave, Hr
     var type = await context.LeaveTypes.FirstAsync(t => t.Id == application.LeaveTypeId, cancellationToken);
     var input = command.Leave;
     var days = await leave.DaysAsync(application.EmployeeId, input.StartDate, input.EndDate, input.Days, cancellationToken);
-    application.Change(input.StartDate, input.EndDate, days.Sum(d => d.Days), input.Reason, await LiveApplicationsAsync(application.EmployeeId, cancellationToken));
+    var paper = input.SupportingDocumentId is { } paperId ? await context.LoadDocumentAsync(paperId, cancellationToken) : null;
+    var employee = paper is null ? null : await context.LoadEmployeeAsync(application.EmployeeId.Value, cancellationToken);
+    application.Change(input.StartDate, input.EndDate, days.Sum(d => d.Days), input.Reason, await LiveApplicationsAsync(application.EmployeeId, cancellationToken), employee, paper);
     await leave.EnsureAvailableAsync(application.EmployeeId, type, days, application.Id, cancellationToken);
 
     await context.SaveChangesAsync(cancellationToken);
@@ -658,9 +662,17 @@ public class LeaveHandlers(IApplicationDbContext context, LeaveService leave, Hr
   {
     var people = await lookup.EmployeesAsync(rows.Select(a => (EmployeeId?)a.EmployeeId), cancellationToken);
     var types = await TypeNamesAsync(cancellationToken);
+    var paperIds = rows.Where(a => a.SupportingDocumentId is not null).Select(a => a.SupportingDocumentId!).ToList();
+    var papers = paperIds.Count == 0 ? [] : await (
+        from d in context.Documents.AsNoTracking()
+        where paperIds.Contains(d.Id)
+        join t in context.DocumentTypes on d.DocumentTypeId equals t.Id
+        select new { d.Id, t.Name, d.DocumentNumber })
+      .ToDictionaryAsync(d => d.Id, d => d.DocumentNumber is null ? d.Name : $"{d.Name} {d.DocumentNumber}", cancellationToken);
     return rows.Select(a => new LeaveApplicationDto(a.Id.Value, a.EmployeeId.Value, people.GetValueOrDefault(a.EmployeeId.Value)?.EmployeeNumber ?? "",
       people.GetValueOrDefault(a.EmployeeId.Value)?.FullName ?? "", a.LeaveTypeId.Value, types.GetValueOrDefault(a.LeaveTypeId), a.StartDate, a.EndDate,
       a.Days, a.Status, a.AppliedDate, a.ApprovedBy, a.ApprovalDate, a.Reason, a.CreatedAt, a.UpdatedBy, a.DecidedBy, a.DecidedAt, a.DecisionReason,
-      a.HrActionId?.Value, CreatedBy: a.CreatedBy)).ToList();
+      a.HrActionId?.Value, CreatedBy: a.CreatedBy, SupportingDocumentId: a.SupportingDocumentId?.Value,
+      SupportingDocument: a.SupportingDocumentId is null ? null : papers.GetValueOrDefault(a.SupportingDocumentId))).ToList();
   }
 }

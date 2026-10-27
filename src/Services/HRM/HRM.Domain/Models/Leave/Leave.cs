@@ -9,14 +9,17 @@ public class LeaveType : Aggregate<LeaveTypeId>
   public bool AffectsPayroll { get; private set; }
   /// An inactive type is no longer offered for new applications; old applications keep it.
   public bool IsActive { get; private set; }
+  /// An application needs a supporting paper (a medical certificate for medical leave); HR verifies the paper.
+  public bool RequiresDocument { get; private set; }
 
   /// Leave that is drawn from a yearly balance (an entitlement must exist before it can be applied for).
   public bool IsBalanceTracked => MaxDaysPerYear.HasValue || CarryForwardAllowed;
 
-  public static LeaveType Create(LeaveTypeId id, string name, bool isPaid, decimal? maxDaysPerYear, string? accrualRule, bool carryForwardAllowed, bool affectsPayroll)
+  public static LeaveType Create(LeaveTypeId id, string name, bool isPaid, decimal? maxDaysPerYear, string? accrualRule, bool carryForwardAllowed, bool affectsPayroll,
+      bool requiresDocument = false)
   {
     var type = new LeaveType { Id = id, IsActive = true };
-    type.Update(name, isPaid, maxDaysPerYear, accrualRule, carryForwardAllowed, affectsPayroll);
+    type.Update(name, isPaid, maxDaysPerYear, accrualRule, carryForwardAllowed, affectsPayroll, requiresDocument);
     return type;
   }
 
@@ -28,7 +31,7 @@ public class LeaveType : Aggregate<LeaveTypeId>
       throw new DomainException($"'{Name}' is no longer in use; choose another leave type.");
   }
 
-  public void Update(string name, bool isPaid, decimal? maxDaysPerYear, string? accrualRule, bool carryForwardAllowed, bool affectsPayroll)
+  public void Update(string name, bool isPaid, decimal? maxDaysPerYear, string? accrualRule, bool carryForwardAllowed, bool affectsPayroll, bool requiresDocument)
   {
     if (isPaid && affectsPayroll)
       throw new DomainException("Paid leave cannot also be deducted from pay.");
@@ -39,6 +42,7 @@ public class LeaveType : Aggregate<LeaveTypeId>
     AccrualRule = Guard.Text(accrualRule, 1000, "Accrual rule");
     CarryForwardAllowed = carryForwardAllowed;
     AffectsPayroll = affectsPayroll;
+    RequiresDocument = requiresDocument;
   }
 }
 
@@ -123,6 +127,8 @@ public class LeaveApplication : Aggregate<LeaveApplicationId>
   public string? DecisionReason { get; private set; }
   /// The HR action (leave without pay) that recorded this leave, if any.
   public HrActionRequestId? HrActionId { get; private set; }
+  /// The paper that supports it (a medical certificate), one of the employee's own documents.
+  public EmployeeDocumentId? SupportingDocumentId { get; private set; }
 
   public DateRange Range => new(StartDate, EndDate);
 
@@ -131,6 +137,25 @@ public class LeaveApplication : Aggregate<LeaveApplicationId>
   /// `countedDays` = the employee's working days in the range (LeaveDayCounter); `days` = what is charged: the counted
   /// days, or half a day less (a half day on one of the dates). `others` = the employee's other live applications.
   public static LeaveApplication Apply(
+      LeaveApplicationId id,
+      Employee employee,
+      LeaveType leaveType,
+      DateOnly startDate,
+      DateOnly endDate,
+      decimal days,
+      string? reason,
+      DateOnly appliedDate,
+      IReadOnlyCollection<LeaveApplication> others,
+      EmployeeDocument? paper = null)
+  {
+    var application = New(id, employee, leaveType, startDate, endDate, days, reason, appliedDate, others);
+    application.SetPaper(employee, paper);
+    if (leaveType.RequiresDocument && paper is null)
+      throw new DomainException($"{leaveType.Name} needs a supporting paper (for example a medical certificate). Attach it to the application.");
+    return application;
+  }
+
+  private static LeaveApplication New(
       LeaveApplicationId id,
       Employee employee,
       LeaveType leaveType,
@@ -176,7 +201,8 @@ public class LeaveApplication : Aggregate<LeaveApplicationId>
     if (!leaveType.AffectsPayroll)
       throw new DomainException($"'{leaveType.Name}' is not deducted from pay; leave without pay needs a type that is.");
 
-    var application = Apply(id, employee, leaveType, startDate, endDate, days, reason, DateOnly.FromDateTime(at), others);
+    // the HR action is the paper: no supporting document is asked for
+    var application = New(id, employee, leaveType, startDate, endDate, days, reason, DateOnly.FromDateTime(at), others);
     application.HrActionId = hrActionId;
     application.ApprovedBy = Guard.Actor(approvedBy, "approve leave");
     application.ApprovalDate = DateOnly.FromDateTime(at);
@@ -186,12 +212,25 @@ public class LeaveApplication : Aggregate<LeaveApplicationId>
     return application;
   }
 
-  public void Change(DateOnly startDate, DateOnly endDate, decimal days, string? reason, IReadOnlyCollection<LeaveApplication> others)
+  /// `paper`: a new supporting paper replacing the one attached (null keeps it).
+  public void Change(DateOnly startDate, DateOnly endDate, decimal days, string? reason, IReadOnlyCollection<LeaveApplication> others,
+      Employee? employee = null, EmployeeDocument? paper = null)
   {
     if (Status != LeaveStatus.Pending)
       throw new DomainException($"The application is {EnumText.Words(Status)}; only a pending one can be changed.");
 
     SetPeriod(startDate, endDate, days, reason, others);
+    if (paper is not null)
+      SetPaper(employee ?? throw new ArgumentNullException(nameof(employee)), paper);
+  }
+
+  private void SetPaper(Employee employee, EmployeeDocument? paper)
+  {
+    if (paper is null)
+      return;
+    if (paper.EmployeeId != employee.Id)
+      throw new DomainException("The supporting paper belongs to a different employee.");
+    SupportingDocumentId = paper.Id;
   }
 
   /// Takes over a pending application of the same leave without pay for an HR action (approved by the action).

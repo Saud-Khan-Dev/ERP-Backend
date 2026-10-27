@@ -2510,6 +2510,10 @@ namespace HRM.Infrastructure.Data.Migrations
                         .HasDefaultValue(LeaveStatus.Pending)
                         .HasColumnName("status");
 
+                    b.Property<Guid?>("SupportingDocumentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("supporting_document_id");
+
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_at");
@@ -2535,6 +2539,9 @@ namespace HRM.Infrastructure.Data.Migrations
 
                     b.HasIndex("Status")
                         .HasDatabaseName("idx_la_status");
+
+                    b.HasIndex("SupportingDocumentId")
+                        .HasDatabaseName("idx_la_supporting_document");
 
                     b.HasIndex("EmployeeId", "StartDate")
                         .HasDatabaseName("idx_la_employee_start");
@@ -2759,6 +2766,11 @@ namespace HRM.Infrastructure.Data.Migrations
                         .IsRequired()
                         .HasColumnType("varchar")
                         .HasColumnName("name");
+
+                    b.Property<bool>("RequiresDocument")
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("requires_document");
 
                     b.HasKey("Id")
                         .HasName("leave_type_pkey");
@@ -5534,6 +5546,12 @@ namespace HRM.Infrastructure.Data.Migrations
                         .OnDelete(DeleteBehavior.NoAction)
                         .IsRequired()
                         .HasConstraintName("leave_application_leave_type_id_fkey");
+
+                    b.HasOne("EmployeeDocument", null)
+                        .WithMany()
+                        .HasForeignKey("SupportingDocumentId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .HasConstraintName("leave_application_supporting_document_id_fkey");
                 });
 
             modelBuilder.Entity("LeaveEntitlement", b =>

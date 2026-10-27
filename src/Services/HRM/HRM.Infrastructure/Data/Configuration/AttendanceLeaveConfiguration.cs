@@ -109,6 +109,7 @@ public class LeaveTypeConfiguration : EntityConfiguration<LeaveType, LeaveTypeId
     builder.Property(x => x.CarryForwardAllowed).HasDefaultValue(false);
     builder.Property(x => x.AffectsPayroll).HasDefaultValue(false);
     builder.Property(x => x.IsActive).HasDefaultValue(true);
+    builder.Property(x => x.RequiresDocument).HasDefaultValue(false);
     builder.HasIndex(x => x.Name).IsUnique().HasDatabaseName("leave_type_name_key");
   }
 }
@@ -162,6 +163,8 @@ public class LeaveApplicationConfiguration : EntityConfiguration<LeaveApplicatio
 
     builder.HasOne<Employee>().WithMany().HasForeignKey(x => x.EmployeeId).OnDelete(DeleteBehavior.NoAction);
     builder.HasOne<LeaveType>().WithMany().HasForeignKey(x => x.LeaveTypeId).OnDelete(DeleteBehavior.NoAction);
+    builder.HasOne<EmployeeDocument>().WithMany().HasForeignKey(x => x.SupportingDocumentId).OnDelete(DeleteBehavior.NoAction);
+    builder.HasIndex(x => x.SupportingDocumentId).HasDatabaseName("idx_la_supporting_document");
     builder.HasOne<HrActionRequest>().WithMany().HasForeignKey(x => x.HrActionId).OnDelete(DeleteBehavior.NoAction)
       .HasConstraintName("fk_la_hr_action");
 

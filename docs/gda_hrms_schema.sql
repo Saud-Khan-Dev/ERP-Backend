@@ -960,7 +960,8 @@ CREATE TABLE leave_type (
   accrual_rule          text,
   carry_forward_allowed boolean NOT NULL DEFAULT false,
   affects_payroll       boolean NOT NULL DEFAULT false,     -- true for LWOP-style types: days are deducted from days_payable
-  is_active             boolean NOT NULL DEFAULT true       -- inactive types are offered to no one; history keeps them
+  is_active             boolean NOT NULL DEFAULT true,      -- inactive types are offered to no one; history keeps them
+  requires_document     boolean NOT NULL DEFAULT false      -- an application needs a supporting paper (a medical certificate)
 );
 
 -- Yearly entitlement; running balances are computed from leave_ledger (no denormalised balance column)
@@ -992,6 +993,7 @@ CREATE TABLE leave_application (
   decided_at    timestamptz,
   decision_reason text,
   hr_action_id  uuid,                        -- the LWOP HR action that recorded it (FK below)
+  supporting_document_id uuid REFERENCES employee_document(id), -- the paper (a medical certificate), the employee's own
   created_at    timestamptz NOT NULL DEFAULT now(),
   created_by    uuid,                        -- who keyed it in (the employee, or a clerk on their behalf)
   updated_at    timestamptz,

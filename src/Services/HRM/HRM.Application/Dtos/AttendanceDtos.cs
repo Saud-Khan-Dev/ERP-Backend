@@ -48,7 +48,8 @@ public sealed record LeaveTypeDto(
   bool CarryForwardAllowed,
   bool AffectsPayroll,
   bool IsBalanceTracked,
-  bool IsActive = true);
+  bool IsActive = true,
+  bool RequiresDocument = false);
 
 public sealed record LeaveEntitlementDto(Guid Id, Guid EmployeeId, Guid LeaveTypeId, string? LeaveType, int Year, decimal EntitledDays);
 
@@ -86,7 +87,10 @@ public sealed record LeaveApplicationDto(
   Guid? HrActionId = null,
   decimal? CountedDays = null,
   /// Who keyed the application in (the employee through the portal, or a clerk on their behalf): they may not decide it.
-  Guid? CreatedBy = null);
+  Guid? CreatedBy = null,
+  /// The supporting paper (a medical certificate): its id, and its kind and number to show.
+  Guid? SupportingDocumentId = null,
+  string? SupportingDocument = null);
 
 public sealed record LeaveLedgerEntryDto(
   Guid Id,
@@ -107,7 +111,7 @@ public static class AttendanceMappings
     x.Id.Value, x.Name, x.StartTime, x.EndTime, x.GraceMinutes, x.WorkingWeekdays.Select(d => (int)d).ToList(), decimal.Round(x.ScheduledHours, 2), x.IsActive);
 
   public static LeaveTypeDto ToDto(this LeaveType x) => new(
-    x.Id.Value, x.Name, x.IsPaid, x.MaxDaysPerYear, x.AccrualRule, x.CarryForwardAllowed, x.AffectsPayroll, x.IsBalanceTracked, x.IsActive);
+    x.Id.Value, x.Name, x.IsPaid, x.MaxDaysPerYear, x.AccrualRule, x.CarryForwardAllowed, x.AffectsPayroll, x.IsBalanceTracked, x.IsActive, x.RequiresDocument);
 
   public static LeaveLedgerEntryDto ToDto(this LeaveLedgerEntry x, string? typeName) => new(
     x.Id.Value, x.LeaveTypeId.Value, typeName, x.Year, x.TransactionType, x.Days, x.TransactionDate, x.LeaveApplicationId?.Value, x.Remarks, x.CreatedBy, x.CreatedAt);

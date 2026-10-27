@@ -127,6 +127,34 @@ public class LeaveTests
     Assert.Throws<DomainException>(() => LeaveApplication.Apply(LeaveApplicationId.New(), Employee(), type, D("2026-10-08"), D("2026-10-08"), 1, null, D("2026-10-06"), []));
   }
 
+  private static EmployeeDocument Paper(Employee owner) =>
+      EmployeeDocument.Create(EmployeeDocumentId.New(), owner.Id, DocumentType.Create(DocumentTypeId.New(), "Medical certificate", false),
+        new DocumentDetails(null, null, null), "/hrm-files/x/documents/m.pdf");
+
+  [Fact]
+  public void Leave_that_needs_a_paper_is_refused_without_it_and_takes_the_employees_own()
+  {
+    var medical = LeaveType.Create(LeaveTypeId.New(), "Medical Leave", true, null, null, false, false, requiresDocument: true);
+    var employee = Employee();
+
+    var refused = Assert.Throws<DomainException>(() => LeaveApplication.Apply(LeaveApplicationId.New(), employee, medical, D("2026-10-08"), D("2026-10-09"), 2, null, D("2026-10-06"), []));
+    Assert.Contains("supporting paper", refused.Message);
+    Assert.Throws<DomainException>(() => LeaveApplication.Apply(LeaveApplicationId.New(), employee, medical, D("2026-10-08"), D("2026-10-09"), 2, null, D("2026-10-06"), [], Paper(Employee())));
+
+    var paper = Paper(employee);
+    var applied = LeaveApplication.Apply(LeaveApplicationId.New(), employee, medical, D("2026-10-08"), D("2026-10-09"), 2, null, D("2026-10-06"), [], paper);
+    Assert.Equal(paper.Id, applied.SupportingDocumentId);
+  }
+
+  [Fact]
+  public void A_paper_is_optional_where_the_type_does_not_ask_for_one()
+  {
+    var employee = Employee();
+    Assert.Null(Apply(employee, "2026-10-08", "2026-10-08", 1).SupportingDocumentId);
+    var paper = Paper(employee);
+    Assert.Equal(paper.Id, LeaveApplication.Apply(LeaveApplicationId.New(), employee, Casual, D("2026-10-12"), D("2026-10-12"), 1, null, D("2026-10-06"), [], paper).SupportingDocumentId);
+  }
+
   [Fact]
   public void Granting_the_year_fills_in_a_placeholder_made_for_a_carried_balance()
   {

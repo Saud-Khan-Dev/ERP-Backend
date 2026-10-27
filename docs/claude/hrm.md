@@ -181,6 +181,10 @@ touches).
   and a reason; the decider, date and reason are kept. Approving writes usage rows per calendar year and turns closed
   absences into leave. Cancelling reverses the ledger rows. An inactive leave type is offered to no one. The year-end
   is idempotent (a carry-forward or a lapse per balance) and opens placeholder entitlements that a later grant fills.
+  A leave type may require a supporting paper (`requiresDocument`, e.g. a medical certificate): the application then
+  carries `supportingDocumentId` - one of the employee's own documents, uploaded first (`POST /me/documents` or HR's
+  upload), verified by HR like any other paper - and is refused without it (leave recorded by an LWOP HR action is
+  exempt: the action is the paper). A paper a leave or a profile change rests on cannot be deleted.
 - **Performance.** Periods; reviews opened one by one or in bulk. The evaluator in bulk is the holder of the post's
   reporting post. draft → submitted → (countersigned, when a countersigning officer is named) → acknowledged →
   finalized. Everything is locked after submit; the employee sees the review only once submitted (and countersigned).
