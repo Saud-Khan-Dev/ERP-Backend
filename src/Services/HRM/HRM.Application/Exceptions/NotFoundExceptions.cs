@@ -44,6 +44,7 @@ public class TaskNotFoundException(string message) : NotFoundException(message);
 public class RequestTypeNotFoundException(string message) : NotFoundException(message);
 public class EmployeeRequestNotFoundException(string message) : NotFoundException(message);
 public class ProfileChangeNotFoundException(string message) : NotFoundException(message);
+public class AnnouncementNotFoundException(string message) : NotFoundException(message);
 public class StoredFileNotFoundException(string message) : NotFoundException(message);
 
 /// Self-service (/me) needs the signed-in account to be linked to an employee record.

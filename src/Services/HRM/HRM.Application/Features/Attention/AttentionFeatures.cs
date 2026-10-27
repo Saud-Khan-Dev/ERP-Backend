@@ -5,7 +5,7 @@ using Microsoft.EntityFrameworkCore;
 /// linked to an employee. Keys are documented in docs/claude/hrm.md › Attention.
 public sealed record GetAttentionQuery : IQuery<Result<AttentionResponse>>;
 
-public class AttentionHandlers(IApplicationDbContext context, ICurrentUser currentUser, CurrentEmployee me, HrmSettings settings, IClock clock, DutyGuard duty, EmployeeScope scope, MyTeam team) :
+public class AttentionHandlers(IApplicationDbContext context, ICurrentUser currentUser, CurrentEmployee me, HrmSettings settings, IClock clock, DutyGuard duty, EmployeeScope scope, MyTeam team, MediatR.ISender sender) :
   IQueryHandler<GetAttentionQuery, Result<AttentionResponse>>
 {
   public async Task<Result<AttentionResponse>> Handle(GetAttentionQuery query, CancellationToken cancellationToken)
@@ -133,6 +133,10 @@ public class AttentionHandlers(IApplicationDbContext context, ICurrentUser curre
       var mine = context.Tasks.Where(t => t.EmployeeId == self && t.Status != EmployeeTaskStatus.Completed && t.Status != EmployeeTaskStatus.Cancelled);
       items.Add(new("my.tasks", await mine.CountAsync(cancellationToken), null, await mine.MinAsync(t => t.DueDate, cancellationToken), ForMe: true));
       items.Add(new("my.tasksOverdue", await mine.CountAsync(t => t.DueDate != null && t.DueDate < today, cancellationToken), null, null, ForMe: true));
+
+      // announcements running today for the person that they have not opened yet
+      var announcements = (await sender.Send(new GetMyAnnouncementsQuery(self.Value), cancellationToken)).Value.Announcements;
+      items.Add(new("my.announcements", announcements.Count(a => !a.IsRead), null, null, ForMe: true));
 
       // a supervisor: the team's tasks past their due date, and the ones reported done in the last week to look at
       var members = await team.MembersAsync(self, cancellationToken);

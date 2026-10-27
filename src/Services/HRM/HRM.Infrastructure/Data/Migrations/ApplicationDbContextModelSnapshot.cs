@@ -92,6 +92,134 @@ namespace HRM.Infrastructure.Data.Migrations
                     b.ToTable("adjustment_type", "hrms");
                 });
 
+            modelBuilder.Entity("Announcement", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<string>("Body")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("body");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<string>("FileName")
+                        .HasColumnType("varchar")
+                        .HasColumnName("file_name");
+
+                    b.Property<string>("FilePath")
+                        .HasColumnType("varchar")
+                        .HasColumnName("file_path");
+
+                    b.Property<bool>("IsPinned")
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_pinned");
+
+                    b.Property<bool>("IsWithdrawn")
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_withdrawn");
+
+                    b.Property<Guid?>("OrgUnitId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("org_unit_id");
+
+                    b.Property<DateOnly>("ShowFrom")
+                        .HasColumnType("date")
+                        .HasColumnName("show_from");
+
+                    b.Property<DateOnly?>("ShowUntil")
+                        .HasColumnType("date")
+                        .HasColumnName("show_until");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasColumnType("varchar")
+                        .HasColumnName("title");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.Property<DateTime?>("WithdrawnAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("withdrawn_at");
+
+                    b.Property<Guid?>("WithdrawnBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("withdrawn_by");
+
+                    b.Property<string>("WithdrawnReason")
+                        .HasColumnType("varchar")
+                        .HasColumnName("withdrawn_reason");
+
+                    b.HasKey("Id")
+                        .HasName("announcement_pkey");
+
+                    b.HasIndex("OrgUnitId")
+                        .HasDatabaseName("idx_ann_org_unit");
+
+                    b.HasIndex("ShowFrom", "ShowUntil")
+                        .HasDatabaseName("idx_ann_showing");
+
+                    b.ToTable("announcement", "hrms", t =>
+                        {
+                            t.HasCheckConstraint("ck_ann_dates", "show_until IS NULL OR show_until >= show_from");
+
+                            t.HasCheckConstraint("ck_ann_file", "(file_path IS NULL) = (file_name IS NULL)");
+
+                            t.HasCheckConstraint("ck_ann_withdrawn", "NOT is_withdrawn OR (withdrawn_at IS NOT NULL AND withdrawn_by IS NOT NULL AND withdrawn_reason IS NOT NULL)");
+                        });
+                });
+
+            modelBuilder.Entity("AnnouncementRead", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<Guid>("AnnouncementId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("announcement_id");
+
+                    b.Property<Guid>("EmployeeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("employee_id");
+
+                    b.Property<DateTime>("ReadAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("read_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.HasKey("Id")
+                        .HasName("announcement_read_pkey");
+
+                    b.HasIndex("EmployeeId")
+                        .HasDatabaseName("idx_ann_read_employee");
+
+                    b.HasIndex("AnnouncementId", "EmployeeId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_ann_read_once");
+
+                    b.ToTable("announcement_read", "hrms");
+                });
+
             modelBuilder.Entity("AttendanceRecord", b =>
                 {
                     b.Property<Guid>("Id")
@@ -5016,6 +5144,32 @@ namespace HRM.Infrastructure.Data.Migrations
 
                             t.HasCheckConstraint("work_shift_grace_minutes_check", "grace_minutes >= 0");
                         });
+                });
+
+            modelBuilder.Entity("Announcement", b =>
+                {
+                    b.HasOne("OrganizationUnit", null)
+                        .WithMany()
+                        .HasForeignKey("OrgUnitId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .HasConstraintName("announcement_org_unit_id_fkey");
+                });
+
+            modelBuilder.Entity("AnnouncementRead", b =>
+                {
+                    b.HasOne("Announcement", null)
+                        .WithMany()
+                        .HasForeignKey("AnnouncementId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired()
+                        .HasConstraintName("announcement_read_announcement_id_fkey");
+
+                    b.HasOne("Employee", null)
+                        .WithMany()
+                        .HasForeignKey("EmployeeId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired()
+                        .HasConstraintName("announcement_read_employee_id_fkey");
                 });
 
             modelBuilder.Entity("AttendanceRecord", b =>

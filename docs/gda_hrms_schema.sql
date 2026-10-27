@@ -1741,6 +1741,40 @@ END $$;
 CREATE TRIGGER trg_etu_mirror AFTER INSERT ON employee_task_update
   FOR EACH ROW EXECUTE FUNCTION fn_task_mirror_progress();
 
+-- Notices HR posts in the portal: for everyone (org_unit_id NULL) or a unit and the units under it.
+CREATE TABLE announcement (
+  id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  title            varchar NOT NULL,
+  body             text NOT NULL,
+  org_unit_id      uuid REFERENCES organization_unit(id),
+  show_from        date NOT NULL,
+  show_until       date,
+  is_pinned        boolean NOT NULL DEFAULT false,
+  file_path        varchar,
+  file_name        varchar,
+  is_withdrawn     boolean NOT NULL DEFAULT false,
+  withdrawn_at     timestamptz,
+  withdrawn_by     uuid,
+  withdrawn_reason varchar,
+  created_at       timestamptz NOT NULL DEFAULT now(),
+  created_by       uuid,
+  updated_at       timestamptz,
+  updated_by       uuid,
+  CONSTRAINT ck_ann_dates CHECK (show_until IS NULL OR show_until >= show_from),
+  CONSTRAINT ck_ann_withdrawn CHECK (NOT is_withdrawn OR (withdrawn_at IS NOT NULL AND withdrawn_by IS NOT NULL AND withdrawn_reason IS NOT NULL)),
+  CONSTRAINT ck_ann_file CHECK ((file_path IS NULL) = (file_name IS NULL))
+);
+CREATE INDEX idx_ann_org_unit ON announcement (org_unit_id);
+CREATE INDEX idx_ann_showing  ON announcement (show_from, show_until);
+CREATE TABLE announcement_read (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  announcement_id uuid NOT NULL REFERENCES announcement(id),
+  employee_id     uuid NOT NULL REFERENCES employee(id),
+  read_at         timestamptz NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX ux_ann_read_once ON announcement_read (announcement_id, employee_id);
+CREATE INDEX idx_ann_read_employee ON announcement_read (employee_id);
+
 -- =====================================================================
 -- MODULE 17: EMPLOYEE REQUESTS
 -- =====================================================================

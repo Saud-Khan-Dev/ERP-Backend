@@ -238,7 +238,7 @@ HR_SENSITIVE.VIEW), `documents.toVerify`,
 `hrActions.myDrafts` (forMe), `tasks.overdue`, `documents.expiring`, `separations.unsettled`, `retirements.past`,
 `retirements.due`, `contracts.ending`, `employees.noDateOfBirth`, `employees.unplaced`. ATTENDANCE.APPROVE: `leave.toDecide`. PAYROLL.EDIT
 / APPROVE / POST: `payroll.toReview`, `payroll.toApprove`, `payroll.toFinalize`, `payroll.toPay`. A linked employee:
-`my.tasks`, `my.tasksOverdue`, a supervisor's `team.tasksOverdue` / `team.tasksDone`, `my.reviewsToAcknowledge`, `my.evaluationsToWrite`, `my.countersignings`. The frontend
+`my.tasks`, `my.tasksOverdue`, a supervisor's `team.tasksOverdue` / `team.tasksDone`, `my.announcements`, `my.reviewsToAcknowledge`, `my.evaluationsToWrite`, `my.countersignings`. The frontend
 maps each key to a filtered screen in `features/hrm/hrm.attention.ts`; keep the two in step.
 
 ## Seeds (`HrmSeeder`)
@@ -276,6 +276,12 @@ maps each key to a filtered screen in `features/hrm/hrm.attention.ts`; keep the 
   (`AddFamilyMemberCommand`, `UpdateContactCommand`, ...) in the same save, so every rule of the record applies; a
   change the record no longer allows is refused and stays waiting. One waiting change per entry and one waiting photo
   (`ux_pcr_one_waiting`). Bell key `profileChanges.toDecide`.
+- **Announcements** (`announcement`, `announcement_read`): HR posts a notice (`/announcements`: HR.VIEW lists with
+  `readCount` / `audienceCount`, HR.CREATE posts, HR.EDIT edits, attaches a paper - `POST /{id}/file` - and withdraws with
+  a reason) for everyone or for a unit and the units under it (`orgUnitId`, today's structure), shown from `showFrom` to
+  `showUntil` (open-ended), `isPinned` on top. `/me/announcements` lists the ones running today for the employee's unit
+  (their post's unit today), `POST /{id}/read` notes the first opening, `GET /{id}/file` the paper. Bell key
+  `my.announcements` (running for me, not opened yet).
 - **My team** (`MyTeam`, `/me/team`): a supervisor's team is the people whose post (today's version) reports to a post
   the supervisor holds today in any way (regular, acting, additional charge, look after) - the reporting line appraisals
   follow. `GET /me/team` (members with open / overdue tasks), `/me/team/tasks` (list, get, give - to a member only -,

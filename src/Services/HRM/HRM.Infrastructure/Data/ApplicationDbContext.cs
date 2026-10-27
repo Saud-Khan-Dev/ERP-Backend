@@ -116,6 +116,8 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
   public DbSet<EmployeeRequestType> RequestTypes => Set<EmployeeRequestType>();
   public DbSet<EmployeeRequest> Requests => Set<EmployeeRequest>();
   public DbSet<ProfileChangeRequest> ProfileChanges => Set<ProfileChangeRequest>();
+  public DbSet<Announcement> Announcements => Set<Announcement>();
+  public DbSet<AnnouncementRead> AnnouncementReads => Set<AnnouncementRead>();
 
   // ---- views ----
   public DbSet<OrganizationUnitCurrent> CurrentOrganizationUnits => Set<OrganizationUnitCurrent>();

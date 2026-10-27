@@ -95,6 +95,8 @@ public interface IApplicationDbContext
   DbSet<EmployeeRequestType> RequestTypes { get; }
   DbSet<EmployeeRequest> Requests { get; }
   DbSet<ProfileChangeRequest> ProfileChanges { get; }
+  DbSet<Announcement> Announcements { get; }
+  DbSet<AnnouncementRead> AnnouncementReads { get; }
 
   // ---- views (read-only) ----
   DbSet<OrganizationUnitCurrent> CurrentOrganizationUnits { get; }
