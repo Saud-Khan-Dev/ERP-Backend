@@ -118,6 +118,7 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
   public DbSet<ProfileChangeRequest> ProfileChanges => Set<ProfileChangeRequest>();
   public DbSet<Announcement> Announcements => Set<Announcement>();
   public DbSet<AnnouncementRead> AnnouncementReads => Set<AnnouncementRead>();
+  public DbSet<Notesheet> Notesheets => Set<Notesheet>();
 
   // ---- views ----
   public DbSet<OrganizationUnitCurrent> CurrentOrganizationUnits => Set<OrganizationUnitCurrent>();

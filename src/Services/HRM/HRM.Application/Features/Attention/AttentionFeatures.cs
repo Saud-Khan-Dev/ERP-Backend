@@ -138,6 +138,11 @@ public class AttentionHandlers(IApplicationDbContext context, ICurrentUser curre
       var announcements = (await sender.Send(new GetMyAnnouncementsQuery(self.Value), cancellationToken)).Value.Announcements;
       items.Add(new("my.announcements", announcements.Count(a => !a.IsRead), null, null, ForMe: true));
 
+      // notesheets waiting with the person, and their own returned to them
+      var withMe = context.Notesheets.Where(n => n.HolderId == self && n.Status == NotesheetStatus.InProgress);
+      items.Add(new("my.notesheets", await withMe.CountAsync(cancellationToken), At(await withMe.MinAsync(n => (DateTime?)n.UpdatedAt ?? n.CreatedAt, cancellationToken)), null, ForMe: true));
+      items.Add(new("my.notesheetsReturned", await context.Notesheets.CountAsync(n => n.WriterId == self && n.Status == NotesheetStatus.Returned, cancellationToken), null, null, ForMe: true));
+
       // a supervisor: the team's tasks past their due date, and the ones reported done in the last week to look at
       var members = await team.MembersAsync(self, cancellationToken);
       if (members.Count > 0)

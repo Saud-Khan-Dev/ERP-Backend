@@ -41,6 +41,8 @@ namespace HRM.Infrastructure.Data.Migrations
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "hrms", "leave_txn_type_enum", new[] { "accrual", "adjustment", "carry_forward", "encashment", "lapse", "opening", "usage", "usage_reversal" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "hrms", "loan_status_enum", new[] { "active", "cancelled", "completed", "pending", "written_off" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "hrms", "marital_status_enum", new[] { "divorced", "married", "single", "widowed" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "hrms", "notesheet_action_enum", new[] { "approved", "forwarded", "rejected", "returned", "sent", "withdrawn" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "hrms", "notesheet_status_enum", new[] { "approved", "draft", "in_progress", "rejected", "returned", "withdrawn" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "hrms", "payment_method_enum", new[] { "bank_transfer", "cash", "cheque" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "hrms", "payment_status_enum", new[] { "failed", "pending", "processed", "returned" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "hrms", "payroll_period_status_enum", new[] { "closed", "locked", "open" });
@@ -3134,6 +3136,147 @@ namespace HRM.Infrastructure.Data.Migrations
                     b.ToTable("location", "hrms");
                 });
 
+            modelBuilder.Entity("Notesheet", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<string>("Body")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("body");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<DateTime?>("DecidedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("decided_at");
+
+                    b.Property<string>("FileName")
+                        .HasColumnType("varchar")
+                        .HasColumnName("file_name");
+
+                    b.Property<string>("FilePath")
+                        .HasColumnType("varchar")
+                        .HasColumnName("file_path");
+
+                    b.Property<Guid?>("HolderId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("holder_id");
+
+                    b.Property<int>("Serial")
+                        .HasColumnType("integer")
+                        .HasColumnName("serial");
+
+                    b.Property<NotesheetStatus>("Status")
+                        .HasColumnType("hrms.notesheet_status_enum")
+                        .HasDefaultValue(NotesheetStatus.Draft)
+                        .HasColumnName("status");
+
+                    b.Property<string>("Subject")
+                        .IsRequired()
+                        .HasColumnType("varchar")
+                        .HasColumnName("subject");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("updated_by");
+
+                    b.Property<Guid>("WriterId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("writer_id");
+
+                    b.HasKey("Id")
+                        .HasName("notesheet_pkey");
+
+                    b.HasIndex("HolderId")
+                        .HasDatabaseName("idx_ns_holder");
+
+                    b.HasIndex("Serial")
+                        .IsUnique()
+                        .HasDatabaseName("ux_ns_serial");
+
+                    b.HasIndex("WriterId")
+                        .HasDatabaseName("idx_ns_writer");
+
+                    b.ToTable("notesheet", "hrms", t =>
+                        {
+                            t.HasCheckConstraint("ck_ns_file", "(file_path IS NULL) = (file_name IS NULL)");
+
+                            t.HasCheckConstraint("ck_ns_holder", "(status IN ('approved','rejected','withdrawn')) = (holder_id IS NULL)");
+                        });
+                });
+
+            modelBuilder.Entity("NotesheetMovement", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<NotesheetAction>("Action")
+                        .HasColumnType("hrms.notesheet_action_enum")
+                        .HasColumnName("action");
+
+                    b.Property<DateTime>("At")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("at");
+
+                    b.Property<string>("FileName")
+                        .HasColumnType("varchar")
+                        .HasColumnName("file_name");
+
+                    b.Property<string>("FilePath")
+                        .HasColumnType("varchar")
+                        .HasColumnName("file_path");
+
+                    b.Property<Guid>("FromId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("from_id");
+
+                    b.Property<Guid>("NotesheetId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("notesheet_id");
+
+                    b.Property<string>("Remarks")
+                        .HasColumnType("text")
+                        .HasColumnName("remarks");
+
+                    b.Property<Guid?>("ToId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("to_id");
+
+                    b.HasKey("Id")
+                        .HasName("notesheet_movement_pkey");
+
+                    b.HasIndex("FromId")
+                        .HasDatabaseName("idx_nsm_from");
+
+                    b.HasIndex("ToId")
+                        .HasDatabaseName("idx_nsm_to");
+
+                    b.HasIndex("NotesheetId", "At")
+                        .HasDatabaseName("idx_nsm_notesheet");
+
+                    b.ToTable("notesheet_movement", "hrms", t =>
+                        {
+                            t.HasCheckConstraint("ck_nsm_file", "(file_path IS NULL) = (file_name IS NULL)");
+                        });
+                });
+
             modelBuilder.Entity("OrganizationUnit", b =>
                 {
                     b.Property<Guid>("Id")
@@ -5787,6 +5930,45 @@ namespace HRM.Infrastructure.Data.Migrations
                         .HasConstraintName("loan_type_salary_component_id_fkey");
                 });
 
+            modelBuilder.Entity("Notesheet", b =>
+                {
+                    b.HasOne("Employee", null)
+                        .WithMany()
+                        .HasForeignKey("HolderId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .HasConstraintName("notesheet_holder_id_fkey");
+
+                    b.HasOne("Employee", null)
+                        .WithMany()
+                        .HasForeignKey("WriterId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired()
+                        .HasConstraintName("notesheet_writer_id_fkey");
+                });
+
+            modelBuilder.Entity("NotesheetMovement", b =>
+                {
+                    b.HasOne("Employee", null)
+                        .WithMany()
+                        .HasForeignKey("FromId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired()
+                        .HasConstraintName("notesheet_movement_from_id_fkey");
+
+                    b.HasOne("Notesheet", null)
+                        .WithMany("Movements")
+                        .HasForeignKey("NotesheetId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired()
+                        .HasConstraintName("notesheet_movement_notesheet_id_fkey");
+
+                    b.HasOne("Employee", null)
+                        .WithMany()
+                        .HasForeignKey("ToId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .HasConstraintName("notesheet_movement_to_id_fkey");
+                });
+
             modelBuilder.Entity("OrganizationUnitVersion", b =>
                 {
                     b.HasOne("Post", null)
@@ -6228,6 +6410,11 @@ namespace HRM.Infrastructure.Data.Migrations
             modelBuilder.Entity("EmployeeTask", b =>
                 {
                     b.Navigation("Updates");
+                });
+
+            modelBuilder.Entity("Notesheet", b =>
+                {
+                    b.Navigation("Movements");
                 });
 
             modelBuilder.Entity("OrganizationUnit", b =>

@@ -108,6 +108,8 @@ CREATE TYPE employee_request_status_enum AS ENUM ('pending','approved','rejected
 CREATE TYPE profile_change_area_enum AS ENUM ('contact','address','emergency_contact','family_member','photo');
 CREATE TYPE profile_change_action_enum AS ENUM ('add','change','remove');
 CREATE TYPE profile_change_status_enum AS ENUM ('pending','approved','rejected','withdrawn');
+CREATE TYPE notesheet_status_enum AS ENUM ('draft','in_progress','returned','approved','rejected','withdrawn');
+CREATE TYPE notesheet_action_enum AS ENUM ('sent','forwarded','returned','approved','rejected','withdrawn');
 
 CREATE TYPE contact_type_enum  AS ENUM ('mobile','phone','email','whatsapp','other');
 CREATE TYPE address_type_enum  AS ENUM ('permanent','current','mailing','other');
@@ -1774,6 +1776,44 @@ CREATE TABLE announcement_read (
 );
 CREATE UNIQUE INDEX ux_ann_read_once ON announcement_read (announcement_id, employee_id);
 CREATE INDEX idx_ann_read_employee ON announcement_read (employee_id);
+
+-- Notesheets: written by an employee, moved from officer to officer until approved, rejected, returned or withdrawn.
+CREATE TABLE notesheet (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  serial      int NOT NULL,                       -- NS-00001 …
+  subject     varchar NOT NULL,
+  body        text NOT NULL,
+  writer_id   uuid NOT NULL REFERENCES employee(id),
+  holder_id   uuid REFERENCES employee(id),       -- with whom now; NULL once decided or withdrawn
+  status      notesheet_status_enum NOT NULL DEFAULT 'draft',
+  file_path   varchar,
+  file_name   varchar,
+  decided_at  timestamptz,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  created_by  uuid,
+  updated_at  timestamptz,
+  updated_by  uuid,
+  CONSTRAINT ck_ns_file CHECK ((file_path IS NULL) = (file_name IS NULL)),
+  CONSTRAINT ck_ns_holder CHECK ((status IN ('approved','rejected','withdrawn')) = (holder_id IS NULL))
+);
+CREATE UNIQUE INDEX ux_ns_serial ON notesheet (serial);
+CREATE INDEX idx_ns_writer ON notesheet (writer_id);
+CREATE INDEX idx_ns_holder ON notesheet (holder_id);
+CREATE TABLE notesheet_movement (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  notesheet_id uuid NOT NULL REFERENCES notesheet(id),
+  action       notesheet_action_enum NOT NULL,
+  from_id      uuid NOT NULL REFERENCES employee(id),
+  to_id        uuid REFERENCES employee(id),
+  remarks      text,
+  at           timestamptz NOT NULL,
+  file_path    varchar,
+  file_name    varchar,
+  CONSTRAINT ck_nsm_file CHECK ((file_path IS NULL) = (file_name IS NULL))
+);
+CREATE INDEX idx_nsm_notesheet ON notesheet_movement (notesheet_id, at);
+CREATE INDEX idx_nsm_from ON notesheet_movement (from_id);
+CREATE INDEX idx_nsm_to   ON notesheet_movement (to_id);
 
 -- =====================================================================
 -- MODULE 17: EMPLOYEE REQUESTS

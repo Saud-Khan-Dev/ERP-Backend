@@ -33,6 +33,8 @@ public static class HrmsEnumMapping
     npgsql.MapEnum<ProfileChangeArea>("profile_change_area_enum", schema);
     npgsql.MapEnum<ProfileChangeAction>("profile_change_action_enum", schema);
     npgsql.MapEnum<ProfileChangeStatus>("profile_change_status_enum", schema);
+    npgsql.MapEnum<NotesheetStatus>("notesheet_status_enum", schema);
+    npgsql.MapEnum<NotesheetAction>("notesheet_action_enum", schema);
     npgsql.MapEnum<ContactType>("contact_type_enum", schema);
     npgsql.MapEnum<AddressType>("address_type_enum", schema);
     npgsql.MapEnum<SeparationType>("separation_type_enum", schema);

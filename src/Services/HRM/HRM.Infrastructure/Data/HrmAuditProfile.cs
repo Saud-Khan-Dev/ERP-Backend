@@ -106,6 +106,9 @@ public static class HrmAuditProfile
     profile.Entity<EmployeeRequest>(e => e.Kind("Request").Label(x => x.Subject).Under<Employee>(x => x.EmployeeId));
     profile.Entity<ProfileChangeRequest>(e => e.Kind("Profile change").Label(x => x.Summary).Under<Employee>(x => x.EmployeeId));
     profile.Entity<Announcement>(e => e.Kind("Announcement").Label(x => x.Title));
+    profile.Entity<Notesheet>(e => e.Kind("Notesheet").Code(x => $"NS-{x.Serial:00000}").Label(x => x.Subject).Under<Employee>(x => x.WriterId));
+    // a movement is the notesheet's own history (who, to whom, when, the remark); no audit line repeats it
+    profile.Skip<NotesheetMovement>();
     // who opened which announcement is kept on the table itself (HR counts the readers); no audit line per read
     profile.Skip<AnnouncementRead>();
   }

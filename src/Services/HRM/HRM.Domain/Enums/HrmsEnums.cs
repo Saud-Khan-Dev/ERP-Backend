@@ -62,6 +62,11 @@ public enum ProfileChangeAction { Add, Change, Remove }
 
 public enum ProfileChangeStatus { Pending, Approved, Rejected, Withdrawn }
 
+/// Where a notesheet stands: being written, moving between officers, sent back to its writer, or decided.
+public enum NotesheetStatus { Draft, InProgress, Returned, Approved, Rejected, Withdrawn }
+
+public enum NotesheetAction { Sent, Forwarded, Returned, Approved, Rejected, Withdrawn }
+
 public enum ContactType { Mobile, Phone, Email, Whatsapp, Other }
 
 public enum AddressType { Permanent, Current, Mailing, Other }

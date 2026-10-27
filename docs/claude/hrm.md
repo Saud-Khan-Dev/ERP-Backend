@@ -238,7 +238,7 @@ HR_SENSITIVE.VIEW), `documents.toVerify`,
 `hrActions.myDrafts` (forMe), `tasks.overdue`, `documents.expiring`, `separations.unsettled`, `retirements.past`,
 `retirements.due`, `contracts.ending`, `employees.noDateOfBirth`, `employees.unplaced`. ATTENDANCE.APPROVE: `leave.toDecide`. PAYROLL.EDIT
 / APPROVE / POST: `payroll.toReview`, `payroll.toApprove`, `payroll.toFinalize`, `payroll.toPay`. A linked employee:
-`my.tasks`, `my.tasksOverdue`, a supervisor's `team.tasksOverdue` / `team.tasksDone`, `my.announcements`, `my.reviewsToAcknowledge`, `my.evaluationsToWrite`, `my.countersignings`. The frontend
+`my.tasks`, `my.tasksOverdue`, a supervisor's `team.tasksOverdue` / `team.tasksDone`, `my.announcements`, `my.notesheets`, `my.notesheetsReturned`, `my.reviewsToAcknowledge`, `my.evaluationsToWrite`, `my.countersignings`. The frontend
 maps each key to a filtered screen in `features/hrm/hrm.attention.ts`; keep the two in step.
 
 ## Seeds (`HrmSeeder`)
@@ -282,6 +282,14 @@ maps each key to a filtered screen in `features/hrm/hrm.attention.ts`; keep the 
   `showUntil` (open-ended), `isPinned` on top. `/me/announcements` lists the ones running today for the employee's unit
   (their post's unit today), `POST /{id}/read` notes the first opening, `GET /{id}/file` the paper. Bell key
   `my.announcements` (running for me, not opened yet).
+- **Notesheets** (`notesheet`, `notesheet_movement`, `/me/notesheets`): an employee writes a note (subject, the note,
+  one paper; NS-00001 by `serial`) - a draft with them - and sends it to someone in service with a portal account
+  (`/people`). Whoever holds it forwards it (to someone else), returns it to its writer (a remark needed; the writer
+  changes it and sends it again) or approves / rejects it (a rejection needs the remark; never the writer). The writer
+  may withdraw it before a decision. Every step is a movement (append-only: action, from, to, remark, time, a paper);
+  `POST /{id}/steps` (multipart: step, toEmployeeId, remarks, file). Only the writer, the holder and anyone it passed
+  through see it (others 404). Boxes `with-me`, `mine`, `seen`. Bell keys `my.notesheets` (waiting with me),
+  `my.notesheetsReturned`.
 - **My team** (`MyTeam`, `/me/team`): a supervisor's team is the people whose post (today's version) reports to a post
   the supervisor holds today in any way (regular, acting, additional charge, look after) - the reporting line appraisals
   follow. `GET /me/team` (members with open / overdue tasks), `/me/team/tasks` (list, get, give - to a member only -,
