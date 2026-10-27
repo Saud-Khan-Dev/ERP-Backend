@@ -18,7 +18,11 @@ public sealed record TaskSummaryDto(
   bool IsOverdue,
   DateTime? CreatedAt);
 
-public sealed record TaskUpdateDto(Guid Id, int ProgressPercentage, string? Notes, Guid AuthorId, string? AuthorName, DateTime? CreatedAt);
+public sealed record TaskUpdateDto(Guid Id, int ProgressPercentage, string? Notes, Guid AuthorId, string? AuthorName, DateTime? CreatedAt, string? FileName = null);
+
+/// One person in a supervisor's team, with their open and overdue tasks.
+public sealed record TeamMemberDto(Guid EmployeeId, string EmployeeNumber, string FullName, string? Designation, string? PostCode, string? OrgUnit, int OpenTasks, int OverdueTasks);
+public sealed record GetMyTeamQueryResult(IReadOnlyList<TeamMemberDto> Members);
 
 public sealed record TaskDto(TaskSummaryDto Task, string? Description, IReadOnlyList<TaskUpdateDto> Updates);
 
@@ -57,16 +61,25 @@ public sealed record GetTasksQuery(
   string? Search = null,
   bool AssignedByMe = false,
   DateOnly? DueFrom = null,
-  DateOnly? DueTo = null) : IQuery<Result<GetTasksQueryResult>>;
+  DateOnly? DueTo = null,
+  /// A supervisor in the portal: only their team's tasks (their employee id).
+  Guid? ForSupervisor = null) : IQuery<Result<GetTasksQueryResult>>;
 
 public sealed record GetTaskQueryResult(TaskDto Task);
-public sealed record GetTaskQuery(Guid Id, Guid? OnlyForEmployee = null) : IQuery<Result<GetTaskQueryResult>>;
+public sealed record GetTaskQuery(Guid Id, Guid? OnlyForEmployee = null, Guid? ForSupervisor = null) : IQuery<Result<GetTaskQueryResult>>;
+public sealed record GetMyTeamQuery(Guid Supervisor) : IQuery<Result<GetMyTeamQueryResult>>;
+/// The file of a progress update: the employee's own task, a supervisor's team, or HR (neither set).
+public sealed record GetTaskFileQuery(Guid TaskId, Guid UpdateId, Guid? OnlyForEmployee = null, Guid? ForSupervisor = null, bool Download = true) : IQuery<Result<StoredFile>>;
 
-public sealed record AssignTaskCommand(Guid EmployeeId, string Title, string? Description, TaskPriority Priority, DateOnly? DueDate) : ICommand<Result<CreatedResult>>;
-public sealed record EditTaskCommand(Guid Id, string Title, string? Description, TaskPriority Priority, DateOnly? DueDate) : ICommand<Result<UpdatedResult>>;
+public sealed record AssignTaskCommand(Guid EmployeeId, string Title, string? Description, TaskPriority Priority, DateOnly? DueDate, Guid? ForSupervisor = null) : ICommand<Result<CreatedResult>>;
+public sealed record EditTaskCommand(Guid Id, string Title, string? Description, TaskPriority Priority, DateOnly? DueDate, Guid? ForSupervisor = null) : ICommand<Result<UpdatedResult>>;
+/// A task reported done is not finished: open again at the percentage given, with what is still to be done.
+public sealed record SendBackTaskCommand(Guid Id, int ProgressPercentage, string Notes, Guid? ForSupervisor = null) : ICommand<Result<UpdatedResult>>;
+
 
 /// A progress note; 100% completes the task. The employee records progress on their own tasks through self-service.
-public sealed record RecordTaskProgressCommand(Guid Id, int ProgressPercentage, string? Notes, Guid? OnlyForEmployee = null) : ICommand<Result<CreatedResult>>;
+/// `File`: a site photo or the report itself, saved with the update.
+public sealed record RecordTaskProgressCommand(Guid Id, int ProgressPercentage, string? Notes, Guid? OnlyForEmployee = null, UploadedFile? File = null) : ICommand<Result<CreatedResult>>;
 
 public enum TaskAction
 {
@@ -75,7 +88,7 @@ public enum TaskAction
   Cancel
 }
 
-public sealed record ChangeTaskStatusCommand(Guid Id, TaskAction Action) : ICommand<Result<UpdatedResult>>;
+public sealed record ChangeTaskStatusCommand(Guid Id, TaskAction Action, Guid? ForSupervisor = null) : ICommand<Result<UpdatedResult>>;
 
 public class AssignTaskCommandValidator : AbstractValidator<AssignTaskCommand>
 {
@@ -95,6 +108,15 @@ public class EditTaskCommandValidator : AbstractValidator<EditTaskCommand>
     RuleFor(x => x.Title).NotEmpty().MaximumLength(200);
     RuleFor(x => x.Description).MaximumLength(4000);
     RuleFor(x => x.Priority).IsInEnum();
+  }
+}
+
+public class SendBackTaskCommandValidator : AbstractValidator<SendBackTaskCommand>
+{
+  public SendBackTaskCommandValidator()
+  {
+    RuleFor(x => x.ProgressPercentage).InclusiveBetween(0, 99);
+    RuleFor(x => x.Notes).NotEmpty().WithMessage("Say what is still to be done.").MaximumLength(4000);
   }
 }
 
@@ -157,13 +179,16 @@ public class DecideEmployeeRequestCommandValidator : AbstractValidator<DecideEmp
   public DecideEmployeeRequestCommandValidator() => RuleFor(x => x.Remarks).MaximumLength(4000);
 }
 
-public class TaskRequestHandlers(IApplicationDbContext context, HrLookup lookup, ICurrentUser currentUser, IClock clock, DutyGuard duty, IAuditTrail audit) :
+public class TaskRequestHandlers(IApplicationDbContext context, HrLookup lookup, ICurrentUser currentUser, IClock clock, DutyGuard duty, IAuditTrail audit, MyTeam team, FileUploads files) :
   IQueryHandler<GetTasksQuery, Result<GetTasksQueryResult>>,
   IQueryHandler<GetTaskQuery, Result<GetTaskQueryResult>>,
   ICommandHandler<AssignTaskCommand, Result<CreatedResult>>,
   ICommandHandler<EditTaskCommand, Result<UpdatedResult>>,
   ICommandHandler<RecordTaskProgressCommand, Result<CreatedResult>>,
   ICommandHandler<ChangeTaskStatusCommand, Result<UpdatedResult>>,
+  ICommandHandler<SendBackTaskCommand, Result<UpdatedResult>>,
+  IQueryHandler<GetMyTeamQuery, Result<GetMyTeamQueryResult>>,
+  IQueryHandler<GetTaskFileQuery, Result<StoredFile>>,
   IQueryHandler<GetEmployeeRequestsQuery, Result<GetEmployeeRequestsQueryResult>>,
   IQueryHandler<GetEmployeeRequestQuery, Result<GetEmployeeRequestQueryResult>>,
   ICommandHandler<SubmitEmployeeRequestCommand, Result<CreatedResult>>,
@@ -180,6 +205,11 @@ public class TaskRequestHandlers(IApplicationDbContext context, HrLookup lookup,
     {
       var employeeId = EmployeeId.Of(employee);
       rows = rows.Where(t => t.EmployeeId == employeeId);
+    }
+    if (query.ForSupervisor is { } supervisor)
+    {
+      var members = await team.MembersAsync(EmployeeId.Of(supervisor), cancellationToken);
+      rows = rows.Where(t => members.Contains(t.EmployeeId));
     }
     if (query.Status is { } status)
       rows = rows.Where(t => t.Status == status);
@@ -216,15 +246,17 @@ public class TaskRequestHandlers(IApplicationDbContext context, HrLookup lookup,
 
   public async Task<Result<GetTaskQueryResult>> Handle(GetTaskQuery query, CancellationToken cancellationToken)
   {
-    var task = await LoadTaskAsync(query.Id, query.OnlyForEmployee, cancellationToken);
+    var task = await LoadTaskAsync(query.Id, query.OnlyForEmployee, cancellationToken, query.ForSupervisor);
     var summary = (await TaskSummariesAsync([task], cancellationToken))[0];
     var authors = await UserNamesAsync(task.Updates.Select(u => u.AuthorId), cancellationToken);
     return Result<GetTaskQueryResult>.Success(new(new TaskDto(summary, task.Description, task.Updates
-      .Select(u => new TaskUpdateDto(u.Id.Value, u.ProgressPercentage, u.Notes, u.AuthorId, authors.GetValueOrDefault(u.AuthorId), u.CreatedAt)).ToList())));
+      .Select(u => new TaskUpdateDto(u.Id.Value, u.ProgressPercentage, u.Notes, u.AuthorId, authors.GetValueOrDefault(u.AuthorId), u.CreatedAt, u.FileName)).ToList())));
   }
 
   public async Task<Result<CreatedResult>> Handle(AssignTaskCommand command, CancellationToken cancellationToken)
   {
+    if (command.ForSupervisor is { } supervisor)
+      await team.EnsureMemberAsync(EmployeeId.Of(supervisor), EmployeeId.Of(command.EmployeeId), cancellationToken);
     var employee = await context.LoadEmployeeAsync(command.EmployeeId, cancellationToken);
     var task = EmployeeTask.Assign(EmployeeTaskId.New(), employee, currentUser.UserId, command.Title, command.Description, command.Priority, command.DueDate);
     context.Tasks.Add(task);
@@ -234,7 +266,7 @@ public class TaskRequestHandlers(IApplicationDbContext context, HrLookup lookup,
 
   public async Task<Result<UpdatedResult>> Handle(EditTaskCommand command, CancellationToken cancellationToken)
   {
-    var task = await LoadTaskAsync(command.Id, null, cancellationToken);
+    var task = await LoadTaskAsync(command.Id, null, cancellationToken, command.ForSupervisor);
     task.Edit(command.Title, command.Description, command.Priority, command.DueDate);
     await context.SaveChangesAsync(cancellationToken);
     return CommandResults.Updated();
@@ -243,14 +275,60 @@ public class TaskRequestHandlers(IApplicationDbContext context, HrLookup lookup,
   public async Task<Result<CreatedResult>> Handle(RecordTaskProgressCommand command, CancellationToken cancellationToken)
   {
     var task = await LoadTaskAsync(command.Id, command.OnlyForEmployee, cancellationToken);
-    var update = task.RecordProgress(command.ProgressPercentage, command.Notes, currentUser.UserId, clock.UtcNow);
+    string? path = null;
+    if (command.File is { } file)
+    {
+      var employee = await context.LoadEmployeeAsync(task.EmployeeId.Value, cancellationToken);
+      path = await files.SaveDocumentAsync(file, employee.EmployeeNumber, "tasks", cancellationToken);
+    }
+    var update = task.RecordProgress(command.ProgressPercentage, command.Notes, currentUser.UserId, clock.UtcNow, path, command.File is null ? null : Path.GetFileName(command.File.FileName));
     await context.SaveChangesAsync(cancellationToken);
     return CommandResults.Created(update.Id);
   }
 
+  public async Task<Result<UpdatedResult>> Handle(SendBackTaskCommand command, CancellationToken cancellationToken)
+  {
+    var task = await LoadTaskAsync(command.Id, null, cancellationToken, command.ForSupervisor);
+    task.SendBack(command.ProgressPercentage, command.Notes, currentUser.UserId, clock.UtcNow);
+    audit.Record(HrmVerbs.SentBack, task, command.Notes.Trim());
+    await context.SaveChangesAsync(cancellationToken);
+    return CommandResults.Updated();
+  }
+
+  public async Task<Result<StoredFile>> Handle(GetTaskFileQuery query, CancellationToken cancellationToken)
+  {
+    var task = await LoadTaskAsync(query.TaskId, query.OnlyForEmployee, cancellationToken, query.ForSupervisor);
+    var update = task.Updates.FirstOrDefault(u => u.Id.Value == query.UpdateId);
+    if (update?.FilePath is not { } path)
+      throw new StoredFileNotFoundException("This update has no file.");
+    audit.Record(query.Download ? AuditActions.Downloaded : AuditActions.Viewed, task, update.FileName);
+    await audit.SaveAsync(cancellationToken);
+    return Result<StoredFile>.Success(await files.OpenAsync(path, Path.GetFileNameWithoutExtension(update.FileName ?? "file"), cancellationToken));
+  }
+
+  public async Task<Result<GetMyTeamQueryResult>> Handle(GetMyTeamQuery query, CancellationToken cancellationToken)
+  {
+    var members = await team.MembersAsync(EmployeeId.Of(query.Supervisor), cancellationToken);
+    var today = clock.Today;
+    var people = await lookup.EmployeesAsync(members.Select(m => (EmployeeId?)m), cancellationToken);
+    var placements = await lookup.PlacementsAsync(members, today, cancellationToken);
+    var open = await context.Tasks.AsNoTracking()
+      .Where(t => members.Contains(t.EmployeeId) && t.Status != EmployeeTaskStatus.Completed && t.Status != EmployeeTaskStatus.Cancelled)
+      .Select(t => new { t.EmployeeId, t.DueDate }).ToListAsync(cancellationToken);
+    var rows = members.Select(m =>
+    {
+      var person = people.GetValueOrDefault(m.Value);
+      var seat = placements.GetValueOrDefault(m.Value);
+      var mine = open.Where(t => t.EmployeeId == m).ToList();
+      return new TeamMemberDto(m.Value, person?.EmployeeNumber ?? "", person?.FullName ?? "", seat?.Designation, seat?.PostCode, seat?.OrgUnit,
+        mine.Count, mine.Count(t => t.DueDate < today));
+    }).OrderBy(r => r.FullName).ToList();
+    return Result<GetMyTeamQueryResult>.Success(new(rows));
+  }
+
   public async Task<Result<UpdatedResult>> Handle(ChangeTaskStatusCommand command, CancellationToken cancellationToken)
   {
-    var task = await LoadTaskAsync(command.Id, null, cancellationToken);
+    var task = await LoadTaskAsync(command.Id, null, cancellationToken, command.ForSupervisor);
     switch (command.Action)
     {
       case TaskAction.Hold: task.PutOnHold(); break;
@@ -356,10 +434,13 @@ public class TaskRequestHandlers(IApplicationDbContext context, HrLookup lookup,
     return CommandResults.Updated();
   }
 
-  private async Task<EmployeeTask> LoadTaskAsync(Guid id, Guid? onlyFor, CancellationToken cancellationToken)
+  /// `onlyFor`: the employee's own task; `supervisor`: a task of their team. Anything else reads as not found.
+  private async Task<EmployeeTask> LoadTaskAsync(Guid id, Guid? onlyFor, CancellationToken cancellationToken, Guid? supervisor = null)
   {
     var task = await context.LoadTaskAsync(id, cancellationToken);
     if (onlyFor is { } own && task.EmployeeId.Value != own)
+      throw new TaskNotFoundException($"Task {id} was not found.");
+    if (supervisor is { } boss && !(await team.MembersAsync(EmployeeId.Of(boss), cancellationToken)).Contains(task.EmployeeId))
       throw new TaskNotFoundException($"Task {id} was not found.");
     return task;
   }

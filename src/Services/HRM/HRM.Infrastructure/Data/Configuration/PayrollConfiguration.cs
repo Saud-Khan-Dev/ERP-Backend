@@ -285,7 +285,10 @@ public class EmployeeTaskUpdateConfiguration : EntityConfiguration<EmployeeTaskU
   {
     base.Configure(builder);
     builder.ToTable("employee_task_update", t =>
-      t.HasCheckConstraint("employee_task_update_progress_percentage_check", "progress_percentage BETWEEN 0 AND 100"));
+    {
+      t.HasCheckConstraint("employee_task_update_progress_percentage_check", "progress_percentage BETWEEN 0 AND 100");
+      t.HasCheckConstraint("ck_etu_file", "(file_path IS NULL) = (file_name IS NULL)");
+    });
 
     builder.Property(x => x.Notes).Text();
     builder.Property(x => x.AuthorId).HasColumnName("updated_by");

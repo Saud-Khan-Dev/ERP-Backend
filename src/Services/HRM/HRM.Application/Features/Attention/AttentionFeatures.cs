@@ -5,7 +5,7 @@ using Microsoft.EntityFrameworkCore;
 /// linked to an employee. Keys are documented in docs/claude/hrm.md › Attention.
 public sealed record GetAttentionQuery : IQuery<Result<AttentionResponse>>;
 
-public class AttentionHandlers(IApplicationDbContext context, ICurrentUser currentUser, CurrentEmployee me, HrmSettings settings, IClock clock, DutyGuard duty, EmployeeScope scope) :
+public class AttentionHandlers(IApplicationDbContext context, ICurrentUser currentUser, CurrentEmployee me, HrmSettings settings, IClock clock, DutyGuard duty, EmployeeScope scope, MyTeam team) :
   IQueryHandler<GetAttentionQuery, Result<AttentionResponse>>
 {
   public async Task<Result<AttentionResponse>> Handle(GetAttentionQuery query, CancellationToken cancellationToken)
@@ -133,6 +133,18 @@ public class AttentionHandlers(IApplicationDbContext context, ICurrentUser curre
       var mine = context.Tasks.Where(t => t.EmployeeId == self && t.Status != EmployeeTaskStatus.Completed && t.Status != EmployeeTaskStatus.Cancelled);
       items.Add(new("my.tasks", await mine.CountAsync(cancellationToken), null, await mine.MinAsync(t => t.DueDate, cancellationToken), ForMe: true));
       items.Add(new("my.tasksOverdue", await mine.CountAsync(t => t.DueDate != null && t.DueDate < today, cancellationToken), null, null, ForMe: true));
+
+      // a supervisor: the team's tasks past their due date, and the ones reported done in the last week to look at
+      var members = await team.MembersAsync(self, cancellationToken);
+      if (members.Count > 0)
+      {
+        var teamOpen = context.Tasks.Where(t => members.Contains(t.EmployeeId) && t.Status != EmployeeTaskStatus.Completed && t.Status != EmployeeTaskStatus.Cancelled);
+        items.Add(new("team.tasksOverdue", await teamOpen.CountAsync(t => t.DueDate != null && t.DueDate < today, cancellationToken), null,
+          await teamOpen.Where(t => t.DueDate != null && t.DueDate < today).MinAsync(t => t.DueDate, cancellationToken), ForMe: true));
+        var weekAgo = clock.UtcNow.AddDays(-7);
+        items.Add(new("team.tasksDone", await context.Tasks.CountAsync(t => members.Contains(t.EmployeeId) && t.Status == EmployeeTaskStatus.Completed
+          && t.CompletedAt >= weekAgo, cancellationToken), null, null, ForMe: true));
+      }
 
       // with a countersigning officer the employee reads the review once it is countersigned
       var toAcknowledge = context.PerformanceReviews.Where(r => r.EmployeeId == self

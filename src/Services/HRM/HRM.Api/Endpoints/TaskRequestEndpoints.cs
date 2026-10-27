@@ -49,6 +49,22 @@ public class TaskRequestEndpoints : ICarterModule
       .ProducesProblem(StatusCodes.Status404NotFound)
       .WithSummary("Edit Task");
 
+    tasks.MapPost("/{id:guid}/send-back", async (Guid id, SendBackRequest r, ISender sender) =>
+        (await sender.Send(new SendBackTaskCommand(id, r.ProgressPercentage, r.Notes))).ToOk())
+      .RequirePermission(PermissionCatalog.Hr.Edit)
+      .WithName("SendBackTask")
+      .Produces<UpdatedResult>()
+      .ProducesProblem(StatusCodes.Status400BadRequest)
+      .ProducesProblem(StatusCodes.Status404NotFound)
+      .WithSummary("Send Back a Task Reported Done");
+
+    tasks.MapGet("/{id:guid}/updates/{updateId:guid}/file", async (Guid id, Guid updateId, bool? download, HttpResponse response, ISender sender) =>
+        (await sender.Send(new GetTaskFileQuery(id, updateId, null, null, download ?? true))).ToFile(response))
+      .RequirePermission(PermissionCatalog.Hr.View)
+      .WithName("GetTaskFile")
+      .ProducesProblem(StatusCodes.Status404NotFound)
+      .WithSummary("A File of a Task Update");
+
     tasks.MapPost("/{id:guid}/progress", async (Guid id, ProgressRequest r, ISender sender) =>
         (await sender.Send(new RecordTaskProgressCommand(id, r.ProgressPercentage, r.Notes))).ToOk())
       .RequirePermission(PermissionCatalog.Hr.Edit)

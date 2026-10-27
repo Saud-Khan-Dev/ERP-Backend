@@ -44,14 +44,15 @@ public class EmployeeTask : Aggregate<EmployeeTaskId>
     DueDate = dueDate;
   }
 
-  /// Records progress (append-only) and mirrors it on the task.
-  public EmployeeTaskUpdate RecordProgress(int progressPercentage, string? notes, Guid? updatedBy, DateTime at)
+  /// Records progress (append-only) and mirrors it on the task. A file (a site photo, the report itself) goes with the
+  /// update when it is written - an update is never changed afterwards.
+  public EmployeeTaskUpdate RecordProgress(int progressPercentage, string? notes, Guid? updatedBy, DateTime at, string? filePath = null, string? fileName = null)
   {
     EnsureOpen();
     if (Status == EmployeeTaskStatus.OnHold)
       throw new DomainException("The task is on hold; resume it before recording progress.");
 
-    var update = EmployeeTaskUpdate.Create(Id, Guard.Between(progressPercentage, 0, 100, "Progress"), notes, Guard.Actor(updatedBy, "update a task"), at);
+    var update = EmployeeTaskUpdate.Create(Id, Guard.Between(progressPercentage, 0, 100, "Progress"), notes, Guard.Actor(updatedBy, "update a task"), at, filePath, fileName);
     _updates.Add(update);
 
     ProgressPercentage = progressPercentage;
@@ -65,6 +66,24 @@ public class EmployeeTask : Aggregate<EmployeeTaskId>
       Status = EmployeeTaskStatus.InProgress;
     }
 
+    return update;
+  }
+
+  /// The one who gave the task (or the supervisor) finds a task reported done not finished: it is open again at the
+  /// percentage they judge, with their note as an update.
+  public EmployeeTaskUpdate SendBack(int progressPercentage, string notes, Guid? by, DateTime at)
+  {
+    if (Status != EmployeeTaskStatus.Completed)
+      throw new DomainException("Only a task reported as done can be sent back.");
+    if (string.IsNullOrWhiteSpace(notes))
+      throw new DomainException("Say what is still to be done.");
+    var progress = Guard.Between(progressPercentage, 0, 99, "Progress");
+
+    var update = EmployeeTaskUpdate.Create(Id, progress, $"Sent back: {notes.Trim()}", Guard.Actor(by, "send a task back"), at);
+    _updates.Add(update);
+    ProgressPercentage = progress;
+    Status = EmployeeTaskStatus.InProgress;
+    CompletedAt = null;
     return update;
   }
 
@@ -104,16 +123,27 @@ public class EmployeeTaskUpdate : Entity<TaskUpdateId>
   public string? Notes { get; private set; }
   /// Column updated_by: the author of the update (not an audit stamp).
   public Guid AuthorId { get; private set; }
+  /// A file sent with the update (stored on the file server) and the name it was sent under.
+  public string? FilePath { get; private set; }
+  public string? FileName { get; private set; }
 
-  internal static EmployeeTaskUpdate Create(EmployeeTaskId taskId, int progressPercentage, string? notes, Guid authorId, DateTime at) => new()
+  internal static EmployeeTaskUpdate Create(EmployeeTaskId taskId, int progressPercentage, string? notes, Guid authorId, DateTime at,
+      string? filePath = null, string? fileName = null)
   {
-    Id = TaskUpdateId.New(),
-    TaskId = taskId,
-    ProgressPercentage = progressPercentage,
-    Notes = Guard.Text(notes, 4000, "Notes"),
-    AuthorId = authorId,
-    CreatedAt = at
-  };
+    if ((filePath is null) != (fileName is null))
+      throw new DomainException("A file needs its name.");
+    return new()
+    {
+      Id = TaskUpdateId.New(),
+      TaskId = taskId,
+      ProgressPercentage = progressPercentage,
+      Notes = Guard.Text(notes, 4000, "Notes"),
+      AuthorId = authorId,
+      CreatedAt = at,
+      FilePath = Guard.Text(filePath, 500, "File"),
+      FileName = Guard.Text(fileName, 255, "File name")
+    };
+  }
 }
 
 /// Kinds of request an employee can raise (Transfer Request, Document Request, Profile Correction ...).

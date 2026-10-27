@@ -35,6 +35,7 @@ public static class DependencyInjection
     services.AddScoped<HrLookup>();
     services.AddScoped<ServiceRecordReader>();
     services.AddScoped<CurrentEmployee>();
+    services.AddScoped<MyTeam>();
     services.AddScoped<PayService>();
     services.AddScoped<FileUploads>();
     services.AddScoped<ServiceRecordWriter>();

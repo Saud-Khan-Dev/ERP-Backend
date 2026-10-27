@@ -1679,6 +1679,14 @@ namespace HRM.Infrastructure.Data.Migrations
                         .HasColumnName("created_at")
                         .HasDefaultValueSql("now()");
 
+                    b.Property<string>("FileName")
+                        .HasColumnType("varchar")
+                        .HasColumnName("file_name");
+
+                    b.Property<string>("FilePath")
+                        .HasColumnType("varchar")
+                        .HasColumnName("file_path");
+
                     b.Property<string>("Notes")
                         .HasColumnType("text")
                         .HasColumnName("notes");
@@ -1699,6 +1707,8 @@ namespace HRM.Infrastructure.Data.Migrations
 
                     b.ToTable("employee_task_update", "hrms", t =>
                         {
+                            t.HasCheckConstraint("ck_etu_file", "(file_path IS NULL) = (file_name IS NULL)");
+
                             t.HasCheckConstraint("employee_task_update_progress_percentage_check", "progress_percentage BETWEEN 0 AND 100");
                         });
                 });

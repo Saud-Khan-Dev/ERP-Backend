@@ -1,5 +1,13 @@
 public sealed record ProgressRequest(int ProgressPercentage, string? Notes);
-public sealed record MyLinkDto(bool Linked, Guid? EmployeeId);
+
+public sealed class ProgressWithFileForm
+{
+  public int ProgressPercentage { get; set; }
+  public string? Notes { get; set; }
+  public IFormFile? File { get; set; }
+}
+/// teamSize: how many people report to the person (their posts report to one the person holds) - the portal shows My team then.
+public sealed record MyLinkDto(bool Linked, Guid? EmployeeId, int TeamSize = 0);
 public sealed record CountersignRequest(string? Remarks, string? PerformanceGrade);
 public sealed record MyRequestInput(Guid RequestTypeId, string? Subject, string? Description, System.Text.Json.JsonElement? RequestedData, Guid? SupportingDocumentId);
 
@@ -16,10 +24,10 @@ public class SelfServiceEndpoints : ICarterModule
 
     // ---- is this account linked? (asked at every sign-in; never refused) ----
 
-    me.MapGet("/link", async (CurrentEmployee current, CancellationToken ct) =>
+    me.MapGet("/link", async (CurrentEmployee current, MyTeam team, CancellationToken ct) =>
     {
       var id = await current.TryIdAsync(ct);
-      return Results.Ok(new MyLinkDto(id is not null, id?.Value));
+      return Results.Ok(new MyLinkDto(id is not null, id?.Value, id is null ? 0 : (await team.MembersAsync(id, ct)).Count));
     })
       .RequireSignedIn()
       .WithName("GetMyLink")
@@ -243,6 +251,26 @@ public class SelfServiceEndpoints : ICarterModule
       .ProducesProblem(StatusCodes.Status404NotFound)
       .WithSummary("Report Progress on My Task")
       .WithDescription("100% completes the task.");
+
+    me.MapPost("/tasks/{id:guid}/progress-with-file", async (Guid id, [Microsoft.AspNetCore.Mvc.FromForm] ProgressWithFileForm form, CurrentEmployee current, ISender sender, CancellationToken ct) =>
+    {
+      await using var content = Uploads.Open(form.File, out var file);
+      return (await sender.Send(new RecordTaskProgressCommand(id, form.ProgressPercentage, form.Notes, await Self(current, ct), file))).ToOk();
+    })
+      .DisableAntiforgery()
+      .Accepts<ProgressWithFileForm>("multipart/form-data")
+      .WithName("RecordMyTaskProgressWithFile")
+      .Produces<CreatedResult>()
+      .ProducesProblem(StatusCodes.Status400BadRequest)
+      .ProducesProblem(StatusCodes.Status404NotFound)
+      .WithSummary("Report Progress with a File")
+      .WithDescription("The same as /progress, with a site photo or the report itself saved with the update.");
+
+    me.MapGet("/tasks/{id:guid}/updates/{updateId:guid}/file", async (Guid id, Guid updateId, bool? download, CurrentEmployee current, HttpResponse response, ISender sender, CancellationToken ct) =>
+        (await sender.Send(new GetTaskFileQuery(id, updateId, await Self(current, ct), null, download ?? true))).ToFile(response))
+      .WithName("GetMyTaskFile")
+      .ProducesProblem(StatusCodes.Status404NotFound)
+      .WithSummary("A File of My Task");
 
     me.MapGet("/request-types", async (ISender sender) => (await sender.Send(new GetRequestTypesQuery(false))).ToOk())
       .WithName("GetMyRequestTypes")

@@ -1714,7 +1714,10 @@ CREATE TABLE employee_task_update (
   progress_percentage int NOT NULL CHECK (progress_percentage BETWEEN 0 AND 100),
   notes               text,
   updated_by          uuid NOT NULL,
-  created_at          timestamptz NOT NULL DEFAULT now()
+  created_at          timestamptz NOT NULL DEFAULT now(),
+  file_path           varchar,                 -- a site photo or the report, saved with the update (never added later)
+  file_name           varchar,
+  CONSTRAINT ck_etu_file CHECK ((file_path IS NULL) = (file_name IS NULL))
 );
 CREATE INDEX idx_etu_task ON employee_task_update (task_id, created_at);
 CREATE TRIGGER trg_etu_append_only BEFORE UPDATE OR DELETE ON employee_task_update
