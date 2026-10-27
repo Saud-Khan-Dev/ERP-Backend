@@ -27,7 +27,9 @@ public sealed record UserDto(
   /// Deleted accounts are read only to show them (and restore them).
   bool IsDeleted,
   DateTime? DeletedAt,
-  string? DeletedBy);
+  string? DeletedBy,
+  /// A deleted account: the last moment it can be restored; after it the account is closed for good.
+  DateTime? RecoverableUntil = null);
 
 public sealed record UserListItemDto(
   Guid Id,

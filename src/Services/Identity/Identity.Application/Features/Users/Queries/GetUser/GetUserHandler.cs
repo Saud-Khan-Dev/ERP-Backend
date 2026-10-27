@@ -1,6 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 
-public class GetUserHandler(IApplicationDbContext context, IUserPermissionService permissionService)
+public class GetUserHandler(IApplicationDbContext context, IUserPermissionService permissionService, ISecuritySettingsProvider settings)
   : IQueryHandler<GetUserQuery, Result<GetUserQueryResult>>
 {
   public async Task<Result<GetUserQueryResult>> Handle(GetUserQuery query, CancellationToken cancellationToken)
@@ -28,7 +28,7 @@ public class GetUserHandler(IApplicationDbContext context, IUserPermissionServic
     var scopes = await context.UserScopes.AsNoTracking().Where(s => s.UserId == id).OrderBy(s => s.Label).ToListAsync(cancellationToken);
 
     return Result<GetUserQueryResult>.Success(new GetUserQueryResult(
-      user.ToDto(now),
+      user.ToDto(now) with { RecoverableUntil = user.RecoverableUntil((await settings.GetAsync(cancellationToken)).DeletedRecoveryDays) },
       roles.Select(x => new UserRoleDto(
         x.r.Id.Value, x.r.Code.Value, x.r.RoleName.Value,
         x.ur.AssignedAt, x.ur.AssignedBy, x.ur.ExpiresAt, x.ur.IsLive(now), x.r.IsActive)).ToList(),

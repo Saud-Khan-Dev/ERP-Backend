@@ -12,6 +12,7 @@ using Microsoft.EntityFrameworkCore;
 /// - `users.conflicts`           accounts holding two duties that should be kept apart (IAM_USERS.ASSIGN)
 /// - `access-review.due`         accounts still to decide in the open review, or 1 when a review is due (IAM_USERS.ASSIGN)
 /// - `rules.off`                 separation-of-duty rules switched off (IAM_SECURITY.VIEW)
+/// - `users.deletion-requests`   people who asked for their own account to be deleted (IAM_USERS.DELETE; not one's own)
 public sealed record GetAttentionQuery : IQuery<Result<AttentionDto>>;
 
 public class GetAttentionHandler(IApplicationDbContext context, ICurrentUser currentUser, ISecuritySettingsProvider settingsProvider) : IQueryHandler<GetAttentionQuery, Result<AttentionDto>>
@@ -57,6 +58,14 @@ public class GetAttentionHandler(IApplicationDbContext context, ICurrentUser cur
     }
 
     var settings = await settingsProvider.GetAsync(cancellationToken);
+    if (currentUser.HasPermission(PermissionCatalog.Users.Delete))
+    {
+      UserId? self = currentUser.UserId is { } g ? UserId.Of(g) : null;
+      var asked = context.AccountDeletionRequests.AsNoTracking().Where(r => r.Status == DeletionRequestStatus.Pending && r.UserId != self);
+      var first = await asked.MinAsync(r => (DateTime?)r.RequestedAt, cancellationToken);
+      items.Add(new AttentionItemDto("users.deletion-requests", await asked.CountAsync(cancellationToken), Utc(first)));
+    }
+
     if (currentUser.HasPermission(PermissionCatalog.Users.Disable))
     {
       var before = now.AddDays(-settings.DormantAfterDays);

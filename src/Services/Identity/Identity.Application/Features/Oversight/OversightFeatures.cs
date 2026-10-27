@@ -17,7 +17,8 @@ public sealed record OversightRuleOffDto(string Code, string Title, string Chang
 
 public sealed record OversightReviewDto(Guid? OpenReviewId, DateTime? OpenSince, int Decided, int ToDecide, DateTime? LastClosedAt, DateOnly DueOn, bool Overdue);
 
-public sealed record OversightSettingsDto(int DormantAfterDays, bool SwitchOffDormant, int AccessReviewMonths, int SignInMaxDays);
+/// deletedRecoveryDays: how long a deleted account can be restored (30 or 90).
+public sealed record OversightSettingsDto(int DormantAfterDays, bool SwitchOffDormant, int AccessReviewMonths, int SignInMaxDays, int DeletedRecoveryDays = 90);
 
 /// Administration › Overview in one answer:
 /// - who holds Super Administrator;
@@ -107,7 +108,7 @@ public class GetOversightHandler(IApplicationDbContext context, ISecuritySetting
 
     return Result<OversightDto>.Success(new OversightDto(superAdmins, dormant, exceptions, rulesOff, conflicts, review, openSessions, failed, locked,
       power.Select(a => a.ToDto()).ToList(),
-      new OversightSettingsDto(settings.DormantAfterDays, settings.SwitchOffDormant, settings.AccessReviewMonths, settings.SignInMaxDays)));
+      new OversightSettingsDto(settings.DormantAfterDays, settings.SwitchOffDormant, settings.AccessReviewMonths, settings.SignInMaxDays, settings.DeletedRecoveryDays)));
   }
 }
 
@@ -219,14 +220,15 @@ public class UpdateOversightSettingsHandler(IApplicationDbContext context, IActi
     var id = SecuritySettingsId.Of(SecuritySettings.SingletonId);
     var settings = await context.SecuritySettings.FirstOrDefaultAsync(s => s.Id == id, cancellationToken)
       ?? throw new DomainException("The security settings are not set up yet - restart the Identity service.");
-    var before = new OversightSettingsDto(settings.DormantAfterDays, settings.SwitchOffDormant, settings.AccessReviewMonths, settings.SignInMaxDays);
+    var before = new OversightSettingsDto(settings.DormantAfterDays, settings.SwitchOffDormant, settings.AccessReviewMonths, settings.SignInMaxDays, settings.DeletedRecoveryDays);
     var s = command.Settings;
-    settings.UpdateOversight(s.DormantAfterDays, s.SwitchOffDormant, s.AccessReviewMonths, s.SignInMaxDays);
+    settings.UpdateOversight(s.DormantAfterDays, s.SwitchOffDormant, s.AccessReviewMonths, s.SignInMaxDays, s.DeletedRecoveryDays);
     var detail = ActivityDetail.Changes(
       ("Dormant after (days)", before.DormantAfterDays.ToString(), s.DormantAfterDays.ToString()),
       ("Switch dormant accounts off", ActivityDetail.YesNo(before.SwitchOffDormant), ActivityDetail.YesNo(s.SwitchOffDormant)),
       ("Access review every (months)", before.AccessReviewMonths.ToString(), s.AccessReviewMonths.ToString()),
-      ("Longest sign-in (days)", before.SignInMaxDays.ToString(), s.SignInMaxDays.ToString()));
+      ("Longest sign-in (days)", before.SignInMaxDays.ToString(), s.SignInMaxDays.ToString()),
+      ("Deleted accounts can be restored for (days)", before.DeletedRecoveryDays.ToString(), s.DeletedRecoveryDays.ToString()));
     if (detail is not null)
     {
       await activity.RecordAsync(ActivityAction.OversightSettingsUpdated, ActivityTargetType.System, null, "Oversight settings", detail, cancellationToken);

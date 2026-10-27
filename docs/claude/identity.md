@@ -29,7 +29,15 @@ All ids are Guid-backed strongly typed ids; `.Of(guid)` rejects `Guid.Empty`.
   - **`IsAuthorizedOfficer`**: the DG's designation under GDA Act s.2(a-i)/28/30. It is a designation, not a
     role, and can't be set on an inactive account.
   - Lockout fields (`FailedLoginAttempts`, `LastFailedLoginAt` - failures older than the lockout window are forgotten,
-    `LockedUntil`), `MustChangePassword`, last login, and soft delete (`DeletedAt/By`; `Restore()` brings it back switched off).
+    `LockedUntil`), `MustChangePassword`, last login, and soft delete (`DeletedAt/By`; `Restore(now, days)` brings it back switched off - only within the
+    recovery period, `SecuritySettings.DeletedRecoveryDays` 30 or 90 (Administration › Configuration, oversight; default
+    90); after it the account is closed for good: kept so records still name it, never restored; `UserDto.recoverableUntil`).
+  - Nobody deletes their own account (`IdentityGuard.EnsureNotSelf`). A person ASKS (`AccountDeletionRequest`,
+    `account_deletion_requests`; `GET|POST /auth/deletion-request`, `POST /auth/deletion-request/withdraw`; the reason is
+    required; one waiting per person). Someone with IAM_USERS.DELETE (never the person) decides: `GET
+    /users/deletion-requests`, `POST /users/deletion-requests/{id}/approve` (sends `DeleteUserCommand` - the same guards
+    and the same soft delete, saved with the approval) or `/reject` (why, required). Bell key `users.deletion-requests`.
+    Activity: `DeletionRequested`, `DeletionRequestWithdrawn`, `DeletionRequestRejected` (approving writes `UserDeleted`).
   - No MFA: it was removed (migration `RemoveMfa`).
 - **Role**: UPPER_SNAKE `Code`, `IsSystem`, `IsActive`, soft delete. `SUPER_ADMIN` is a system role: it can't be
   renamed, deactivated or deleted, and its permissions can't be removed.

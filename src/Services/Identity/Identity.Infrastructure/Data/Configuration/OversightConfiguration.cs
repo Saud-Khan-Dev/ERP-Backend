@@ -62,3 +62,25 @@ public class AccessReviewDecisionConfiguration : EntityConfiguration<AccessRevie
     builder.HasOne<AccessReview>().WithMany().HasForeignKey(x => x.ReviewId).OnDelete(DeleteBehavior.Restrict);
   }
 }
+
+public class AccountDeletionRequestConfiguration : EntityConfiguration<AccountDeletionRequest, Guid>
+{
+  public override void Configure(EntityTypeBuilder<AccountDeletionRequest> builder)
+  {
+    base.Configure(builder);
+    builder.ToTable("account_deletion_requests");
+    builder.HasKey(x => x.Id);
+    builder.Property(x => x.UserId).HasConversion(id => id.Value, dbId => UserId.Of(dbId)).IsRequired();
+    builder.Property(x => x.UserName).HasMaxLength(150).IsRequired();
+    builder.Property(x => x.Reason).HasMaxLength(1000).IsRequired();
+    builder.Property(x => x.Status).HasConversion<string>().HasMaxLength(20).IsRequired();
+    builder.Property(x => x.DecidedByName).HasMaxLength(150);
+    builder.Property(x => x.Remarks).HasMaxLength(1000);
+    builder.Ignore(x => x.IsPending);
+    builder.HasIndex(x => new { x.UserId, x.RequestedAt });
+    builder.HasIndex(x => x.Status);
+    // one waiting request per person
+    builder.HasIndex(x => x.UserId).IsUnique().HasFilter("status = 'Pending'").HasDatabaseName("ux_deletion_request_one_waiting");
+    builder.HasOne<User>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Restrict);
+  }
+}

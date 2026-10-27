@@ -251,6 +251,35 @@ public class UserEndpoints : ICarterModule
       .WithSummary("Link Account To HR Record")
       .WithDescription("Links the account to the person's HR record (employeeId from HRM's staff directory) and shows HR's employee number (employeeCode) as the account's code; both null unlink it. One HR record has one account. HRM keeps its own side (POST /employees/{id}/user); the token's emp claim follows on the person's next sign-in or refresh.");
 
+    app.MapGet("/users/deletion-requests", async (string? status, ISender sender) =>
+    {
+      DeletionRequestStatus? only = Enum.TryParse<DeletionRequestStatus>(status, true, out var s) ? s : null;
+      return Results.Ok((await sender.Send(new GetDeletionRequestsQuery(only))).Value);
+    })
+      .RequirePermission(PermissionCatalog.Users.Delete)
+      .WithName("GetDeletionRequests")
+      .Produces<IReadOnlyList<DeletionRequestDto>>(StatusCodes.Status200OK)
+      .WithSummary("Account Deletion Requests")
+      .WithDescription("People who asked for their own account to be deleted: waiting ones first (oldest first), then the decided ones. status = pending | approved | rejected | withdrawn.");
+
+    foreach (var (approve, route) in new[] { (true, "approve"), (false, "reject") })
+    {
+      app.MapPost($"/users/deletion-requests/{{id}}/{route}", async (Guid id, DecideDeletionBody? body, ISender sender) =>
+      {
+        var result = await sender.Send(new DecideDeletionRequestCommand(id, approve, body?.Remarks));
+        return Results.Ok(result.Value);
+      })
+        .RequirePermission(PermissionCatalog.Users.Delete)
+        .WithName(approve ? "ApproveDeletionRequest" : "RejectDeletionRequest")
+        .Produces<bool>(StatusCodes.Status200OK)
+        .ProducesProblem(StatusCodes.Status400BadRequest)
+        .ProducesProblem(StatusCodes.Status404NotFound)
+        .WithSummary(approve ? "Approve: Delete the Account" : "Turn the Request Down")
+        .WithDescription(approve
+          ? "Deletes the account as Delete User does (soft, restorable within the recovery period). Never one's own request."
+          : "Remarks (why) are required; the person sees them.");
+    }
+
     app.MapPost("/users/{id}/restore", async (Guid id, ISender sender) =>
     {
       var result = await sender.Send(new RestoreUserCommand(id));
@@ -261,7 +290,7 @@ public class UserEndpoints : ICarterModule
       .Produces<RestoreUserResponse>(StatusCodes.Status200OK)
       .ProducesProblem(StatusCodes.Status404NotFound)
       .WithSummary("Restore Deleted User")
-      .WithDescription("Brings a deleted account back, switched off - review its roles, then activate it.");
+      .WithDescription("Brings a deleted account back within the recovery period (Administration › Configuration: 30 or 90 days), switched off - review its roles, then activate it. After the period it is closed for good.");
 
     app.MapDelete("/users/{id}/roles/{roleId}", async (Guid id, Guid roleId, ISender sender) =>
     {
@@ -351,3 +380,5 @@ public sealed record RemoveOverrideResponse(bool IsSuccess);
 
 public sealed record SetUserScopeRequest(IReadOnlyList<ScopePlaceDto>? Towns, IReadOnlyList<ScopePlaceDto>? Offices);
 public sealed record UserScopeResponse(UserScopeDto Scope);
+
+public sealed record DecideDeletionBody(string? Remarks);

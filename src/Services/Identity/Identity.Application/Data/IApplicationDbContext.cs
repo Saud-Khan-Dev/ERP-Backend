@@ -22,6 +22,7 @@ public interface IApplicationDbContext
   DbSet<DutyRuleSwitch> DutyRuleSwitches { get; }
   DbSet<AccessReview> AccessReviews { get; }
   DbSet<AccessReviewDecision> AccessReviewDecisions { get; }
+  DbSet<AccountDeletionRequest> AccountDeletionRequests { get; }
 
   Task<int> SaveChangesAsync(CancellationToken cancellationToken);
 }

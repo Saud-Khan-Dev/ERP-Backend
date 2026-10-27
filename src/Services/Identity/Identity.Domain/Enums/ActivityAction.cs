@@ -67,5 +67,12 @@ public enum ActivityAction
   /// A role or "Change roles" saved with two duties that should not meet, with the reason given.
   ConflictAccepted,
   /// The audit trail or an access report was exported.
-  Exported
+  Exported,
+
+  // ---- deleting one's own account (2026-10-27) ----
+  /// The person asked for their own account to be deleted / took the request back.
+  DeletionRequested,
+  DeletionRequestWithdrawn,
+  /// A senior turned the request down, with the reason (approving it writes UserDeleted).
+  DeletionRequestRejected
 }

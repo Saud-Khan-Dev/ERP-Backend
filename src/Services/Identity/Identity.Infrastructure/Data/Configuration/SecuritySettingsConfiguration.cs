@@ -25,6 +25,7 @@ public class SecuritySettingsConfiguration : EntityConfiguration<SecuritySetting
     builder.Property(x => x.SwitchOffDormant).IsRequired().HasDefaultValue(false);
     builder.Property(x => x.AccessReviewMonths).IsRequired().HasDefaultValue(6);
     builder.Property(x => x.SignInMaxDays).IsRequired().HasDefaultValue(30);
+    builder.Property(x => x.DeletedRecoveryDays).IsRequired().HasDefaultValue(90);
 
     builder.Ignore(x => x.PasswordPolicy);
     builder.Ignore(x => x.LockoutDuration);

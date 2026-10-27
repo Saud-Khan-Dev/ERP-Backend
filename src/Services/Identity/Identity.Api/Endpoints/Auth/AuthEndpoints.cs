@@ -108,6 +108,34 @@ public class AuthEndpoints : ICarterModule
       .WithSummary("Change My Password")
       .WithDescription("Changes the caller's own password and signs every session out, including this one.");
 
+    // ---- deleting one's own account: asked for here, decided by another administrator ----
+
+    app.MapGet("/auth/deletion-request", async (ISender sender) => Results.Ok((await sender.Send(new GetMyDeletionRequestQuery())).Value))
+      .RequireAuthorization()
+      .WithName("GetMyDeletionRequest")
+      .Produces<DeletionRequestDto>(StatusCodes.Status200OK)
+      .WithSummary("My Account Deletion Request")
+      .WithDescription("The latest request to delete my own account (null if never asked): pending, approved, rejected (with why) or withdrawn.");
+
+    app.MapPost("/auth/deletion-request", async (AskDeletionBody body, ISender sender) =>
+    {
+      var result = await sender.Send(new AskAccountDeletionCommand(body.Reason));
+      return result.IsSuccess ? Results.Ok(result.Value) : Results.BadRequest(new { message = result.Message });
+    })
+      .RequireAuthorization()
+      .WithName("AskAccountDeletion")
+      .Produces<DeletionRequestDto>(StatusCodes.Status200OK)
+      .ProducesProblem(StatusCodes.Status400BadRequest)
+      .WithSummary("Ask for My Account to Be Deleted")
+      .WithDescription("Nobody deletes their own account: an administrator who may delete accounts decides. The reason is required.");
+
+    app.MapPost("/auth/deletion-request/withdraw", async (ISender sender) => Results.Ok((await sender.Send(new WithdrawAccountDeletionCommand())).Value))
+      .RequireAuthorization()
+      .WithName("WithdrawAccountDeletion")
+      .Produces<bool>(StatusCodes.Status200OK)
+      .ProducesProblem(StatusCodes.Status400BadRequest)
+      .WithSummary("Withdraw My Deletion Request");
+
     app.MapGet("/auth/sessions", async (ISender sender, bool? includeRevoked) =>
     {
       var result = await sender.Send(new GetMySessionsQuery(includeRevoked ?? false));
@@ -167,3 +195,5 @@ public sealed record RevokeMySessionResponse(bool IsSuccess);
 
 public sealed record PasswordPolicyResponse(PasswordPolicyDto Policy);
 public sealed record RevokeOtherSessionsResponse(int RevokedCount);
+
+public sealed record AskDeletionBody(string? Reason);

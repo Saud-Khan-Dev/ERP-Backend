@@ -54,9 +54,15 @@ public class SecuritySettings : Aggregate<SecuritySettingsId>
   public int AccessReviewMonths { get; private set; } = 6;
   /// The longest one sign-in lasts, however often it is renewed: after it, the password is asked again.
   public int SignInMaxDays { get; private set; } = 30;
+  /// How long a deleted account can be restored (30 or 90 days); after it the account is closed for good.
+  public int DeletedRecoveryDays { get; private set; } = 90;
 
-  public void UpdateOversight(int dormantAfterDays, bool switchOffDormant, int accessReviewMonths, int signInMaxDays)
+  public static readonly IReadOnlyList<int> RecoveryPeriods = [30, 90];
+
+  public void UpdateOversight(int dormantAfterDays, bool switchOffDormant, int accessReviewMonths, int signInMaxDays, int deletedRecoveryDays)
   {
+    if (!RecoveryPeriods.Contains(deletedRecoveryDays))
+      throw new DomainException("A deleted account can be restored for 30 or 90 days.");
     Between(dormantAfterDays, MinDormantDays, MaxDormantDays, "The days before an unused account counts as dormant");
     Between(accessReviewMonths, MinReviewMonths, MaxReviewMonths, "The months between access reviews");
     Between(signInMaxDays, MinSignInMaxDays, MaxSignInMaxDays, "The longest sign-in in days");
@@ -64,6 +70,7 @@ public class SecuritySettings : Aggregate<SecuritySettingsId>
     SwitchOffDormant = switchOffDormant;
     AccessReviewMonths = accessReviewMonths;
     SignInMaxDays = signInMaxDays;
+    DeletedRecoveryDays = deletedRecoveryDays;
   }
 
   public TimeSpan SignInMaxLifetime => TimeSpan.FromDays(SignInMaxDays);

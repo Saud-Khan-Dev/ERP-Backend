@@ -237,11 +237,18 @@ public class User : Aggregate<UserId>
     AccessChanged();
   }
 
-  /// Brings a deleted account back, switched off: an administrator reviews its roles and activates it.
-  public void Restore()
+  /// The last moment a deleted account can be restored (the recovery period, SecuritySettings.DeletedRecoveryDays); after
+  /// it the account is closed for good - kept, so old records still name it, but never restored or used again.
+  public DateTime? RecoverableUntil(int recoveryDays) => DeletedAt?.AddDays(recoveryDays);
+
+  /// Brings a deleted account back within the recovery period, switched off: an administrator reviews its roles and
+  /// activates it.
+  public void Restore(DateTime now, int recoveryDays)
   {
     if (!IsDeleted)
       throw new DomainException("This account is not deleted.");
+    if (RecoverableUntil(recoveryDays) is { } until && until < now)
+      throw new DomainException($"This account was deleted on {DeletedAt:d MMM yyyy} and could be restored until {until:d MMM yyyy}. It is closed for good; make a new account instead.");
 
     DeletedAt = null;
     DeletedBy = null;

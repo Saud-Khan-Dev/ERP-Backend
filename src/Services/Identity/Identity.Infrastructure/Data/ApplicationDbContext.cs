@@ -28,6 +28,7 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
   public DbSet<DutyRuleSwitch> DutyRuleSwitches => Set<DutyRuleSwitch>();
   public DbSet<AccessReview> AccessReviews => Set<AccessReview>();
   public DbSet<AccessReviewDecision> AccessReviewDecisions => Set<AccessReviewDecision>();
+  public DbSet<AccountDeletionRequest> AccountDeletionRequests => Set<AccountDeletionRequest>();
 
   protected override void OnModelCreating(ModelBuilder builder)
   {

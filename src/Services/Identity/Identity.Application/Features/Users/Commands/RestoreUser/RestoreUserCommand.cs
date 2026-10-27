@@ -1,11 +1,12 @@
 using Microsoft.EntityFrameworkCore;
 
-/// Brings a deleted account back - switched off, so an administrator reviews its roles before activating it.
+/// Brings a deleted account back within the recovery period - switched off, so an administrator reviews its roles before
+/// activating it. After the period the account is closed for good.
 public sealed record RestoreUserCommand(Guid Id) : ICommand<Result<RestoreUserCommandResult>>;
 
 public sealed record RestoreUserCommandResult(bool IsSuccess);
 
-public class RestoreUserHandler(IApplicationDbContext context, IdentityGuard guard, IActivityRecorder activity)
+public class RestoreUserHandler(IApplicationDbContext context, IdentityGuard guard, IActivityRecorder activity, ISecuritySettingsProvider settings)
   : ICommandHandler<RestoreUserCommand, Result<RestoreUserCommandResult>>
 {
   public async Task<Result<RestoreUserCommandResult>> Handle(RestoreUserCommand command, CancellationToken cancellationToken)
@@ -18,7 +19,7 @@ public class RestoreUserHandler(IApplicationDbContext context, IdentityGuard gua
     if (!user.IsDeleted)
       return Result<RestoreUserCommandResult>.Success(new RestoreUserCommandResult(true));
 
-    user.Restore();
+    user.Restore(DateTime.UtcNow, (await settings.GetAsync(cancellationToken)).DeletedRecoveryDays);
     await activity.RecordAsync(ActivityAction.UserRestored, ActivityTargetType.User, user.Id.Value, user.DisplayName.Value, null, cancellationToken);
     await context.SaveChangesAsync(cancellationToken);
     return Result<RestoreUserCommandResult>.Success(new RestoreUserCommandResult(true));
