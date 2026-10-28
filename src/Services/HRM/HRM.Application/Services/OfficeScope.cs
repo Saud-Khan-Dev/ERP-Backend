@@ -102,6 +102,20 @@ public sealed class OfficeScope(IApplicationDbContext context, EmployeeScope sco
           inScope.Add(a.EmployeeId);
       }
 
+      // contingent staff count in the office of their current order, else the last one, else the first to come
+      var orders = await context.EngagementOrders.AsNoTracking()
+        .Where(o => o.Status == RecordStatus.Active)
+        .Select(o => new { o.EmployeeId, o.OrgUnitId, o.StartDate, o.EndDate })
+        .ToListAsync(cancellationToken);
+      foreach (var g in orders.GroupBy(o => o.EmployeeId))
+      {
+        var order = g.FirstOrDefault(o => o.StartDate <= today && o.EndDate >= today)
+          ?? g.Where(o => o.StartDate <= today).OrderByDescending(o => o.StartDate).FirstOrDefault()
+          ?? g.OrderBy(o => o.StartDate).First();
+        if (units.Contains(order.OrgUnitId))
+          inScope.Add(g.Key);
+      }
+
       scope.Set(inScope);
     }
   }

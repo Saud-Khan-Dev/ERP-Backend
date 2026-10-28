@@ -25,7 +25,7 @@ public class MoneyAndTimingRulesTests
     var last = Issued(file, 2025);
     var next = Demand.Draft(DemandId.New(), "DMD-2026", null, file, file.CurrentBasis!, file.Addressee(D("2026-07-01"))!, 2026, Assess(file, 2026).Lines, 0);
     var error = Assert.Throws<DomainException>(() => last.CarryInto(next, NothingPaid, Surcharge.Id, Officer, Now, D("2026-06-30")));
-    Assert.Contains("is not over until 30 Jun 2026", error.Message);
+    Assert.Contains("is not over until 30/06/2026", error.Message);
     Assert.Equal(DemandStatus.Issued, last.Status);
   }
 
@@ -33,7 +33,7 @@ public class MoneyAndTimingRulesTests
   public void A_run_for_a_year_that_has_not_started_is_worked_out_but_not_approved()
   {
     var run = DemandRun.Compute(DemandRunId.New(), 2025, null, RateSet(), Officer, Now);
-    Assert.Contains("starts on 01 Jul 2025", Assert.Throws<DomainException>(() => run.Approve(Officer, Now, D("2025-06-30"))).Message);
+    Assert.Contains("starts on 01/07/2025", Assert.Throws<DomainException>(() => run.Approve(Officer, Now, D("2025-06-30"))).Message);
     run.Approve(Officer, Now, D("2025-07-01"));
     Assert.Equal(DemandRunStatus.Approved, run.Status);
   }
@@ -127,7 +127,7 @@ public class MoneyAndTimingRulesTests
 
     var again = SurchargeRules.Candidate(demand, file, rule, terms, Settings, D("2025-11-01"))!;
     Assert.False(again.Eligible);
-    Assert.Equal("surcharged on 01 Oct 2025", again.Reason);
+    Assert.Equal("surcharged on 01/10/2025", again.Reason);
 
     // the earlier dues paid off: no longer a defaulter
     var other = Issued(File(), 2025);

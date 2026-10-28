@@ -405,7 +405,7 @@ public static class LeaveDayCounter
   {
     var total = counted.Sum(c => c.Days);
     if (total <= 0)
-      throw new DomainException($"There is no working day between {from:dd MMM yyyy} and {to:dd MMM yyyy} (only holidays and off days).");
+      throw new DomainException($"There is no working day between {from:dd'/'MM'/'yyyy} and {to:dd'/'MM'/'yyyy} (only holidays and off days).");
 
     if (given is not { } days || days == total)
       return counted;

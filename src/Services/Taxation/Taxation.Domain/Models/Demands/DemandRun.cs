@@ -53,7 +53,7 @@ public class DemandRun : Aggregate<DemandRunId>
     var yearStart = global::FiscalYear.Start(FiscalYear);
     var yearLabel = global::FiscalYear.Label(FiscalYear);
     if (today < yearStart)
-      throw new DomainException($"FY {yearLabel} starts on {yearStart:dd MMM yyyy}; its demand is approved from that day.");
+      throw new DomainException($"FY {yearLabel} starts on {yearStart:dd'/'MM'/'yyyy}; its demand is approved from that day.");
     Status = DemandRunStatus.Approved;
     ApprovedBy = actor;
     ApprovedAt = now;
@@ -145,9 +145,9 @@ public static class SurchargeRules
     var from = rule.EligibleFrom(demand.FiscalYear, demand.IssuedOn, demand.DueDate ?? settings.DueDate(demand.FiscalYear));
     var earlier = demand.Penalties.Where(p => p.Kind == PenaltyKind.IntraYear && p.RuleRef == rule.Code).OrderByDescending(p => p.AppliedOn).FirstOrDefault();
     var held = file.HoldOn(today);
-    var reason = earlier is not null ? $"surcharged on {earlier.AppliedOn:dd MMM yyyy}"
+    var reason = earlier is not null ? $"surcharged on {earlier.AppliedOn:dd'/'MM'/'yyyy}"
       : held is not null ? "litigation hold"
-      : from > today ? $"period runs until {from:dd MMM yyyy}"
+      : from > today ? $"period runs until {from:dd'/'MM'/'yyyy}"
       : baseAmount <= 0 ? "no arrears" : null;
     return new SurchargeCandidate(demand, baseAmount, amount, reason is null && amount > 0, reason, arrearsOwed, earlier?.AppliedOn);
   }

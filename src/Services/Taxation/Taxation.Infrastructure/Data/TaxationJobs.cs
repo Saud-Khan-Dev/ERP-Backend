@@ -33,7 +33,7 @@ public sealed class TaxationJobs(ApplicationDbContext context, IConfiguration co
       var circle = run.CircleId is { } c ? await context.TaxCircles.AsNoTracking().Where(x => x.Id == c).Select(x => x.Code).FirstOrDefaultAsync(cancellationToken) : null;
       jobs.Add(new SystemJobDto("Taxation demand run", run.ComputedAt is { } at ? At(at) : null, "Succeeded",
         $"FY {FiscalYear.Label(run.FiscalYear)} · {circle ?? "all circles"} · {run.PropertyCount ?? 0} demands · {EnumText.Words(run.Status).ToLowerInvariant()}"
-        + (run.ApprovedAt is { } approved ? $" on {At(approved).ToOffset(Pkt):dd MMM yyyy}" : ""), null));
+        + (run.ApprovedAt is { } approved ? $" on {At(approved).ToOffset(Pkt):dd'/'MM'/'yyyy}" : ""), null));
     }
 
     var surcharge = await context.PenaltyRuns.AsNoTracking().OrderByDescending(r => r.CreatedAt).FirstOrDefaultAsync(cancellationToken);

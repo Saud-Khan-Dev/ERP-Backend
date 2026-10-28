@@ -36,7 +36,7 @@ public class SettingsHandlers(IApplicationDbContext context, IClock clock) :
     var key = SettingKeys.Find(command.Key).Key;
     var history = await context.Settings.Where(s => s.Key == key).ToListAsync(cancellationToken);
     var future = history.FirstOrDefault(s => s.EffectiveFrom == command.EffectiveFrom)
-      ?? throw new TemplateNotFoundException($"{key} has no value from {command.EffectiveFrom:dd MMM yyyy}.");
+      ?? throw new TemplateNotFoundException($"{key} has no value from {command.EffectiveFrom:dd'/'MM'/'yyyy}.");
     TaxSetting.Void(future, history, clock.Today);
     context.Settings.Remove(future);
     await context.SaveChangesAsync(cancellationToken);

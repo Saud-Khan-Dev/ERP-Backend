@@ -75,7 +75,7 @@ public class TaxCircle : Aggregate<TaxCircleId>
     if (townHistory.Any(t => t.Id != town.Id && t.EffectiveFrom > town.EffectiveFrom))
       throw new DomainException("A later assignment of the town follows; it already ends this one.");
     if (town.EffectiveTo is not null)
-      throw new DomainException($"The town left the circle after {town.EffectiveTo:dd MMM yyyy} already.");
+      throw new DomainException($"The town left the circle after {town.EffectiveTo:dd'/'MM'/'yyyy} already.");
     town.Close(lastDay);
   }
 
@@ -85,7 +85,7 @@ public class TaxCircle : Aggregate<TaxCircleId>
   {
     var town = _towns.FirstOrDefault(t => t.Id == id) ?? throw new DomainException("The town assignment was not found in this circle.");
     if (town.EffectiveFrom <= today)
-      throw new DomainException($"The assignment is in force since {town.EffectiveFrom:dd MMM yyyy}; assign the town to another circle from a new date instead.");
+      throw new DomainException($"The assignment is in force since {town.EffectiveFrom:dd'/'MM'/'yyyy}; assign the town to another circle from a new date instead.");
     if (townHistory.Any(t => t.Id != town.Id && t.EffectiveFrom > town.EffectiveFrom))
       throw new DomainException("A later assignment of the town follows; take that one back first.");
     var previous = townHistory.Where(t => t.Id != town.Id && t.EffectiveFrom < town.EffectiveFrom).OrderByDescending(t => t.EffectiveFrom).FirstOrDefault();
@@ -127,7 +127,7 @@ public class TaxCircleTown : Entity<TaxCircleTownId>
   internal void Close(DateOnly lastDay)
   {
     if (lastDay < EffectiveFrom)
-      throw new DomainException($"The town's assignment from {EffectiveFrom:dd MMM yyyy} cannot end before it starts.");
+      throw new DomainException($"The town's assignment from {EffectiveFrom:dd'/'MM'/'yyyy} cannot end before it starts.");
     EffectiveTo = lastDay;
   }
 

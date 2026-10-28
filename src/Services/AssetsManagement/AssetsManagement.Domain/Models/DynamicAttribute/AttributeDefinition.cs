@@ -273,8 +273,8 @@ public class AttributeDefinition : Aggregate<AttributeDefinitionId>
             && !(DateTime.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var dt) && (date = DateOnly.FromDateTime(dt)) != default))
           Fail(label, "must be a date.");
         if (date.Year is < EarliestYear or > LatestYear) Fail(label, "is not a real date. Check the year.");
-        if (MinDate.HasValue && date < MinDate) Fail(label, $"cannot be before {MinDate:d MMM yyyy}.");
-        if (MaxDate.HasValue && date > MaxDate) Fail(label, $"cannot be after {MaxDate:d MMM yyyy}.");
+        if (MinDate.HasValue && date < MinDate) Fail(label, $"cannot be before {MinDate:dd'/'MM'/'yyyy}.");
+        if (MaxDate.HasValue && date > MaxDate) Fail(label, $"cannot be after {MaxDate:dd'/'MM'/'yyyy}.");
         return JsonSerializer.SerializeToElement(date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
       }
 
@@ -285,8 +285,8 @@ public class AttributeDefinition : Aggregate<AttributeDefinitionId>
           Fail(label, "must be a date and time.");
         var date = DateOnly.FromDateTime(moment.UtcDateTime);
         if (date.Year is < EarliestYear or > LatestYear) Fail(label, "is not a real date. Check the year.");
-        if (MinDate.HasValue && date < MinDate) Fail(label, $"cannot be before {MinDate:d MMM yyyy}.");
-        if (MaxDate.HasValue && date > MaxDate) Fail(label, $"cannot be after {MaxDate:d MMM yyyy}.");
+        if (MinDate.HasValue && date < MinDate) Fail(label, $"cannot be before {MinDate:dd'/'MM'/'yyyy}.");
+        if (MaxDate.HasValue && date > MaxDate) Fail(label, $"cannot be after {MaxDate:dd'/'MM'/'yyyy}.");
         return JsonSerializer.SerializeToElement(moment.UtcDateTime.ToString("O", CultureInfo.InvariantCulture));
       }
 

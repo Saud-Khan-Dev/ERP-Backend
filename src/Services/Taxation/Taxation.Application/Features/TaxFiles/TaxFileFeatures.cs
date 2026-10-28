@@ -371,7 +371,7 @@ public class TaxFileHandlers(
   {
     var file = await context.LoadTaxFileAsync(command.Id, cancellationToken);
     var voided = file.VoidOverride(TaxFileOverrideId.Of(command.OverrideId), clock.Today);
-    audit.Record("Taken back", voided, $"Set by mistake, before it was in force (from {voided.EffectiveFrom:dd MMM yyyy})");
+    audit.Record("Taken back", voided, $"Set by mistake, before it was in force (from {voided.EffectiveFrom:dd'/'MM'/'yyyy})");
     context.Overrides.Remove(voided);
     await context.SaveChangesAsync(cancellationToken);
     return CommandResults.Updated();
@@ -381,7 +381,7 @@ public class TaxFileHandlers(
   {
     var file = await context.LoadTaxFileAsync(command.Id, cancellationToken);
     var voided = file.VoidHold(LitigationHoldId.Of(command.HoldId), clock.Today);
-    audit.Record("Taken back", voided, $"Put by mistake, before it began (from {voided.StartedOn:dd MMM yyyy})");
+    audit.Record("Taken back", voided, $"Put by mistake, before it began (from {voided.StartedOn:dd'/'MM'/'yyyy})");
     context.Holds.Remove(voided);
     await context.SaveChangesAsync(cancellationToken);
     return CommandResults.Updated();

@@ -209,9 +209,9 @@ public class Employee : Aggregate<EmployeeId>
     if (AgeOn(on) is not { } age)
       return $"Enter {DisplayName}'s date of birth before the appointment: the retirement date is worked out from it.";
     if (age < 18)
-      return $"{DisplayName} is {age} on {on:dd MMM yyyy}; a government servant must be at least 18 when appointed.";
+      return $"{DisplayName} is {age} on {on:dd'/'MM'/'yyyy}; a government servant must be at least 18 when appointed.";
     if (age >= retirementAge)
-      return $"{DisplayName} is {age} on {on:dd MMM yyyy}, at or past the retirement age of {retirementAge}.";
+      return $"{DisplayName} is {age} on {on:dd'/'MM'/'yyyy}, at or past the retirement age of {retirementAge}.";
     return null;
   }
 

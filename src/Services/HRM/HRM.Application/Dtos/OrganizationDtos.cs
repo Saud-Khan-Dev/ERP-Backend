@@ -102,7 +102,9 @@ public sealed record PostListItemDto(
   PositionStatus Status,
   PostLifecycle LifecycleStatus,
   DateOnly EffectiveFrom,
-  IReadOnlyList<PostHolderDto> Holders);
+  IReadOnlyList<PostHolderDto> Holders,
+  /// The post this one reports to (the organogram's line), as of the date asked for.
+  Guid? ReportingPostId = null);
 
 public sealed record PostDto(
   Guid Id,

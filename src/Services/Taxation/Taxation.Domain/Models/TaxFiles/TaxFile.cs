@@ -331,7 +331,7 @@ public class TaxFile : Aggregate<TaxFileId>
   {
     var ov = _overrides.FirstOrDefault(o => o.Id == id) ?? throw new DomainException("The override was not found on this file.");
     if (ov.EffectiveFrom <= today)
-      throw new DomainException($"The override is in force since {ov.EffectiveFrom:dd MMM yyyy}; end it instead.");
+      throw new DomainException($"The override is in force since {ov.EffectiveFrom:dd'/'MM'/'yyyy}; end it instead.");
     if (_overrides.Any(o => o.HeadId == ov.HeadId && o.EffectiveFrom > ov.EffectiveFrom))
       throw new DomainException("A later override of the head follows it; take that one back first.");
     var previous = _overrides.Where(o => o.HeadId == ov.HeadId && o.EffectiveFrom < ov.EffectiveFrom).OrderByDescending(o => o.EffectiveFrom).FirstOrDefault();
@@ -383,7 +383,7 @@ public class TaxFile : Aggregate<TaxFileId>
   {
     var hold = _holds.FirstOrDefault(h => h.Id == id) ?? throw new DomainException("The hold was not found on this file.");
     if (hold.StartedOn <= today)
-      throw new DomainException($"The hold is in force since {hold.StartedOn:dd MMM yyyy}; give it its last day instead.");
+      throw new DomainException($"The hold is in force since {hold.StartedOn:dd'/'MM'/'yyyy}; give it its last day instead.");
     _holds.Remove(hold);
     Touch();
     return hold;

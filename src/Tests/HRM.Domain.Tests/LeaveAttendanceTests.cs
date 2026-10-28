@@ -184,6 +184,16 @@ public class AttendanceTests
   }
 
   [Fact]
+  public void A_shift_without_grace_counts_no_lateness()
+  {
+    var noGrace = WorkShift.Create(WorkShiftId.New(), "Office", new TimeOnly(8, 0), new TimeOnly(16, 0), null, null);
+    var record = Record(noGrace, "09:30", "16:00");
+
+    Assert.Equal(AttendanceStatus.Present, record.Status);
+    Assert.Equal(0, record.LateMinutes);
+  }
+
+  [Fact]
   public void Under_half_the_shift_is_a_half_day()
   {
     var record = Record(Morning, "08:05", "11:00");

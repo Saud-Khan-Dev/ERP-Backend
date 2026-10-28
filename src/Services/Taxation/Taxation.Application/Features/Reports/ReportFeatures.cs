@@ -209,7 +209,7 @@ public class ReportHandlers(IApplicationDbContext context, TaxSetup setup, ICloc
         return monthly ? new DateOnly(day.Year, day.Month, 1) : day;
       })
       .OrderBy(g => g.Key)
-      .Select(g => new CollectionPeriodDto(g.Key, monthly ? g.Key.ToString("MMM yyyy") : g.Key.ToString("dd MMM yyyy"), g.Count(),
+      .Select(g => new CollectionPeriodDto(g.Key, monthly ? g.Key.ToString("MMM yyyy") : g.Key.ToString("dd'/'MM'/'yyyy"), g.Count(),
         g.Where(p => !p.Fee).Sum(p => p.Amount), g.Where(p => p.Fee).Sum(p => p.Amount), g.Sum(p => p.Amount)))
       .ToList();
     var byChannel = list.GroupBy(p => p.Channel).Select(g => new CollectionChannelDto(g.Key, g.Count(), g.Sum(p => p.Amount))).OrderByDescending(x => x.Amount).ToList();

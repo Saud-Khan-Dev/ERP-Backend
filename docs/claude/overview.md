@@ -81,6 +81,8 @@ X.Api             Carter endpoint modules, exception handler, Program.cs, Depend
   - New migration (from `src/`): `dotnet ef migrations add <Name> -p Services/X/X.Infrastructure -s Services/X/X.Api`.
 - **Audit**: `AuditableEntityInterceptors` stamps created and updated columns. It differs per service; see the
   service files.
+- **Dates in sentences** (refusals, audit details) are written `dd/MM/yyyy` - `{date:dd'/'MM'/'yyyy}` (the quotes keep
+  the slash whatever the culture) - and times on the 12-hour clock, as Pakistan writes them. Values sent as data stay ISO.
 - **No namespaces.** Every type is in the global namespace, so class names like `DependencyInjection`,
   `ApplicationDbContext`, `DomainException` and `Entity<T>` repeat across services. Follow this and don't add
   `namespace` lines. Indentation is 2 spaces.

@@ -28,6 +28,7 @@ public static class HrmAuditProfile
       .Field("Cnic", "CNIC").Field("UserId", "Sign-in account"));
     profile.Entity<EmployeeContact>(e => e.Kind("Contact").Label(x => x.Value).Under<Employee>(x => x.EmployeeId));
     profile.Entity<EmployeeAddress>(e => e.Kind("Address").Under<Employee>(x => x.EmployeeId));
+    profile.Entity<EngagementOrder>(e => e.Kind("Order").Under<Employee>(x => x.EmployeeId).Field("Rate", "Wage"));
     profile.Entity<EmployeeEmergencyContact>(e => e.Kind("Emergency contact").Under<Employee>(x => x.EmployeeId));
     profile.Entity<EmployeeFamilyMember>(e => e.Kind("Family member").Under<Employee>(x => x.EmployeeId).Field("Cnic", "CNIC"));
     profile.Entity<EmployeeBankAccount>(e => e.Kind("Bank account").Label(x => x.BankName).Under<Employee>(x => x.EmployeeId)

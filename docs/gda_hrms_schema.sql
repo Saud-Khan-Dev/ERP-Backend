@@ -125,6 +125,7 @@ CREATE TYPE leave_txn_type_enum AS ENUM ('opening','accrual','usage','usage_reve
 CREATE TYPE loan_status_enum        AS ENUM ('active','completed','cancelled','written_off','pending');
 CREATE TYPE installment_status_enum AS ENUM ('pending','partial','paid','waived');
 CREATE TYPE gpf_txn_type_enum       AS ENUM ('opening','subscription','interest','advance','advance_recovery','withdrawal','final_payment','adjustment');
+CREATE TYPE wage_basis_enum         AS ENUM ('daily','monthly');
 
 -- ---------------------------------------------------------------------
 -- HELPER FUNCTIONS
@@ -631,6 +632,27 @@ CREATE TRIGGER trg_esh_append_only
   FOR EACH ROW EXECUTE FUNCTION fn_block_mutation();
 COMMENT ON TABLE employee_service_history IS
   'Append-only service ledger: ONE row per service event (appointment, transfer, promotion, deputation ...). It records WHAT happened and why. The resulting occupancy of a post is recorded in position_assignment (the two tables complement each other). UPDATE/DELETE are blocked by trigger; corrections are offsetting rows.';
+
+-- A contingent person's order: office, designation, period, wage and the order letter. A renewal is a new order;
+-- orders do not overlap and the days between two are not paid.
+CREATE TABLE engagement_order (
+    id                  UUID PRIMARY KEY,
+    employee_id         UUID NOT NULL REFERENCES employee(id),
+    org_unit_id         UUID NOT NULL REFERENCES organization_unit(id),
+    designation_id      UUID NOT NULL REFERENCES designation(id),
+    start_date          DATE NOT NULL,
+    end_date            DATE NOT NULL,
+    wage_basis          wage_basis_enum NOT NULL,
+    rate                NUMERIC(18,2) NOT NULL,
+    letter_document_id  UUID NOT NULL REFERENCES employee_document(id),
+    status              record_status_enum NOT NULL DEFAULT 'active',
+    cancel_reason       VARCHAR(500),
+    created_at TIMESTAMPTZ, created_by UUID, updated_at TIMESTAMPTZ, updated_by UUID,
+    CONSTRAINT ck_eo_dates CHECK (end_date >= start_date),
+    CONSTRAINT ck_eo_rate CHECK (rate > 0)
+);
+CREATE INDEX idx_engagement_order_employee_start ON engagement_order(employee_id, start_date);
+CREATE INDEX idx_engagement_order_org_unit_id ON engagement_order(org_unit_id);
 
 CREATE TABLE position_assignment (
   id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),

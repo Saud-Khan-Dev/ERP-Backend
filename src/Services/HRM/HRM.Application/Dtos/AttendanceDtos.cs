@@ -1,5 +1,5 @@
 /// PeopleCount: employees on the shift today.
-public sealed record WorkShiftDto(Guid Id, string Name, TimeOnly StartTime, TimeOnly EndTime, int GraceMinutes, IReadOnlyList<int> WorkingWeekdays, decimal ScheduledHours, bool IsActive,
+public sealed record WorkShiftDto(Guid Id, string Name, TimeOnly StartTime, TimeOnly EndTime, int? GraceMinutes, IReadOnlyList<int> WorkingWeekdays, decimal ScheduledHours, bool IsActive,
   int PeopleCount = 0);
 
 public sealed record EmployeeShiftDto(Guid Id, Guid EmployeeId, Guid WorkShiftId, string? WorkShift, DateOnly EffectiveFrom, DateOnly? EffectiveTo);

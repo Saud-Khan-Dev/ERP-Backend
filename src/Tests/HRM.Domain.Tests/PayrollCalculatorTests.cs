@@ -226,4 +226,41 @@ public class PayrollCalculatorTests
     Assert.Equal(13_200, result.TaxWithheld);
     Assert.Empty(result.Segments);
   }
+
+  [Fact]
+  public void A_contingent_daily_wage_pays_only_the_days_an_order_covers()
+  {
+    // 1-22 June, then a renewal from 26 June: 23-25 June are not paid; no allowance or rule deduction applies
+    var catalog = Catalog(RuleFor(Allowance, Rule(fixedAmount: 5_000)), RuleFor(Benevolent, Rule(fixedAmount: 500)));
+    var input = Input(assignments: [], versions: [], pay: []) with
+    {
+      Wages = [new WageSlice(WageBasis.Daily, 1_000, D("2026-05-22"), D("2026-06-22")), new WageSlice(WageBasis.Daily, 1_000, D("2026-06-26"), D("2026-09-30"))]
+    };
+
+    var result = PayrollCalculator.Calculate(June, true, input, catalog);
+
+    Assert.Equal(27, result.DaysPayable);
+    Assert.Equal(27_000, Line(result, Basic));
+    Assert.Equal(0, Line(result, Allowance));
+    Assert.Equal(0, Line(result, Benevolent));
+    Assert.Equal(27_000, Net(result));
+  }
+
+  [Fact]
+  public void A_contingent_monthly_wage_is_prorated_over_the_days_of_the_month()
+  {
+    var input = Input(assignments: [], versions: [], pay: []) with { Wages = [new WageSlice(WageBasis.Monthly, 30_000, D("2026-06-16"), D("2026-12-31"))] };
+
+    var result = PayrollCalculator.Calculate(June, true, input, Catalog());
+
+    Assert.Equal(15, result.DaysPayable);
+    Assert.Equal(15_000, Line(result, Basic));
+  }
+
+  [Fact]
+  public void A_contingent_wage_is_the_rate_for_the_days_or_the_share_of_the_month()
+  {
+    Assert.Equal(1_400, EngagementOrder.Wage(WageBasis.Daily, 700, 2, 30));
+    Assert.Equal(10_000, EngagementOrder.Wage(WageBasis.Monthly, 30_000, 10, 30));
+  }
 }

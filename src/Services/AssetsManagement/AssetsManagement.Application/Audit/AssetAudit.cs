@@ -50,14 +50,14 @@ public static class AssetAudit
 
   /// "1 Oct 2026 - 31 Oct 2026"
   public static string Period(AssetDepreciationEntry entry) =>
-    $"{entry.PeriodStart.ToString("d MMM yyyy", CultureInfo.InvariantCulture)} - {entry.LastDay.ToString("d MMM yyyy", CultureInfo.InvariantCulture)}";
+    $"{entry.PeriodStart.ToString("dd'/'MM'/'yyyy", CultureInfo.InvariantCulture)} - {entry.LastDay.ToString("dd'/'MM'/'yyyy", CultureInfo.InvariantCulture)}";
 
   /// "Oct 2026" - a month as its code in the trail.
   public static string Month(AssetDepreciationEntry entry) => entry.PeriodStart.ToString("MMM yyyy", CultureInfo.InvariantCulture);
 
   public static string Amount(decimal value) => value.ToString("N2", CultureInfo.InvariantCulture);
 
-  public static string Day(DateOnly day) => day.ToString("d MMM yyyy", CultureInfo.InvariantCulture);
+  public static string Day(DateOnly day) => day.ToString("dd'/'MM'/'yyyy", CultureInfo.InvariantCulture);
 
   /// Parts joined the trail's way, empty ones left out.
   public static string? Join(params string?[] parts)

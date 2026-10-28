@@ -91,7 +91,7 @@ public class PaymentHandlers(
       return Result<ReceivePaymentResult>.Failure($"The amount exceeds the {Rupees.Text(duesBefore)} behind this reference.");
     var paidAt = command.PaidAt ?? clock.UtcNow;
     if (DateOnly.FromDateTime(paidAt.AddHours(5)) < file.OpenedOn)
-      return Result<ReceivePaymentResult>.Failure($"{file.FileNo} was opened on {file.OpenedOn:dd MMM yyyy}; a payment on it cannot be dated before that.");
+      return Result<ReceivePaymentResult>.Failure($"{file.FileNo} was opened on {file.OpenedOn:dd'/'MM'/'yyyy}; a payment on it cannot be dated before that.");
 
     var manual = Payment.IsManual(command.Channel);
     var receipt = manual ? await ReceiptNoAsync(command.ReceiptNo, cancellationToken) : null;
@@ -135,7 +135,7 @@ public class PaymentHandlers(
       await context.LockTaxFileAsync(locked, cancellationToken);
     var payment = await context.Payments.Include(p => p.Allocations).FirstAsync(p => p.Id == id, cancellationToken);
     if (payment.Status == PaymentStatus.Reversed)
-      return Result<ReversePaymentResult>.Failure($"The payment was already reversed on {payment.ReversedAt:dd MMM yyyy}.");
+      return Result<ReversePaymentResult>.Failure($"The payment was already reversed on {payment.ReversedAt:dd'/'MM'/'yyyy}.");
 
     await ledger.ReverseAsync(payment, command.Reason, actor, clock.UtcNow, clock.Today, cancellationToken);
     audit.Record("Reversed", payment, $"{Rupees.Text(payment.Amount)}: {command.Reason.Trim()}");

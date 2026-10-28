@@ -12,6 +12,7 @@ public static class HrmsEnumMapping
     npgsql.MapEnum<MaritalStatus>("marital_status_enum", schema);
     npgsql.MapEnum<EmploymentStatus>("employment_status_enum", schema);
     npgsql.MapEnum<EmploymentBasis>("employment_basis_enum", schema);
+    npgsql.MapEnum<WageBasis>("wage_basis_enum", schema);
     npgsql.MapEnum<PostLifecycle>("post_lifecycle_enum", schema);
     npgsql.MapEnum<PositionStatus>("position_status_enum", schema);
     npgsql.MapEnum<AssignmentType>("assignment_type_enum", schema);

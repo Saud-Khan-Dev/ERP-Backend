@@ -184,7 +184,7 @@ public class RateSetHandlers(IApplicationDbContext context, IPropertyDirectory p
       return Result<UpdatedResult>.Failure(refusal);
 
     set.Approve(actor, clock.UtcNow, heads, towns, approved);
-    audit.Record("Approved", set, $"In force from {set.EffectiveFrom:dd MMM yyyy} ({set.BoardReference}); {set.LtfFactors.Select(f => f.TownId).Distinct().Count()} town(s) with factors, "
+    audit.Record("Approved", set, $"In force from {set.EffectiveFrom:dd'/'MM'/'yyyy} ({set.BoardReference}); {set.LtfFactors.Select(f => f.TownId).Distinct().Count()} town(s) with factors, "
       + $"{set.RateBands.Select(b => b.HeadId).Distinct().Count()} head(s) with rates");
     await context.SaveChangesAsync(cancellationToken);
     return CommandResults.Updated();

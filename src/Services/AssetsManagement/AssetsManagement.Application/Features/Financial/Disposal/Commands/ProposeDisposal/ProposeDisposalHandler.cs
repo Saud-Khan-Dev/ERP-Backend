@@ -21,7 +21,7 @@ public class ProposeDisposalHandler(IApplicationDbContext context, ICurrentUser 
 
     var acquisition = await context.AssetAcquisitions.AsNoTracking().FirstOrDefaultAsync(a => a.AssetId == assetId, cancellationToken);
     if (await DisposalChecks.PostedAfterAsync(context, assetId, command.DisposalDate, cancellationToken) is { } posted)
-      return Result<ProposeDisposalCommandResult>.Failure($"Depreciation is posted up to {posted:d MMM yyyy}, after the disposal date. Reverse those months first, or choose a later disposal date.");
+      return Result<ProposeDisposalCommandResult>.Failure($"Depreciation is posted up to {posted:dd'/'MM'/'yyyy}, after the disposal date. Reverse those months first, or choose a later disposal date.");
 
     var disposal = AssetDisposal.Propose(
       AssetDisposalId.Of(Guid.NewGuid()), assetId, method, toStatus, command.DisposalDate, command.DisposalValue, currency,

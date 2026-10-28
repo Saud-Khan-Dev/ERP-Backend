@@ -1,4 +1,5 @@
-/// A working pattern: hours, grace for late arrival, and the working weekdays (ISO: 1 = Monday ... 7 = Sunday).
+/// A working pattern: hours, the working weekdays (ISO: 1 = Monday ... 7 = Sunday) and, if HR wants lateness counted,
+/// the grace for late arrival: with no grace set nobody is marked late.
 /// A shift that ends before it starts runs past midnight.
 public class WorkShift : Aggregate<WorkShiftId>
 {
@@ -7,7 +8,7 @@ public class WorkShift : Aggregate<WorkShiftId>
   public string Name { get; private set; } = default!;
   public TimeOnly StartTime { get; private set; }
   public TimeOnly EndTime { get; private set; }
-  public int GraceMinutes { get; private set; }
+  public int? GraceMinutes { get; private set; }
   public short[] WorkingWeekdays { get; private set; } = DefaultWeekdays;
   public bool IsActive { get; private set; }
 
@@ -16,14 +17,14 @@ public class WorkShift : Aggregate<WorkShiftId>
   /// Scheduled length of the shift in hours.
   public decimal ScheduledHours => (decimal)Span(StartTime, EndTime).TotalHours;
 
-  public static WorkShift Create(WorkShiftId id, string name, TimeOnly startTime, TimeOnly endTime, int graceMinutes, IReadOnlyCollection<int>? workingWeekdays)
+  public static WorkShift Create(WorkShiftId id, string name, TimeOnly startTime, TimeOnly endTime, int? graceMinutes, IReadOnlyCollection<int>? workingWeekdays)
   {
     var shift = new WorkShift { Id = id, IsActive = true };
     shift.Update(name, startTime, endTime, graceMinutes, workingWeekdays);
     return shift;
   }
 
-  public void Update(string name, TimeOnly startTime, TimeOnly endTime, int graceMinutes, IReadOnlyCollection<int>? workingWeekdays)
+  public void Update(string name, TimeOnly startTime, TimeOnly endTime, int? graceMinutes, IReadOnlyCollection<int>? workingWeekdays)
   {
     if (startTime == endTime)
       throw new DomainException("A shift cannot start and end at the same time.");
@@ -31,7 +32,7 @@ public class WorkShift : Aggregate<WorkShiftId>
     Name = Guard.RequiredText(name, 100, "Shift name");
     StartTime = startTime;
     EndTime = endTime;
-    GraceMinutes = Guard.Between(graceMinutes, 0, 240, "Grace minutes");
+    GraceMinutes = graceMinutes is { } grace ? Guard.Between(grace, 0, 240, "Grace minutes") : null;
 
     var days = (workingWeekdays is null || workingWeekdays.Count == 0 ? DefaultWeekdays.Select(d => (int)d) : workingWeekdays)
       .Distinct().OrderBy(d => d).ToArray();
@@ -233,10 +234,11 @@ public class AttendanceRecord : Aggregate<AttendanceRecordId>
         OvertimeHours = decimal.Round(Math.Max(0, WorkingHours.Value - shift.ScheduledHours), 2);
     }
 
-    if (shift is not null && checkIn is { } arrived)
+    // lateness is counted only on a shift with a grace set
+    if (shift is { GraceMinutes: { } grace } && checkIn is { } arrived)
     {
       var lateBy = MinutesAfter(shift.StartTime, arrived, shift.IsOvernight);
-      LateMinutes = lateBy > shift.GraceMinutes ? lateBy : 0;
+      LateMinutes = lateBy > grace ? lateBy : 0;
     }
 
     if (shift is not null && checkOut is { } left)

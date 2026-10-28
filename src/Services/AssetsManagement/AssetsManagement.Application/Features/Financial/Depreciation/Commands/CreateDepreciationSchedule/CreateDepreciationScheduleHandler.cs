@@ -23,10 +23,10 @@ public class CreateDepreciationScheduleHandler(IApplicationDbContext context, IC
       return Result<CreateDepreciationScheduleCommandResult>.Failure("This asset already has a running depreciation schedule. Revise it instead.");
 
     if (command.StartDate < acquisition.AcquisitionDate)
-      return Result<CreateDepreciationScheduleCommandResult>.Failure($"Depreciation cannot start before the asset was acquired ({acquisition.AcquisitionDate:d MMM yyyy}).");
+      return Result<CreateDepreciationScheduleCommandResult>.Failure($"Depreciation cannot start before the asset was acquired ({acquisition.AcquisitionDate:dd'/'MM'/'yyyy}).");
 
     if (AssetBookValue.PostedThrough(schedules) is { } posted && command.StartDate <= posted)
-      return Result<CreateDepreciationScheduleCommandResult>.Failure($"Months are already posted up to {posted:d MMM yyyy}. The new schedule must start after them.");
+      return Result<CreateDepreciationScheduleCommandResult>.Failure($"Months are already posted up to {posted:dd'/'MM'/'yyyy}. The new schedule must start after them.");
 
     // the base is what is left of the cost after every posted month - never the full cost again
     var bookValue = AssetBookValue.NetBookValue(acquisition.AcquisitionCost, schedules, DateOnly.MaxValue);

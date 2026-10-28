@@ -6,6 +6,7 @@ public sealed class FileUploadForm
   public IFormFile? File { get; set; }
 }
 
+public sealed record CancelOrderRequest(string Reason);
 public sealed record ChangeEmploymentRequest(Guid EmploymentTypeId, Guid? EmploymentMethodId, Guid? ProjectId, string? Reason);
 public sealed record CorrectEmployeeNumberRequest(string EmployeeNumber, string? Reason);
 public sealed record SetTermRequest(DateOnly? TermFrom, DateOnly? TermTo, string? LendingDepartment, string? Reason);
@@ -194,6 +195,34 @@ public class EmployeeEndpoints : ICarterModule
       (Guid id, FamilyMemberInput input, ISender sender) => sender.Send(new AddFamilyMemberCommand(id, input)),
       (Guid id, Guid childId, FamilyMemberInput input, ISender sender) => sender.Send(new UpdateFamilyMemberCommand(id, childId, input)),
       (Guid id, Guid childId, ISender sender) => sender.Send(new RemoveFamilyMemberCommand(id, childId)));
+
+    // ---- contingent orders: office, designation, period and wage, with the order letter ----
+
+    employees.MapGet("/{id:guid}/orders", async (Guid id, ISender sender) => (await sender.Send(new GetEngagementOrdersQuery(id))).ToOk())
+      .RequireAnyPermission(PermissionCatalog.Hr.View, PermissionCatalog.Payroll.View)
+      .WithName("GetEngagementOrders")
+      .Produces<GetEngagementOrdersQueryResult>()
+      .WithSummary("Get Orders")
+      .WithDescription("A contingent employee's orders, newest first. The wage is withheld without HR_SENSITIVE.VIEW.");
+
+    employees.MapPost("/{id:guid}/orders", async (Guid id, EngagementOrderInput order, ISender sender) =>
+        (await sender.Send(new AddEngagementOrderCommand(id, order))).ToCreated(r => $"/orders/{r.Id}"))
+      .RequirePermission(PermissionCatalog.Hr.Edit)
+      .WithName("AddEngagementOrder")
+      .Produces<CreatedResult>(StatusCodes.Status201Created)
+      .ProducesProblem(StatusCodes.Status400BadRequest)
+      .WithSummary("Add Order")
+      .WithDescription("A first order or a renewal: office, designation, period, daily or monthly wage and the letter (an uploaded document). Orders do not overlap; the days between two are not paid.");
+
+    app.MapPost("/orders/{id:guid}/cancel", async (Guid id, CancelOrderRequest request, ISender sender) =>
+        (await sender.Send(new CancelEngagementOrderCommand(id, request.Reason))).ToOk())
+      .RequirePermission(PermissionCatalog.Hr.Edit)
+      .WithTags("Employees")
+      .WithName("CancelEngagementOrder")
+      .Produces<UpdatedResult>()
+      .ProducesProblem(StatusCodes.Status400BadRequest)
+      .WithSummary("Cancel Order")
+      .WithDescription("An order entered by mistake, with the reason; refused once its days were paid by a finalized run.");
 
     // ---- pay record ----
 

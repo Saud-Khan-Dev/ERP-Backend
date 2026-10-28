@@ -50,7 +50,7 @@ public sealed class AccessMap
       var sources = new Dictionary<string, List<string>>(StringComparer.Ordinal);
       foreach (var (role, assignment) in live.Where(x => x.Assignment.IsLive(now) && x.Role.IsActive && !x.Role.IsDeleted))
         foreach (var permission in rolePermissions.GetValueOrDefault(role.Id) ?? [])
-          Add(sources, permission.Code.Value, assignment.ExpiresAt is { } end ? $"Role · {role.RoleName.Value} (until {end:dd MMM yyyy})" : $"Role · {role.RoleName.Value}");
+          Add(sources, permission.Code.Value, assignment.ExpiresAt is { } end ? $"Role · {role.RoleName.Value} (until {end:dd'/'MM'/'yyyy})" : $"Role · {role.RoleName.Value}");
 
       var denied = new List<string>();
       foreach (var o in overrides[user.Id].Where(o => o.IsLive(now) && permissions.TryGetValue(o.PermissionId, out var p) && p.IsActive))
@@ -59,7 +59,7 @@ public sealed class AccessMap
         if (o.Effect == OverrideEffect.Deny)
           denied.Add(code);
         else
-          Add(sources, code, o.ExpiresAt is { } end ? $"Exception · until {end:dd MMM yyyy}" : "Exception");
+          Add(sources, code, o.ExpiresAt is { } end ? $"Exception · until {end:dd'/'MM'/'yyyy}" : "Exception");
       }
       foreach (var code in denied)
         sources.Remove(code);

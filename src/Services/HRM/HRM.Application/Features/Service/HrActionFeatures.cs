@@ -406,7 +406,7 @@ public class HrActionHandlers(
       else if (taken >= post.SanctionedCount)
         reason = $"Full: {taken} of {post.SanctionedCount} seat(s) held.";
       else if (needsScale && !gradesWithScale.Contains(post.GradeId))
-        reason = $"No pay scale of BPS-{post.Bps} is in force on {date:dd MMM yyyy}.";
+        reason = $"No pay scale of BPS-{post.Bps} is in force on {date:dd'/'MM'/'yyyy}.";
 
       // a grade the move can never take is left out; a post that only waits for a seat or a scale is shown disabled
       if (reason is not null && reason.StartsWith("BPS-", StringComparison.Ordinal))
@@ -442,7 +442,7 @@ public class HrActionHandlers(
     int? stageAfter = drawn?.StageNumber;
     EmploymentStatus? statusAfter = null;
     string? line = null;
-    var day = date.ToString("dd MMM yyyy");
+    var day = date.ToString("dd'/'MM'/'yyyy");
 
     if (problem is null)
     {
@@ -479,7 +479,7 @@ public class HrActionHandlers(
           case HrActionType.Lwop:
           {
             var days = details.EndDate!.Value.DayNumber - date.DayNumber + 1;
-            line = $"No pay from {day} to {details.EndDate:dd MMM yyyy} ({days} day(s)); the next increment moves back by the same days.";
+            line = $"No pay from {day} to {details.EndDate:dd'/'MM'/'yyyy} ({days} day(s)); the next increment moves back by the same days.";
             break;
           }
           case HrActionType.Suspension:
@@ -635,7 +635,7 @@ public class HrActionHandlers(
       var newPost = await context.Posts.AsNoTracking().Include(p => p.Versions).FirstOrDefaultAsync(p => p.Id == wanted, cancellationToken)
         ?? throw new PostNotFoundException($"Post {post} was not found.");
       var version = newPost.VersionOn(input.EffectiveDate)
-        ?? throw new DomainException($"Post {newPost.PostCode} does not exist on {input.EffectiveDate:dd MMM yyyy}.");
+        ?? throw new DomainException($"Post {newPost.PostCode} does not exist on {input.EffectiveDate:dd'/'MM'/'yyyy}.");
       newPostId = newPost.Id;
       newGrade = version.GradeId;
       newUnit = version.OrgUnitId;

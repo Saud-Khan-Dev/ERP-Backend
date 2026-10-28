@@ -17,6 +17,12 @@ public sealed record PaySlice(PayScaleStageId StageId, int StageNumber, decimal 
   public DateRange Range => new(From, To);
 }
 
+/// A contingent order covering part of the period: its wage basis and rate.
+public sealed record WageSlice(WageBasis Basis, decimal Rate, DateOnly From, DateOnly To)
+{
+  public DateRange Range => new(From, To);
+}
+
 /// An open loan installment due by the end of the period.
 public sealed record DueInstallment(EmployeeLoanId LoanId, LoanInstallmentId InstallmentId, SalaryComponentId ComponentId, int Priority, int InstallmentNumber, DateOnly DueDate, decimal Amount);
 
@@ -36,7 +42,9 @@ public sealed record PayrollEmployeeInput(
   IReadOnlyList<DueInstallment> Installments,
   decimal TaxableAdjustments,
   decimal NetAdjustments,
-  TaxInput? Tax);
+  TaxInput? Tax,
+  /// Contingent orders in the period: such a person is paid their wage for the days the orders cover, nothing else.
+  IReadOnlyList<WageSlice>? Wages = null);
 
 /// The salary components and rules in force, shared by every employee of a run.
 public sealed record PayrollCatalog(
@@ -67,6 +75,9 @@ public static class PayrollCalculator
 
     if (!isComputedRun)
       return AdjustmentsOnly(input, catalog, notes);
+
+    if (input.Wages is { Count: > 0 } && input.Assignments.Count == 0)
+      return WagesOnly(period, input, catalog, notes);
 
     var segments = BuildSegments(period, input, notes);
     var lines = new List<LineResult>();
@@ -161,6 +172,49 @@ public static class PayrollCalculator
 
     lines.AddRange(deductionLines);
     return new PayCalculation(daysPayable, segments.Select(s => s.Result).ToList(), lines, taxable, tax, notes);
+  }
+
+  /// A contingent person: the wage of each order for the days it covers in the period (leave without pay excluded);
+  /// no allowances, no GP Fund, no rule deductions - only loan installments due and income tax.
+  private static PayCalculation WagesOnly(DateRange period, PayrollEmployeeInput input, PayrollCatalog catalog, List<string> notes)
+  {
+    var periodDays = period.Days;
+    var lines = new List<LineResult>();
+    decimal daysPayable = 0;
+
+    foreach (var wage in input.Wages!.OrderBy(w => w.From))
+    {
+      if (wage.Range.Clip(period.From, period.To!.Value) is not { } covered)
+        continue;
+      var payable = PayableDays(covered.From, covered.To!.Value, input.UnpaidLeave);
+      var amount = EngagementOrder.Wage(wage.Basis, wage.Rate, payable, periodDays);
+      daysPayable += payable;
+      if (amount <= 0)
+        continue;
+      var reference = wage.Basis == WageBasis.Daily
+        ? $"{payable:0.#} day(s) x Rs {wage.Rate:N0} a day"
+        : $"{payable:0.#} of {periodDays} days of Rs {wage.Rate:N0} a month";
+      lines.Add(new LineResult(null, catalog.BasicPay.Id, null, ComponentSource.Rule, ComponentType.Earning, null, wage.Rate, null, reference, amount, null, covered.From));
+    }
+
+    var gross = lines.Sum(l => l.Amount);
+    var deductions = new List<LineResult>();
+    if (daysPayable > 0)
+      foreach (var installment in input.Installments.OrderBy(i => i.Priority).ThenBy(i => i.DueDate).ThenBy(i => i.InstallmentNumber))
+        deductions.Add(new LineResult(null, installment.ComponentId, null, ComponentSource.Loan, ComponentType.Deduction, null, null, null,
+          $"Installment {installment.InstallmentNumber} due {installment.DueDate:yyyy-MM-dd}", installment.Amount, null, installment.DueDate,
+          new LoanDeductionResult(installment.LoanId, installment.InstallmentId, installment.Amount)));
+    else
+      notes.Add("No order covers this month: nothing is paid.");
+
+    var taxable = (catalog.BasicPay.IsTaxable ? gross : 0) + input.TaxableAdjustments;
+    var tax = input.Tax is { } taxInput && taxable > 0 ? MonthlyTax(taxInput, taxable, catalog.BasicPay.IsTaxable ? gross : 0) : 0m;
+    if (tax > 0)
+      deductions.Add(new LineResult(null, catalog.IncomeTax.Id, null, ComponentSource.Tax, ComponentType.Deduction, null, taxable, null, null, tax, null, period.To));
+
+    KeepNetPositive(gross + input.TaxableAdjustments, input.NetAdjustments - input.TaxableAdjustments, deductions, notes);
+    lines.AddRange(deductions);
+    return new PayCalculation(daysPayable, [], lines, taxable, tax, notes);
   }
 
   /// Arrears, bonus and final-settlement runs: the pay is the adjustments entered; the engine only withholds the extra

@@ -111,6 +111,31 @@ public class EmployeeEmergencyContactConfiguration : EntityConfiguration<Employe
   }
 }
 
+public class EngagementOrderConfiguration : EntityConfiguration<EngagementOrder, EngagementOrderId>
+{
+  public override void Configure(EntityTypeBuilder<EngagementOrder> builder)
+  {
+    base.Configure(builder);
+    builder.ToTable("engagement_order", t =>
+    {
+      t.HasCheckConstraint("ck_eo_dates", "end_date >= start_date");
+      t.HasCheckConstraint("ck_eo_rate", "rate > 0");
+    });
+    builder.Property(x => x.Rate).Money();
+    builder.Property(x => x.Status).HasDefaultValue(RecordStatus.Active);
+    builder.Ignore(x => x.Range);
+    builder.Ignore(x => x.IsActive);
+
+    builder.HasOne<Employee>().WithMany().HasForeignKey(x => x.EmployeeId).OnDelete(DeleteBehavior.NoAction);
+    builder.HasOne<OrganizationUnit>().WithMany().HasForeignKey(x => x.OrgUnitId).OnDelete(DeleteBehavior.NoAction);
+    builder.HasOne<Designation>().WithMany().HasForeignKey(x => x.DesignationId).OnDelete(DeleteBehavior.NoAction);
+    builder.HasOne<EmployeeDocument>().WithMany().HasForeignKey(x => x.LetterDocumentId).OnDelete(DeleteBehavior.NoAction);
+
+    builder.HasIndex(x => new { x.EmployeeId, x.StartDate }).HasDatabaseName("idx_engagement_order_employee_start");
+    builder.HasIndex(x => x.OrgUnitId).HasDatabaseName("idx_engagement_order_org_unit_id");
+  }
+}
+
 public class EmployeeFamilyMemberConfiguration : EntityConfiguration<EmployeeFamilyMember, FamilyMemberId>
 {
   protected override AuditColumns Audit => AuditColumns.CreatedAt;

@@ -187,7 +187,7 @@ public class DemandRunHandlers(
         if (file.HoldOn(today) is { } hold)
         {
           // a hold put on after the run was worked out: the demand stands, its notice waits for the hold to end
-          held.Add(new RunProblemDto(file.Id.Value, file.FileNo, $"On litigation hold since {hold.StartedOn:dd MMM yyyy}: no first notice while it is open."));
+          held.Add(new RunProblemDto(file.Id.Value, file.FileNo, $"On litigation hold since {hold.StartedOn:dd'/'MM'/'yyyy}: no first notice while it is open."));
         }
         else
         {
@@ -241,7 +241,7 @@ public class DemandRunHandlers(
         else if (fresh.Total != demand.CurrentAmount)
           stale.Add(new RunProblemDto(file.Id.Value, file.FileNo, $"Worked out again now: {Rupees.Text(fresh.Total)} instead of {Rupees.Text(demand.CurrentAmount)}"));
         else if (file.CurrentBasis is { } basis && basis.Id != demand.BasisId)
-          stale.Add(new RunProblemDto(file.Id.Value, file.FileNo, $"Property data synced on {basis.SyncedAt.AddHours(5):dd MMM yyyy} after the run (same amount)"));
+          stale.Add(new RunProblemDto(file.Id.Value, file.FileNo, $"Property data synced on {basis.SyncedAt.AddHours(5):dd'/'MM'/'yyyy} after the run (same amount)"));
       }
       catch (DomainException ex)
       {

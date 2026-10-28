@@ -127,6 +127,6 @@ public class PayrollPeriodHandlers(IApplicationDbContext context, OfficeScope sc
     var other = await context.PayrollPeriods.AsNoTracking()
       .Where(p => p.Id != self && p.StartDate <= end && start <= p.EndDate)
       .OrderBy(p => p.StartDate).FirstOrDefaultAsync(cancellationToken);
-    return other is null ? null : $"{start:d MMM yyyy} to {end:d MMM yyyy} overlaps {other.Label} ({other.StartDate:d MMM yyyy} to {other.EndDate:d MMM yyyy}).";
+    return other is null ? null : $"{start:dd'/'MM'/'yyyy} to {end:dd'/'MM'/'yyyy} overlaps {other.Label} ({other.StartDate:dd'/'MM'/'yyyy} to {other.EndDate:dd'/'MM'/'yyyy}).";
   }
 }
