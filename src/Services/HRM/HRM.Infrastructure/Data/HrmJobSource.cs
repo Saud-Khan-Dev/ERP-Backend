@@ -10,7 +10,7 @@ public sealed class HrmJobSource(ApplicationDbContext context) : ISystemJobSourc
   [
     HrmRuns.PayrollCalculation, HrmRuns.PayrollFinalization, HrmRuns.SalaryPayments, HrmRuns.Arrears, HrmRuns.AnnualIncrement,
     HrmRuns.PayRevision, HrmRuns.CloseAttendanceDay, HrmRuns.MarkHoliday, HrmRuns.AttendanceImport, HrmRuns.ShiftAssignment, HrmRuns.LeaveEntitlements,
-    HrmRuns.LeaveYearEnd, HrmRuns.StartReviews, HrmRuns.GpFundInterest
+    HrmRuns.LeaveYearEnd, HrmRuns.GpFundInterest
   ];
 
   public async Task<IReadOnlyList<SystemJobDto>> JobsAsync(CancellationToken cancellationToken)

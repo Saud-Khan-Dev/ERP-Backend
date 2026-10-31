@@ -40,7 +40,7 @@ public sealed record SeparationSpec(
   HrActionRequestId? FromActionId = null);
 
 /// One thing a separation leaves for a person to do (or done). Key: account, assets, loans, gpFund, postsHeaded,
-/// signingPosts, settlement, leave, appraisals, evaluations.
+/// signingPosts, settlement, leave.
 public sealed record SeparationChecklistItem(string Key, string Title, string Detail, bool Done, Guid? RefId = null);
 
 /// What a separation closed by itself, what still needs a person, and the posted payroll it reaches.
@@ -204,7 +204,7 @@ public class ServiceRecordWriter(IApplicationDbContext context, ServiceRecordRea
 
   /// Ends the employee's service on the separation date (the last day of service): posts relieved, pay closed, shift
   /// ended, service status set, a service-history row and the separation record written. What waits on the person is
-  /// closed (open HR actions, pending and future leave, open tasks, pending requests, empty draft appraisals) and the
+  /// closed (open HR actions, pending and future leave, open tasks, pending requests) and the
   /// checklist of what still needs someone is returned.
   public async Task<(EmployeeServiceHistory History, EmployeeSeparation Separation, SeparationChecklistDto Checklist)> SeparateAsync(
       Employee employee, SeparationSpec spec, CancellationToken cancellationToken)
@@ -305,15 +305,6 @@ public class ServiceRecordWriter(IApplicationDbContext context, ServiceRecordRea
     if (requests.Count > 0)
       closed.Add($"{requests.Count} pending request(s) withdrawn.");
 
-    // draft appraisals of the leaver with nothing written yet are removed; those with content stay (see the checklist)
-    var drafts = await context.PerformanceReviews.Include(r => r.Goals).Include(r => r.Kpis).Include(r => r.Competencies)
-      .Where(r => r.EmployeeId == employee.Id && r.Status == ReviewStatus.Draft).ToListAsync(cancellationToken);
-    var empty = drafts.Where(r => r.Goals.Count == 0 && r.Kpis.Count == 0 && r.Competencies.Count == 0).ToList();
-    foreach (var review in empty)
-      context.PerformanceReviews.Remove(review);
-    if (empty.Count > 0)
-      closed.Add($"{empty.Count} empty draft appraisal(s) removed.");
-
     return closed;
   }
 
@@ -377,14 +368,6 @@ public class ServiceRecordWriter(IApplicationDbContext context, ServiceRecordRea
       && a.StartDate <= date && a.EndDate > date).ToListAsync(cancellationToken);
     foreach (var leave in runningOn)
       items.Add(new("leave", "Leave runs past the last day", $"Approved leave from {leave.StartDate:dd'/'MM'/'yyyy} to {leave.EndDate:dd'/'MM'/'yyyy} runs past the last day of service.", false, leave.Id.Value));
-
-    var appraisals = await context.PerformanceReviews.AsNoTracking().CountAsync(r => r.EmployeeId == employee.Id && r.Status == ReviewStatus.Draft, cancellationToken);
-    if (appraisals > 0)
-      items.Add(new("appraisals", "Finish the appraisal", $"{appraisals} draft appraisal(s) with content were kept: the reporting officer finishes them for the period served, or HR deletes them.", false));
-
-    var evaluations = await context.PerformanceReviews.AsNoTracking().CountAsync(r => r.EvaluatorId == employee.Id && r.Status == ReviewStatus.Draft, cancellationToken);
-    if (evaluations > 0)
-      items.Add(new("evaluations", "Appraisals they were writing", $"{evaluations} appraisal(s) had this employee as reporting officer: give them another evaluator.", false));
 
     var impact = await payroll.RunsAsync(employee.Id, date.AddDays(1), null, PayrollImpactFinder.Recovery, cancellationToken);
     return new SeparationChecklistDto(employee.Id.Value, [], items, impact);

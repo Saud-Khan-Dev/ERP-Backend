@@ -38,15 +38,22 @@ public sealed class HrmSeeder(ApplicationDbContext context, ILogger<HrmSeeder> l
       added += 3;
     }
 
-    if (!await context.DocumentTypes.AnyAsync(cancellationToken))
+    // the papers HR asks for, by name, so nobody has to guess the kind of a file. Each one missing is added (a name HR
+    // renamed or switched off is not brought back - matched case-insensitively).
+    var documentNames = (await context.DocumentTypes.Select(t => t.Name).ToListAsync(cancellationToken)).Select(n => n.ToLowerInvariant()).ToHashSet();
+    foreach (var (name, requiresExpiry) in new[]
     {
-      foreach (var (name, requiresExpiry) in new[]
-      {
-        ("CNIC", true), ("Domicile", false), ("Appointment Order", false), ("Joining Report", false),
-        ("Degree / Certificate", false), ("Service Book", false), ("Medical Certificate", true), ("NOC", false)
-      })
-        context.DocumentTypes.Add(DocumentType.Create(DocumentTypeId.New(), name, requiresExpiry));
-      added += 8;
+      ("CNIC", true), ("Domicile", false), ("Photograph", false),
+      ("Matric Certificate", false), ("Intermediate Certificate", false), ("Bachelor's Degree (BA / BSc / BS)", false),
+      ("Master's Degree (MA / MSc)", false), ("MS / MPhil Degree", false), ("PhD Degree", false), ("Diploma / Certificate", false),
+      ("Experience Certificate", false), ("Character Certificate", false), ("Police Verification", false),
+      ("Appointment Order", false), ("Joining Report", false), ("Service Book", false), ("Medical Certificate", true), ("NOC", false),
+    })
+    {
+      if (documentNames.Contains(name.ToLowerInvariant()))
+        continue;
+      context.DocumentTypes.Add(DocumentType.Create(DocumentTypeId.New(), name, requiresExpiry));
+      added++;
     }
 
     if (!await context.SalaryComponents.AnyAsync(c => !SystemCodes.Contains(c.ComponentCode), cancellationToken))

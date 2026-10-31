@@ -255,7 +255,7 @@ public class ServiceEndpoints : ICarterModule
       .ProducesProblem(StatusCodes.Status404NotFound)
       .WithSummary("Separation Checklist")
       .WithDescription("What still needs a person: the sign-in account, assets in custody, loans, the GP Fund final payment, posts headed, signing posts, the final "
-        + "settlement, leave running past the last day, appraisals; and the posted payroll after the last day (to recover).");
+        + "settlement, leave running past the last day; and the posted payroll after the last day (to recover).");
 
     app.MapPost("/employees/{id:guid}/separation", async (Guid id, RecordSeparationRequest r, ISender sender) =>
         (await sender.Send(new RecordSeparationCommand(id, r.SeparationType, r.SeparationDate, r.OrderNumber, r.Reason, r.NoticePeriodDays,
@@ -268,7 +268,7 @@ public class ServiceEndpoints : ICarterModule
       .WithSummary("Record Separation")
       .WithDescription("Ends the employee's service on the separation date (the last day): posts relieved, pay closed, shift ended, status set (retired, resigned, "
         + "terminated, dismissed, removed, contract ended, repatriated, deceased), service-history row written. Open HR actions, pending and later leave, open tasks, "
-        + "pending requests and empty draft appraisals are closed; the checklist of what still needs a person is returned.");
+        + "pending requests are closed; the checklist of what still needs a person is returned.");
 
     app.MapPut("/separations/{id:guid}", async (Guid id, UpdateSeparationRequest r, ISender sender) =>
         (await sender.Send(new UpdateSeparationCommand(id, r.OrderNumber, r.Reason, r.NoticePeriodDays, r.FinalSettlementAmount,

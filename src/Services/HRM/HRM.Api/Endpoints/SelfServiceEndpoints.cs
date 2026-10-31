@@ -1,6 +1,5 @@
 public sealed record ProgressRequest(int ProgressPercentage, string? Notes);
 public sealed record MyLinkDto(bool Linked, Guid? EmployeeId);
-public sealed record CountersignRequest(string? Remarks, string? PerformanceGrade);
 public sealed record MyRequestInput(Guid RequestTypeId, string? Subject, string? Description, System.Text.Json.JsonElement? RequestedData, Guid? SupportingDocumentId);
 
 /// The employee portal (/me): any signed-in user whose account is linked to an employee record sees and acts on their
@@ -279,94 +278,5 @@ public class SelfServiceEndpoints : ICarterModule
       .ProducesProblem(StatusCodes.Status400BadRequest)
       .ProducesProblem(StatusCodes.Status404NotFound)
       .WithSummary("Withdraw My Request");
-
-    // ---- performance ----
-
-    me.MapGet("/reviews", async (int? pageIndex, int? pageSize, CurrentEmployee current, ISender sender, CancellationToken ct) =>
-        (await sender.Send(new GetPerformanceReviewsQuery(QueryParsing.Page(pageIndex, pageSize), null, await Self(current, ct), null, null, null, SubmittedOnly: true))).ToOk())
-      .WithName("GetMyReviews")
-      .Produces<GetPerformanceReviewsQueryResult>()
-      .WithSummary("My Performance Reviews");
-
-    me.MapGet("/reviews/{id:guid}", async (Guid id, CurrentEmployee current, ISender sender, CancellationToken ct) =>
-        (await sender.Send(new GetPerformanceReviewQuery(id, new ReviewActor(await Self(current, ct), AsEvaluator: false)))).ToOk())
-      .WithName("GetMyReview")
-      .Produces<GetPerformanceReviewQueryResult>()
-      .ProducesProblem(StatusCodes.Status404NotFound)
-      .WithSummary("My Performance Review");
-
-    me.MapPost("/reviews/{id:guid}/acknowledge", async (Guid id, CurrentEmployee current, ISender sender, CancellationToken ct) =>
-        (await sender.Send(new MoveReviewCommand(id, ReviewStep.Acknowledge, new ReviewActor(await Self(current, ct), AsEvaluator: false)))).ToOk())
-      .WithName("AcknowledgeMyReview")
-      .Produces<UpdatedResult>()
-      .ProducesProblem(StatusCodes.Status400BadRequest)
-      .ProducesProblem(StatusCodes.Status404NotFound)
-      .WithSummary("Acknowledge My Review")
-      .WithDescription("I have seen the submitted review.");
-
-    me.MapGet("/countersignings", async (int? pageIndex, int? pageSize, string? status, CurrentEmployee current, ISender sender, CancellationToken ct) =>
-        (await sender.Send(new GetPerformanceReviewsQuery(QueryParsing.Page(pageIndex, pageSize), null, null, null,
-          QueryParsing.ParseEnum<ReviewStatus>(status, "status"), null, SubmittedOnly: true, CountersigningOfficerId: await Self(current, ct)))).ToOk())
-      .WithName("GetMyCountersignings")
-      .Produces<GetPerformanceReviewsQueryResult>()
-      .WithSummary("Reviews I Countersign")
-      .WithDescription("The submitted reviews where I am the countersigning officer.");
-
-    me.MapGet("/countersignings/{id:guid}", async (Guid id, CurrentEmployee current, ISender sender, CancellationToken ct) =>
-        (await sender.Send(new GetPerformanceReviewQuery(id, new ReviewActor(await Self(current, ct), AsEvaluator: false, AsCountersigner: true)))).ToOk())
-      .WithName("GetMyCountersigning")
-      .Produces<GetPerformanceReviewQueryResult>()
-      .ProducesProblem(StatusCodes.Status404NotFound)
-      .WithSummary("Review I Countersign");
-
-    me.MapPost("/countersignings/{id:guid}/countersign", async (Guid id, CountersignRequest r, CurrentEmployee current, ISender sender, CancellationToken ct) =>
-        (await sender.Send(new CountersignReviewCommand(id, r.Remarks, r.PerformanceGrade, new ReviewActor(await Self(current, ct), AsEvaluator: false, AsCountersigner: true)))).ToOk())
-      .WithName("CountersignMyReview")
-      .Produces<UpdatedResult>()
-      .ProducesProblem(StatusCodes.Status400BadRequest)
-      .WithSummary("Countersign a Review")
-      .WithDescription("The countersigning officer's remarks (required) and, when they disagree, another grading.");
-
-    me.MapGet("/evaluations", async (int? pageIndex, int? pageSize, Guid? periodId, string? status, CurrentEmployee current, ISender sender, CancellationToken ct) =>
-        (await sender.Send(new GetPerformanceReviewsQuery(QueryParsing.Page(pageIndex, pageSize), periodId, null, await Self(current, ct),
-          QueryParsing.ParseEnum<ReviewStatus>(status, "status"), null))).ToOk())
-      .WithName("GetMyEvaluations")
-      .Produces<GetPerformanceReviewsQueryResult>()
-      .ProducesProblem(StatusCodes.Status400BadRequest)
-      .WithSummary("Reviews I Write")
-      .WithDescription("The reviews where I am the evaluator (reporting officer).");
-
-    me.MapGet("/evaluations/{id:guid}", async (Guid id, CurrentEmployee current, ISender sender, CancellationToken ct) =>
-        (await sender.Send(new GetPerformanceReviewQuery(id, new ReviewActor(await Self(current, ct), AsEvaluator: true)))).ToOk())
-      .WithName("GetMyEvaluation")
-      .Produces<GetPerformanceReviewQueryResult>()
-      .ProducesProblem(StatusCodes.Status404NotFound)
-      .WithSummary("Review I Write");
-
-    me.MapPut("/evaluations/{id:guid}/content", async (Guid id, ReviewContentRequest r, CurrentEmployee current, ISender sender, CancellationToken ct) =>
-        (await sender.Send(new SaveReviewContentCommand(id, r.Goals, r.Kpis, r.Competencies, new ReviewActor(await Self(current, ct), AsEvaluator: true)))).ToOk())
-      .WithName("SaveMyEvaluation")
-      .Produces<UpdatedResult>()
-      .ProducesProblem(StatusCodes.Status400BadRequest)
-      .ProducesProblem(StatusCodes.Status404NotFound)
-      .WithSummary("Save Review Form")
-      .WithDescription("Only while a draft; goal weights total 100 to submit.");
-
-    me.MapPut("/evaluations/{id:guid}/recommendations", async (Guid id, ReviewRecommendationsRequest r, CurrentEmployee current, ISender sender, CancellationToken ct) =>
-        (await sender.Send(new SetReviewRecommendationsCommand(id, r.PromotionRecommended, r.TrainingRecommended, r.Remarks,
-          new ReviewActor(await Self(current, ct), AsEvaluator: true)))).ToOk())
-      .WithName("SetMyEvaluationRecommendations")
-      .Produces<UpdatedResult>()
-      .ProducesProblem(StatusCodes.Status400BadRequest)
-      .ProducesProblem(StatusCodes.Status404NotFound)
-      .WithSummary("Set Recommendations");
-
-    me.MapPost("/evaluations/{id:guid}/submit", async (Guid id, CurrentEmployee current, ISender sender, CancellationToken ct) =>
-        (await sender.Send(new MoveReviewCommand(id, ReviewStep.Submit, new ReviewActor(await Self(current, ct), AsEvaluator: true)))).ToOk())
-      .WithName("SubmitMyEvaluation")
-      .Produces<UpdatedResult>()
-      .ProducesProblem(StatusCodes.Status400BadRequest)
-      .ProducesProblem(StatusCodes.Status404NotFound)
-      .WithSummary("Submit Review");
   }
 }

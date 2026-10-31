@@ -234,7 +234,7 @@ public static class PermissionCatalog
   }
 
   /// Employees and everything on their file: personal details, documents, education, posts held, service history,
-  /// HR actions, separations, performance reviews, tasks and requests.
+  /// HR actions, separations, tasks and requests.
   public static class Hr
   {
     public const string View = "HR.VIEW";

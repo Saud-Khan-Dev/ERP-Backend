@@ -178,7 +178,7 @@ public class ChangeLeaveApplicationCommandValidator : AbstractValidator<ChangeLe
   public ChangeLeaveApplicationCommandValidator() => RuleFor(x => x.Leave).NotNull().SetValidator(new LeaveApplicationInputValidator());
 }
 
-public class LeaveHandlers(IApplicationDbContext context, LeaveService leave, HrLookup lookup, ICurrentUser currentUser, IClock clock, DutyGuard duty, IAuditTrail audit, OfficeScope scope) :
+public class LeaveHandlers(IApplicationDbContext context, LeaveService leave, HrLookup lookup, ICurrentUser currentUser, IClock clock, DutyGuard duty, IAuditTrail audit, OfficeScope scope, WorkCalendar calendar) :
   IQueryHandler<GetLeaveTypesQuery, Result<GetLeaveTypesQueryResult>>,
   ICommandHandler<CreateLeaveTypeCommand, Result<CreatedResult>>,
   ICommandHandler<UpdateLeaveTypeCommand, Result<UpdatedResult>>,
@@ -346,6 +346,13 @@ public class LeaveHandlers(IApplicationDbContext context, LeaveService leave, Hr
       throw new EmployeeNotFoundException($"Employee {query.EmployeeId} was not found.");
 
     var year = query.Year ?? clock.Today.Year;
+    // the year's leave is given the first time it is looked at (nobody grants it by hand)
+    if (year >= clock.Today.Year)
+    {
+      await leave.EnsureEntitledAsync([employeeId], year, cancellationToken);
+      using (audit.Quietly())
+        await context.SaveChangesAsync(cancellationToken);
+    }
     var balances = await context.LeaveBalances.AsNoTracking().Where(b => b.EmployeeId == employeeId.Value && b.Year == year).ToListAsync(cancellationToken);
     var pending = (await context.LeaveApplications.AsNoTracking()
         .Where(a => a.EmployeeId == employeeId && a.Status == LeaveStatus.Pending && a.StartDate.Year == year)
@@ -594,9 +601,11 @@ public class LeaveHandlers(IApplicationDbContext context, LeaveService leave, Hr
           context.LeaveLedger.Add(entry);
         audit.Record(HrmVerbs.Approved, application, $"{application.Days:0.##} day(s) {application.StartDate:yyyy-MM-dd} to {application.EndDate:yyyy-MM-dd}");
 
-        // days already closed as absent become leave
+        // attendance follows the leave at once: days already closed as absent become leave, and the working days up to
+        // today with nothing recorded are marked on leave (days ahead are marked when they are closed)
         foreach (var record in await ClosedDaysAsync(application, AttendanceStatus.Absent, cancellationToken))
           record.MarkOnLeave(type.Name);
+        await MarkLeaveDaysAsync(application, type.Name, cancellationToken);
         break;
       }
 
@@ -634,6 +643,24 @@ public class LeaveHandlers(IApplicationDbContext context, LeaveService leave, Hr
 
     await context.SaveChangesAsync(cancellationToken);
     return CommandResults.Updated();
+  }
+
+  private async Task MarkLeaveDaysAsync(LeaveApplication application, string typeName, CancellationToken cancellationToken)
+  {
+    var last = application.EndDate < clock.Today ? application.EndDate : clock.Today;
+    if (last < application.StartDate)
+      return;
+    var days = await calendar.ForAsync(application.EmployeeId, application.StartDate, last, cancellationToken);
+    var recorded = await context.AttendanceRecords.Where(r => r.EmployeeId == application.EmployeeId
+        && r.AttendanceDate >= application.StartDate && r.AttendanceDate <= last)
+      .Select(r => r.AttendanceDate).ToListAsync(cancellationToken);
+    for (var date = application.StartDate; date <= last; date = date.AddDays(1))
+    {
+      if (recorded.Contains(date) || days.IsHoliday(date) || !days.IsWorkingDay(date))
+        continue;
+      context.AttendanceRecords.Add(AttendanceRecord.Record(AttendanceRecordId.New(), application.EmployeeId, date, days.ShiftOn(date),
+        null, null, AttendanceStatus.OnLeave, $"On approved {typeName}."));
+    }
   }
 
   private Task<List<AttendanceRecord>> ClosedDaysAsync(LeaveApplication application, AttendanceStatus status, CancellationToken cancellationToken) =>

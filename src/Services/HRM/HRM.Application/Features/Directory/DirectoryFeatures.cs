@@ -61,6 +61,10 @@ public class GetPublicHolidaysQueryValidator : AbstractValidator<GetPublicHolida
   }
 }
 
+/// A person's own email on their HR record (the primary one), for an administrator opening a sign-in account for them.
+public sealed record DirectoryEmailDto(Guid EmployeeId, string? Email);
+public sealed record GetDirectoryEmailQuery(Guid EmployeeId) : IQuery<Result<DirectoryEmailDto>>;
+
 public class GetDirectoryEmployeesQueryValidator : AbstractValidator<GetDirectoryEmployeesQuery>
 {
   public GetDirectoryEmployeesQueryValidator()
@@ -78,8 +82,18 @@ public class DirectoryHandlers(IApplicationDbContext context, HrLookup lookup, I
   IQueryHandler<GetDirectoryOrgUnitsQuery, Result<GetDirectoryOrgUnitsQueryResult>>,
   IQueryHandler<GetPostHolderQuery, Result<DirectoryPostHolderDto>>,
   IQueryHandler<GetDirectoryOfficesQuery, Result<GetDirectoryOfficesQueryResult>>,
-  IQueryHandler<GetPublicHolidaysQuery, Result<GetPublicHolidaysQueryResult>>
+  IQueryHandler<GetPublicHolidaysQuery, Result<GetPublicHolidaysQueryResult>>,
+  IQueryHandler<GetDirectoryEmailQuery, Result<DirectoryEmailDto>>
 {
+  public async Task<Result<DirectoryEmailDto>> Handle(GetDirectoryEmailQuery query, CancellationToken cancellationToken)
+  {
+    var id = EmployeeId.Of(query.EmployeeId);
+    var email = await context.EmployeeContacts.AsNoTracking()
+      .Where(c => c.EmployeeId == id && c.ContactType == ContactType.Email)
+      .OrderByDescending(c => c.IsPrimary).Select(c => c.Value).FirstOrDefaultAsync(cancellationToken);
+    return Result<DirectoryEmailDto>.Success(new(query.EmployeeId, email));
+  }
+
   private static readonly EmploymentStatus[] InServiceStatuses =
     [EmploymentStatus.Active, EmploymentStatus.OnLeave, EmploymentStatus.Suspended, EmploymentStatus.DeputedOut];
 

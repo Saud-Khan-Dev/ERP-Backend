@@ -68,8 +68,6 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
   public DbSet<EmployeeSeparation> Separations => Set<EmployeeSeparation>();
 
   // ---- 8. performance ----
-  public DbSet<PerformancePeriod> PerformancePeriods => Set<PerformancePeriod>();
-  public DbSet<PerformanceReview> PerformanceReviews => Set<PerformanceReview>();
 
   // ---- 9. attendance ----
   public DbSet<WorkShift> WorkShifts => Set<WorkShift>();

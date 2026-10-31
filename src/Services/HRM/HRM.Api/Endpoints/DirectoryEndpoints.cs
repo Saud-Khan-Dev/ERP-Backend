@@ -18,6 +18,14 @@ public class DirectoryEndpoints : ICarterModule
       .WithDescription("People with their number, designation and unit today. search matches part of the number or name; ids=a,b,c names given people "
         + "(those who left included). People who left service are left out unless includeLeft=true.");
 
+    // contact details stay out of the directory; only the person opening their sign-in account reads the email
+    directory.MapGet("/employees/{id:guid}/email", async (Guid id, ISender sender) => (await sender.Send(new GetDirectoryEmailQuery(id))).ToOk())
+      .RequireAnyPermission(PermissionCatalog.Users.Create, PermissionCatalog.Users.Edit)
+      .WithName("GetDirectoryEmail")
+      .Produces<DirectoryEmailDto>()
+      .WithSummary("A person's email, for their account")
+      .WithDescription("The email on the person's HR record (the primary one first), or null - for registering or editing their sign-in account. IAM_USERS.CREATE or EDIT.");
+
     directory.MapGet("/org-units", async (ISender sender) => (await sender.Send(new GetDirectoryOrgUnitsQuery())).ToOk())
       .RequireSignedIn()
       .WithName("GetDirectoryOrgUnits")

@@ -938,12 +938,13 @@ namespace Identity.Infrastructure.Data.Migrations
 
                     b.HasIndex("Email")
                         .IsUnique()
-                        .HasDatabaseName("ix_users_email");
+                        .HasDatabaseName("ix_users_email")
+                        .HasFilter("deleted_at IS NULL");
 
                     b.HasIndex("EmployeeCode")
                         .IsUnique()
                         .HasDatabaseName("ix_users_employee_code")
-                        .HasFilter("employee_code IS NOT NULL AND employee_id IS NOT NULL");
+                        .HasFilter("employee_code IS NOT NULL AND employee_id IS NOT NULL AND deleted_at IS NULL");
 
                     b.HasIndex("EmployeeId")
                         .IsUnique()
@@ -955,7 +956,8 @@ namespace Identity.Infrastructure.Data.Migrations
 
                     b.HasIndex("Username")
                         .IsUnique()
-                        .HasDatabaseName("ix_users_username");
+                        .HasDatabaseName("ix_users_username")
+                        .HasFilter("deleted_at IS NULL");
 
                     b.ToTable("users", "auth");
                 });

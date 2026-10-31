@@ -44,10 +44,4 @@ public sealed class HrmOptions
   /// Service ends on the day before the 60th birthday instead of on it. Off (today's rule) until GDA confirms its
   /// practice.
   public bool RetireOnDayBeforeBirthday { get; set; }
-
-  /// How the PER final score is made, in percent of goals / KPIs / competencies (the three must total 100). Goals only
-  /// (today's rule) until GDA confirms its PER form.
-  public int PerGoalWeight { get; set; } = 100;
-  public int PerKpiWeight { get; set; }
-  public int PerCompetencyWeight { get; set; }
 }

@@ -343,6 +343,37 @@ public sealed record ImportAttendanceResult(int Saved, IReadOnlyList<string> Pro
 /// A batch from the biometric device or a sheet, by employee number. Every good row is saved; bad rows are reported.
 public sealed record ImportAttendanceCommand(IReadOnlyList<AttendanceImportRow> Rows) : ICommand<Result<ImportAttendanceResult>>;
 
+/// The day's roll: everyone expected at work on the date (holding a post, or on a contingent order) with what is
+/// recorded, and why a day takes no attendance - a holiday, their day off, or approved leave (marked from the leave).
+public sealed record AttendanceRollRow(
+  Guid EmployeeId,
+  string EmployeeNumber,
+  string EmployeeName,
+  string? Designation,
+  string? Office,
+  string? Shift,
+  Guid? RecordId,
+  AttendanceStatus? Status,
+  TimeOnly? CheckIn,
+  TimeOnly? CheckOut,
+  string? Remarks,
+  string? OnLeave,
+  bool HalfDayLeave,
+  bool DayOff);
+
+public sealed record GetAttendanceRollQueryResult(DateOnly Date, bool Holiday, string? HolidayName, IReadOnlyList<AttendanceRollRow> Rows);
+public sealed record GetAttendanceRollQuery(DateOnly Date, Guid? OrgUnitId) : IQuery<Result<GetAttendanceRollQueryResult>>;
+
+/// Marks for many people on one day at once (the roll's "mark the chosen present"). Every good mark is saved; the rest
+/// come back in words.
+public sealed record DayMark(Guid EmployeeId, AttendanceStatus? Status, TimeOnly? CheckIn, TimeOnly? CheckOut, string? Remarks);
+public sealed record RecordAttendanceDayCommand(DateOnly Date, IReadOnlyList<DayMark> Marks) : ICommand<Result<ImportAttendanceResult>>;
+
+public class RecordAttendanceDayCommandValidator : AbstractValidator<RecordAttendanceDayCommand>
+{
+  public RecordAttendanceDayCommandValidator() => RuleFor(x => x.Marks).NotEmpty().Must(m => m.Count <= 1000).WithMessage("Mark at most 1,000 people at a time.");
+}
+
 public sealed record CloseAttendanceDayResult(DateOnly Date, int Absent, int OnLeave, int Holiday, int Weekend, bool DryRun);
 
 /// Closes a day: everyone holding a post that day without a record gets one - on leave (approved leave), holiday,
@@ -384,8 +415,99 @@ public class AttendanceHandlers(IApplicationDbContext context, WorkCalendar cale
   ICommandHandler<RecordAttendanceCommand, Result<CreatedResult>>,
   ICommandHandler<ImportAttendanceCommand, Result<ImportAttendanceResult>>,
   ICommandHandler<CloseAttendanceDayCommand, Result<CloseAttendanceDayResult>>,
-  ICommandHandler<DeleteAttendanceCommand, Result<UpdatedResult>>
+  ICommandHandler<DeleteAttendanceCommand, Result<UpdatedResult>>,
+  IQueryHandler<GetAttendanceRollQuery, Result<GetAttendanceRollQueryResult>>,
+  ICommandHandler<RecordAttendanceDayCommand, Result<ImportAttendanceResult>>
 {
+  public async Task<Result<GetAttendanceRollQueryResult>> Handle(GetAttendanceRollQuery query, CancellationToken cancellationToken)
+  {
+    var date = query.Date;
+    // expected that day: holding a post, or on a contingent order (the same people closing the day would mark)
+    var ids = await context.PositionAssignments.AsNoTracking()
+      .Where(a => a.Status == RecordStatus.Active && a.EffectiveFrom <= date && (a.EffectiveTo == null || a.EffectiveTo >= date))
+      .Select(a => a.EmployeeId)
+      .Union(context.EngagementOrders.Where(o => o.Status == RecordStatus.Active && o.StartDate <= date && o.EndDate >= date).Select(o => o.EmployeeId))
+      .Distinct()
+      .Where(id => context.Employees.Any(e => e.Id == id && e.ProfileStatus == RecordStatus.Active))
+      .ToListAsync(cancellationToken);
+
+    var placements = await lookup.PlacementsAsync(ids, date, cancellationToken);
+    var orders = await context.EngagementOrders.AsNoTracking()
+      .Where(o => ids.Contains(o.EmployeeId) && o.Status == RecordStatus.Active && o.StartDate <= date && o.EndDate >= date)
+      .Select(o => new { o.EmployeeId, o.OrgUnitId, o.DesignationId }).ToListAsync(cancellationToken);
+    var orderOf = orders.GroupBy(o => o.EmployeeId).ToDictionary(g => g.Key, g => g.First());
+    if (query.OrgUnitId is { } unit)
+    {
+      var units = await lookup.SubtreeAsync(OrganizationUnitId.Of(unit), date, cancellationToken);
+      ids = ids.Where(id => placements.TryGetValue(id.Value, out var p) ? units.Contains(OrganizationUnitId.Of(p.OrgUnitId))
+        : orderOf.TryGetValue(id, out var o) && units.Contains(o.OrgUnitId)).ToList();
+    }
+
+    var people = await context.Employees.AsNoTracking().Where(e => ids.Contains(e.Id)).ToListAsync(cancellationToken);
+    var calendars = await calendar.ForManyAsync(ids, date, date, cancellationToken);
+    var leave = await OnLeaveAsync(ids, date, date, cancellationToken);
+    var records = (await context.AttendanceRecords.AsNoTracking().Where(r => ids.Contains(r.EmployeeId) && r.AttendanceDate == date)
+      .ToListAsync(cancellationToken)).ToDictionary(r => r.EmployeeId);
+    var designations = await lookup.DesignationsAsync(orders.Select(o => (DesignationId?)o.DesignationId), cancellationToken);
+    var offices = await lookup.UnitNamesAsync(orders.Select(o => (OrganizationUnitId?)o.OrgUnitId), date, cancellationToken);
+    var holiday = await context.Holidays.AsNoTracking().Where(h => h.HolidayDate == date).Select(h => h.Name).FirstOrDefaultAsync(cancellationToken);
+
+    var rows = people.OrderBy(e => e.EmployeeNumber).Select(e =>
+    {
+      var placed = placements.GetValueOrDefault(e.Id.Value);
+      var order = orderOf.GetValueOrDefault(e.Id);
+      var day = calendars[e.Id];
+      var record = records.GetValueOrDefault(e.Id);
+      var away = leave.GetValueOrDefault((e.Id, date));
+      return new AttendanceRollRow(e.Id.Value, e.EmployeeNumber, e.DisplayName,
+        placed?.Designation ?? (order is null ? null : designations.GetValueOrDefault(order.DesignationId.Value)),
+        placed?.OrgUnit ?? (order is null ? null : offices.GetValueOrDefault(order.OrgUnitId.Value)),
+        day.ShiftOn(date)?.Name, record?.Id.Value, record?.Status, record?.CheckIn, record?.CheckOut, record?.Remarks,
+        away?.TypeName, away?.HalfDay ?? false, !day.IsHoliday(date) && !day.IsWorkingDay(date));
+    }).ToList();
+    return Result<GetAttendanceRollQueryResult>.Success(new(date, holiday is not null, holiday, rows));
+  }
+
+  public async Task<Result<ImportAttendanceResult>> Handle(RecordAttendanceDayCommand command, CancellationToken cancellationToken)
+  {
+    var date = command.Date;
+    AttendanceRecord.EnsureRecordable(date, clock.Today);
+    var ids = command.Marks.Select(m => EmployeeId.Of(m.EmployeeId)).Distinct().ToList();
+    var employees = await context.Employees.Where(e => ids.Contains(e.Id)).ToDictionaryAsync(e => e.Id, cancellationToken);
+    var calendars = await calendar.ForManyAsync(employees.Keys.ToList(), date, date, cancellationToken);
+    var leave = await OnLeaveAsync(employees.Keys.ToList(), date, date, cancellationToken);
+    var existing = (await context.AttendanceRecords.Where(r => ids.Contains(r.EmployeeId) && r.AttendanceDate == date).ToListAsync(cancellationToken))
+      .ToDictionary(r => r.EmployeeId);
+    var problems = new List<string>();
+    var saved = 0;
+    foreach (var mark in command.Marks)
+    {
+      var id = EmployeeId.Of(mark.EmployeeId);
+      if (!employees.TryGetValue(id, out var employee))
+      {
+        problems.Add("An employee on the list was not found.");
+        continue;
+      }
+      try
+      {
+        employee.EnsureProfileActive();
+        existing[id] = Upsert(id, new AttendanceInput(date, mark.CheckIn, mark.CheckOut, mark.Status, mark.Remarks), new Day(calendars[id], leave), existing.GetValueOrDefault(id));
+        saved++;
+      }
+      catch (DomainException error)
+      {
+        problems.Add($"{employee.EmployeeNumber} {employee.DisplayName}: {DomainMessages.Text(error)}");
+      }
+    }
+    using (audit.Quietly())
+    {
+      audit.Record(AuditActions.Ran, HrmRuns.AttendanceImport, detail: $"Roll of {date:dd'/'MM'/'yyyy}: {saved} marked · {problems.Count} not");
+      await context.SaveChangesAsync(cancellationToken);
+    }
+    return Result<ImportAttendanceResult>.Success(new(saved, problems));
+  }
+
+
   public async Task<Result<GetAttendanceQueryResult>> Handle(GetAttendanceQuery query, CancellationToken cancellationToken)
   {
     var records = await FilterAsync(query.From, query.To, query.EmployeeId, query.OrgUnitId, cancellationToken);
@@ -597,6 +719,12 @@ public class AttendanceHandlers(IApplicationDbContext context, WorkCalendar cale
   {
     AttendanceRecord.EnsureRecordable(input.AttendanceDate, clock.Today);
     var date = input.AttendanceDate;
+    // no attendance is taken on a holiday, nor on a day of approved leave (it is marked from the leave itself)
+    if (day.Calendar.IsHoliday(date) && input.Status != AttendanceStatus.Holiday)
+      throw new DomainException($"{date:dd'/'MM'/'yyyy} is a holiday; no attendance is taken on it.");
+    if (day.Leave.TryGetValue((employeeId, date), out var away) && !away.HalfDay
+        && input.Status is not (AttendanceStatus.OnLeave or AttendanceStatus.HalfDay))
+      throw new DomainException($"The employee is on approved leave on {date:dd'/'MM'/'yyyy}; the day is marked from the leave. Cancel the leave if they came to work.");
     switch (input.Status)
     {
       case AttendanceStatus.OnLeave when !day.Leave.ContainsKey((employeeId, date)):

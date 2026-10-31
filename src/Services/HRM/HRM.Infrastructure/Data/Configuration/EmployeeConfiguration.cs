@@ -247,8 +247,6 @@ public class EmployeeEducationConfiguration : EntityConfiguration<EmployeeEducat
     builder.ToTable("employee_education", t =>
       t.HasCheckConstraint("employee_education_passing_year_check", "passing_year IS NULL OR passing_year BETWEEN 1950 AND 2100"));
 
-    builder.Property(x => x.DegreeTitle).IsRequired();
-    builder.Property(x => x.InstitutionName).IsRequired();
     builder.Property(x => x.IsHighestQualification).HasDefaultValue(false);
 
     builder.HasOne<Employee>().WithMany().HasForeignKey(x => x.EmployeeId).OnDelete(DeleteBehavior.NoAction);

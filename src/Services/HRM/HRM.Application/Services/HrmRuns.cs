@@ -15,7 +15,6 @@ public static class HrmRuns
   public const string ShiftAssignment = "Shift assignment";
   public const string LeaveEntitlements = "Leave entitlements";
   public const string LeaveYearEnd = "Leave year end";
-  public const string StartReviews = "Performance reviews";
   public const string GpFundInterest = "GP Fund interest";
 }
 
@@ -45,7 +44,6 @@ public static class HrmVerbs
   public const string Reopened = "Reopened";
   public const string Processed = "Processed";
   public const string Failed = "Failed";
-  public const string Countersigned = "Countersigned";
   public const string Acknowledged = "Acknowledged";
   public const string Linked = "Linked";
   public const string Unlinked = "Unlinked";

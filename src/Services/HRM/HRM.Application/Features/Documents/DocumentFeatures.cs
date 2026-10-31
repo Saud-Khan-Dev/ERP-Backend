@@ -267,8 +267,8 @@ public class DocumentHandlers(IApplicationDbContext context, FileUploads files, 
 
 public sealed record EducationInput(
   Guid QualificationLevelId,
-  string DegreeTitle,
-  string InstitutionName,
+  string? DegreeTitle,
+  string? InstitutionName,
   string? BoardOrUniversity,
   int? PassingYear,
   string? GradeOrCgpa,
@@ -297,8 +297,8 @@ public class EducationInputValidator : AbstractValidator<EducationInput>
   public EducationInputValidator()
   {
     RuleFor(x => x.QualificationLevelId).NotEmpty();
-    RuleFor(x => x.DegreeTitle).NotEmpty().MaximumLength(200);
-    RuleFor(x => x.InstitutionName).NotEmpty().MaximumLength(200);
+    RuleFor(x => x.DegreeTitle).MaximumLength(200);
+    RuleFor(x => x.InstitutionName).MaximumLength(200);
     RuleFor(x => x.BoardOrUniversity).MaximumLength(200);
     RuleFor(x => x.GradeOrCgpa).MaximumLength(30);
   }
@@ -344,7 +344,7 @@ public class EducationHandlers(IApplicationDbContext context, FileUploads files,
     var number = await context.Employees.AsNoTracking().Where(e => e.Id == education.EmployeeId).Select(e => e.EmployeeNumber).FirstAsync(cancellationToken);
     audit.Record(AuditActions.Downloaded, education, "Qualification scan");
     await audit.SaveAsync(cancellationToken);
-    return Result<StoredFile>.Success(await files.OpenAsync(education.FileReference, $"{number}-{education.DegreeTitle}", cancellationToken));
+    return Result<StoredFile>.Success(await files.OpenAsync(education.FileReference, $"{number}-{education.DegreeTitle ?? "certificate"}", cancellationToken));
   }
 
   public async Task<Result<CreatedResult>> Handle(AddEducationCommand command, CancellationToken cancellationToken)

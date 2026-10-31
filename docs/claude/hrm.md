@@ -7,7 +7,7 @@ Read [overview.md](overview.md) first for the stack and shared conventions. This
 The GDA HRMS, in one service:
 
 - the organization (units, sanctioned posts, pay scales) and the employee master with service history and HR actions;
-- attendance, leave and performance (PER) reviews;
+- attendance and leave;
 - the salary structure, income tax, loans, GP Fund, the payroll engine and salary payments;
 - tasks, employee requests, reports and the employee portal (`/me`).
 
@@ -44,9 +44,9 @@ Seven catalogue modules (`PermissionCatalog`; the Identity seeder grants each ne
 
 | Module | Codes | Used for |
 | --- | --- | --- |
-| `HR` | VIEW, CREATE, EDIT, DELETE, APPROVE, EXPORT, PAY, RUN | employees, documents, service history, assignments, HR actions (APPROVE approves / returns / rejects; EDIT applies), separations (APPROVE), performance reviews (APPROVE finalizes, countersigns), tasks, requests (APPROVE decides). PAY: a pay change and the next increment date. RUN: the annual increment and pay revisions. EXPORT: HR CSVs and reports (the screens; `POST /audit/exports`) |
+| `HR` | VIEW, CREATE, EDIT, DELETE, APPROVE, EXPORT, PAY, RUN | employees, documents, service history, assignments, HR actions (APPROVE approves / returns / rejects; EDIT applies), separations (APPROVE), tasks, requests (APPROVE decides). PAY: a pay change and the next increment date. RUN: the annual increment and pay revisions. EXPORT: HR CSVs and reports (the screens; `POST /audit/exports`) |
 | `HR_SENSITIVE` | VIEW, EDIT | VIEW: CNIC, date of birth, contacts, addresses, emergency contacts, family, pay figures, bank account numbers (see "Personal facts"). EDIT: change a CNIC or date of birth; every salary bank account write |
-| `HR_SETUP` | VIEW, CREATE, EDIT, DELETE | catalogues, org units, pay scales, posts, performance periods |
+| `HR_SETUP` | VIEW, CREATE, EDIT, DELETE | catalogues, org units, pay scales, posts |
 | `ATTENDANCE` | VIEW, CREATE, EDIT, DELETE, APPROVE, EXPORT, RUN, ADJUST | shifts, holidays, attendance, leave types, entitlements, applications (APPROVE decides and cancels an approved leave). RUN: close a day, import attendance, grant the year's entitlements, close the leave year. ADJUST: a manual leave-ledger entry |
 | `PAYROLL` | VIEW, CREATE, EDIT, DELETE, APPROVE, POST, EXPORT, REVERSE, WAIVE, ADJUST | runs (APPROVE approves, holds salaries; POST finalizes, pays, locks; REVERSE reverses a run and fails / returns a payment; DELETE deletes a run or an open month), loans (CREATE enters an application; APPROVE sanctions, cancels, records repayments; WAIVE waives an installment or writes a loan off), GP Fund, tax. ADJUST: payslip adjustments, salary overrides, tax openings. EXPORT: payroll CSVs, slip print, the bank advice (`GET /payroll-runs/{id}/bank-advice` needs it) |
 | `PAYROLL_SETUP` | VIEW, CREATE, EDIT, DELETE | salary components and rules, tax years and slabs, GP Fund interest rates, loan types (reads also accept PAYROLL.VIEW) |
@@ -63,10 +63,10 @@ need only a signed-in token. `/me/*` needs a token carrying the `emp` claim (see
   never-placed employees are outside every scope). `OfficeScope` works it out once per request (`OfficeScopeBehavior`,
   a MediatR behavior) into `EmployeeScope`, and `ApplicationDbContext` applies it as a **global query filter** on every
   table with an `EmployeeId` (employee, contacts, family, bank accounts, pay records, documents, education, HR actions,
-  separations, reviews, shifts, attendance, leave, overrides, tax, loans, GP Fund, slips, payments, tasks, requests and
+  separations, shifts, attendance, leave, overrides, tax, loans, GP Fund, slips, payments, tasks, requests and
   the leave / GPF / tax views). Post assignments, the service book and structure are not filtered (seats are counted for
   everyone). So lists, reports, attention and loaders stop at the offices; a record outside answers 404. Bulk runs
-  (annual increment, close day, entitlements, year end, start reviews, GPF interest) cover the person's offices.
+  (annual increment, close day, entitlements, year end, GPF interest) cover the person's offices.
   Whole-run payroll acts (create, calculate, review, approve, finalize, reverse, pay, months, arrears, payments) are
   refused unless the person works on every office (`WholeOrganizationRefusalAsync`). `/me` and `/directory` run
   unfiltered (`AllOffices()` endpoint filter); so do numbering and uniqueness checks (`EmployeeScope.Unrestricted()`).
@@ -83,7 +83,7 @@ need only a signed-in token. `/me/*` needs a token carrying the `emp` claim (see
   bank accounts, adjustments, hold / release, taking a slip off a run, loan sanction / repayment / waive / cancel /
   write-off, GP Fund entries and closing, HR action approve / return / reject / apply, separation and its settlement,
   document verify / reject, request decide, leave decide, leave-balance entry, personal details and contacts, number
-  correction, review countersign / finalize; bulk increments skip the runner's own record), HR_ACTION (drafter /
+  correction; bulk increments skip the runner's own record), HR_ACTION (drafter /
   submitter ≠ approver), PAYROLL_APPROVE (preparer, reviewer, adjusters ≠ approver), PAYROLL_PAY (approver ≠ who
   finalizes, prepares or records payments, marks paid), LOAN_SANCTION (who entered the application ≠ who sanctions it;
   `employee_loan.created_by`), LEAVE_APPROVE (who keyed the application in ≠ who decides it;
@@ -94,11 +94,11 @@ need only a signed-in token. `/me/*` needs a token carrying the `emp` claim (see
   `cancel` turns an application down. `sanctionNow: true` does both at once only while LOAN_SANCTION is off.
 - **Audit trail** (BuildingBlock/Audit; table `hrms.audit_entry`, append-only by triggers; module "Human Resources").
   `AuditTrailInterceptor` writes a line per record added / changed / removed (FKs as names); `HrmAuditProfile` gives the
-  kinds and hangs every employee record `Under<Employee>` (grandchildren under their loan, slip, review, GP account,
+  kinds and hangs every employee record `Under<Employee>` (grandchildren under their loan, slip, GP account,
   task: `GET /employees/{id}/history` gathers them). Skipped: slip segments / lines / loan deductions, payslips,
   installments, tax-ledger rows. Runs save quietly and write one `Ran` line named in `HrmRuns` (payroll calculation and
   finalization, salary payments, arrears, annual increment, pay revision, close day, attendance import, shift
-  assignment, entitlements, leave year end, reviews, GPF interest); `HrmJobSource` reports their last lines on
+  assignment, entitlements, leave year end, GPF interest); `HrmJobSource` reports their last lines on
   `GET /system/status`. Decisions get verbs (`HrmVerbs`). Identity and employment changes are written by `ChangeLog`
   with the reason (their saves are quiet so the reason line is the only one). Document and education scans write
   `Downloaded`. `GET /audit`, `GET /audit/kinds` (IAM_AUDIT.VIEW) and `POST /audit/exports` (HR / ATTENDANCE / PAYROLL
@@ -117,7 +117,7 @@ HRM.Domain/
   Common/       Guard, Cnic (35202-1234567-1), Iban (PK, mod-97), DateRange, EnumText (enum names as words)
   Enums/        HrmsEnums.cs: one enum per Postgres type, members in the schema's label order
   ValueObjects/ one typed id per table: EmployeeId.Of(guid), EmployeeId.New()
-  Models/<Area> Organization, PayScale, Post, Employee, Document, Service, Performance, Attendance, Leave, Salary,
+  Models/<Area> Organization, PayScale, Post, Employee, Document, Service, Attendance, Leave, Salary,
                 Tax, Loan (with GP Fund), Payroll, Task (tasks and requests)
   Services/     PayrollCalculator, PayFormula, PayTiers (payroll engine); GpFundInterest; OrganizationTree
   Views/        keyless read models over the five v_* views
@@ -181,11 +181,6 @@ touches).
   and a reason; the decider, date and reason are kept. Approving writes usage rows per calendar year and turns closed
   absences into leave. Cancelling reverses the ledger rows. An inactive leave type is offered to no one. The year-end
   is idempotent (a carry-forward or a lapse per balance) and opens placeholder entitlements that a later grant fills.
-- **Performance.** Periods; reviews opened one by one or in bulk. The evaluator in bulk is the holder of the post's
-  reporting post. draft → submitted → (countersigned, when a countersigning officer is named) → acknowledged →
-  finalized. Everything is locked after submit; the employee sees the review only once submitted (and countersigned).
-  Weights must total 100; the score is worked out with the `Hrm:Per*Weight` setting (goals only by default) and a
-  final score that differs needs a reason.
 - **Payroll engine** (`PayrollCalculator`, pure, unit-tested):
   - The month is split wherever the post, the post version or the pay record changes.
   - Earnings are prorated by payable days; LWOP and days without a regular post are not paid.
@@ -227,13 +222,18 @@ touches).
 
 ## Attention (the bell)
 
-`GET /attention` counts only queues the caller may act on (oldest item's date where it means something). HR.APPROVE:
-`hrActions.toApprove` (not the caller's own while HR_ACTION is on), `requests.toDecide`, `documents.toVerify`,
-`increments.overdue`, `reviews.toFinalize`. HR.EDIT: `hrActions.toApply`, `hrActions.takeEffectLater`,
-`hrActions.myDrafts` (forMe), `tasks.overdue`, `documents.expiring`, `separations.unsettled`, `retirements.past`,
+`GET /attention` counts only queues the caller may act on (oldest item's date where it means something). The Super
+Administrator only: `hrActions.toApprove` (their own too). HR.APPROVE:
+`requests.toDecide`, `documents.toVerify`,
+`increments.overdue`. HR.EDIT: `hrActions.toApply`, `hrActions.takeEffectLater`,
+`hrActions.myDrafts` (forMe), `tasks.overdue`, `documents.expiring`, `separations.noOrder`, `retirements.past`,
 `retirements.due`, `contracts.ending`, `employees.noDateOfBirth`, `employees.unplaced`. ATTENDANCE.APPROVE: `leave.toDecide`. PAYROLL.EDIT
-/ APPROVE / POST: `payroll.toReview`, `payroll.toApprove`, `payroll.toFinalize`, `payroll.toPay`. A linked employee:
-`my.tasks`, `my.tasksOverdue`, `my.reviewsToAcknowledge`, `my.evaluationsToWrite`, `my.countersignings`. The frontend
+/ APPROVE / POST: `payroll.toReview`, `payroll.toApprove`, `payroll.toFinalize`, `payroll.toPay`. A linked employee (never limited by office
+scope): `my.tasks`, `my.tasksOverdue`, `my.separation` (30 days), and HR's answers for two weeks: `my.requestsDecided`
+(approved / rejected), `my.leaveDecided` (decided by someone else), `my.documentsChecked` (papers they sent, verified or
+rejected), `my.payslips` (generated, run not reversed), `my.orderEnding` (current order ends within 15 days, no next
+order). Anyone: `tasks.doneForYou` (tasks they gave, completed in the last 7 days). All of these are forMe; the bell
+shows a count that went up as unseen. The frontend
 maps each key to a filtered screen in `features/hrm/hrm.attention.ts`; keep the two in step.
 
 ## Seeds (`HrmSeeder`)
@@ -271,6 +271,18 @@ maps each key to a filtered screen in `features/hrm/hrm.attention.ts`; keep the 
 - **Sanctioned vs contract posts**: a post whose type follows the Regular rules is sanctioned (regular staff and
   deputationists); one of a fixed-term type is a contract post (GDA's own approved strength) and takes fixed-term staff
   only (`PostKinds`, checked on every appointment and move).
+- **Attendance.** `GET /attendance/roll?date=` lists everyone expected (a post or a contingent order) with the day's
+  record and why a day takes none (holiday, day off, approved leave); `POST /attendance/day` marks many at once. No
+  attendance is taken on a holiday or a full day of approved leave (refused); approving leave marks its working days up
+  to today On leave and turns closed Absent days into leave.
+- **Leave entitlements are automatic.** `LeaveService.EnsureEntitledAsync` gives each leave type's days per year to a
+  person in service the first time that year's balance is read or applied against; no grant or year-end needed.
+- **Tasks** cannot be given a due date in the past. **Separations**: the desk records the order number and reason; the
+  bell counts separations without an order (`separations.noOrder`); the person sees `my.separation` for 30 days.
+- **HR actions are decided by the Super Administrator only** (GDA's rule, 2026-10-29): Approve, Return and Reject refuse
+  anyone else, even with HR.APPROVE; the Super Administrator may approve an action they recorded themselves (the
+  HR_ACTION duty rule no longer applies to HR actions). The `to_approve` queue and the bell count are theirs alone.
+  OWN_RECORD still holds. Identity `GET /directory/users?permission=` names who holds a permission.
 - **Contingent orders** (`EngagementOrder`, `/employees/{id}/orders`, `/orders/{id}/cancel`): a fixed-term (contingent)
   person holds no post; each order gives an office, a designation, from-until, a Daily or Monthly wage and the letter (an
   uploaded document). A renewal is a new order; orders never overlap; the days between two are not paid. The person's
@@ -282,7 +294,7 @@ maps each key to a filtered screen in `features/hrm/hrm.attention.ts`; keep the 
 - **Configured lists** (`/qualification-levels` with a rank, `/family-relations`, `/employment-methods`,
   `/adjustment-types` with a direction): records keep the id; a used value is deactivated, not deleted. Adjustment types
   Arrears and Recovery have fixed ids (the arrears run writes them) and stay on.
-- **Batch operations** (import, grant entitlements, start reviews, assign shifts, generate payments) save the good rows
+- **Batch operations** (import, grant entitlements, assign shifts, generate payments) save the good rows
   and return the bad ones in `problems`.
 
 ## Database and migrations

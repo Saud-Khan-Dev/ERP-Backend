@@ -147,6 +147,23 @@ public class AttendanceEndpoints : ICarterModule
       .WithSummary("Record Attendance")
       .WithDescription("Records or corrects the employee's day. Without a status it is worked out: absent without a check-in, half day under half the shift, late after the grace minutes, else present.");
 
+    attendance.MapGet("/roll", async (DateOnly date, Guid? orgUnitId, ISender sender) =>
+        (await sender.Send(new GetAttendanceRollQuery(date, orgUnitId))).ToOk())
+      .RequirePermission(PermissionCatalog.Attendance.View)
+      .WithName("GetAttendanceRoll")
+      .Produces<GetAttendanceRollQueryResult>()
+      .WithSummary("The Day's Roll")
+      .WithDescription("Everyone expected at work on the date (a post or a contingent order), optionally in an office with the offices under it, with what is recorded and why a day takes no attendance (holiday, day off, approved leave).");
+
+    attendance.MapPost("/day", async (RecordAttendanceDayCommand command, ISender sender) =>
+        (await sender.Send(command)).ToOk())
+      .RequirePermission(PermissionCatalog.Attendance.Create)
+      .WithName("RecordAttendanceDay")
+      .Produces<ImportAttendanceResult>()
+      .ProducesProblem(StatusCodes.Status400BadRequest)
+      .WithSummary("Mark Many on a Day")
+      .WithDescription("Marks for many people on one day at once (status and times); each is checked like a single record - not on a holiday or a day of approved leave. Good marks are saved, the rest come back in words.");
+
     attendance.MapPost("/import", async (ImportAttendanceRequest request, ISender sender) =>
         (await sender.Send(new ImportAttendanceCommand(request.Rows))).ToOk())
       .RequirePermission(PermissionCatalog.Attendance.Run)

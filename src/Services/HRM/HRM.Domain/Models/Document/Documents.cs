@@ -135,8 +135,8 @@ public class EmployeeDocument : Aggregate<EmployeeDocumentId>
 
 public sealed record EducationDetails(
   QualificationLevelId QualificationLevelId,
-  string DegreeTitle,
-  string InstitutionName,
+  string? DegreeTitle,
+  string? InstitutionName,
   string? BoardOrUniversity,
   int? PassingYear,
   string? GradeOrCgpa,
@@ -147,8 +147,9 @@ public class EmployeeEducation : Aggregate<EducationId>
 {
   public EmployeeId EmployeeId { get; private set; } = default!;
   public QualificationLevelId QualificationLevelId { get; private set; } = default!;
-  public string DegreeTitle { get; private set; } = default!;
-  public string InstitutionName { get; private set; } = default!;
+  /// The level is the fact HR keeps; the degree's own name and the institution are optional.
+  public string? DegreeTitle { get; private set; }
+  public string? InstitutionName { get; private set; }
   public string? BoardOrUniversity { get; private set; }
   public int? PassingYear { get; private set; }
   public string? GradeOrCgpa { get; private set; }
@@ -175,8 +176,8 @@ public class EmployeeEducation : Aggregate<EducationId>
     ArgumentNullException.ThrowIfNull(details);
 
     QualificationLevelId = details.QualificationLevelId;
-    DegreeTitle = Guard.RequiredText(details.DegreeTitle, 200, "Degree title");
-    InstitutionName = Guard.RequiredText(details.InstitutionName, 200, "Institution");
+    DegreeTitle = Guard.Text(details.DegreeTitle, 200, "Degree title");
+    InstitutionName = Guard.Text(details.InstitutionName, 200, "Institution");
     BoardOrUniversity = Guard.Text(details.BoardOrUniversity, 200, "Board / university");
     GradeOrCgpa = Guard.Text(details.GradeOrCgpa, 30, "Grade / CGPA");
 

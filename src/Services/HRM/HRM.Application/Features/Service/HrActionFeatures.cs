@@ -287,9 +287,8 @@ public class HrActionHandlers(
         actions = actions.Where(a => a.CreatedBy == me || a.SubmittedBy == me);
         break;
       case HrActionView.ToApprove:
-        actions = actions.Where(a => a.Status == HrActionStatus.Pending);
-        if (await duty.IsOnAsync(DutyRules.HrAction, cancellationToken))
-          actions = actions.Where(a => a.CreatedBy != me && a.SubmittedBy != me);
+        // GDA's rule: the Super Administrator decides every HR action (their own too); nobody else has a queue
+        actions = currentUser.IsSuperAdmin ? actions.Where(a => a.Status == HrActionStatus.Pending) : actions.Where(a => false);
         break;
       case HrActionView.ToApply:
         actions = actions.Where(a => a.Status == HrActionStatus.Approved && (!DatedKinds.Contains(a.ActionType) || a.EffectiveDate <= today));
@@ -355,7 +354,7 @@ public class HrActionHandlers(
     var lienCode = lien?.OldPostId is { } lienPost ? (await lookup.PostCodesAsync([lienPost], cancellationToken)).GetValueOrDefault(lienPost.Value) : null;
 
     return Result<HrActionOptionsDto>.Success(new(employee.Id.Value, date, employee.EmploymentStatus, employee.EmploymentBasis, current,
-      await CurrentPayAsync(employee.Id, date, cancellationToken), lien?.OldPostId?.Value, lienCode, await duty.IsOnAsync(DutyRules.HrAction, cancellationToken), options, custom));
+      await CurrentPayAsync(employee.Id, date, cancellationToken), lien?.OldPostId?.Value, lienCode, false, options, custom));
   }
 
   public async Task<Result<IReadOnlyList<HrActionPostDto>>> Handle(GetHrActionPostsQuery query, CancellationToken cancellationToken)
@@ -576,20 +575,21 @@ public class HrActionHandlers(
         verb = HrmVerbs.Submitted;
         break;
       case HrActionStep.Return:
+        EnsureSuperAdmin("return an HR action");
         await duty.EnsureNotOwnRecordAsync(action.EmployeeId, "decide an HR action", action, cancellationToken);
         action.ReturnToDraft(currentUser.UserId, now, command.Remarks);
         verb = HrmVerbs.Returned;
         break;
       case HrActionStep.Approve:
+        // GDA's rule: only the Super Administrator approves, and may approve an action they drafted themselves
+        EnsureSuperAdmin("approve an HR action");
         await duty.EnsureNotOwnRecordAsync(action.EmployeeId, "approve an HR action", action, cancellationToken);
-        // maker-checker (HR_ACTION): not who drafted or submitted it
-        await duty.EnsureSeparateAsync(DutyRules.HrAction, action.CreatedBy, "approve an HR action you drafted", action, cancellationToken);
-        await duty.EnsureSeparateAsync(DutyRules.HrAction, action.SubmittedBy, "approve an HR action you submitted", action, cancellationToken);
         await EnsureStillAllowedAsync(action, cancellationToken);
         action.Approve(currentUser.UserId, now, command.ApprovalRequestId, requireSeparateApprover: false);
         verb = HrmVerbs.Approved;
         break;
       case HrActionStep.Reject:
+        EnsureSuperAdmin("reject an HR action");
         await duty.EnsureNotOwnRecordAsync(action.EmployeeId, "decide an HR action", action, cancellationToken);
         action.Reject(currentUser.UserId, now, command.Remarks);
         verb = HrmVerbs.Rejected;
@@ -603,6 +603,12 @@ public class HrActionHandlers(
     audit.Record(verb, action, string.IsNullOrWhiteSpace(command.Remarks) ? null : $"Remarks: {command.Remarks.Trim()}");
     await context.SaveChangesAsync(cancellationToken);
     return CommandResults.Updated();
+  }
+
+  private void EnsureSuperAdmin(string act)
+  {
+    if (!currentUser.IsSuperAdmin)
+      throw new DomainException($"Only the Super Administrator can {act}. Submit it; the Super Administrator decides it.");
   }
 
   public async Task<Result<ApplyHrActionResult>> Handle(ApplyHrActionCommand command, CancellationToken cancellationToken)

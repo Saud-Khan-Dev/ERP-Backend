@@ -78,11 +78,13 @@ public class UserConfiguration : EntityConfiguration<User, UserId>
       .HasColumnName("search_text")
       .HasComputedColumnSql("lower(username || ' ' || email || ' ' || coalesce(employee_code, '') || ' ' || display_name)", stored: true);
 
-    builder.HasIndex(x => x.Username).IsUnique();
-    builder.HasIndex(x => x.Email).IsUnique();
+    // unique among accounts in use: a deleted account keeps its name for the history, and frees it for a new account
+    // (restoring it is refused while a live account holds the name)
+    builder.HasIndex(x => x.Username).IsUnique().HasFilter("deleted_at IS NULL");
+    builder.HasIndex(x => x.Email).IsUnique().HasFilter("deleted_at IS NULL");
     builder.HasIndex(x => x.EmployeeId).IsUnique().HasFilter("employee_id IS NOT NULL");
-    // HR's number is unique among linked accounts; an older code Identity issued (unlinked) may repeat one of them.
-    builder.HasIndex(x => x.EmployeeCode).IsUnique().HasFilter("employee_code IS NOT NULL AND employee_id IS NOT NULL");
+    // HR's number is unique among linked accounts in use; an older code Identity issued (unlinked) may repeat one of them.
+    builder.HasIndex(x => x.EmployeeCode).IsUnique().HasFilter("employee_code IS NOT NULL AND employee_id IS NOT NULL AND deleted_at IS NULL");
     builder.HasIndex(x => x.IsActive);
   }
 }

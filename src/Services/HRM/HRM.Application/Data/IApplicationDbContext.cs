@@ -47,8 +47,6 @@ public interface IApplicationDbContext
   DbSet<EmployeeSeparation> Separations { get; }
 
   // ---- 8. performance ----
-  DbSet<PerformancePeriod> PerformancePeriods { get; }
-  DbSet<PerformanceReview> PerformanceReviews { get; }
 
   // ---- 9. attendance ----
   DbSet<WorkShift> WorkShifts { get; }
