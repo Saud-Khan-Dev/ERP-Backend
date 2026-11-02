@@ -48,7 +48,7 @@ public class PropertyOutsourcing : Aggregate<OutsourcingId>
     ArgumentNullException.ThrowIfNull(contractNo);
     ArgumentNullException.ThrowIfNull(initialStatus);
     property.EnsureActive();
-    contractor.EnsureActive();
+    contractor.EnsureCanTakeOn("a contract");
 
     if (!initialStatus.Is(SystemMasterCodes.Draft) && !initialStatus.Is(SystemMasterCodes.Active))
       throw new DomainException("A new contract starts as a draft or active.");
@@ -133,7 +133,7 @@ public class PropertyOutsourcing : Aggregate<OutsourcingId>
     if (newTerms.ContractStartDate <= ContractStartDate)
       throw new DomainException($"The renewal must start after {ContractNo.Value} started ({ContractStartDate:yyyy-MM-dd}).");
 
-    contractor.EnsureActive();
+    contractor.EnsureCanTakeOn("a contract");
 
     var renewal = new PropertyOutsourcing
     {

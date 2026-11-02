@@ -16,7 +16,8 @@ public sealed class OwnershipRecord
       IEnumerable<PropertyTransfer> pendingTransfers,
       IEnumerable<PropertyEncumbrance> encumbrances,
       DateOnly today,
-      PropertyAllotment.InForce? allotmentInForce = null)
+      PropertyAllotment.InForce? allotmentInForce = null,
+      bool fromOldRecords = false)
   {
     ArgumentNullException.ThrowIfNull(property);
 
@@ -26,6 +27,7 @@ public sealed class OwnershipRecord
     PendingTransfers = pendingTransfers.Where(t => t.PropertyId == property.Id && t.IsPending).ToList();
     Charges = encumbrances.Where(e => e.PropertyId == property.Id && e.HoldsShares).ToList();
     Today = today;
+    FromOldRecords = fromOldRecords;
     AllotmentInForce = allotmentInForce is not null && allotmentInForce.Allotment.PropertyId == property.Id ? allotmentInForce : null;
   }
 
@@ -35,6 +37,8 @@ public sealed class OwnershipRecord
   /// The charges that hold shares in place: ACTIVE ones and ENFORCED ones (see the class comment).
   public IReadOnlyList<PropertyEncumbrance> Charges { get; }
   public DateOnly Today { get; }
+  /// An ownership history being played forward: people from the old records (no CNIC) may hold a share on the way.
+  public bool FromOldRecords { get; }
   /// The allotment in force on the plot (ACTIVE or RESTORED), with its allottee's name; null when there is none.
   public PropertyAllotment.InForce? AllotmentInForce { get; }
 

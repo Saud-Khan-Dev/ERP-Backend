@@ -24,7 +24,8 @@ public class ApproveTransferHandler(IApplicationDbContext context, MasterLookup 
       command.NoDuesCertificateNo ?? transfer.NoDuesCertificateNo,
       TransferRegistration.ActorName(currentUser),
       record,
-      tenure);
+      tenure,
+      await masters.GetAsync<TransferType>(transfer.TransferTypeId.Value, cancellationToken));
 
     await context.Ownerships.AddRangeAsync(change.Opened, cancellationToken);
     audit.Record(PropertyAuditActions.Approved, transfer, Detail(transfer));

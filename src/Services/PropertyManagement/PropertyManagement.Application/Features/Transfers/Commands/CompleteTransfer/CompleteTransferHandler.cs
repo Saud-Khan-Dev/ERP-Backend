@@ -8,7 +8,8 @@ public class CompleteTransferHandler(IApplicationDbContext context, MasterLookup
     var record = await context.LoadOwnershipRecordAsync(property, transfer.Parties.Select(p => p.OwnerId), cancellationToken);
     var tenure = await TransferRegistration.NewcomerTenureAsync(masters, command.TenureTypeId, cancellationToken);
 
-    var change = transfer.Complete(TransferRegistration.ActorName(currentUser), command.ApprovalOrderRef, record, tenure);
+    var change = transfer.Complete(TransferRegistration.ActorName(currentUser), command.ApprovalOrderRef, record, tenure,
+      await masters.GetAsync<TransferType>(transfer.TransferTypeId.Value, cancellationToken));
 
     await context.Ownerships.AddRangeAsync(change.Opened, cancellationToken);
     await context.SaveChangesAsync(cancellationToken);

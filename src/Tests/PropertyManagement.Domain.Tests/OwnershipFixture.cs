@@ -49,7 +49,7 @@ internal static class OwnershipFixture
       PropertyTransfer.Initiate(TransferId.New(), BusinessCode.Of(no), Sale, D(date), "MUT-1", null, null, null, parties, record);
 
   public static PropertyTransfer.OwnershipChange Approve(PropertyTransfer transfer, OwnershipRecord record, string? approvalDate = null) =>
-      transfer.Approve(Director, approvalDate is null ? record.Today : D(approvalDate), "ORDER-9", null, "clerk1", record, Owned);
+      transfer.Approve(Director, approvalDate is null ? record.Today : D(approvalDate), "ORDER-9", null, "clerk1", record, Owned, Sale);
 
   public static PropertyEncumbrance Charge(Property property, PropertyOwnership? share, string holder = "Bank of Khyber", string? reference = "MRT-1") =>
       PropertyEncumbrance.Register(EncumbranceId.New(), property, Master<EncumbranceType>("MORTGAGE"), share, holder, null, reference,

@@ -7,21 +7,6 @@ public sealed record UploadedFile(Stream Content, string FileName, string? Conte
 /// serves them back. The database keeps only the relative path.
 public class FileUploads(IFileStorage storage, IOptions<DocumentOptions> options)
 {
-  private static readonly Dictionary<string, string> ContentTypes = new(StringComparer.OrdinalIgnoreCase)
-  {
-    [".pdf"] = "application/pdf",
-    [".jpg"] = "image/jpeg",
-    [".jpeg"] = "image/jpeg",
-    [".png"] = "image/png",
-    [".webp"] = "image/webp",
-    [".tif"] = "image/tiff",
-    [".tiff"] = "image/tiff",
-    [".doc"] = "application/msword",
-    [".docx"] = "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    [".xls"] = "application/vnd.ms-excel",
-    [".xlsx"] = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-  };
-
   public Task<string> SaveDocumentAsync(UploadedFile file, string employeeNumber, string area, CancellationToken cancellationToken) =>
       SaveAsync(file, employeeNumber, area, options.Value.AllowedExtensions, options.Value.MaxFileSizeBytes, cancellationToken);
 
@@ -32,8 +17,7 @@ public class FileUploads(IFileStorage storage, IOptions<DocumentOptions> options
   {
     var stream = await storage.OpenReadAsync(relativePath, cancellationToken)
       ?? throw new StoredFileNotFoundException("The file is missing from the file server. Upload it again.");
-    var extension = Path.GetExtension(relativePath);
-    return new StoredFile(stream, ContentTypes.GetValueOrDefault(extension, "application/octet-stream"), $"{Safe(downloadName)}{extension}");
+    return new StoredFile(stream, $"{Safe(downloadName)}{Path.GetExtension(relativePath)}");
   }
 
   private async Task<string> SaveAsync(UploadedFile file, string employeeNumber, string area, string[] allowed, long maxSize, CancellationToken cancellationToken)
@@ -59,4 +43,5 @@ public class FileUploads(IFileStorage storage, IOptions<DocumentOptions> options
   }
 }
 
-public sealed record StoredFile(Stream Content, string ContentType, string FileName);
+/// The file and the name it goes out under; SafeFiles gives it its type from that name.
+public sealed record StoredFile(Stream Content, string FileName);

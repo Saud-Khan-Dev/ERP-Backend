@@ -55,3 +55,14 @@ public enum AttributeDataType
   Dropdown,
   MultiSelect
 }
+
+/// property_owner.old_id_type: what an individual from the old records has instead of a CNIC.
+public enum OldIdType { OldNic, NotRecorded }
+
+/// How well a date from the old records is known: the day, the month, the year, or roughly ("about 1972"). The date is
+/// kept as the first day of what is known (01/03/1972 for March 1972). Dates entered today are Exact.
+public enum DatePrecision { Exact, Month, Year, About }
+
+/// ownership_history_entry.status. Waiting: entered, a second officer has not decided. Registered: in the register as
+/// first owners and transfers. Rejected: sent back with the reason (it can be revised and sent again). Withdrawn: closed.
+public enum HistoryEntryStatus { Waiting, Registered, Rejected, Withdrawn }

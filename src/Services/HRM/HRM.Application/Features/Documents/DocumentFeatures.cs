@@ -21,7 +21,8 @@ public sealed record GetExpiringDocumentsQuery(int WithinDays, bool IncludeExpir
 public sealed record GetDocumentsToVerifyQuery(Guid? DocumentTypeId, string? Search) : IQuery<Result<GetExpiringDocumentsQueryResult>>;
 
 /// OnlyForEmployee: self-service may open only its own documents.
-public sealed record GetDocumentContentQuery(Guid Id, Guid? OnlyForEmployee = null) : IQuery<Result<StoredFile>>;
+/// Download: a copy is taken (audit "Downloaded"); otherwise it is looked at in the viewer ("Viewed").
+public sealed record GetDocumentContentQuery(Guid Id, Guid? OnlyForEmployee = null, bool Download = true) : IQuery<Result<StoredFile>>;
 
 public sealed record UploadEmployeeDocumentCommand(Guid EmployeeId, DocumentDetailsInput Details, UploadedFile File) : ICommand<Result<CreatedResult>>;
 
@@ -134,10 +135,11 @@ public class DocumentHandlers(IApplicationDbContext context, FileUploads files, 
       throw new EmployeeDocumentNotFoundException($"Document {query.Id} was not found.");
     var type = await context.DocumentTypes.AsNoTracking().Where(t => t.Id == document.DocumentTypeId).Select(t => t.Name).FirstAsync(cancellationToken);
     var number = await context.Employees.AsNoTracking().Where(e => e.Id == document.EmployeeId).Select(e => e.EmployeeNumber).FirstAsync(cancellationToken);
-    // a scanned paper (CNIC, degree, order) leaving the system is kept in the trail
-    audit.Record(AuditActions.Downloaded, document, query.OnlyForEmployee is null ? $"{type} scan" : $"{type} scan (own, through the portal)");
+    var file = await files.OpenAsync(document.FileReference, $"{number}-{type}{(document.DocumentNumber is null ? "" : "-" + document.DocumentNumber)}", cancellationToken);
+    // who opened a scanned paper (CNIC, degree, order) is kept in the trail: looked at, or a copy taken
+    audit.Record(query.Download ? AuditActions.Downloaded : AuditActions.Viewed, document, query.OnlyForEmployee is null ? $"{type} scan" : $"{type} scan (own, through the portal)");
     await audit.SaveAsync(cancellationToken);
-    return Result<StoredFile>.Success(await files.OpenAsync(document.FileReference, $"{number}-{type}{(document.DocumentNumber is null ? "" : "-" + document.DocumentNumber)}", cancellationToken));
+    return Result<StoredFile>.Success(file);
   }
 
   public async Task<Result<CreatedResult>> Handle(UploadEmployeeDocumentCommand command, CancellationToken cancellationToken)
@@ -290,7 +292,8 @@ public sealed record RemoveEducationCommand(Guid Id) : ICommand<Result<UpdatedRe
 /// The scanned degree / certificate.
 public sealed record AttachEducationFileCommand(Guid Id, UploadedFile File) : ICommand<Result<UpdatedResult>>;
 
-public sealed record GetEducationContentQuery(Guid Id) : IQuery<Result<StoredFile>>;
+/// OnlyForEmployee and Download as for a document.
+public sealed record GetEducationContentQuery(Guid Id, Guid? OnlyForEmployee = null, bool Download = true) : IQuery<Result<StoredFile>>;
 
 public class EducationInputValidator : AbstractValidator<EducationInput>
 {
@@ -339,12 +342,15 @@ public class EducationHandlers(IApplicationDbContext context, FileUploads files,
   public async Task<Result<StoredFile>> Handle(GetEducationContentQuery query, CancellationToken cancellationToken)
   {
     var education = await LoadAsync(query.Id, cancellationToken);
+    if (query.OnlyForEmployee is { } own && education.EmployeeId.Value != own)
+      throw new StoredFileNotFoundException("This qualification was not found.");
     if (education.FileReference is null)
       throw new StoredFileNotFoundException("No scan is attached to this qualification.");
     var number = await context.Employees.AsNoTracking().Where(e => e.Id == education.EmployeeId).Select(e => e.EmployeeNumber).FirstAsync(cancellationToken);
-    audit.Record(AuditActions.Downloaded, education, "Qualification scan");
+    var file = await files.OpenAsync(education.FileReference, $"{number}-{education.DegreeTitle ?? "certificate"}", cancellationToken);
+    audit.Record(query.Download ? AuditActions.Downloaded : AuditActions.Viewed, education, query.OnlyForEmployee is null ? "Qualification scan" : "Qualification scan (own, through the portal)");
     await audit.SaveAsync(cancellationToken);
-    return Result<StoredFile>.Success(await files.OpenAsync(education.FileReference, $"{number}-{education.DegreeTitle ?? "certificate"}", cancellationToken));
+    return Result<StoredFile>.Success(file);
   }
 
   public async Task<Result<CreatedResult>> Handle(AddEducationCommand command, CancellationToken cancellationToken)

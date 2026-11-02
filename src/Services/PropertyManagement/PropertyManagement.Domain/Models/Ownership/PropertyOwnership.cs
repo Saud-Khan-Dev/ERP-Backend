@@ -25,6 +25,11 @@ public class PropertyOwnership : Aggregate<OwnershipId>
   /// The order or reference under which a share was ended by hand (no successor took it over).
   public string? EndReferenceNo { get; private set; }
   public string? Remarks { get; private set; }
+  /// How well EffectiveFrom is known (old records: a month, a year, roughly).
+  public DatePrecision EffectiveFromPrecision { get; private set; }
+  /// The transfer that opened this row (a receiver's new share, or a giver's remainder) and the one that closed it.
+  public TransferId? OpenedByTransferId { get; private set; }
+  public TransferId? ClosedByTransferId { get; private set; }
 
   public const int ReferenceMaxLength = 100;
 
@@ -62,33 +67,66 @@ public class PropertyOwnership : Aggregate<OwnershipId>
       acquisitionTransferType?.Id, acquiredViaTransferId: null, acquiredViaAllotmentId: null, referenceNo, remarks);
   }
 
-  /// The "add owner" act on a property that may already have owners: the owner may not already hold a share, the
-  /// shares held stay within 100%, and the new period may not overlap the owner's history. Refused while an
-  /// allotment is in force: the allottee becomes owner through "Confirm as owner". Who may do it (the clerk on a
-  /// property with no holder history, an approver otherwise) is decided by the handler.
-  public static PropertyOwnership AddOwner(
-      OwnershipId id,
-      PropertyOwner owner,
-      TenureType tenureType,
-      decimal sharePct,
-      DateOnly effectiveFrom,
-      TransferType? acquisitionTransferType,
-      string? referenceNo,
-      string? remarks,
-      OwnershipRecord record)
+  /// One of the first owners entered on a property nobody holds: who, the share, how it is held and since when.
+  public sealed record FirstOwner(
+      PropertyOwner Owner,
+      TenureType TenureType,
+      decimal SharePct,
+      DateOnly EffectiveFrom,
+      TransferType? AcquisitionTransferType = null,
+      string? ReferenceNo = null,
+      string? Remarks = null,
+      DatePrecision Precision = DatePrecision.Exact);
+
+  /// The owners of a property NOBODY holds now, entered in one go with shares that make exactly 100%: once anyone holds
+  /// it, a new owner comes in only through a transfer, which keeps the chain of title unbroken. Refused while an
+  /// allotment is in force (the allottee becomes owner through "Confirm as owner"). Who may do it (the clerk on a property
+  /// with no holder history, an approver otherwise) is decided by the handler.
+  public static IReadOnlyList<PropertyOwnership> RegisterFirstOwners(IReadOnlyList<FirstOwner> owners, OwnershipRecord record)
   {
-    ArgumentNullException.ThrowIfNull(owner);
+    ArgumentNullException.ThrowIfNull(owners);
     ArgumentNullException.ThrowIfNull(record);
+    var code = record.Property.PropertyCode.Value;
+
+    if (record.Current.Count > 0)
+      throw new DomainException($"{code} is already held. A new owner comes in only through a transfer.");
 
     if (record.AllotmentInForce is { } allotted)
       throw new DomainException(
-        $"{record.Property.PropertyCode.Value} is allotted to {allotted.AllotteeName} ({allotted.Allotment.AllotmentNo.Value}); "
+        $"{code} is allotted to {allotted.AllotteeName} ({allotted.Allotment.AllotmentNo.Value}); "
         + "while the allotment is in force the plot gets an owner only by confirming the allottee as owner.");
 
-    EnsureCanOpen(owner, sharePct, effectiveFrom, record);
+    if (owners.Count == 0)
+      throw new DomainException("Give at least one owner, with the share they hold.");
 
-    return Register(id, record.Property, owner, tenureType, sharePct, effectiveFrom, acquisitionTransferType,
-      referenceNo, remarks, record.Today);
+    if (owners.GroupBy(o => o.Owner.Id).FirstOrDefault(g => g.Count() > 1) is { } repeated)
+    {
+      var owner = repeated.First().Owner;
+      throw new DomainException($"{owner.OwnerName.Value} ({owner.OwnerCode.Value}) is listed more than once. Give each owner one row with their whole share.");
+    }
+
+    // the sum of what is stored, not of what was typed: a share keeps four decimals
+    var total = owners.Sum(o => Guard.SharePct(o.SharePct, "Ownership share"));
+    if (total != OwnershipShares.Whole)
+      throw new DomainException($"The shares add up to {total:0.####}%; together the owners hold exactly {OwnershipShares.Whole:0}%.");
+
+    foreach (var o in owners)
+    {
+      OwnershipHistory.EnsureCanStart(o.Owner.OwnerName.Value, record.RowsOf(o.Owner.Id), o.EffectiveFrom, "the new share");
+      o.Owner.EnsureAliveOn(o.EffectiveFrom);
+      if (!record.FromOldRecords)
+        o.Owner.EnsureCanHoldToday();
+    }
+
+    return owners
+      .Select(o =>
+      {
+        var row = Register(OwnershipId.New(), record.Property, o.Owner, o.TenureType, o.SharePct, o.EffectiveFrom,
+          o.AcquisitionTransferType, o.ReferenceNo, o.Remarks, record.Today);
+        row.EffectiveFromPrecision = o.Precision;
+        return row;
+      })
+      .ToList();
   }
 
   /// GDA confirms the allottee as legal owner: the ownership points back at the allotment.
@@ -114,6 +152,9 @@ public class PropertyOwnership : Aggregate<OwnershipId>
 
     if (allotment.AllotteeOwnerId != allottee.Id)
       throw new DomainException("Only the allottee can be confirmed as owner through this allotment.");
+
+    allottee.EnsureAliveOn(effectiveFrom);
+    allottee.EnsureCanHoldToday();
 
     var ownership = Register(id, property, allottee, tenureType, sharePct, effectiveFrom, null, referenceNo, remarks, today);
     ownership.AcquiredViaAllotmentId = allotment.Id;
@@ -147,6 +188,23 @@ public class PropertyOwnership : Aggregate<OwnershipId>
     Remarks = Guard.Text(remarks, 4000, "Remarks")
   };
 
+  internal void OpenedBy(TransferId transfer, DatePrecision precision)
+  {
+    OpenedByTransferId = transfer;
+    EffectiveFromPrecision = precision;
+  }
+
+  internal void ClosedBy(TransferId transfer) => ClosedByTransferId = transfer;
+
+  /// A correction from the old papers: the transfer that opened or closed this row moved to `date`.
+  internal void MoveStart(DateOnly date, DatePrecision precision)
+  {
+    EffectiveFrom = date;
+    EffectiveFromPrecision = precision;
+  }
+
+  internal void MoveEnd(DateOnly date) => EffectiveTo = date;
+
   /// Closes the period. The row stays as ownership history; the remark is added to the row's remarks.
   public void End(DateOnly effectiveTo, string? remarks = null)
   {
@@ -159,34 +217,6 @@ public class PropertyOwnership : Aggregate<OwnershipId>
     EffectiveTo = effectiveTo;
     OwnershipStatus = OwnershipStatus.Ended;
     AddRemark(remarks);
-  }
-
-  /// The approver's "end ownership" act (e.g. surrender to GDA, an order cancelling the entry), without a transfer:
-  /// nobody takes the share over, so the order or reference it ends under is required. Refused in the future, on a
-  /// deactivated property, while a charge holds the share or the property, while the share is being given away in a
-  /// pending transfer, and for a share confirmed through an allotment still in force (surrender or cancel that
-  /// allotment instead).
-  public void EndHolding(DateOnly effectiveTo, string? endReferenceNo, string? remarks, OwnershipRecord record)
-  {
-    ArgumentNullException.ThrowIfNull(record);
-    EnsureOn(record.Property);
-
-    if (!IsCurrent)
-      throw new DomainException("This ownership has already ended.");
-
-    var reference = Guard.Text(endReferenceNo, ReferenceMaxLength, "Order / reference no.")
-      ?? throw new DomainException("Give the order or reference under which the share ends; nobody takes it over, so the register must say why it ended.");
-
-    if (effectiveTo > record.Today)
-      throw new DomainException($"An ownership cannot end in the future ({effectiveTo:yyyy-MM-dd}); today is {record.Today:yyyy-MM-dd}.");
-
-    if (record.AllotmentInForce is { } allotted && AcquiredViaAllotmentId == allotted.Allotment.Id)
-      throw new DomainException(
-        $"This share was confirmed through {allotted.Allotment.AllotmentNo.Value}, which is still in force; surrender or cancel the allotment to end it.");
-
-    EnsureCanEnd(record, "the ownership is ended");
-    End(effectiveTo, remarks);
-    EndReferenceNo = reference;
   }
 
   /// A share cannot be ended while a charge sits on it or on the whole property, or while it is being
@@ -246,8 +276,8 @@ public class PropertyOwnership : Aggregate<OwnershipId>
     property.EnsureActive();
   }
 
-  /// Rules shared by "add owner" and "confirm the allottee": one current share per owner, at most 100%,
-  /// and the new period starts after the owner's earlier history on this property.
+  /// Confirming the allottee: one current share per owner, at most 100%, and the new period starts after the owner's
+  /// earlier history on this property.
   internal static void EnsureCanOpen(PropertyOwner owner, decimal sharePct, DateOnly effectiveFrom, OwnershipRecord record)
   {
     var code = record.Property.PropertyCode.Value;
@@ -301,7 +331,10 @@ public static class OwnershipHistory
   /// The start of the owner's continuous holding: walks back through the owner's earlier rows on the same
   /// property that ended exactly where the next one began (a transfer that changed the share, a remainder
   /// after a partial sale), so a row opened by today's transfer still shows the owner held since 2015.
-  public static DateOnly HoldingSince(PropertyOwnership row, IEnumerable<PropertyOwnership> ownerships)
+  public static DateOnly HoldingSince(PropertyOwnership row, IEnumerable<PropertyOwnership> ownerships) => HoldingStart(row, ownerships).EffectiveFrom;
+
+  /// The row the owner's continuous holding began with (its date, and how well that date is known).
+  public static PropertyOwnership HoldingStart(PropertyOwnership row, IEnumerable<PropertyOwnership> ownerships)
   {
     ArgumentNullException.ThrowIfNull(row);
 
@@ -310,15 +343,15 @@ public static class OwnershipHistory
         .ToList();
 
     var visited = new HashSet<OwnershipId> { row.Id };
-    var since = row.EffectiveFrom;
+    var start = row;
 
-    while (earlier.Where(o => o.EffectiveTo == since && !visited.Contains(o.Id)).OrderBy(o => o.EffectiveFrom).FirstOrDefault() is { } previous)
+    while (earlier.Where(o => o.EffectiveTo == start.EffectiveFrom && !visited.Contains(o.Id)).OrderBy(o => o.EffectiveFrom).FirstOrDefault() is { } previous)
     {
       visited.Add(previous.Id);
-      since = previous.EffectiveFrom;
+      start = previous;
     }
 
-    return since;
+    return start;
   }
 
   /// A new period for this owner must start after every earlier entry of the owner on the property began

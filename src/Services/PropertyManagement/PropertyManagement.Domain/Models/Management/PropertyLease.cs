@@ -52,7 +52,7 @@ public class PropertyLease : Aggregate<LeaseId>
     ArgumentNullException.ThrowIfNull(leaseNo);
     ArgumentNullException.ThrowIfNull(initialStatus);
     property.EnsureActive();
-    lessee.EnsureActive();
+    lessee.EnsureCanTakeOn("a lease");
 
     if (!initialStatus.Is(SystemMasterCodes.Draft) && !initialStatus.Is(SystemMasterCodes.Active))
       throw new DomainException("A new lease starts as DRAFT or ACTIVE.");
@@ -160,7 +160,7 @@ public class PropertyLease : Aggregate<LeaseId>
       RenewedFromLeaseId = Id
     };
 
-    lessee.EnsureActive();
+    lessee.EnsureCanTakeOn("a lease");
     renewal.Apply(newTerms);
     LeaseStatusId = renewedStatus.Id;
     return renewal;

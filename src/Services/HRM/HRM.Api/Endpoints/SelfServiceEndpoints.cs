@@ -44,8 +44,8 @@ public class SelfServiceEndpoints : ICarterModule
       .WithSummary("My Profile")
       .WithDescription("Changes are asked for through a profile correction request.");
 
-    me.MapGet("/photo", async (CurrentEmployee current, ISender sender, CancellationToken ct) =>
-        (await sender.Send(new GetEmployeePhotoQuery(await Self(current, ct)))).ToFile())
+    me.MapGet("/photo", async (CurrentEmployee current, HttpResponse response, ISender sender, CancellationToken ct) =>
+        (await sender.Send(new GetEmployeePhotoQuery(await Self(current, ct)))).ToFile(response))
       .WithName("GetMyPhoto")
       .ProducesProblem(StatusCodes.Status404NotFound)
       .WithSummary("My Photo");
@@ -75,8 +75,8 @@ public class SelfServiceEndpoints : ICarterModule
       .WithSummary("Upload My Paper")
       .WithDescription("A paper the employee sends with a request (e.g. the proof for a profile correction). It joins the record unverified; HR verifies it.");
 
-    me.MapGet("/documents/{id:guid}/content", async (Guid id, CurrentEmployee current, ISender sender, CancellationToken ct) =>
-        (await sender.Send(new GetDocumentContentQuery(id, await Self(current, ct)))).ToFile())
+    me.MapGet("/documents/{id:guid}/content", async (Guid id, bool? download, CurrentEmployee current, HttpResponse response, ISender sender, CancellationToken ct) =>
+        (await sender.Send(new GetDocumentContentQuery(id, await Self(current, ct), download ?? true))).ToFile(response))
       .WithName("GetMyDocumentContent")
       .ProducesProblem(StatusCodes.Status404NotFound)
       .WithSummary("Download My Document");
@@ -86,6 +86,12 @@ public class SelfServiceEndpoints : ICarterModule
       .WithName("GetMyEducation")
       .Produces<GetEducationQueryResult>()
       .WithSummary("My Education");
+
+    me.MapGet("/education/{id:guid}/content", async (Guid id, bool? download, CurrentEmployee current, HttpResponse response, ISender sender, CancellationToken ct) =>
+        (await sender.Send(new GetEducationContentQuery(id, await Self(current, ct), download ?? true))).ToFile(response))
+      .WithName("GetMyEducationContent")
+      .ProducesProblem(StatusCodes.Status404NotFound)
+      .WithSummary("My Certificate");
 
     // ---- attendance and leave ----
 
