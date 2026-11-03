@@ -431,6 +431,29 @@ public enum SmsStatus
   Failed
 }
 
+// ---- bank gateways ----
+
+/// What became of a payment a gateway proved genuine: RECEIVED (kept, not worked yet), POSTED (it became a payment), HELD
+/// (the money is real but cannot be applied; the Section decides), DISMISSED (the Section closed it with a reason).
+public enum GatewayNotificationStatus
+{
+  Received,
+  Posted,
+  Held,
+  Dismissed
+}
+
+/// How a line of the bank's settlement report compares with the payments on record.
+public enum SettlementMatch
+{
+  Matched,
+  NotInErp,
+  AmountDiffers,
+  ReferenceDiffers,
+  ReversedInErp,
+  AlreadySettled
+}
+
 // ---- the daily job ----
 
 public enum JobRunStatus

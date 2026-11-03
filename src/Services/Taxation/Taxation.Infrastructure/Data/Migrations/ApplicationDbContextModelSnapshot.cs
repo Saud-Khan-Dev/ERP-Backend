@@ -1153,6 +1153,118 @@ namespace Taxation.Infrastructure.Data.Migrations
                     b.ToTable("fee", "taxation");
                 });
 
+            modelBuilder.Entity("GatewayNotification", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)")
+                        .HasColumnName("amount");
+
+                    b.Property<string>("BankCode")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("bank_code");
+
+                    b.Property<string>("Channel")
+                        .IsRequired()
+                        .HasMaxLength(15)
+                        .HasColumnType("character varying(15)")
+                        .HasColumnName("channel");
+
+                    b.Property<string>("Error")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("error");
+
+                    b.Property<string>("EventId")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)")
+                        .HasColumnName("event_id");
+
+                    b.Property<string>("EventType")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)")
+                        .HasColumnName("event_type");
+
+                    b.Property<DateTime>("PaidAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("paid_at");
+
+                    b.Property<Guid?>("PaymentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("payment_id");
+
+                    b.Property<DateTime?>("ProcessedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("processed_at");
+
+                    b.Property<string>("Psid")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)")
+                        .HasColumnName("psid");
+
+                    b.Property<DateTime>("ReceivedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("received_at");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)")
+                        .HasColumnName("source");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)")
+                        .HasColumnName("status");
+
+                    b.Property<Guid?>("TaxFileId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tax_file_id");
+
+                    b.Property<string>("TransactionRef")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)")
+                        .HasColumnName("transaction_ref");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id")
+                        .HasName("integration_inbox_pkey");
+
+                    b.HasIndex("PaymentId")
+                        .HasDatabaseName("ix_integration_inbox_payment_id");
+
+                    b.HasIndex("TaxFileId")
+                        .HasDatabaseName("ix_integration_inbox_tax_file_id");
+
+                    b.HasIndex("TransactionRef")
+                        .HasDatabaseName("ix_integration_inbox_transaction_ref");
+
+                    b.HasIndex("Source", "EventId")
+                        .IsUnique()
+                        .HasDatabaseName("integration_inbox_source_event_id_key");
+
+                    b.HasIndex("Status", "ReceivedAt")
+                        .HasDatabaseName("ix_integration_inbox_status_received_at");
+
+                    b.ToTable("integration_inbox", "taxation");
+                });
+
             modelBuilder.Entity("JobRun", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2891,6 +3003,141 @@ namespace Taxation.Infrastructure.Data.Migrations
                     b.ToTable("rate_set", "taxation");
                 });
 
+            modelBuilder.Entity("SettlementBatch", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<string>("BatchRef")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)")
+                        .HasColumnName("batch_ref");
+
+                    b.Property<string>("Channel")
+                        .IsRequired()
+                        .HasMaxLength(15)
+                        .HasColumnType("character varying(15)")
+                        .HasColumnName("channel");
+
+                    b.Property<DateOnly>("CoversFrom")
+                        .HasColumnType("date")
+                        .HasColumnName("covers_from");
+
+                    b.Property<DateOnly>("CoversTo")
+                        .HasColumnType("date")
+                        .HasColumnName("covers_to");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<int>("ExceptionCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("exception_count");
+
+                    b.Property<DateTime>("ImportedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("imported_at");
+
+                    b.Property<int>("LineCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("line_count");
+
+                    b.Property<int>("MatchedCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("matched_count");
+
+                    b.Property<DateOnly>("SettlementDate")
+                        .HasColumnType("date")
+                        .HasColumnName("settlement_date");
+
+                    b.Property<decimal>("TotalAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)")
+                        .HasColumnName("total_amount");
+
+                    b.HasKey("Id")
+                        .HasName("settlement_batch_pkey");
+
+                    b.HasIndex("Channel", "BatchRef")
+                        .IsUnique()
+                        .HasDatabaseName("settlement_batch_channel_batch_ref_key");
+
+                    b.ToTable("settlement_batch", "taxation");
+                });
+
+            modelBuilder.Entity("SettlementLine", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)")
+                        .HasColumnName("amount");
+
+                    b.Property<Guid>("BatchId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("batch_id");
+
+                    b.Property<string>("Match")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("match");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(300)
+                        .HasColumnType("character varying(300)")
+                        .HasColumnName("note");
+
+                    b.Property<DateTime?>("PaidAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("paid_at");
+
+                    b.Property<Guid?>("PaymentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("payment_id");
+
+                    b.Property<string>("Psid")
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)")
+                        .HasColumnName("psid");
+
+                    b.Property<string>("TransactionRef")
+                        .IsRequired()
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)")
+                        .HasColumnName("transaction_ref");
+
+                    b.HasKey("Id")
+                        .HasName("settlement_line_pkey");
+
+                    b.HasIndex("PaymentId")
+                        .HasDatabaseName("ix_settlement_line_payment_id");
+
+                    b.HasIndex("TransactionRef")
+                        .IsUnique()
+                        .HasDatabaseName("settlement_line_matched_key")
+                        .HasFilter("match = 'MATCHED'");
+
+                    b.HasIndex("BatchId", "TransactionRef")
+                        .IsUnique()
+                        .HasDatabaseName("settlement_line_batch_id_transaction_ref_key");
+
+                    b.ToTable("settlement_line", "taxation");
+                });
+
             modelBuilder.Entity("SmsMessage", b =>
                 {
                     b.Property<Guid>("Id")
@@ -4191,6 +4438,21 @@ namespace Taxation.Infrastructure.Data.Migrations
                         .HasConstraintName("fee_tax_file_id_fkey");
                 });
 
+            modelBuilder.Entity("GatewayNotification", b =>
+                {
+                    b.HasOne("Payment", null)
+                        .WithMany()
+                        .HasForeignKey("PaymentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("integration_inbox_payment_id_fkey");
+
+                    b.HasOne("TaxFile", null)
+                        .WithMany()
+                        .HasForeignKey("TaxFileId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("integration_inbox_tax_file_id_fkey");
+                });
+
             modelBuilder.Entity("LitigationHold", b =>
                 {
                     b.HasOne("TaxFile", null)
@@ -4439,6 +4701,22 @@ namespace Taxation.Infrastructure.Data.Migrations
                         .HasConstraintName("rate_band_rate_set_id_fkey");
                 });
 
+            modelBuilder.Entity("SettlementLine", b =>
+                {
+                    b.HasOne("SettlementBatch", null)
+                        .WithMany("Lines")
+                        .HasForeignKey("BatchId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("settlement_line_batch_id_fkey");
+
+                    b.HasOne("Payment", null)
+                        .WithMany()
+                        .HasForeignKey("PaymentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("settlement_line_payment_id_fkey");
+                });
+
             modelBuilder.Entity("SmsMessage", b =>
                 {
                     b.HasOne("Demand", null)
@@ -4611,6 +4889,11 @@ namespace Taxation.Infrastructure.Data.Migrations
                     b.Navigation("LtfFactors");
 
                     b.Navigation("RateBands");
+                });
+
+            modelBuilder.Entity("SettlementBatch", b =>
+                {
+                    b.Navigation("Lines");
                 });
 
             modelBuilder.Entity("TaxCircle", b =>

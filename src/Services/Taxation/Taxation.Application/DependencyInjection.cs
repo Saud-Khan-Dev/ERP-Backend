@@ -31,6 +31,8 @@ public static class DependencyInjection
     services.AddScoped<DueNotices>();
     services.AddScoped<TaxFileImporter>();
     services.AddScoped<PenaltyService>();
+    services.AddScoped<PaymentPosting>();
+    services.AddScoped<GatewayPayments>();
 
     return services;
   }

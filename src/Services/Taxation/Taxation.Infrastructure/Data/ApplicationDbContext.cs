@@ -1,3 +1,4 @@
+using Npgsql;
 using System.Reflection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata;
@@ -84,6 +85,9 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
   public DbSet<PsidSync> PsidSyncs => Set<PsidSync>();
   public DbSet<Payment> Payments => Set<Payment>();
   public DbSet<PaymentAllocation> PaymentAllocations => Set<PaymentAllocation>();
+  public DbSet<GatewayNotification> GatewayNotifications => Set<GatewayNotification>();
+  public DbSet<SettlementBatch> SettlementBatches => Set<SettlementBatch>();
+  public DbSet<SettlementLine> SettlementLines => Set<SettlementLine>();
 
   // ---- 6. fees, parties, clearances, messages ----
   public DbSet<Party> Parties => Set<Party>();
@@ -110,6 +114,26 @@ public class ApplicationDbContext : DbContext, IApplicationDbContext
     await Database.ExecuteSqlInterpolatedAsync(
       $"SELECT 1 FROM taxation.demand WHERE tax_file_id = {fileId} AND status IN ('ISSUED', 'PART_PAID', 'DEFAULTED', 'PAID') FOR UPDATE", cancellationToken);
   }
+
+  public async Task<bool> TryAddGatewayNotificationAsync(GatewayNotification notification, CancellationToken cancellationToken)
+  {
+    GatewayNotifications.Add(notification);
+    try
+    {
+      await SaveChangesAsync(cancellationToken);
+      return true;
+    }
+    catch (DbUpdateException ex) when (ex.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation, ConstraintName: GatewayNotificationConfiguration.EventKey })
+    {
+      return false;
+    }
+    finally
+    {
+      Entry(notification).State = EntityState.Detached;
+    }
+  }
+
+  public void DiscardChanges() => ChangeTracker.Clear();
 
   protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
   {

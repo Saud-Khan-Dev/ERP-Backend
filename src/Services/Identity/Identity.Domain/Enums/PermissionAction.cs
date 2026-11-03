@@ -19,5 +19,6 @@ public enum PermissionAction
   Waive,
   Issue,
   Adjust,
-  Pay
+  Pay,
+  Reconcile
 }

@@ -44,6 +44,9 @@ public static class DependencyInjection
     services.AddHttpClient<IHrmDirectory, HrmServiceClient>(http => Configure(http, endpoints.HrmBaseUrl, endpoints.TimeoutSeconds))
       .AddHttpMessageHandler<ForwardAuthorizationHandler>();
 
+    // ---- bank gateways: refuses everything until a real adapter is registered here ----
+    services.AddScoped<IPaymentGateway, NoPaymentGateway>();
+
     // ---- bootstrap ----
     services.AddScoped<TaxationSeeder>();
     services.AddScoped<DatabaseInitializer>();

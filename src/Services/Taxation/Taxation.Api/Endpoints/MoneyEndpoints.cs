@@ -67,7 +67,8 @@ public class MoneyEndpoints : ICarterModule
       .WithSummary("Receive Payment")
       .WithDescription("Against the property's constant reference, settled oldest year first (before the first demand, the old register's opening arrears). "
         + "channel = onelink | qr_code | online (transactionRef required; posting the same one again changes nothing) | bank_counter | cash (the manual receipt "
-        + "no., issued as MR-00001 when not given; a number is used once). Not more than is behind the reference. The file is locked while it is taken.");
+        + "no., issued as MR-00001 when not given; a number is used once). Not more than is behind the reference. The file is locked while it is taken. "
+        + "A channel a connected bank gateway reports cannot be posted by hand (none until a gateway is connected).");
 
     payments.MapPost("/{id:guid}/reverse", async (Guid id, ReasonRequest r, ISender sender) => (await sender.Send(new ReversePaymentCommand(id, r.Reason))).ToOk())
       .RequirePermission(PermissionCatalog.Tax.Reverse)
