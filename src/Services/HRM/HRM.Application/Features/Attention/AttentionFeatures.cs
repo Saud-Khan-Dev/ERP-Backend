@@ -20,11 +20,10 @@ public class AttentionHandlers(IApplicationDbContext context, ICurrentUser curre
     var dated = Enum.GetValues<HrActionType>().Where(HrActionRequest.TakesEffectOnItsDate).ToArray();
 
     // ---- HR actions ----
-    if (Can(PermissionCatalog.Hr.Approve))
+    // only the Super Administrator decides HR actions, their own too
+    if (currentUser.IsSuperAdmin)
     {
       var pending = context.HrActions.Where(a => a.Status == HrActionStatus.Pending);
-      if (await duty.IsOnAsync(DutyRules.HrAction, cancellationToken))
-        pending = pending.Where(a => a.CreatedBy != user && a.SubmittedBy != user);
       items.Add(new("hrActions.toApprove", await pending.CountAsync(cancellationToken),
         At(await pending.MinAsync(a => (DateTime?)(a.SubmittedAt ?? a.CreatedAt), cancellationToken))));
     }
@@ -63,8 +62,9 @@ public class AttentionHandlers(IApplicationDbContext context, ICurrentUser curre
         && context.Employees.Any(e => e.Id == d.EmployeeId && e.ProfileStatus == RecordStatus.Active && inService.Contains(e.EmploymentStatus)));
       items.Add(new("documents.expiring", await expiring.CountAsync(cancellationToken), Day(await expiring.MinAsync(d => d.ExpiryDate, cancellationToken))));
 
-      var unsettled = context.Separations.Where(s => s.SettlementPayrollTransactionId == null && s.FinalSettlementAmount == null);
-      items.Add(new("separations.unsettled", await unsettled.CountAsync(cancellationToken), Day(await unsettled.MinAsync(s => (DateOnly?)s.SeparationDate, cancellationToken))));
+      // the office records the separation order; one without it is not finished
+      var noOrder = context.Separations.Where(s => s.OrderNumber == null || s.OrderNumber == "");
+      items.Add(new("separations.noOrder", await noOrder.CountAsync(cancellationToken), Day(await noOrder.MinAsync(s => (DateOnly?)s.SeparationDate, cancellationToken))));
 
       // the people HR has to look at: past the retirement age but not separated, retiring within six months,
       // contracts and deputations ending within 60 days, no date of birth, no post
@@ -93,9 +93,6 @@ public class AttentionHandlers(IApplicationDbContext context, ICurrentUser curre
         && e.EmploymentStatus != EmploymentStatus.Suspended
         && context.PayRecords.Any(p => p.EmployeeId == e.Id && p.EffectiveTo == null && p.NextIncrementDate != null && p.NextIncrementDate < today));
       items.Add(new("increments.overdue", await increments.CountAsync(cancellationToken)));
-
-      var acknowledged = context.PerformanceReviews.Where(r => r.Status == ReviewStatus.Acknowledged);
-      items.Add(new("reviews.toFinalize", await acknowledged.CountAsync(cancellationToken), At(await acknowledged.MinAsync(r => r.UpdatedAt ?? r.CreatedAt, cancellationToken))));
     }
 
     // ---- leave ----
@@ -121,25 +118,53 @@ public class AttentionHandlers(IApplicationDbContext context, ICurrentUser curre
       await Runs("payroll.toPay", PayrollRunStatus.Finalized);
     }
 
-    // ---- the caller's own work (never limited by an office scope: the people they appraise may sit anywhere) ----
+    // ---- the caller's own work (never limited by an office scope) ----
     using var own = scope.Unrestricted();
     if (await me.TryIdAsync(cancellationToken) is { } self)
     {
       var mine = context.Tasks.Where(t => t.EmployeeId == self && t.Status != EmployeeTaskStatus.Completed && t.Status != EmployeeTaskStatus.Cancelled);
       items.Add(new("my.tasks", await mine.CountAsync(cancellationToken), null, await mine.MinAsync(t => t.DueDate, cancellationToken), ForMe: true));
       items.Add(new("my.tasksOverdue", await mine.CountAsync(t => t.DueDate != null && t.DueDate < today, cancellationToken), null, null, ForMe: true));
+      // the person's own separation, for a month after it is recorded
+      var since = today.AddDays(-30);
+      var separated = context.Separations.Where(s => s.EmployeeId == self && s.SeparationDate >= since);
+      items.Add(new("my.separation", await separated.CountAsync(cancellationToken), Day(await separated.MinAsync(s => (DateOnly?)s.SeparationDate, cancellationToken)), null, ForMe: true));
 
-      // with a countersigning officer the employee reads the review once it is countersigned
-      var toAcknowledge = context.PerformanceReviews.Where(r => r.EmployeeId == self
-        && (r.Status == ReviewStatus.Countersigned || (r.Status == ReviewStatus.Submitted && r.CountersigningOfficerId == null)));
-      items.Add(new("my.reviewsToAcknowledge", await toAcknowledge.CountAsync(cancellationToken), At(await toAcknowledge.MinAsync(r => r.UpdatedAt ?? r.CreatedAt, cancellationToken)), null, ForMe: true));
+      // what HR decided on what the person sent, for two weeks after (the bell shows a new one as unseen)
+      var recent = DateTime.UtcNow.AddDays(-14);
+      var decided = context.Requests.Where(r => r.EmployeeId == self && r.ReviewedAt >= recent
+        && (r.Status == EmployeeRequestStatus.Approved || r.Status == EmployeeRequestStatus.Rejected));
+      items.Add(new("my.requestsDecided", await decided.CountAsync(cancellationToken), null, null, ForMe: true));
+      // leave approved, turned down or cancelled by someone else (not the person withdrawing their own)
+      var leaveDecided = context.LeaveApplications.Where(a => a.EmployeeId == self && a.DecidedAt >= recent && a.DecidedBy != user
+        && a.Status != LeaveStatus.Pending);
+      items.Add(new("my.leaveDecided", await leaveDecided.CountAsync(cancellationToken), null, null, ForMe: true));
+      // papers the person sent, checked by HR
+      var checkedSince = today.AddDays(-14);
+      var papers = context.Documents.Where(d => d.EmployeeId == self && d.CreatedBy == user && d.VerificationDate >= checkedSince
+        && (d.VerificationStatus == VerificationStatus.Verified || d.VerificationStatus == VerificationStatus.Rejected));
+      items.Add(new("my.documentsChecked", await papers.CountAsync(cancellationToken), null, null, ForMe: true));
+      var slips =
+        from s in context.Payslips
+        join t in context.PayrollTransactions on s.PayrollTransactionId equals t.Id
+        join r in context.PayrollRuns on t.PayrollRunId equals r.Id
+        where t.EmployeeId == self && r.Status != PayrollRunStatus.Reversed && s.GeneratedAt >= recent
+        select s;
+      items.Add(new("my.payslips", await slips.CountAsync(cancellationToken), null, null, ForMe: true));
+      // a contingent person's order running out with no next order after it
+      var soon = today.AddDays(15);
+      var ending = context.EngagementOrders.Where(o => o.EmployeeId == self && o.Status == RecordStatus.Active
+        && o.StartDate <= today && o.EndDate >= today && o.EndDate <= soon
+        && !context.EngagementOrders.Any(n => n.EmployeeId == self && n.Status == RecordStatus.Active && n.StartDate > o.EndDate));
+      items.Add(new("my.orderEnding", await ending.CountAsync(cancellationToken), null, await ending.MinAsync(o => (DateOnly?)o.EndDate, cancellationToken), ForMe: true));
+    }
 
-      var toWrite = context.PerformanceReviews.Where(r => r.EvaluatorId == self && r.Status == ReviewStatus.Draft
-        && context.PerformancePeriods.Any(p => p.Id == r.PerformancePeriodId && p.Status == RecordStatus.Active));
-      items.Add(new("my.evaluationsToWrite", await toWrite.CountAsync(cancellationToken), At(await toWrite.MinAsync(r => r.CreatedAt, cancellationToken)), null, ForMe: true));
-
-      var toCountersign = context.PerformanceReviews.Where(r => r.CountersigningOfficerId == self && r.Status == ReviewStatus.Submitted);
-      items.Add(new("my.countersignings", await toCountersign.CountAsync(cancellationToken), At(await toCountersign.MinAsync(r => r.SubmittedAt ?? r.UpdatedAt ?? r.CreatedAt, cancellationToken)), null, ForMe: true));
+    // tasks the caller gave that the person reported done, for a week
+    if (user is { } giver)
+    {
+      var week = DateTime.UtcNow.AddDays(-7);
+      var done = context.Tasks.Where(t => t.AssignedBy == giver && t.Status == EmployeeTaskStatus.Completed && t.CompletedAt >= week);
+      items.Add(new("tasks.doneForYou", await done.CountAsync(cancellationToken), null, null, ForMe: true));
     }
 
     return Result<AttentionResponse>.Success(new(new AttentionDto(DateTimeOffset.UtcNow, items)));

@@ -21,6 +21,7 @@ public static class DependencyInjection
     services.AddScoped<MasterLookup>();
     services.AddScoped<CodeGenerator>();
     services.AddScoped<DocumentService>();
+    services.AddScoped<OwnershipHistoryService>();
     services.AddScoped<PropertyReadService>();
     services.AddScoped<TransferReader>();
 

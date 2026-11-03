@@ -36,7 +36,6 @@ public static class HrmsEnumMapping
     npgsql.MapEnum<SeparationType>("separation_type_enum", schema);
     npgsql.MapEnum<HrActionType>("hr_action_type_enum", schema);
     npgsql.MapEnum<HrActionStatus>("hr_action_status_enum", schema);
-    npgsql.MapEnum<ReviewStatus>("review_status_enum", schema);
     npgsql.MapEnum<AttendanceStatus>("attendance_status_enum", schema);
     npgsql.MapEnum<HolidayType>("holiday_type_enum", schema);
     npgsql.MapEnum<LeaveStatus>("leave_status_enum", schema);

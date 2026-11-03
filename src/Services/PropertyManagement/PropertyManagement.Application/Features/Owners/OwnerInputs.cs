@@ -3,6 +3,8 @@ using Microsoft.EntityFrameworkCore;
 
 /// Cnic: 13 digits, with or without dashes (required for an INDIVIDUAL, refused for a COMPANY / TRUST / GOVERNMENT /
 /// JOINT_ENTITY). Ntn: 1234567-8 or a 13-digit CNIC-based NTN, with or without dashes; stored in the dashed form.
+/// OldIdType / OldIdNo: a person from the old records with no CNIC: OldNic with its number, or NotRecorded with none;
+/// ignored when a CNIC is given. DateOfDeath: a person has died (not in the future).
 public sealed record OwnerInput(
   Guid OwnerTypeId,
   string OwnerName,
@@ -10,7 +12,15 @@ public sealed record OwnerInput(
   string? Cnic = null,
   string? Ntn = null,
   string? Email = null,
-  string? Remarks = null);
+  string? Remarks = null,
+  OldIdType? OldIdType = null,
+  string? OldIdNo = null,
+  DateOnly? DateOfDeath = null)
+{
+  /// The old identity as the domain takes it. Not part of the request body.
+  [System.Text.Json.Serialization.JsonIgnore]
+  public PropertyOwner.OldIdentity? OldIdentity => OldIdType is { } type ? new PropertyOwner.OldIdentity(type, OldIdNo) : null;
+}
 
 public sealed record ContactInput(Guid ContactTypeId, string ContactNumber, bool IsPrimary = false, string? Remarks = null);
 
@@ -35,6 +45,8 @@ public class OwnerInputValidator : AbstractValidator<OwnerInput>
     RuleFor(x => x.Ntn).MaximumLength(PropertyOwner.NtnMaxLength);
     RuleFor(x => x.Email).MaximumLength(EmailAddress.MaxLength);
     RuleFor(x => x.Remarks).MaximumLength(PropertyOwner.RemarksMaxLength);
+    RuleFor(x => x.OldIdType).IsInEnum().When(x => x.OldIdType is not null);
+    RuleFor(x => x.OldIdNo).MaximumLength(PropertyOwner.OldIdNoMaxLength);
   }
 }
 

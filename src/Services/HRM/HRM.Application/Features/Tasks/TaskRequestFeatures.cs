@@ -226,6 +226,8 @@ public class TaskRequestHandlers(IApplicationDbContext context, HrLookup lookup,
   public async Task<Result<CreatedResult>> Handle(AssignTaskCommand command, CancellationToken cancellationToken)
   {
     var employee = await context.LoadEmployeeAsync(command.EmployeeId, cancellationToken);
+    if (command.DueDate is { } due && due < clock.Today)
+      return Result<CreatedResult>.Failure($"The due date {due:dd'/'MM'/'yyyy} has passed; give today or a later day.");
     var task = EmployeeTask.Assign(EmployeeTaskId.New(), employee, currentUser.UserId, command.Title, command.Description, command.Priority, command.DueDate);
     context.Tasks.Add(task);
     await context.SaveChangesAsync(cancellationToken);
@@ -235,6 +237,9 @@ public class TaskRequestHandlers(IApplicationDbContext context, HrLookup lookup,
   public async Task<Result<UpdatedResult>> Handle(EditTaskCommand command, CancellationToken cancellationToken)
   {
     var task = await LoadTaskAsync(command.Id, null, cancellationToken);
+    // a due date already past may stay as it is; a new one cannot be in the past
+    if (command.DueDate is { } due && due != task.DueDate && due < clock.Today)
+      return Result<UpdatedResult>.Failure($"The due date {due:dd'/'MM'/'yyyy} has passed; give today or a later day.");
     task.Edit(command.Title, command.Description, command.Priority, command.DueDate);
     await context.SaveChangesAsync(cancellationToken);
     return CommandResults.Updated();

@@ -149,7 +149,10 @@ public sealed record OwnerListItemDto(
   string? Ntn,
   string? PrimaryContact,
   int CurrentHoldingCount,
-  bool IsActive);
+  bool IsActive,
+  OldIdType? OldIdType,
+  string? OldIdNo,
+  DateOnly? DateOfDeath);
 
 /// CnicDocumentId: the owner's current CNIC copy (latest active, latest-version CNIC_COPY owner document).
 public sealed record OwnerDto(
@@ -167,7 +170,10 @@ public sealed record OwnerDto(
   IReadOnlyList<OwnerContactDto> Contacts,
   IReadOnlyList<OwnerAddressDto> Addresses,
   DateTime? CreatedAt,
-  Guid? CreatedBy);
+  Guid? CreatedBy,
+  OldIdType? OldIdType,
+  string? OldIdNo,
+  DateOnly? DateOfDeath);
 
 public sealed record OwnerContactDto(Guid Id, MasterRef? ContactType, string ContactNumber, bool IsPrimary, bool IsActive, string? Remarks);
 
@@ -207,10 +213,12 @@ public sealed record OwnershipDto(
   string? AcquiredViaTransferNo,
   Guid? AcquiredViaAllotmentId,
   string? AcquiredViaAllotmentNo,
-  string? EndReferenceNo = null);
+  string? EndReferenceNo = null,
+  DatePrecision EffectiveFromPrecision = DatePrecision.Exact,
+  DatePrecision HoldingSincePrecision = DatePrecision.Exact);
 
 /// Read-side facts about an ownership row that need other rows: see OwnershipDto.
-public sealed record OwnershipLinks(DateOnly HoldingSince, string? TransferNo, string? AllotmentNo);
+public sealed record OwnershipLinks(DateOnly HoldingSince, string? TransferNo, string? AllotmentNo, DatePrecision HoldingSincePrecision = DatePrecision.Exact);
 
 public sealed record TransferPartyDto(OwnerRef? Owner, TransferPartyRole Role, decimal SharePct);
 
@@ -248,7 +256,9 @@ public sealed record TransferDto(
   Guid? ApprovedByUserId = null,
   Guid? ApprovedByEmployeeId = null,
   string? NoDuesCertificateNo = null,
-  bool RecordedPast = false);
+  bool RecordedPast = false,
+  DatePrecision TransferDatePrecision = DatePrecision.Exact,
+  Guid? FromHistoryEntryId = null);
 
 public sealed record EncumbranceDto(
   Guid Id,

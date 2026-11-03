@@ -47,3 +47,4 @@ public class AuthorizedOfficerRequiredException(string message) : Exception(mess
 
 /// The signed-in user lacks the permission this particular act needs (decided from the record, not the route).
 public class PermissionRequiredException(string message) : Exception(message);
+public class HistoryEntryNotFoundException(string message) : NotFoundException(message);

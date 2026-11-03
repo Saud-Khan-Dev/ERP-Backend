@@ -6,7 +6,7 @@
 /// Count: exact (a COUNT, never an estimate).
 /// Oldest: when the longest-waiting record started waiting (applied, submitted, fell due).
 /// NextDue: for work coming up (a hearing this week), the nearest date.
-/// ForMe: work assigned to the caller personally (their task, their appraisal).
+/// ForMe: work assigned to the caller personally (their task).
 public sealed record AttentionItemDto(string Key, int Count, DateTimeOffset? Oldest = null, DateOnly? NextDue = null, bool ForMe = false);
 
 public sealed record AttentionDto(DateTimeOffset AsOf, IReadOnlyList<AttentionItemDto> Items);

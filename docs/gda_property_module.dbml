@@ -436,7 +436,10 @@ Table property_owner {
   owner_type_id   bigint [not null]
   owner_name      varchar(200) [not null]
   father_husband_name varchar(200) [note: 'individuals only: refused for COMPANY / TRUST / GOVERNMENT / JOINT_ENTITY']
-  cnic            varchar(15) [note: '13-digit CNIC stored 12345-1234567-1, never starting with 0; required for INDIVIDUAL, refused for COMPANY / TRUST / GOVERNMENT / JOINT_ENTITY']
+  cnic            varchar(15) [note: '13-digit CNIC stored 12345-1234567-1, never starting with 0; an INDIVIDUAL needs it or an old ID; refused for COMPANY / TRUST / GOVERNMENT / JOINT_ENTITY']
+  old_id_type     varchar(20) [note: 'individuals from the old records only: OLD_NIC (old_id_no required) or NOT_RECORDED (no number). Such a person can be named in a history but takes no new share today']
+  old_id_no       varchar(30)
+  date_of_death   date [note: 'not in the future; after it the share passes only by INHERITANCE or COURT_DECREE, and nothing new reaches the person']
   ntn             varchar(20) [note: 'NTN stored 1234567-8 (FBR 7+1) or 12345-1234567-1 (CNIC-based); unique on its digits']
   email           varchar(150)
   cnic_document_id bigint [note: 'FK -> property_document: the latest active, latest-version CNIC_COPY document filed on this owner']
@@ -497,6 +500,9 @@ Table property_ownership {
   ownership_share_pct decimal(7,4) [not null, default: 100, note: '0 < share <= 100']
   effective_from      date [not null]
   effective_to        date [note: 'NULL = current']
+  effective_from_precision varchar(12) [not null, default: 'EXACT', note: 'EXACT, MONTH, YEAR, ABOUT: how well effective_from is known (old records)']
+  opened_by_transfer_id uuid [note: 'the registered transfer that opened this row (a correction of that transfer moves the row with it)']
+  closed_by_transfer_id uuid [note: 'the registered transfer that closed this row']
   ownership_status    varchar(20) [not null, default: 'ACTIVE', note: 'ACTIVE, ENDED, DISPUTED (still held, cannot be transferred)']
   acquisition_transfer_type_id bigint [note: 'how this owner acquired (FK transfer_type)']
   acquired_via_transfer_id     bigint [note: 'FK property_transfer that created this record']
@@ -528,6 +534,8 @@ Table property_transfer {
   transfer_no           varchar(50) [unique, note: 'TRF-00001']
   transfer_type_id      bigint [not null]
   transfer_date         date [not null]
+  transfer_date_precision varchar(12) [not null, default: 'EXACT', note: 'EXACT, MONTH, YEAR, ABOUT']
+  from_history_entry_id uuid [note: 'FK -> ownership_history_entry: registered from the old records (correctable by a second officer)']
   transfer_reference_no varchar(100) [note: 'mutation / registry / order no.']
   share_transferred_pct decimal(7,4) [note: 'portion of property moved in this transfer']
   consideration_amount  decimal(18,2) [note: 'sale price / exchange value, informational only']
@@ -555,6 +563,35 @@ Table property_transfer {
     (property_id, transfer_date)
   }
   Note: 'Header. Parties in property_transfer_party. Approving an INITIATED transfer completes it in the same step: old property_ownership rows are closed and new ones inserted.'
+}
+
+Table ownership_history_entry {
+  id                     uuid [pk]
+  property_id            uuid [not null]
+  entry_no               varchar(50) [unique, not null, note: 'HIS-00001']
+  status                 varchar(20) [not null, note: 'WAITING, REGISTERED, REJECTED (sent back, may be revised), WITHDRAWN']
+  steps                  jsonb [not null, note: 'the first owners, then each transfer oldest first: kind, date, precision, transfer type, deed, relationship, givers and receivers with shares']
+  remarks                text
+  recorded_by            varchar(150) [not null]
+  last_edited_by_user_id uuid
+  decided_by             varchar(150)
+  decided_by_user_id     uuid
+  decided_on             date
+  decision_reason        text
+  created_at timestamp
+  created_by uuid
+  updated_at timestamp
+  updated_by uuid
+
+  indexes {
+    (property_id, status)
+  }
+
+  Note: '''
+  A property's ownership from the old records, entered in one go for a property never held. Nothing changes hands until a
+  second officer (PROPERTY.APPROVE, PROPERTY_TRANSFER duty rule) registers it: then the first owners and each transfer
+  are written as ordinary rows and REGISTERED transfers. Vague dates: MONTH = 1st of the month, YEAR / ABOUT = 1 January.
+  '''
 }
 
 Table property_transfer_party {

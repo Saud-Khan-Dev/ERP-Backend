@@ -57,8 +57,9 @@ public static class PropertyAudit
       .Entity<BuildingPlan>(e => e.Kind("Building plan").Code(x => $"{x.PlanNo.Value} rev {x.RevisionNo}").Under<Property>(x => x.PropertyId))
 
       // a property's paper hangs off the property; an owner's own paper off the owner
+      .Entity<OwnershipHistoryEntry>(e => e.Kind("Ownership history").Code(x => x.EntryNo.Value).Under<Property>(x => x.PropertyId))
       .Entity<PropertyDocument>(e => e.Kind("Document").Label(x => x.Title ?? x.OriginalFileName)
-        .Under<Property>(x => x.PropertyId is { } property ? property : (object)OwnerId.Of(x.EntityId)))
+        .Under(x => x.PropertyId is { } property ? (typeof(Property), property) : (typeof(PropertyOwner), OwnerId.Of(x.EntityId))))
 
       .Entity<PropertyAttributeValue>(e => e.Kind("Custom field value").Under<Property>(x => x.PropertyId))
       .Entity<AttributeDefinition>(e => e.Kind("Custom field").Label(x => x.Label.Value))

@@ -31,7 +31,6 @@ public class EmployeeHistoryHandler(IApplicationDbContext context, Sensitive sen
     ids.AddRange(await context.Loans.Where(l => l.EmployeeId == employeeId).Select(l => l.Id.Value).ToListAsync(cancellationToken));
     ids.AddRange(await context.GpFundAccounts.Where(a => a.EmployeeId == employeeId).Select(a => a.Id.Value).ToListAsync(cancellationToken));
     ids.AddRange(await context.PayrollTransactions.Where(t => t.EmployeeId == employeeId).Select(t => t.Id.Value).ToListAsync(cancellationToken));
-    ids.AddRange(await context.PerformanceReviews.Where(r => r.EmployeeId == employeeId).Select(r => r.Id.Value).ToListAsync(cancellationToken));
     ids.AddRange(await context.Tasks.Where(t => t.EmployeeId == employeeId).Select(t => t.Id.Value).ToListAsync(cancellationToken));
 
     var trail = context.AuditEntries.Where(x => x.RecordId == query.EmployeeId || (x.ParentId != null && ids.Contains(x.ParentId.Value)));

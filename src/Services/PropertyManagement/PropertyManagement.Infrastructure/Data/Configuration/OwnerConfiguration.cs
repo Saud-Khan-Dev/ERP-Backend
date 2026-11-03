@@ -22,6 +22,10 @@ public class PropertyOwnerConfiguration : EntityConfiguration<PropertyOwner, Own
       .HasConversion(c => c!.Value, value => Cnic.FromStored(value))
       .HasMaxLength(Cnic.MaxLength);
     builder.Property(x => x.Ntn).HasMaxLength(PropertyOwner.NtnMaxLength);
+    builder.Property(x => x.OldIdType).HasNullableUpperSnakeEnum(20);
+    builder.Property(x => x.OldIdNo).HasMaxLength(PropertyOwner.OldIdNoMaxLength);
+    builder.Property(x => x.DateOfDeath);
+    builder.Ignore(x => x.CanHoldToday);
     builder.Property(x => x.Email)
       .HasConversion(e => e!.Value, value => EmailAddress.Of(value))
       .HasMaxLength(EmailAddress.MaxLength);

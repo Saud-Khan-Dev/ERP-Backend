@@ -50,7 +50,6 @@ namespace HRM.Infrastructure.Data.Migrations
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "hrms", "position_status_enum", new[] { "abolished", "filled", "frozen", "partially_filled", "sanctioned", "vacant" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "hrms", "post_lifecycle_enum", new[] { "abolished", "frozen", "sanctioned" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "hrms", "record_status_enum", new[] { "active", "inactive" });
-            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "hrms", "review_status_enum", new[] { "acknowledged", "countersigned", "draft", "finalized", "submitted" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "hrms", "separation_type_enum", new[] { "compulsory_retirement", "death", "deputation_end", "dismissal", "end_of_contract", "other", "premature_retirement", "removal_from_service", "resignation", "retirement", "termination" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "hrms", "task_priority_enum", new[] { "high", "low", "medium", "urgent" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "hrms", "task_status_enum", new[] { "cancelled", "completed", "in_progress", "on_hold", "pending" });
@@ -833,7 +832,6 @@ namespace HRM.Infrastructure.Data.Migrations
                         .HasColumnName("created_by");
 
                     b.Property<string>("DegreeTitle")
-                        .IsRequired()
                         .HasColumnType("varchar")
                         .HasColumnName("degree_title");
 
@@ -850,7 +848,6 @@ namespace HRM.Infrastructure.Data.Migrations
                         .HasColumnName("grade_or_cgpa");
 
                     b.Property<string>("InstitutionName")
-                        .IsRequired()
                         .HasColumnType("varchar")
                         .HasColumnName("institution_name");
 
@@ -4005,304 +4002,6 @@ namespace HRM.Infrastructure.Data.Migrations
                     b.ToTable("payslip", "hrms");
                 });
 
-            modelBuilder.Entity("PerformanceCompetency", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .HasColumnType("uuid")
-                        .HasColumnName("id")
-                        .HasDefaultValueSql("gen_random_uuid()");
-
-                    b.Property<string>("CompetencyName")
-                        .IsRequired()
-                        .HasColumnType("varchar")
-                        .HasColumnName("competency_name");
-
-                    b.Property<Guid>("PerformanceReviewId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("performance_review_id");
-
-                    b.Property<decimal?>("Rating")
-                        .HasPrecision(4, 2)
-                        .HasColumnType("numeric(4,2)")
-                        .HasColumnName("rating");
-
-                    b.Property<string>("Remarks")
-                        .HasColumnType("text")
-                        .HasColumnName("remarks");
-
-                    b.Property<int>("SortOrder")
-                        .HasColumnType("integer")
-                        .HasDefaultValue(0)
-                        .HasColumnName("sort_order");
-
-                    b.HasKey("Id")
-                        .HasName("performance_competency_pkey");
-
-                    b.HasIndex("PerformanceReviewId")
-                        .HasDatabaseName("idx_performance_competency_performance_review_id");
-
-                    b.ToTable("performance_competency", "hrms", t =>
-                        {
-                            t.HasCheckConstraint("performance_competency_rating_check", "rating IS NULL OR rating BETWEEN 0 AND 10");
-                        });
-                });
-
-            modelBuilder.Entity("PerformanceGoal", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .HasColumnType("uuid")
-                        .HasColumnName("id")
-                        .HasDefaultValueSql("gen_random_uuid()");
-
-                    b.Property<string>("Achievement")
-                        .HasColumnType("text")
-                        .HasColumnName("achievement");
-
-                    b.Property<string>("Description")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("description");
-
-                    b.Property<Guid>("PerformanceReviewId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("performance_review_id");
-
-                    b.Property<decimal?>("Score")
-                        .HasPrecision(6, 2)
-                        .HasColumnType("numeric(6,2)")
-                        .HasColumnName("score");
-
-                    b.Property<int>("SortOrder")
-                        .HasColumnType("integer")
-                        .HasDefaultValue(0)
-                        .HasColumnName("sort_order");
-
-                    b.Property<string>("Target")
-                        .HasColumnType("text")
-                        .HasColumnName("target");
-
-                    b.Property<decimal>("Weight")
-                        .HasPrecision(5, 2)
-                        .HasColumnType("numeric(5,2)")
-                        .HasColumnName("weight")
-                        .HasDefaultValueSql("0");
-
-                    b.HasKey("Id")
-                        .HasName("performance_goal_pkey");
-
-                    b.HasIndex("PerformanceReviewId")
-                        .HasDatabaseName("idx_performance_goal_performance_review_id");
-
-                    b.ToTable("performance_goal", "hrms", t =>
-                        {
-                            t.HasCheckConstraint("performance_goal_score_check", "score IS NULL OR score BETWEEN 0 AND 100");
-
-                            t.HasCheckConstraint("performance_goal_weight_check", "weight BETWEEN 0 AND 100");
-                        });
-                });
-
-            modelBuilder.Entity("PerformanceKpi", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .HasColumnType("uuid")
-                        .HasColumnName("id")
-                        .HasDefaultValueSql("gen_random_uuid()");
-
-                    b.Property<string>("AchievedValue")
-                        .HasColumnType("varchar")
-                        .HasColumnName("achieved_value");
-
-                    b.Property<string>("KpiName")
-                        .IsRequired()
-                        .HasColumnType("varchar")
-                        .HasColumnName("kpi_name");
-
-                    b.Property<Guid>("PerformanceReviewId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("performance_review_id");
-
-                    b.Property<decimal?>("Score")
-                        .HasPrecision(6, 2)
-                        .HasColumnType("numeric(6,2)")
-                        .HasColumnName("score");
-
-                    b.Property<int>("SortOrder")
-                        .HasColumnType("integer")
-                        .HasDefaultValue(0)
-                        .HasColumnName("sort_order");
-
-                    b.Property<string>("TargetValue")
-                        .HasColumnType("varchar")
-                        .HasColumnName("target_value");
-
-                    b.HasKey("Id")
-                        .HasName("performance_kpi_pkey");
-
-                    b.HasIndex("PerformanceReviewId")
-                        .HasDatabaseName("idx_performance_kpi_performance_review_id");
-
-                    b.ToTable("performance_kpi", "hrms", t =>
-                        {
-                            t.HasCheckConstraint("performance_kpi_score_check", "score IS NULL OR score BETWEEN 0 AND 100");
-                        });
-                });
-
-            modelBuilder.Entity("PerformancePeriod", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .HasColumnType("uuid")
-                        .HasColumnName("id")
-                        .HasDefaultValueSql("gen_random_uuid()");
-
-                    b.Property<DateOnly>("EndDate")
-                        .HasColumnType("date")
-                        .HasColumnName("end_date");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasColumnType("varchar")
-                        .HasColumnName("name");
-
-                    b.Property<DateOnly>("StartDate")
-                        .HasColumnType("date")
-                        .HasColumnName("start_date");
-
-                    b.Property<RecordStatus>("Status")
-                        .HasColumnType("hrms.record_status_enum")
-                        .HasDefaultValue(RecordStatus.Active)
-                        .HasColumnName("status");
-
-                    b.HasKey("Id")
-                        .HasName("performance_period_pkey");
-
-                    b.ToTable("performance_period", "hrms", t =>
-                        {
-                            t.HasCheckConstraint("ck_pp_dates", "end_date >= start_date");
-                        });
-                });
-
-            modelBuilder.Entity("PerformanceReview", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .HasColumnType("uuid")
-                        .HasColumnName("id")
-                        .HasDefaultValueSql("gen_random_uuid()");
-
-                    b.Property<DateTime?>("AcknowledgedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("acknowledged_at");
-
-                    b.Property<string>("CountersignRemarks")
-                        .HasColumnType("text")
-                        .HasColumnName("countersign_remarks");
-
-                    b.Property<DateTime?>("CountersignedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("countersigned_at");
-
-                    b.Property<Guid?>("CountersigningOfficerId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("countersigning_officer_id");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at")
-                        .HasDefaultValueSql("now()");
-
-                    b.Property<Guid?>("CreatedBy")
-                        .HasColumnType("uuid")
-                        .HasColumnName("created_by");
-
-                    b.Property<Guid>("EmployeeId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("employee_id");
-
-                    b.Property<Guid>("EvaluatorId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("evaluator_id");
-
-                    b.Property<decimal?>("FinalScore")
-                        .HasPrecision(6, 2)
-                        .HasColumnType("numeric(6,2)")
-                        .HasColumnName("final_score");
-
-                    b.Property<string>("FinalScoreReason")
-                        .HasColumnType("text")
-                        .HasColumnName("final_score_reason");
-
-                    b.Property<DateTime?>("FinalizedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("finalized_at");
-
-                    b.Property<Guid?>("FinalizedBy")
-                        .HasColumnType("uuid")
-                        .HasColumnName("finalized_by");
-
-                    b.Property<string>("PerformanceGrade")
-                        .HasColumnType("varchar")
-                        .HasColumnName("performance_grade");
-
-                    b.Property<Guid>("PerformancePeriodId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("performance_period_id");
-
-                    b.Property<bool>("PromotionRecommended")
-                        .HasColumnType("boolean")
-                        .HasDefaultValue(false)
-                        .HasColumnName("promotion_recommended");
-
-                    b.Property<string>("Remarks")
-                        .HasColumnType("text")
-                        .HasColumnName("remarks");
-
-                    b.Property<ReviewStatus>("Status")
-                        .HasColumnType("hrms.review_status_enum")
-                        .HasDefaultValue(ReviewStatus.Draft)
-                        .HasColumnName("status");
-
-                    b.Property<DateTime?>("SubmittedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("submitted_at");
-
-                    b.Property<bool>("TrainingRecommended")
-                        .HasColumnType("boolean")
-                        .HasDefaultValue(false)
-                        .HasColumnName("training_recommended");
-
-                    b.Property<DateTime?>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("updated_at");
-
-                    b.Property<Guid?>("UpdatedBy")
-                        .HasColumnType("uuid")
-                        .HasColumnName("updated_by");
-
-                    b.HasKey("Id")
-                        .HasName("performance_review_pkey");
-
-                    b.HasIndex("CountersigningOfficerId")
-                        .HasDatabaseName("idx_pr_countersigning_officer");
-
-                    b.HasIndex("EvaluatorId")
-                        .HasDatabaseName("idx_pr_evaluator");
-
-                    b.HasIndex("PerformancePeriodId")
-                        .HasDatabaseName("idx_performance_review_performance_period_id");
-
-                    b.HasIndex("EmployeeId", "PerformancePeriodId")
-                        .IsUnique()
-                        .HasDatabaseName("performance_review_employee_id_performance_period_id_key");
-
-                    b.ToTable("performance_review", "hrms", t =>
-                        {
-                            t.HasCheckConstraint("ck_pr_cso", "countersigning_officer_id IS NULL OR (countersigning_officer_id <> employee_id AND countersigning_officer_id <> evaluator_id)");
-
-                            t.HasCheckConstraint("ck_pr_not_self", "employee_id <> evaluator_id");
-
-                            t.HasCheckConstraint("performance_review_final_score_check", "final_score IS NULL OR final_score BETWEEN 0 AND 100");
-                        });
-                });
-
             modelBuilder.Entity("PositionAssignment", b =>
                 {
                     b.Property<Guid>("Id")
@@ -5842,66 +5541,6 @@ namespace HRM.Infrastructure.Data.Migrations
                         .HasConstraintName("payslip_payroll_transaction_id_fkey");
                 });
 
-            modelBuilder.Entity("PerformanceCompetency", b =>
-                {
-                    b.HasOne("PerformanceReview", null)
-                        .WithMany("Competencies")
-                        .HasForeignKey("PerformanceReviewId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("performance_competency_performance_review_id_fkey");
-                });
-
-            modelBuilder.Entity("PerformanceGoal", b =>
-                {
-                    b.HasOne("PerformanceReview", null)
-                        .WithMany("Goals")
-                        .HasForeignKey("PerformanceReviewId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("performance_goal_performance_review_id_fkey");
-                });
-
-            modelBuilder.Entity("PerformanceKpi", b =>
-                {
-                    b.HasOne("PerformanceReview", null)
-                        .WithMany("Kpis")
-                        .HasForeignKey("PerformanceReviewId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("performance_kpi_performance_review_id_fkey");
-                });
-
-            modelBuilder.Entity("PerformanceReview", b =>
-                {
-                    b.HasOne("Employee", null)
-                        .WithMany()
-                        .HasForeignKey("CountersigningOfficerId")
-                        .OnDelete(DeleteBehavior.NoAction)
-                        .HasConstraintName("performance_review_countersigning_officer_id_fkey");
-
-                    b.HasOne("Employee", null)
-                        .WithMany()
-                        .HasForeignKey("EmployeeId")
-                        .OnDelete(DeleteBehavior.NoAction)
-                        .IsRequired()
-                        .HasConstraintName("performance_review_employee_id_fkey");
-
-                    b.HasOne("Employee", null)
-                        .WithMany()
-                        .HasForeignKey("EvaluatorId")
-                        .OnDelete(DeleteBehavior.NoAction)
-                        .IsRequired()
-                        .HasConstraintName("performance_review_evaluator_id_fkey");
-
-                    b.HasOne("PerformancePeriod", null)
-                        .WithMany()
-                        .HasForeignKey("PerformancePeriodId")
-                        .OnDelete(DeleteBehavior.NoAction)
-                        .IsRequired()
-                        .HasConstraintName("performance_review_performance_period_id_fkey");
-                });
-
             modelBuilder.Entity("PositionAssignment", b =>
                 {
                     b.HasOne("Employee", null)
@@ -6059,15 +5698,6 @@ namespace HRM.Infrastructure.Data.Migrations
                     b.Navigation("LoanDeductions");
 
                     b.Navigation("Segments");
-                });
-
-            modelBuilder.Entity("PerformanceReview", b =>
-                {
-                    b.Navigation("Competencies");
-
-                    b.Navigation("Goals");
-
-                    b.Navigation("Kpis");
                 });
 
             modelBuilder.Entity("Post", b =>

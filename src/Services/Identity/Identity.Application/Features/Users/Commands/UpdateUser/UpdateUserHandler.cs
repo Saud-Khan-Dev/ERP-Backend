@@ -15,7 +15,7 @@ public class UpdateUserHandler(IApplicationDbContext context, IdentityGuard guar
     var input = command.User;
     var email = EmailAddress.Of(input.Email);
 
-    if (await context.Users.IgnoreQueryFilters().AnyAsync(u => u.Id != id && u.Email == email, cancellationToken))
+    if (await context.Users.AnyAsync(u => u.Id != id && u.Email == email, cancellationToken))
       return Result<UpdateUserCommandResult>.Failure($"Email '{email.Value}' is already registered.");
 
     var before = (Name: user.DisplayName.Value, Email: user.Email.Value);

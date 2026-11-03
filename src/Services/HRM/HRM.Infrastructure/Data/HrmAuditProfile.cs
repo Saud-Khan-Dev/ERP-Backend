@@ -54,11 +54,6 @@ public static class HrmAuditProfile
     profile.Entity<EmployeeSeparation>(e => e.Kind("Separation").Under<Employee>(x => x.EmployeeId));
 
     // ---- performance ----
-    profile.Entity<PerformancePeriod>(e => e.Kind("Performance period"));
-    profile.Entity<PerformanceReview>(e => e.Kind("Performance review").Under<Employee>(x => x.EmployeeId));
-    profile.Entity<PerformanceGoal>(e => e.Kind("Review goal").Label(x => x.Description).Under<PerformanceReview>(x => x.PerformanceReviewId));
-    profile.Entity<PerformanceKpi>(e => e.Kind("Review KPI").Under<PerformanceReview>(x => x.PerformanceReviewId));
-    profile.Entity<PerformanceCompetency>(e => e.Kind("Review competency").Under<PerformanceReview>(x => x.PerformanceReviewId));
 
     // ---- attendance and leave ----
     profile.Entity<WorkShift>(e => e.Kind("Work shift"));

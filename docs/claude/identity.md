@@ -30,6 +30,9 @@ All ids are Guid-backed strongly typed ids; `.Of(guid)` rejects `Guid.Empty`.
     role, and can't be set on an inactive account.
   - Lockout fields (`FailedLoginAttempts`, `LastFailedLoginAt` - failures older than the lockout window are forgotten,
     `LockedUntil`), `MustChangePassword`, last login, and soft delete (`DeletedAt/By`; `Restore()` brings it back switched off).
+    Username, email and the linked employee code are unique among accounts NOT deleted (filtered indexes,
+    `AccountNamesFreedOnDelete`): a deleted account keeps them for the history and frees them for a new account; a restore
+    is refused while a live account holds one.
   - No MFA: it was removed (migration `RemoveMfa`).
 - **Role**: UPPER_SNAKE `Code`, `IsSystem`, `IsActive`, soft delete. `SUPER_ADMIN` is a system role: it can't be
   renamed, deactivated or deleted, and its permissions can't be removed.

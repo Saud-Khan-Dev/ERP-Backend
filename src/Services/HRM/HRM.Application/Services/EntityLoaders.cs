@@ -245,20 +245,4 @@ public static class EntityLoaders
     return await context.Requests.FirstOrDefaultAsync(r => r.Id == requestId, cancellationToken)
       ?? throw new EmployeeRequestNotFoundException($"Request {id} was not found.");
   }
-
-  public static async Task<PerformancePeriod> LoadPerformancePeriodAsync(this IApplicationDbContext context, Guid id, CancellationToken cancellationToken)
-  {
-    var periodId = PerformancePeriodId.Of(id);
-    return await context.PerformancePeriods.FirstOrDefaultAsync(p => p.Id == periodId, cancellationToken)
-      ?? throw new PerformancePeriodNotFoundException($"Performance period {id} was not found.");
-  }
-
-  public static async Task<PerformanceReview> LoadReviewAsync(this IApplicationDbContext context, Guid id, CancellationToken cancellationToken)
-  {
-    var reviewId = PerformanceReviewId.Of(id);
-    return await context.PerformanceReviews.Include(r => r.Goals).Include(r => r.Kpis).Include(r => r.Competencies)
-        .AsSplitQuery()
-        .FirstOrDefaultAsync(r => r.Id == reviewId, cancellationToken)
-      ?? throw new PerformanceReviewNotFoundException($"Performance review {id} was not found.");
-  }
 }
