@@ -140,4 +140,20 @@ public class GatewayAndSettlementTests
     Assert.Throws<DomainException>(() => SettlementBatch.Import(SettlementBatchId.New(), PaymentChannel.Cash, "B", Day, Day, Day, [new("T", null, 1, null)],
       new Dictionary<string, SettledPayment>(), new HashSet<string>(), Now));
   }
+
+  [Fact]
+  public void A_settlement_dated_after_today_is_refused()
+  {
+    var tomorrow = DateOnly.FromDateTime(Now.AddHours(5)).AddDays(1);
+    Assert.Throws<DomainException>(() => SettlementBatch.Import(SettlementBatchId.New(), PaymentChannel.Onelink, "B-2", tomorrow, Day, tomorrow,
+      [new("TX-1", null, 5000, null)], new Dictionary<string, SettledPayment>(), new HashSet<string>(), Now));
+  }
+
+  [Fact]
+  public void A_line_time_without_a_zone_is_read_as_Pakistan_time()
+  {
+    var batch = Import([new("TX-1", null, 5000, new DateTime(2026, 10, 13, 10, 0, 0, DateTimeKind.Unspecified)), new("TX-2", null, 5000, new DateTime(2026, 10, 13, 5, 0, 0, DateTimeKind.Utc))]);
+    Assert.All(batch.Lines, l => Assert.Equal(DateTimeKind.Utc, l.PaidAt!.Value.Kind));
+    Assert.Equal(new DateTime(2026, 10, 13, 5, 0, 0, DateTimeKind.Utc), batch.Lines.Single(l => l.TransactionRef == "TX-1").PaidAt);
+  }
 }

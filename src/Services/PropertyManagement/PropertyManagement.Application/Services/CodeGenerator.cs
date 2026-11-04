@@ -81,6 +81,7 @@ public class CodeGenerator(IApplicationDbContext context)
     CodeSequenceKeys.Encroachment => await context.Encroachments.IgnoreQueryFilters().AsNoTracking().Select(x => x.EncroachmentNo).ToListAsync(cancellationToken),
     CodeSequenceKeys.Appeal => await context.Appeals.IgnoreQueryFilters().AsNoTracking().Select(x => x.AppealNo).ToListAsync(cancellationToken),
     CodeSequenceKeys.BuildingPlan => (await context.BuildingPlans.IgnoreQueryFilters().AsNoTracking().Select(x => x.PlanNo).ToListAsync(cancellationToken)).Distinct().ToList(),
+    CodeSequenceKeys.History => await context.HistoryEntries.IgnoreQueryFilters().AsNoTracking().Select(x => x.EntryNo).ToListAsync(cancellationToken),
     _ => Array.Empty<BusinessCode>()
   };
 
@@ -97,6 +98,7 @@ public class CodeGenerator(IApplicationDbContext context)
     CodeSequenceKeys.Encroachment => context.Encroachments.IgnoreQueryFilters().AnyAsync(x => x.EncroachmentNo == code, cancellationToken),
     CodeSequenceKeys.Appeal => context.Appeals.IgnoreQueryFilters().AnyAsync(x => x.AppealNo == code, cancellationToken),
     CodeSequenceKeys.BuildingPlan => context.BuildingPlans.IgnoreQueryFilters().AnyAsync(x => x.PlanNo == code, cancellationToken),
+    CodeSequenceKeys.History => context.HistoryEntries.IgnoreQueryFilters().AnyAsync(x => x.EntryNo == code, cancellationToken),
     _ => Task.FromResult(false)
   };
 }

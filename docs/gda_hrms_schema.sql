@@ -47,8 +47,7 @@
 --     decision columns and hr_action_id; employee_change_log (append-only);
 --     fn_check_post_capacity counts the busiest day of the new holding,
 --     so holders who follow one another share a seat.
---   * PayAuditRepaymentsAndPer (2026-10-21): review status countersigned
---     and countersigning / audit columns on performance_review; payroll_run
+--   * PayAuditRepaymentsAndPer (2026-10-21): payroll_run
 --     audit (calculated_at, finalized_by, paid_by, reversed_*); payroll_payment
 --     bank account only for bank transfers (cheque / cash); loan closure and
 --     installment waiver reasons; loan_repayment (append-only);
@@ -61,6 +60,9 @@
 --   * DutyRulesLoansAndLeave (2026-10-22): loan_status 'pending' (a loan
 --     application waits for a second person to sanction it);
 --     leave_application.created_by (who keyed it in).
+--   * 2026-10-28: performance evaluation (PER) removed - the performance_period,
+--     performance_review, performance_goal, performance_kpi and
+--     performance_competency tables and review_status_enum are dropped.
 -- =====================================================================
 
 CREATE EXTENSION IF NOT EXISTS btree_gist;
@@ -115,7 +117,6 @@ CREATE TYPE hr_action_type_enum   AS ENUM ('appointment','joining','transfer','p
                                          'dismissal','removal_from_service','compulsory_retirement','premature_retirement','end_of_contract','deputation_end');
 CREATE TYPE hr_action_status_enum AS ENUM ('draft','pending','approved','rejected','cancelled','applied');
 
-CREATE TYPE review_status_enum AS ENUM ('draft','submitted','acknowledged','finalized','countersigned');
 CREATE TYPE attendance_status_enum AS ENUM ('present','absent','late','half_day','on_leave','official_duty','holiday','weekend');
 CREATE TYPE holiday_type_enum  AS ENUM ('public','religious','provincial','optional');
 
@@ -569,8 +570,8 @@ CREATE TABLE employee_education (
   id                       uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   employee_id              uuid NOT NULL REFERENCES employee(id),
   qualification_level_id   uuid NOT NULL REFERENCES qualification_level(id),
-  degree_title             varchar NOT NULL,
-  institution_name         varchar NOT NULL,
+  degree_title             varchar,           -- optional: a qualification is its level + certificate
+  institution_name         varchar,
   board_or_university      varchar,
   passing_year             int CHECK (passing_year IS NULL OR passing_year BETWEEN 1950 AND 2100),
   grade_or_cgpa            varchar,
@@ -823,95 +824,6 @@ CREATE TABLE employee_separation (
 );
 CREATE UNIQUE INDEX uq_separation_employee ON employee_separation (employee_id);
 
--- =====================================================================
--- MODULE 8: PERFORMANCE MANAGEMENT
--- =====================================================================
-CREATE TABLE performance_period (
-  id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  name       varchar NOT NULL,
-  start_date date NOT NULL,
-  end_date   date NOT NULL,
-  status     record_status_enum NOT NULL DEFAULT 'active',
-  CONSTRAINT ck_pp_dates CHECK (end_date >= start_date),
-  CONSTRAINT ex_pp_no_overlap EXCLUDE USING gist (daterange(start_date, end_date, '[]') WITH &&) WHERE (status = 'active')
-);
-
-CREATE TABLE performance_review (
-  id                    uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  employee_id           uuid NOT NULL REFERENCES employee(id),
-  performance_period_id uuid NOT NULL REFERENCES performance_period(id),
-  evaluator_id          uuid NOT NULL REFERENCES employee(id),
-  countersigning_officer_id uuid REFERENCES employee(id),
-  status                review_status_enum NOT NULL DEFAULT 'draft',
-  final_score           numeric(6,2) CHECK (final_score IS NULL OR final_score BETWEEN 0 AND 100),
-  performance_grade     varchar,
-  promotion_recommended boolean NOT NULL DEFAULT false,
-  training_recommended  boolean NOT NULL DEFAULT false,
-  remarks               text,
-  countersign_remarks   text,
-  final_score_reason    text,                -- why the final score differs from the worked-out one
-  submitted_at          timestamptz,
-  acknowledged_at       timestamptz,
-  countersigned_at      timestamptz,
-  finalized_at          timestamptz,
-  finalized_by          uuid,
-  created_at            timestamptz NOT NULL DEFAULT now(),
-  created_by            uuid,
-  updated_at            timestamptz,
-  updated_by            uuid,
-  UNIQUE (employee_id, performance_period_id),
-  CONSTRAINT ck_pr_not_self CHECK (employee_id <> evaluator_id),
-  CONSTRAINT ck_pr_cso CHECK (countersigning_officer_id IS NULL OR
-                              (countersigning_officer_id <> employee_id AND countersigning_officer_id <> evaluator_id))
-);
-CREATE INDEX idx_pr_evaluator ON performance_review (evaluator_id);
-CREATE INDEX idx_pr_countersigning_officer ON performance_review (countersigning_officer_id);
-
-CREATE TABLE performance_goal (
-  id                    uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  performance_review_id uuid NOT NULL REFERENCES performance_review(id) ON DELETE CASCADE,
-  description           text NOT NULL,
-  weight                numeric(5,2) NOT NULL DEFAULT 0 CHECK (weight BETWEEN 0 AND 100),
-  target                text,
-  achievement           text,
-  score                 numeric(6,2) CHECK (score IS NULL OR score BETWEEN 0 AND 100)
-);
-
-CREATE TABLE performance_kpi (
-  id                    uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  performance_review_id uuid NOT NULL REFERENCES performance_review(id) ON DELETE CASCADE,
-  kpi_name              varchar NOT NULL,
-  target_value          varchar,
-  achieved_value        varchar,
-  score                 numeric(6,2) CHECK (score IS NULL OR score BETWEEN 0 AND 100)
-);
-
-CREATE TABLE performance_competency (
-  id                    uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  performance_review_id uuid NOT NULL REFERENCES performance_review(id) ON DELETE CASCADE,
-  competency_name       varchar NOT NULL,
-  rating                numeric(4,2) CHECK (rating IS NULL OR rating BETWEEN 0 AND 10),
-  remarks               text
-);
-
--- Goal weights must total 100 before a review can be submitted / finalized
-CREATE OR REPLACE FUNCTION fn_check_goal_weights() RETURNS trigger
-LANGUAGE plpgsql AS $$
-DECLARE v_total numeric; v_cnt int;
-BEGIN
-  IF NEW.status IN ('submitted','acknowledged','finalized') AND
-     (TG_OP = 'INSERT' OR OLD.status = 'draft') THEN
-    SELECT coalesce(sum(weight),0), count(*) INTO v_total, v_cnt
-      FROM performance_goal WHERE performance_review_id = NEW.id;
-    IF v_cnt > 0 AND v_total <> 100 THEN
-      RAISE EXCEPTION 'goal weights for review % total %, must be 100', NEW.id, v_total;
-    END IF;
-  END IF;
-  RETURN NEW;
-END $$;
-CREATE TRIGGER trg_pr_goal_weights
-  BEFORE INSERT OR UPDATE OF status ON performance_review
-  FOR EACH ROW EXECUTE FUNCTION fn_check_goal_weights();
 -- =====================================================================
 -- MODULE 9: ATTENDANCE, SHIFTS, HOLIDAYS
 -- =====================================================================

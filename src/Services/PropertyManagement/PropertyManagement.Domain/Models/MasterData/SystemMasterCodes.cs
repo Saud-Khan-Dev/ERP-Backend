@@ -9,6 +9,10 @@ public static class SystemMasterCodes
   /// Document type used for an owner's CNIC copy (property_owner.cnic_document_id). Applies to OWNER.
   public const string DocumentCnicCopy = "CNIC_COPY";
 
+  // ---- how a dead owner's share moves: only these two pass it on after the death (PropertyTransfer) ----
+  public const string TransferInheritance = "INHERITANCE";
+  public const string TransferCourtDecree = "COURT_DECREE";
+
   // ---- owner types: what an owner must or must not carry (PropertyOwner) ----
   /// A person: needs a CNIC.
   public const string OwnerTypeIndividual = "INDIVIDUAL";
@@ -88,6 +92,8 @@ public static class SystemMasterCodes
     new(typeof(OwnerType), OwnerTypeGovernment, "Government"),
     new(typeof(OwnerType), OwnerTypeTrust, "Trust"),
     new(typeof(OwnerType), OwnerTypeJointEntity, "Joint Entity"),
+    new(typeof(TransferType), TransferInheritance, "Inheritance"),
+    new(typeof(TransferType), TransferCourtDecree, "Court Decree"),
 
     new(typeof(AllotmentStatus), Active, "Active"),
     new(typeof(AllotmentStatus), Cancelled, "Cancelled"),

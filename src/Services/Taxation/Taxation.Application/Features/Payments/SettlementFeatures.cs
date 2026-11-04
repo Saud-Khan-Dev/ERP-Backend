@@ -46,10 +46,12 @@ public class SettlementHandlers(IApplicationDbContext context, IAuditTrail audit
     var settledBefore = (await context.SettlementLines.AsNoTracking().Where(l => l.Match == SettlementMatch.Matched && references.Contains(l.TransactionRef))
       .Select(l => l.TransactionRef).ToListAsync(cancellationToken)).ToHashSet();
 
+    // one line for the import ("Imported", with the counts), not an automatic "Added" beside it
+    using var quiet = audit.Quietly();
     var batch = SettlementBatch.Import(SettlementBatchId.New(), command.Channel, command.BatchRef, command.SettlementDate, command.CoversFrom, command.CoversTo, command.Lines,
       payments, settledBefore, clock.UtcNow);
     context.SettlementBatches.Add(batch);
-    audit.Record("Imported", batch, $"{batch.LineCount} lines, {Rupees.Text(batch.TotalAmount)}, {batch.ExceptionCount} to look into");
+    audit.Record("Imported", batch, $"{batch.LineCount} {(batch.LineCount == 1 ? "line" : "lines")}, {Rupees.Text(batch.TotalAmount)}, {batch.ExceptionCount} to look into");
     await context.SaveChangesAsync(cancellationToken);
     return Result<SettlementBatchDto>.Success(Dto(batch));
   }

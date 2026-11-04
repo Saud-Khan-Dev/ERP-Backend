@@ -229,13 +229,15 @@ src/Tests/Taxation.Integration.Tests/  the payment path on a real PostgreSQL (no
     are logged without their content and not stored.
   - The channels a gateway reports (`IPaymentGateway.Channels`, none until an adapter exists) can no longer be posted by
     hand (`POST /payments`, `POST /fees/{id}/pay`): the gateway is then the only proof of that money.
-  - `GET /gateway-payments?status=held` (TAX.VIEW), `POST /gateway-payments/{id}/retry` (TAX.POST: the facts on record,
+  - `GET /gateway-payments?status=held` (TAX.VIEW; `waiting=true` lists exactly what the bell's `gateway.held` counts -
+    held, or RECEIVED over `GatewayNotification.StuckMinutes` ago), `POST /gateway-payments/{id}/retry` (TAX.POST: the facts on record,
     nothing can be changed) and `/dismiss {reason}` (TAX.REVERSE). Every town needed: a report is not in a town.
   - **Settlement reports** (`POST /settlements`, `GET /settlements`, `GET /settlements/{id}`, TAX.RECONCILE, every town):
     the bank's report in a neutral JSON form (reading its own file format is the adapter's), compared line by line with
     the payments - MATCHED, NOT_IN_ERP, AMOUNT_DIFFERS, REFERENCE_DIFFERS, REVERSED_IN_ERP, ALREADY_SETTLED - and the
     period's payments no report has settled. It changes no payment. A report imports once; a transaction is matched once
-    across all reports (`settlement_line_matched_key`).
+    across all reports (`settlement_line_matched_key`). A settlement date still to come is refused; a line's time given
+    without a zone is Pakistan time (the bank prints it so) and kept in UTC. The import writes one "Imported" line.
   - Still to come with a real gateway: its adapter and route (authentication, rate limits, the gateway's reply codes),
     voids (they wait as HELD for a person to reverse), posting a NOT_IN_ERP line, refunds.
 - **No SMS gateway exists yet**: reference syncs stay PENDING and SMS stay QUEUED (the bell counts both).

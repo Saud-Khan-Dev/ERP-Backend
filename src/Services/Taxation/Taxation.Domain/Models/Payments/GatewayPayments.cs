@@ -29,6 +29,9 @@ public class GatewayNotification : Aggregate<GatewayNotificationId>
 
   public bool IsOpen => Status is GatewayNotificationStatus.Received or GatewayNotificationStatus.Held;
 
+  /// A report normally takes seconds; one still RECEIVED after this long stopped half way and waits for the Section.
+  public const int StuckMinutes = 5;
+
   private GatewayNotification() { }
 
   public static GatewayNotification Record(GatewayNotificationId id, string source, GatewayPaymentFacts facts, DateTime now)
@@ -141,6 +144,8 @@ public class SettlementBatch : Aggregate<SettlementBatchId>
       throw new DomainException("The period of the report ends before it starts.");
     if (settlementDate < coversFrom)
       throw new DomainException("The bank cannot settle a period before it starts.");
+    if (settlementDate > DateOnly.FromDateTime(now.AddHours(5)))
+      throw new DomainException("The settlement date is still to come; a report is imported once the bank has settled.");
     if (lines.Count == 0)
       throw new DomainException("The settlement report has no lines.");
     var repeated = lines.GroupBy(l => (l.TransactionRef ?? "").Trim()).FirstOrDefault(g => g.Count() > 1);
@@ -197,7 +202,7 @@ public class SettlementLine : Entity<SettlementLineId>
       TransactionRef = Guard.RequiredText(input.TransactionRef, 60, "Transaction reference"),
       Psid = psid.Length == 0 ? null : Guard.Text(psid, 30, "Reference"),
       Amount = input.Amount,
-      PaidAt = input.PaidAt,
+      PaidAt = input.PaidAt is { } paidAt ? AsUtc(paidAt) : null,
       PaymentId = payment?.Id
     };
     (line.Match, line.Note) = payment switch
@@ -211,4 +216,12 @@ public class SettlementLine : Entity<SettlementLineId>
     };
     return line;
   }
+
+  /// A report's time as the database keeps it: one given without a zone is Pakistan time, as the bank prints it.
+  private static DateTime AsUtc(DateTime time) => time.Kind switch
+  {
+    DateTimeKind.Utc => time,
+    DateTimeKind.Local => time.ToUniversalTime(),
+    _ => DateTime.SpecifyKind(time, DateTimeKind.Utc).AddHours(-5)
+  };
 }

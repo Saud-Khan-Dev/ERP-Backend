@@ -22,7 +22,7 @@ PostgreSQL database:
 | Identity (auth, users, roles, permissions) | 5142 | `identity-api` 5142:8080 | `/auth-service/` | `auth` |
 | Property Management | 5141 | `poperty-management-api` 5141:8080 (sic) | `/property-management-service/` | `property` |
 | Assets Management | 5139 | `assets-management-api` 5139:8080 | `/assets-management-service/` | `assets` |
-| HRM (employees, posts, attendance, leave, performance, payroll, employee portal) | 5144 | `hrm-api` 5144:8080 | `/hrm-service/` | `hrms` |
+| HRM (employees, posts, attendance, leave, payroll, employee portal) | 5144 | `hrm-api` 5144:8080 | `/hrm-service/` | `hrms` |
 | Taxation (tax files, demands, notices, surcharges, payments, fees, clearances) | 5146 | `taxation-api` 5146:8080 | `/taxation-service/` | `taxation` |
 | YARP API gateway | 5195 | `yarpapigateway` 5000:8080 | n/a | n/a |
 | PostgreSQL 17 | 5432 | `postgres` | n/a | db `ERP_DB` |
@@ -131,6 +131,13 @@ X.Api             Carter endpoint modules, exception handler, Program.cs, Depend
     `Quietly()` around bulk runs, `ActingAs("Daily job")` for the system. `app.MapAuditTrail<TContext>(exportCodes)`
     serves `GET /audit`, `GET /audit/kinds` (IAM_AUDIT.VIEW) and `POST /audit/exports` (a screen's CSV or print noted).
     Kept forever (government records).
+  - **Stored files** (`Files/SafeFiles.cs`): every endpoint that hands back an uploaded file returns
+    `SafeFiles.File(response, stream, fileName)`: the type comes from the name's extension, never from what the uploader's
+    browser claimed, with `X-Content-Type-Options: nosniff` and a sandbox CSP. `SafeFiles.Protect(response)` adds only the
+    headers. A paper's `/content` takes `?download=`: false is a look in the app's viewer (`AuditActions.Viewed`), true
+    a copy taken (`Downloaded`, the default; on an asset, left out is a thumbnail and writes nothing). A record that
+    hangs off one of two kinds says which with `.Under(x => (typeof(Parent), key))`: `IAuditTrail.Record` looks the
+    parent up by that type.
   - **System page** (`System/`): `app.MapSystemStatus<TContext>("Module words")` = `GET /system/status`
     (IAM_SYSTEM.VIEW): database, pending migrations, audit lines, jobs from `ISystemJobSource`.
 - **BuildingBlock.Messaging**: an empty placeholder; there is no message bus yet.

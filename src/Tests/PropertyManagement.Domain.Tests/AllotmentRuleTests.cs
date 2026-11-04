@@ -223,7 +223,7 @@ public class AllotmentRuleTests
     var confirmed = allotment.ConfirmOwnership(OwnershipId.New(), Active, allottee, Owned, 100, D("2025-02-01"), null, null,
       Record(property, Array.Empty<PropertyOwnership>(), new[] { allottee }));
 
-    Assert.Contains("cancel the allotment or end that ownership first", Message(() => allotment.Deactivate(property, new[] { confirmed })));
+    Assert.Contains("cancel or surrender the allotment first", Message(() => allotment.Deactivate(property, new[] { confirmed })));
   }
 
   [Fact]

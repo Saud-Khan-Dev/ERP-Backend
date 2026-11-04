@@ -94,7 +94,7 @@ public class PropertyAuction : Aggregate<AuctionId>
   {
     ArgumentNullException.ThrowIfNull(bidder);
     EnsureOpen(currentStatus);
-    bidder.EnsureActive();
+    bidder.EnsureCanTakeOn("a bid");
 
     if (_bids.Any(b => b.BidderOwnerId == bidder.Id))
       throw new DomainException($"{bidder.OwnerName.Value} has already bid in auction {AuctionNo.Value}.");
@@ -148,7 +148,7 @@ public class PropertyAuction : Aggregate<AuctionId>
       if (successfulBidder is null || winningAmount is null)
         throw new DomainException("With no recorded bids, give the successful bidder and the winning amount.");
 
-      successfulBidder.EnsureActive();
+      successfulBidder.EnsureCanTakeOn("an award");
       winner = successfulBidder.Id;
       amount = Guard.Positive(winningAmount.Value, "Winning bid amount");
     }

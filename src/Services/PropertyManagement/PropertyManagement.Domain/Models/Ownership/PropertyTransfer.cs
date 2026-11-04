@@ -40,6 +40,10 @@ public class PropertyTransfer : Aggregate<TransferId>
   public string? ClosedBy { get; private set; }
   public string? ClosingReason { get; private set; }
   public TransferStatus TransferStatus { get; private set; }
+  /// How well TransferDate is known (old records).
+  public DatePrecision TransferDatePrecision { get; private set; }
+  /// Registered from an ownership history (HIS-…): only such transfers are corrected afterwards.
+  public HistoryEntryId? FromHistoryEntryId { get; private set; }
   public string? Remarks { get; private set; }
 
   public IReadOnlyList<PropertyTransferParty> Parties => _parties.AsReadOnly();
@@ -103,6 +107,7 @@ public class PropertyTransfer : Aggregate<TransferId>
       transfer._parties.Add(PropertyTransferParty.Create(TransferPartyId.New(), id, party.OwnerId, party.Role, party.SharePct));
 
     transfer.Validate(record, atApproval: false);
+    transfer.EnsureDeadGiversPassOn(transferType, record);
     transfer.ShareTransferredPct = transfer.Given().Values.Sum();
 
     return transfer;
@@ -127,13 +132,15 @@ public class PropertyTransfer : Aggregate<TransferId>
       string? noDuesCertificateNo,
       string completedBy,
       OwnershipRecord record,
-      TenureType newTenureType)
+      TenureType newTenureType,
+      DatePrecision precision = DatePrecision.Exact)
   {
     ArgumentNullException.ThrowIfNull(record);
     EnsurePast(transferDate, record.Today);
 
     var transfer = Initiate(id, transferNo, transferType, transferDate, transferReferenceNo, considerationAmount, relationship, remarks, parties, record);
-    var change = transfer.Approve(approver, approvalDate ?? transferDate, approvalOrderRef, noDuesCertificateNo, completedBy, record, newTenureType);
+    transfer.TransferDatePrecision = precision;
+    var change = transfer.Approve(approver, approvalDate ?? transferDate, approvalOrderRef, noDuesCertificateNo, completedBy, record, newTenureType, transferType);
     return (transfer, change);
   }
 
@@ -194,7 +201,8 @@ public class PropertyTransfer : Aggregate<TransferId>
       string? noDuesCertificateNo,
       string completedBy,
       OwnershipRecord record,
-      TenureType newTenureType)
+      TenureType newTenureType,
+      TransferType transferType)
   {
     ArgumentNullException.ThrowIfNull(approver);
     ArgumentNullException.ThrowIfNull(record);
@@ -221,6 +229,7 @@ public class PropertyTransfer : Aggregate<TransferId>
     var orderRef = Guard.Text(approvalOrderRef, 100, "Approval order ref");
     var certificate = Guard.Text(noDuesCertificateNo, NoDuesCertificateMaxLength, "No-dues certificate no.");
 
+    EnsureDeadGiversPassOn(transferType, record);
     var change = Apply(record, newTenureType, completedBy);
 
     ApprovedBy = approverName;
@@ -233,7 +242,7 @@ public class PropertyTransfer : Aggregate<TransferId>
   }
 
   /// Registers a transfer approved before approval and completion became one step (status APPROVED).
-  public OwnershipChange Complete(string completedBy, string? approvalOrderRef, OwnershipRecord record, TenureType newTenureType)
+  public OwnershipChange Complete(string completedBy, string? approvalOrderRef, OwnershipRecord record, TenureType newTenureType, TransferType transferType)
   {
     ArgumentNullException.ThrowIfNull(record);
 
@@ -250,6 +259,7 @@ public class PropertyTransfer : Aggregate<TransferId>
     EnsureDue(record.Today);
 
     var orderRef = Guard.Text(approvalOrderRef, 100, "Approval order ref");
+    EnsureDeadGiversPassOn(transferType, record);
     var change = Apply(record, newTenureType, completedBy);
 
     ApprovalOrderRef = orderRef ?? ApprovalOrderRef;
@@ -327,6 +337,7 @@ public class PropertyTransfer : Aggregate<TransferId>
       foreach (var row in rows)
       {
         row.End(TransferDate, $"Closed by transfer {TransferNo.Value}.");
+        row.ClosedBy(Id);
         closed.Add(row);
       }
 
@@ -351,6 +362,9 @@ public class PropertyTransfer : Aggregate<TransferId>
           ? $"Created by transfer {TransferNo.Value}: {held:0.####}% already held + {delta:0.####}% received."
           : $"Created by transfer {TransferNo.Value}."));
     }
+
+    foreach (var row in opened)
+      row.OpenedBy(Id, TransferDatePrecision);
 
     SettleEnforcedCharges(record, closed, opened, received.Keys.ToList());
 
@@ -427,6 +441,13 @@ public class PropertyTransfer : Aggregate<TransferId>
 
       if (!owner.IsActive)
         throw new DomainException($"{owner.OwnerName.Value} ({owner.OwnerCode.Value}) is inactive; reactivate the owner record before using it in a transfer.");
+
+      if (received.GetValueOrDefault(ownerId) - given.GetValueOrDefault(ownerId) > 0)
+      {
+        owner.EnsureAliveOn(TransferDate);
+        if (!record.FromOldRecords)
+          owner.EnsureCanHoldToday();
+      }
     }
 
     // a charge on the whole property stops every transfer (an enforced one: every transfer except to its holder)
@@ -469,6 +490,61 @@ public class PropertyTransfer : Aggregate<TransferId>
     // the new rows start on the transfer date: it must come after every party's earlier entries
     foreach (var ownerId in changing)
       OwnershipHistory.EnsureCanStart(record.NameOf(ownerId), record.RowsOf(ownerId), TransferDate, "the transfer");
+  }
+
+  /// A transfer from the old records: how well its date is known, and the history entry it came from.
+  internal void FromHistory(HistoryEntryId entry, DatePrecision precision)
+  {
+    FromHistoryEntryId = entry;
+    TransferDatePrecision = precision;
+  }
+
+  /// A correction of a transfer from the old records (date, kind, deed): the rows it opened and closed move with it.
+  public void CorrectHistory(TransferType transferType, DateOnly date, DatePrecision precision, string? referenceNo, string? relationship,
+      OwnershipRecord record, DateOnly? earliest, DateOnly? latest)
+  {
+    ArgumentNullException.ThrowIfNull(transferType);
+    ArgumentNullException.ThrowIfNull(record);
+    record.Property.EnsureActive();
+    if (FromHistoryEntryId is null || TransferStatus != TransferStatus.Completed)
+      throw new DomainException($"{TransferNo.Value} was not entered from the old records; a transfer is put right by another transfer.");
+    transferType.EnsureActive();
+    if (earliest is { } after && date <= after)
+      throw new DomainException($"{TransferNo.Value} must stay after the step before it ({after:dd'/'MM'/'yyyy}).");
+    if (latest is { } before && date >= before)
+      throw new DomainException($"{TransferNo.Value} must stay before the step after it ({before:dd'/'MM'/'yyyy}).");
+    if (date > record.Today)
+      throw new DomainException("A transfer from the old records cannot be dated in the future.");
+
+    relationship = Guard.Text(relationship, 100, "Relationship");
+    if (transferType.RequiresRelationship && relationship is null)
+      throw new DomainException($"A {transferType.Name.Value} transfer must record the relationship between the parties (e.g. Father -> Son).");
+
+    TransferDate = date;
+    TransferDatePrecision = precision;
+    TransferTypeId = transferType.Id;
+    TransferReferenceNo = Guard.Text(referenceNo, 100, "Transfer reference no.");
+    Relationship = relationship;
+    EnsureDeadGiversPassOn(transferType, record);
+    foreach (var party in _parties.Where(p => p.PartyRole == TransferPartyRole.Transferee))
+      record.Owner(party.OwnerId)?.EnsureAliveOn(date);
+
+    foreach (var row in record.Ownerships.Where(r => r.OpenedByTransferId == Id))
+      row.MoveStart(date, precision);
+    foreach (var row in record.Ownerships.Where(r => r.ClosedByTransferId == Id))
+      row.MoveEnd(date);
+  }
+
+  /// After their death an owner's share moves only by inheritance or a court's decree.
+  private void EnsureDeadGiversPassOn(TransferType transferType, OwnershipRecord record)
+  {
+    if (transferType.Is(SystemMasterCodes.TransferInheritance) || transferType.Is(SystemMasterCodes.TransferCourtDecree))
+      return;
+
+    foreach (var ownerId in Given().Keys)
+      if (record.Owner(ownerId) is { DateOfDeath: { } died } owner && TransferDate > died)
+        throw new DomainException(
+          $"{owner.OwnerName.Value} died on {died:dd'/'MM'/'yyyy}, before this transfer ({TransferDate:dd'/'MM'/'yyyy}); their share passes only by inheritance or a court decree.");
   }
 
   private void EnsureDue(DateOnly today)

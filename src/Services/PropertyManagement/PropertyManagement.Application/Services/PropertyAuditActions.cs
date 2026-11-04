@@ -9,6 +9,8 @@ public static class PropertyAuditActions
   /// A past transfer entered while the PROPERTY_TRANSFER rule is on: it waits for a second officer.
   public const string RecordedForApproval = "Recorded for approval";
   public const string Registered = "Registered";
+  /// A record put right from the papers (first owners, a transfer from the old records), with the reason.
+  public const string Corrected = "Corrected";
   public const string Allotted = "Allotted";
   public const string Restored = "Restored";
   public const string Confirmed = "Confirmed";

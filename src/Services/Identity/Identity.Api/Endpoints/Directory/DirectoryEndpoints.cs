@@ -4,7 +4,7 @@ public class DirectoryEndpoints : ICarterModule
 {
   public void AddRoutes(IEndpointRouteBuilder app)
   {
-    app.MapGet("/directory/users", async (ISender sender, string? ids, string? search) =>
+    app.MapGet("/directory/users", async (ISender sender, string? ids, string? search, string? permission) =>
     {
       var parsed = new List<Guid>();
       foreach (var part in (ids ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
@@ -13,7 +13,8 @@ public class DirectoryEndpoints : ICarterModule
           return Results.BadRequest(new { Message = "ids must be account ids, separated by commas." });
         parsed.Add(id);
       }
-      var result = await sender.Send(new GetDirectoryUsersQuery(parsed, string.IsNullOrWhiteSpace(search) ? null : search.Trim()));
+      var result = await sender.Send(new GetDirectoryUsersQuery(parsed, string.IsNullOrWhiteSpace(search) ? null : search.Trim(),
+        string.IsNullOrWhiteSpace(permission) ? null : permission.Trim()));
       return Results.Ok(new DirectoryUsersResponse(result.Value!.Users));
     })
       .RequireSignedIn()
@@ -21,7 +22,7 @@ public class DirectoryEndpoints : ICarterModule
       .Produces<DirectoryUsersResponse>(StatusCodes.Status200OK)
       .ProducesProblem(StatusCodes.Status400BadRequest)
       .WithSummary("Get Account Names")
-      .WithDescription("Display names for account ids (ids=a,b - at most 200; deleted accounts are named too, history must read), or a name search (search=) over accounts in use. Any signed-in person: names only.");
+      .WithDescription("Display names for account ids (ids=a,b - at most 200; deleted accounts are named too, history must read), a name search (search=) over accounts in use, or the accounts in use that hold a permission now (permission=HR.APPROVE - who can act on something). Any signed-in person: names only.");
 
     app.MapGet("/attention", async (ISender sender) =>
     {

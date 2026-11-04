@@ -24,10 +24,11 @@ public class CreateUserHandler(
     var username = Username.Of(input.Username);
     var email = EmailAddress.Of(input.Email);
 
-    if (await context.Users.IgnoreQueryFilters().AnyAsync(u => u.Username == username, cancellationToken))
+    // among accounts in use: a deleted account's username and email are free again
+    if (await context.Users.AnyAsync(u => u.Username == username, cancellationToken))
       return Result<CreateUserCommandResult>.Failure($"Username '{username.Value}' is already taken.");
 
-    if (await context.Users.IgnoreQueryFilters().AnyAsync(u => u.Email == email, cancellationToken))
+    if (await context.Users.AnyAsync(u => u.Email == email, cancellationToken))
       return Result<CreateUserCommandResult>.Failure($"Email '{email.Value}' is already registered.");
 
     if (input.EmployeeId is { } employeeId && employeeId != Guid.Empty)

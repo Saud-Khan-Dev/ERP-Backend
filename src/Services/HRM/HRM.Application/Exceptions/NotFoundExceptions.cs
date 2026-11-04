@@ -19,8 +19,6 @@ public class ServiceEventTypeNotFoundException(string message) : NotFoundExcepti
 public class PositionAssignmentNotFoundException(string message) : NotFoundException(message);
 public class HrActionNotFoundException(string message) : NotFoundException(message);
 public class SeparationNotFoundException(string message) : NotFoundException(message);
-public class PerformancePeriodNotFoundException(string message) : NotFoundException(message);
-public class PerformanceReviewNotFoundException(string message) : NotFoundException(message);
 public class WorkShiftNotFoundException(string message) : NotFoundException(message);
 public class HolidayNotFoundException(string message) : NotFoundException(message);
 public class AttendanceRecordNotFoundException(string message) : NotFoundException(message);

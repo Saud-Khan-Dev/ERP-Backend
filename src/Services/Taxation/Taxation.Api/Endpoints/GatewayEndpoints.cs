@@ -9,11 +9,11 @@ public class GatewayEndpoints : ICarterModule
   {
     var gateway = app.MapGroup("/gateway-payments").WithTags("Gateway payments");
 
-    gateway.MapGet("/", async (int? pageIndex, int? pageSize, string? status, string? search, ISender sender) =>
-        (await sender.Send(new GetGatewayNotificationsQuery(QueryParsing.Page(pageIndex, pageSize), QueryParsing.ParseEnum<GatewayNotificationStatus>(status, "status"), search))).ToOk())
+    gateway.MapGet("/", async (int? pageIndex, int? pageSize, string? status, string? search, bool? waiting, ISender sender) =>
+        (await sender.Send(new GetGatewayNotificationsQuery(QueryParsing.Page(pageIndex, pageSize), QueryParsing.ParseEnum<GatewayNotificationStatus>(status, "status"), search, waiting ?? false))).ToOk())
       .RequirePermission(PermissionCatalog.Tax.View)
       .WithName("GetGatewayPayments").Produces<GetGatewayNotificationsQueryResult>().ProducesProblem(StatusCodes.Status400BadRequest)
-      .WithSummary("Get Gateway Payments").WithDescription("What gateways reported, newest first; status=held lists what waits for the Section, with why. Needs every town.");
+      .WithSummary("Get Gateway Payments").WithDescription("What gateways reported, newest first; status=held lists what is held, with why; waiting=true what the bell counts (held, or left half worked). Needs every town.");
 
     gateway.MapPost("/{id:guid}/retry", async (Guid id, ISender sender) => (await sender.Send(new RetryGatewayNotificationCommand(id))).ToOk())
       .RequirePermission(PermissionCatalog.Tax.Post)

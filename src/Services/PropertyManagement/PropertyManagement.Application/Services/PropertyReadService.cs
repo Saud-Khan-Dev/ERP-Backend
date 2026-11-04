@@ -103,10 +103,14 @@ public class PropertyReadService(IApplicationDbContext context, MasterLookup mas
       : (await context.Allotments.AsNoTracking().Where(a => allotmentIds.Contains(a.Id)).Select(a => new { a.Id, a.AllotmentNo }).ToListAsync(cancellationToken))
           .ToDictionary(a => a.Id, a => a.AllotmentNo.Value);
 
-    return ownerships.Select(o => o.ToDto(refs, properties, owners, new OwnershipLinks(
-        OwnershipHistory.HoldingSince(o, history[(o.PropertyId, o.OwnerId)]),
-        o.AcquiredViaTransferId is null ? null : transferNos.GetValueOrDefault(o.AcquiredViaTransferId),
-        o.AcquiredViaAllotmentId is null ? null : allotmentNos.GetValueOrDefault(o.AcquiredViaAllotmentId))))
+    return ownerships.Select(o =>
+      {
+        var start = OwnershipHistory.HoldingStart(o, history[(o.PropertyId, o.OwnerId)]);
+        return o.ToDto(refs, properties, owners, new OwnershipLinks(start.EffectiveFrom,
+          o.AcquiredViaTransferId is null ? null : transferNos.GetValueOrDefault(o.AcquiredViaTransferId),
+          o.AcquiredViaAllotmentId is null ? null : allotmentNos.GetValueOrDefault(o.AcquiredViaAllotmentId),
+          start.EffectiveFromPrecision));
+      })
       .ToList();
   }
 

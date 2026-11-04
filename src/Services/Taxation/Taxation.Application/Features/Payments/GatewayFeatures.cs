@@ -4,7 +4,8 @@ using Microsoft.EntityFrameworkCore;
 /// The payments gateways reported, for the Section: what is held, and why. A held payment is money already taken from
 /// someone, so it stays open until it is applied or an officer closes it with a reason.
 public sealed record GetGatewayNotificationsQueryResult(PaginatedResult<GatewayNotificationDto> Notifications);
-public sealed record GetGatewayNotificationsQuery(PaginationRequest Pagination, GatewayNotificationStatus? Status, string? Search) : IQuery<Result<GetGatewayNotificationsQueryResult>>;
+/// Waiting: what the bell counts - held, or received over five minutes ago and not worked yet.
+public sealed record GetGatewayNotificationsQuery(PaginationRequest Pagination, GatewayNotificationStatus? Status, string? Search, bool Waiting = false) : IQuery<Result<GetGatewayNotificationsQueryResult>>;
 
 public sealed record RetryGatewayNotificationResult(GatewayOutcomeKind Outcome, Guid? PaymentId, string? Reason);
 public sealed record RetryGatewayNotificationCommand(Guid Id) : ICommand<Result<RetryGatewayNotificationResult>>;
@@ -29,6 +30,11 @@ public class GatewayNotificationHandlers(IApplicationDbContext context, GatewayP
     var rows = context.GatewayNotifications.AsNoTracking();
     if (query.Status is { } status)
       rows = rows.Where(n => n.Status == status);
+    if (query.Waiting)
+    {
+      var stuck = clock.UtcNow.AddMinutes(-GatewayNotification.StuckMinutes);
+      rows = rows.Where(n => n.Status == GatewayNotificationStatus.Held || (n.Status == GatewayNotificationStatus.Received && n.ReceivedAt < stuck));
+    }
     if (!string.IsNullOrWhiteSpace(query.Search))
     {
       var s = query.Search.Trim();

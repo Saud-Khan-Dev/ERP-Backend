@@ -10,6 +10,9 @@ public sealed record GetMyPayslipsQuery(Guid EmployeeId, int? Year) : IQuery<Res
 
 public sealed record MyLeaveBalanceDto(Guid LeaveTypeId, string? LeaveType, decimal EntitledDays, decimal UsedDays, decimal BalanceDays);
 
+/// The employee's own separation, when one is recorded: why and from when (shown on their portal).
+public sealed record MySeparationDto(SeparationType Type, DateOnly Date, string? OrderNumber);
+
 public sealed record MyOverviewDto(
   Guid EmployeeId,
   string EmployeeNumber,
@@ -20,18 +23,17 @@ public sealed record MyOverviewDto(
   int OverdueTasks,
   int PendingLeaveApplications,
   int PendingRequests,
-  int ReviewsToAcknowledge,
-  int EvaluationsToComplete,
   IReadOnlyList<MyLeaveBalanceDto> LeaveBalances,
   MyPayslipDto? LatestPayslip,
   decimal? GpFundBalance,
   int ActiveLoans,
-  decimal LoanBalance);
+  decimal LoanBalance,
+  MySeparationDto? Separation = null);
 
 /// The employee portal's home page: where they sit, what is waiting for them and their balances.
 public sealed record GetMyOverviewQuery(Guid EmployeeId) : IQuery<Result<MyOverviewDto>>;
 
-public class SelfServiceHandlers(IApplicationDbContext context, HrLookup lookup, IClock clock) :
+public class SelfServiceHandlers(IApplicationDbContext context, HrLookup lookup, IClock clock, LeaveService leave, IAuditTrail audit) :
   IQueryHandler<GetMyPayslipsQuery, Result<GetMyPayslipsQueryResult>>,
   IQueryHandler<GetMyOverviewQuery, Result<MyOverviewDto>>
 {
@@ -51,9 +53,11 @@ public class SelfServiceHandlers(IApplicationDbContext context, HrLookup lookup,
       .Select(t => t.DueDate).ToListAsync(cancellationToken);
     var pendingLeave = await context.LeaveApplications.CountAsync(a => a.EmployeeId == id && a.Status == LeaveStatus.Pending, cancellationToken);
     var pendingRequests = await context.Requests.CountAsync(r => r.EmployeeId == id && r.Status == EmployeeRequestStatus.Pending, cancellationToken);
-    var toAcknowledge = await context.PerformanceReviews.CountAsync(r => r.EmployeeId == id && r.Status == ReviewStatus.Submitted, cancellationToken);
-    var toEvaluate = await context.PerformanceReviews.CountAsync(r => r.EvaluatorId == id && r.Status == ReviewStatus.Draft, cancellationToken);
 
+    // the year's leave is given the first time it is looked at
+    await leave.EnsureEntitledAsync([id], today.Year, cancellationToken);
+    using (audit.Quietly())
+      await context.SaveChangesAsync(cancellationToken);
     var balances = await context.LeaveBalances.AsNoTracking().Where(b => b.EmployeeId == id.Value && b.Year == today.Year).ToListAsync(cancellationToken);
     var types = await context.LeaveTypes.AsNoTracking().ToDictionaryAsync(t => t.Id.Value, t => t.Name, cancellationToken);
 
@@ -67,10 +71,12 @@ public class SelfServiceHandlers(IApplicationDbContext context, HrLookup lookup,
     var latest = (await PayslipsAsync(id, null, 1, cancellationToken)).FirstOrDefault();
 
     return Result<MyOverviewDto>.Success(new(id.Value, employee.EmployeeNumber, employee.DisplayName, employee.EmploymentStatus, placement,
-      tasks.Count, tasks.Count(d => d < today), pendingLeave, pendingRequests, toAcknowledge, toEvaluate,
+      tasks.Count, tasks.Count(d => d < today), pendingLeave, pendingRequests,
       balances.OrderBy(b => types.GetValueOrDefault(b.LeaveTypeId))
         .Select(b => new MyLeaveBalanceDto(b.LeaveTypeId, types.GetValueOrDefault(b.LeaveTypeId), b.EntitledDays, b.UsedDays, b.BalanceDays)).ToList(),
-      latest, fund, loans.Count, loans.Sum()));
+      latest, fund, loans.Count, loans.Sum(),
+      await context.Separations.AsNoTracking().Where(s => s.EmployeeId == id).OrderByDescending(s => s.SeparationDate)
+        .Select(s => new MySeparationDto(s.SeparationType, s.SeparationDate, s.OrderNumber)).FirstOrDefaultAsync(cancellationToken)));
   }
 
   private async Task<List<MyPayslipDto>> PayslipsAsync(EmployeeId employeeId, int? year, int? take, CancellationToken cancellationToken)

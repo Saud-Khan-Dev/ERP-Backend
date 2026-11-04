@@ -13,9 +13,10 @@ public class GetAssetAttachmentContentHandler(IApplicationDbContext context, IFi
     var stream = await storage.OpenReadAsync(attachment.StoragePath, cancellationToken)
       ?? throw new AssetAttachmentNotFoundException($"The file of '{attachment.OriginalFileName}' is missing from storage.");
 
-    if (query.Download && await context.Assets.AsNoTracking().FirstOrDefaultAsync(a => a.Id == assetId, cancellationToken) is { } asset)
+    // a thumbnail writes nothing; a look in the viewer and a copy taken do
+    if (query.Download is { } copied && await context.Assets.AsNoTracking().FirstOrDefaultAsync(a => a.Id == assetId, cancellationToken) is { } asset)
     {
-      audit.Line(AuditActions.Downloaded, AssetAuditKinds.Document, asset, attachment.Id.Value,
+      audit.Line(copied ? AuditActions.Downloaded : AuditActions.Viewed, AssetAuditKinds.Document, asset, attachment.Id.Value,
         recordLabel: string.IsNullOrWhiteSpace(attachment.Title) ? attachment.OriginalFileName : attachment.Title, detail: attachment.OriginalFileName);
       await audit.SaveAsync(cancellationToken);
     }

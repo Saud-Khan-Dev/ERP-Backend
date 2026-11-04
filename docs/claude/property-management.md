@@ -158,11 +158,24 @@ property's records at the same moment…"). `property`, `property_transfer` and 
   details ("Remainder after TRF-…"); a net receiver's free rows are merged into one new row; a receiver's disputed or
   charged row is left as it is. `OwnershipDto.HoldingSince` walks back through the owner's rows that ended where the next
   began (`OwnershipHistory.HoldingSince`).
-- **Add owner / end ownership**: effectiveFrom / effectiveTo not in the future; add refuses an owner who already holds a
-  share and dates before the owner's earlier entries, and is refused while an allotment is in force (the plot gets an owner
-  only by confirming the allottee). Adding needs EDIT only on a property nobody has held yet (entered from the register),
-  otherwise APPROVE. End needs APPROVE and `endReferenceNo` (the order it ends under); it refuses a charged share (row or
-  whole property), a share being given in a waiting transfer, and a share confirmed through an allotment still in force.
+- **First owners** (`POST /properties/{id}/ownerships` `{owners:[…]}`, `PropertyOwnership.RegisterFirstOwners`): only while
+  nobody holds the property and no allotment is in force; all of them together, the rounded shares exactly 100; nobody
+  twice; not in the future. EDIT on a property never held, APPROVE once it was. There is no "end ownership": after the first
+  owners a share moves only by a transfer. `PUT /properties/{id}/first-owners` (APPROVE, a second officer, a reason)
+  corrects who and what share while no transfer, charge or allotment came after them.
+- **People from the old records**: an individual needs a CNIC or an old ID (`OldNic` + number, or `NotRecorded`). Such a
+  person can appear in a history but takes no new share, allotment, lease, rental, contract or bid today
+  (`EnsureCanHoldToday` / `EnsureCanTakeOn`). `DateOfDeath` (not in the future): nothing reaches the person after it, and
+  their share passes only by INHERITANCE or COURT_DECREE (`EnsureDeadGiversPassOn`).
+- **Ownership history** (`OwnershipHistoryEntry`, `Features/OwnershipHistory`): for a property never held, the clerk (EDIT)
+  enters the first owners and each transfer oldest first, dates as well as known (`DatePrecision` Exact / Month / Year /
+  About). It is checked by playing it (`HistoryPlayer`, errors start "Step N:"; the final holders must be able to hold
+  today) and waits; a second officer (APPROVE, the PROPERTY_TRANSFER duty rule against whoever entered or last revised
+  it) registers it (rows + REGISTERED transfers, `FromHistoryEntryId`), rejects it with a reason (the clerk revises it) or
+  the clerk withdraws it. Bell key `history.waiting`. `PUT /transfers/{id}/history` (APPROVE, a second officer) corrects a
+  history transfer's date / precision / kind / deed, kept between its neighbours; the rows it opened and closed
+  (`OpenedByTransferId` / `ClosedByTransferId`) move with it. `GET /properties/{id}/ownership-timeline`: events oldest
+  first (first owners, transfers, confirmed allottees, shares ended), owners numbered #N, papers per transfer.
 - **Allotments** (allot, cancel, restore, surrender, confirm: APPROVE): only GDA_PROPERTY
   (`PropertyAllotment.GdaPropertyClassificationCode`) is allotted, and only land no private holder has a share in (a
   GOVERNMENT owner's share is fine; "PROP-x is held by A (61%)…; only land GDA holds can be allotted"). `TakesEffectOn`
@@ -251,7 +264,7 @@ contacts, addresses and own papers off the OWNER; boundary points are skipped (t
 an encroached polygon writes one "Encroached area boundary" line). Decisions add a verb line (`PropertyAuditActions`:
 Approved, Rejected, Cancelled, Recorded for approval, Allotted, Restored, Confirmed, Terminated, Ended, Released, Enforced,
 Decided, Resolved, Awarded, Imposed, Waived, Sent for recovery, Activated, Deactivated) with the reason / order; opening a
-paper writes "Downloaded". Handlers get the same DbContext instance the trail writes to (`IApplicationDbContext` resolves
+paper in the viewer writes "Viewed" (`/documents/{id}/content?download=false`), taking a copy "Downloaded" (the default). The stored MIME type comes from the file's extension. Handlers get the same DbContext instance the trail writes to (`IApplicationDbContext` resolves
 `ApplicationDbContext`). `GET /properties/{id}/history` and `/owners/{id}/history` (PROPERTY.VIEW; `before`, `from`, `to`,
 `action`, `search`, `pageSize`) answer `{ audit: { data, count }, restrictedCount }`; without PROPERTY_LEGAL.VIEW legal
 kinds and hidden papers are left out. `GET /audit`, `/audit/kinds` (IAM_AUDIT.VIEW), `POST /audit/exports` (PROPERTY.EXPORT,
@@ -287,7 +300,7 @@ or WAIVE). The frontend maps them in
 | Fines | fine-status WAIVED / RECOVERY_AS_ARREARS (PAID needs EDIT; the route accepts either) | `PROPERTY.WAIVE` |
 | Register | `GET /properties` (filters incl. transferPending, allotted, agreementInForce, hasHolder, charged, disputed, measured, hasBoundary; sort incl. holder; paging 1-200), `GET /properties/next-code`, `POST /properties` (can also save owners, boundary and custom fields in one transaction), `/properties/{id}/status`, `/measurements`, `/regularizations`, `/area`, `/attributes` | `PROPERTY.VIEW/CREATE/EDIT` |
 | Owners | `/owners` (search: code, CNIC or its first 5+ digits, NTN, name; `cnic` / `ntn` exact lookup; `hasHoldings`; `role` holder / allottee / lessee / tenant / contractor / bidder / encroacher / litigant / appellant / violator; `sortBy` code / name / type / holdings), contacts, addresses, documents | `PROPERTY.*` |
-| Ownership | `/properties/{id}/ownerships`, `/transfers` (initiate), `/transfers/completed` (past transfer), `/transfers/{id}/approve|reject|complete|cancel`, `/encumbrances/*` | approve, reject, complete and the past-transfer record need `PROPERTY.APPROVE`; cancel needs `PROPERTY_LEGAL.EDIT` (+ APPROVE for a legacy APPROVED one); disputes `PROPERTY_LEGAL.EDIT` |
+| Ownership | `/properties/{id}/ownerships` (first owners), `/properties/{id}/first-owners` (correct), `/properties/{id}/ownership-history`, `/ownership-history/{id}` + `/register|reject|withdraw`, `/properties/{id}/ownership-timeline`, `/transfers/{id}/history`, `/transfers` (initiate), `/transfers/completed` (past transfer), `/transfers/{id}/approve|reject|complete|cancel`, `/encumbrances/*` | approve, reject, complete and the past-transfer record need `PROPERTY.APPROVE`; cancel needs `PROPERTY_LEGAL.EDIT` (+ APPROVE for a legacy APPROVED one); disputes `PROPERTY_LEGAL.EDIT` |
 | Management | `/properties/{id}/allotments|leases|rentals|violations|auctions|outsourcing-contracts` + action routes (`/leases/{id}/renew`, `/violations/{id}/fine` …) | official orders need `PROPERTY.APPROVE` |
 | Compliance | `/properties/{id}/boundaries|encroachments|litigations|appeals|building-plans` + action routes | official orders need `PROPERTY.APPROVE` |
 | Documents | `/properties/{id}/documents` (PROPERTY kinds), `/owners/{id}/documents` (OWNER kinds, no `propertyId`), `/documents/{id}` (details, re-type within scope), `/documents/{id}/versions|content|activate|deactivate` | `PROPERTY.*` |

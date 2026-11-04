@@ -1,9 +1,15 @@
-public class UploadDocumentHandler(IApplicationDbContext context, MasterLookup masters, DocumentService documents)
+using Microsoft.EntityFrameworkCore;
+
+public class UploadDocumentHandler(IApplicationDbContext context, MasterLookup masters, DocumentService documents, ICurrentUser currentUser)
   : ICommandHandler<UploadDocumentCommand, Result<UploadDocumentCommandResult>>
 {
   public async Task<Result<UploadDocumentCommandResult>> Handle(UploadDocumentCommand command, CancellationToken cancellationToken)
   {
     var documentType = await masters.GetAsync<DocumentType>(command.DocumentTypeId, cancellationToken);
+
+    // whoever may register owners (PROPERTY.CREATE) may also file a new owner's first CNIC copy, in one sitting
+    if (command.OwnerId is { } paperOwner && !currentUser.HasPermission(PermissionCatalog.Property.Edit))
+      await EnsureFirstCnicCopyAsync(OwnerId.Of(paperOwner), documentType, cancellationToken);
 
     // every check (owner active, record on this property, document type scope) runs before the file is stored
     var target = command.OwnerId is { } ownerId
@@ -17,5 +23,19 @@ public class UploadDocumentHandler(IApplicationDbContext context, MasterLookup m
 
     await context.SaveChangesAsync(cancellationToken);
     return Result<UploadDocumentCommandResult>.Success(new UploadDocumentCommandResult(document.Id.Value, document.VersionNo));
+  }
+
+  /// Without PROPERTY.EDIT: only a CNIC copy, and only for an owner with none on file yet.
+  private async Task EnsureFirstCnicCopyAsync(OwnerId ownerId, DocumentType documentType, CancellationToken cancellationToken)
+  {
+    if (!documentType.Is(SystemMasterCodes.DocumentCnicCopy))
+      throw new PermissionRequiredException($"Filing an owner's {documentType.Name.Value} needs Property: edit.");
+
+    var owner = await context.Owners.AsNoTracking().Where(o => o.Id == ownerId)
+        .Select(o => new { Name = o.OwnerName.Value, o.CnicDocumentId }).FirstOrDefaultAsync(cancellationToken)
+      ?? throw new OwnerNotFoundException($"Owner {ownerId.Value} was not found.");
+
+    if (owner.CnicDocumentId is not null)
+      throw new PermissionRequiredException($"{owner.Name} already has a CNIC copy on file; replacing it needs Property: edit.");
   }
 }

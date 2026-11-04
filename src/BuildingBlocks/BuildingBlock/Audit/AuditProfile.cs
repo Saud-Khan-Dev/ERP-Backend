@@ -122,7 +122,7 @@ public sealed class AuditEntityConfig<T> : IAuditEntityConfig where T : class
   private string? _kind;
   private Func<T, string?>? _code;
   private Func<T, string?>? _label;
-  private (Type Type, Func<T, object?> Key)? _parent;
+  private Func<T, (Type Type, object? Key)>? _parent;
   private readonly Dictionary<string, string> _fields = new(StringComparer.Ordinal);
   private readonly HashSet<string> _ignored = new(StringComparer.Ordinal);
 
@@ -136,7 +136,10 @@ public sealed class AuditEntityConfig<T> : IAuditEntityConfig where T : class
   public AuditEntityConfig<T> Label(Func<T, string?> label) { _label = label; return this; }
 
   /// The record this one hangs off (by its key on this record): the parent's history lists this record's changes.
-  public AuditEntityConfig<T> Under<TParent>(Func<T, object?> parentKey) where TParent : class { _parent = (typeof(TParent), parentKey); return this; }
+  public AuditEntityConfig<T> Under<TParent>(Func<T, object?> parentKey) where TParent : class { _parent = x => (typeof(TParent), parentKey(x)); return this; }
+
+  /// A record that hangs off one of two kinds (a paper filed on a property or on an owner): its parent's type with the key.
+  public AuditEntityConfig<T> Under(Func<T, (Type Type, object? Key)> parent) { _parent = parent; return this; }
 
   /// A field's words ("EndDate" → "Lease end date").
   public AuditEntityConfig<T> Field(string property, string label) { _fields[property] = label; return this; }
@@ -149,7 +152,7 @@ public sealed class AuditEntityConfig<T> : IAuditEntityConfig where T : class
   ISet<string> IAuditEntityConfig.Ignored => _ignored;
   string? IAuditEntityConfig.CodeOf(object entity) => _code?.Invoke((T)entity);
   string? IAuditEntityConfig.LabelOf(object entity) => _label?.Invoke((T)entity);
-  (Type Type, object? Key)? IAuditEntityConfig.ParentOf(object entity) => _parent is { } p ? (p.Type, p.Key((T)entity)) : null;
+  (Type Type, object? Key)? IAuditEntityConfig.ParentOf(object entity) => _parent?.Invoke((T)entity);
 }
 
 /// Values as a person reads them.

@@ -92,8 +92,6 @@ public enum HrActionType
 
 public enum HrActionStatus { Draft, Pending, Approved, Rejected, Cancelled, Applied }
 
-/// Countersigned: the countersigning officer has added remarks (and may have changed the grading) after the reporting officer.
-public enum ReviewStatus { Draft, Submitted, Acknowledged, Finalized, Countersigned }
 
 public enum AttendanceStatus { Present, Absent, Late, HalfDay, OnLeave, OfficialDuty, Holiday, Weekend }
 

@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 /// it (the permission in brackets) and counts records on active properties; a zero means "checked, nothing waits".
 ///
 ///   transfers.pending       [APPROVE] transfers waiting for approval (INITIATED); oldest = when the first was started
+///   history.waiting         [APPROVE] ownership histories from the old records waiting for a second officer
 ///   transfers.unregistered  [APPROVE] transfers approved before approval registered them (legacy APPROVED); "Register now"
 ///   agreements.ending       [EDIT]    leases, rentals, contracts and allotments in force that end within 60 days; nextDue
 ///   agreements.overdue      [EDIT]    the same, in force although their end date has passed; oldest = the earliest end
@@ -42,6 +43,10 @@ public class GetAttentionHandler(IApplicationDbContext context, ICurrentUser cur
       var unregistered = context.Transfers.AsNoTracking().Where(t => active.Contains(t.PropertyId) && t.TransferStatus == TransferStatus.Approved);
       items.Add(new AttentionItemDto("transfers.unregistered", await unregistered.CountAsync(cancellationToken),
         Day(await unregistered.MinAsync(t => (DateOnly?)(t.ApprovalDate ?? t.TransferDate), cancellationToken))));
+
+      var histories = context.HistoryEntries.AsNoTracking().Where(h => active.Contains(h.PropertyId) && h.Status == HistoryEntryStatus.Waiting);
+      items.Add(new AttentionItemDto("history.waiting", await histories.CountAsync(cancellationToken),
+        Instant(await histories.MinAsync(h => h.CreatedAt, cancellationToken))));
     }
 
     if (canEdit)

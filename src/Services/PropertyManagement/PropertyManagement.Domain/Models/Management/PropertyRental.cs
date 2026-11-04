@@ -47,7 +47,7 @@ public class PropertyRental : Aggregate<RentalId>
     ArgumentNullException.ThrowIfNull(rentalNo);
     ArgumentNullException.ThrowIfNull(initialStatus);
     property.EnsureActive();
-    tenant.EnsureActive();
+    tenant.EnsureCanTakeOn("a tenancy");
 
     if (!initialStatus.Is(SystemMasterCodes.Draft) && !initialStatus.Is(SystemMasterCodes.Active))
       throw new DomainException("A new rental starts as a draft or active.");
@@ -113,7 +113,7 @@ public class PropertyRental : Aggregate<RentalId>
       throw new DomainException($"Rental {RentalNo.Value} is {currentStatus.Name.Value.ToLowerInvariant()}; only an active or expired rental can be renewed.");
     endedStatus.EnsureIs(SystemMasterCodes.Ended);
     activeStatus.EnsureIs(SystemMasterCodes.Active);
-    tenant.EnsureActive();
+    tenant.EnsureCanTakeOn("a tenancy");
 
     ArgumentNullException.ThrowIfNull(newTerms);
 

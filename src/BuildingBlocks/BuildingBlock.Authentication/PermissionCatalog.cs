@@ -149,7 +149,7 @@ public static class PermissionCatalog
     public const string Create = "PROPERTY.CREATE";
     public const string Edit = "PROPERTY.EDIT";
     public const string Delete = "PROPERTY.DELETE";
-    /// Approve and complete a transfer (the step that changes ownership), allot, confirm an allottee, end a share.
+    /// Approve and complete a transfer (the step that changes ownership), allot, confirm an allottee, enter the owners of a property that was held before.
     public const string Approve = "PROPERTY.APPROVE";
     /// Download the property register or a report.
     public const string Export = "PROPERTY.EXPORT";
@@ -236,7 +236,7 @@ public static class PermissionCatalog
   }
 
   /// Employees and everything on their file: personal details, documents, education, posts held, service history,
-  /// HR actions, separations, performance reviews, tasks and requests.
+  /// HR actions, separations, tasks and requests.
   public static class Hr
   {
     public const string View = "HR.VIEW";
