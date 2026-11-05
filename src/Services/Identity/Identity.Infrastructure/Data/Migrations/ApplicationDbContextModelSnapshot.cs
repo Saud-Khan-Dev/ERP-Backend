@@ -901,6 +901,10 @@ namespace Identity.Infrastructure.Data.Migrations
                         .HasDefaultValue(false)
                         .HasColumnName("must_change_password");
 
+                    b.Property<Guid?>("OwnerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("owner_id");
+
                     b.Property<DateTime?>("PasswordChangedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("password_changed_at");
@@ -953,6 +957,11 @@ namespace Identity.Infrastructure.Data.Migrations
 
                     b.HasIndex("IsActive")
                         .HasDatabaseName("ix_users_is_active");
+
+                    b.HasIndex("OwnerId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_users_owner_id")
+                        .HasFilter("owner_id IS NOT NULL");
 
                     b.HasIndex("Username")
                         .IsUnique()

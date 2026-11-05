@@ -15,6 +15,9 @@ public enum ActivityAction
   /// The account was linked to (or unlinked from) the person's HR record.
   EmployeeLinked,
   EmployeeUnlinked,
+  /// The account was linked to (or unlinked from) the person's owner record in Property (a taxpayer's account).
+  OwnerLinked,
+  OwnerUnlinked,
   UserRestored,
 
   // ---- access ----

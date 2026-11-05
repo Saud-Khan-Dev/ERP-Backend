@@ -17,6 +17,10 @@ public class User : Aggregate<UserId>
   /// owned the numbering: shown as "not linked" until the account is linked.
   public EmployeeCode? EmployeeCode { get; private set; }
 
+  /// Reference to the person's owner record in Property, for a taxpayer's account: they see the properties they hold and
+  /// the taxes on them (Taxation /my). No FK: Property owns that table.
+  public Guid? OwnerId { get; private set; }
+
   /// Display name shown in admin screens and audit trails, so listing users does not require a
   /// cross-service call for every row.
   public Name DisplayName { get; private set; } = default!;
@@ -114,6 +118,18 @@ public class User : Aggregate<UserId>
 
     EmployeeId = employeeId;
     EmployeeCode = employeeId is null ? null : employeeCode;
+    AccessChanged();
+  }
+
+  /// Links the account to the person's owner record in Property (a taxpayer), or unlinks it (null).
+  public void LinkOwner(Guid? ownerId)
+  {
+    EnsureNotDeleted();
+
+    if (ownerId == Guid.Empty)
+      throw new DomainException("Choose the person's owner record.");
+
+    OwnerId = ownerId;
     AccessChanged();
   }
 

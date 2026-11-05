@@ -1,3 +1,4 @@
+using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -25,6 +26,31 @@ public sealed class TestGateway : IPaymentGateway
     lock (_answers)
       return Task.FromResult(_answers[message.Body]);
   }
+}
+
+/// The caller of a test: a taxpayer (an owner id, as the `own` claim carries it) inside `PaymentDatabase.AsTaxpayer`,
+/// otherwise nobody (a background job's view). Held per async flow, so tests running at once do not mix.
+public sealed class TestUser : ICurrentUser
+{
+  public static readonly AsyncLocal<Guid?> Owner = new();
+
+  public bool IsAuthenticated => Owner.Value is not null;
+  public Guid? UserId => null;
+  public string? Username => null;
+  public string? DisplayName => null;
+  public string? Email => null;
+  public Guid? EmployeeId => null;
+  public Guid? OwnerId => Owner.Value;
+  public IReadOnlyCollection<string> Permissions => [];
+  public IReadOnlyCollection<string> Roles => [];
+  public Guid? SessionId => null;
+  public long? AccessStamp => null;
+  public IReadOnlySet<Guid>? TownScope => null;
+  public IReadOnlySet<Guid>? OfficeScope => null;
+  public bool IsSuperAdmin => false;
+  public bool IsAuthorizedOfficer => false;
+  public bool HasPermission(string permissionCode) => false;
+  public string AuditName => "Test";
 }
 
 /// The real handlers, EF mapping, migrations, seed and audit trail over a throwaway database. TAX_TEST_DB names it, and the
@@ -59,6 +85,7 @@ public sealed class PaymentDatabase : IAsyncLifetime
     services.AddInfrastructureServices(configuration);
     services.AddErpAuthentication(configuration);
     services.AddScoped<IPaymentGateway>(_ => Gateway);
+    services.AddScoped<ICurrentUser, TestUser>();
     _services = services.BuildServiceProvider();
 
     await InScopeAsync(async sp =>
@@ -96,8 +123,23 @@ public sealed class PaymentDatabase : IAsyncLifetime
     return await sp.GetRequiredService<Ledger>().DuesAsync(await context.LoadTaxFileByPsidAsync(psid, default), default);
   });
 
-  /// A property owing `dues` from the old register, with its own reference. Returns the reference.
-  public Task<string> FileOwingAsync(decimal dues) => InScopeAsync(async sp =>
+  /// Runs `work` signed in as the taxpayer whose Property owner record is `owner`.
+  public async Task<T> AsTaxpayer<T>(Guid owner, Func<ISender, Task<T>> work)
+  {
+    TestUser.Owner.Value = owner;
+    try
+    {
+      return await InScopeAsync(sp => work(sp.GetRequiredService<ISender>()));
+    }
+    finally
+    {
+      TestUser.Owner.Value = null;
+    }
+  }
+
+  /// A property owing `dues` from the old register, with its own reference (and, given, the Property owner who pays on
+  /// it). Returns the reference.
+  public Task<string> FileOwingAsync(decimal dues, Guid? owner = null) => InScopeAsync(async sp =>
   {
     var context = sp.GetRequiredService<IApplicationDbContext>();
     var number = Interlocked.Increment(ref _next);
@@ -106,7 +148,7 @@ public sealed class PaymentDatabase : IAsyncLifetime
     var snapshot = new PropertySnapshot(Guid.NewGuid(), $"PROP-{number}", "Test property", true, town, "NATHIAGALI", "Nathiagali", Guid.NewGuid(), "RESIDENTIAL", "OCCUPIED",
       "PRIVATE_PROPERTY", "Mall Road, Nathiagali", 3600, 400, "SQYD", null, 2500, CoveredAreaSource.ApprovedPlan, Guid.NewGuid(), Guid.NewGuid(), null, null, null,
       HoldingKind.PrivateRegistered,
-      [new PayerSnapshot(Guid.NewGuid(), "OWN-00001", PayerRole.Owner, PayerSource.Ownership, Guid.NewGuid(), 100, "Asif Jadoon", null, "35202-1234567-1", "0300-1234567",
+      [new PayerSnapshot(owner ?? Guid.NewGuid(), "OWN-00001", PayerRole.Owner, PayerSource.Ownership, Guid.NewGuid(), 100, "Asif Jadoon", null, "35202-1234567-1", "0300-1234567",
         "Chairlift Road, Nathiagali", new DateOnly(2020, 1, 1))],
       [], "v1");
     var file = TaxFile.Open(TaxFileId.New(), $"GDA-TEST-{number}", psid, snapshot, _circle, TaxCategory.Res,

@@ -93,7 +93,8 @@ public static class UserFilters
     UserStatusFilter.Locked => users.Where(u => u.LockedUntil != null && u.LockedUntil > now),
     UserStatusFilter.TemporaryPassword => users.Where(u => u.IsActive && u.MustChangePassword),
     UserStatusFilter.NeverSignedIn => users.Where(u => u.IsActive && u.LastLoginAt == null),
-    UserStatusFilter.NoAccess => users.Where(u => u.IsActive && !WithAccess(context, now).Contains(u.Id)),
+    // a taxpayer's account opens only their own records (Taxation /my): no roles is what it should have
+    UserStatusFilter.NoAccess => users.Where(u => u.IsActive && u.OwnerId == null && !WithAccess(context, now).Contains(u.Id)),
     UserStatusFilter.Deactivated => users.Where(u => !u.IsActive && u.DeletedAt == null),
     UserStatusFilter.Deleted => users.Where(u => u.DeletedAt != null),
     UserStatusFilter.RoleEnding => users.Where(u => context.UserRoles.Any(ur => ur.UserId == u.Id && ur.RevokedAt == null

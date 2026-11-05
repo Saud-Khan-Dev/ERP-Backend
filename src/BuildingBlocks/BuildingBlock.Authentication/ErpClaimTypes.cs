@@ -13,6 +13,9 @@ public static class ErpClaimTypes
   /// Optional HRM employee reference; absent when the account is not linked to an employee.
   public const string EmployeeId = "emp";
 
+  /// Optional Property owner reference: the account of a taxpayer, who sees their own properties and taxes (Taxation /my).
+  public const string OwnerId = "own";
+
   /// One claim per effective permission code, e.g. "ASSETS.CREATE".
   public const string Permission = "perm";
 
