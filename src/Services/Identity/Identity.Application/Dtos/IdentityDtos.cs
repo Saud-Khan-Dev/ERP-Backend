@@ -27,7 +27,9 @@ public sealed record UserDto(
   /// Deleted accounts are read only to show them (and restore them).
   bool IsDeleted,
   DateTime? DeletedAt,
-  string? DeletedBy);
+  string? DeletedBy,
+  /// The owner record in Property, for a taxpayer's account.
+  Guid? OwnerId = null);
 
 public sealed record UserListItemDto(
   Guid Id,
@@ -47,7 +49,9 @@ public sealed record UserListItemDto(
   /// A live grant of a switched-on role or a live Allow exception - false means the account can open nothing.
   bool HasAccess,
   DateTime? CreatedAt,
-  bool IsDeleted);
+  bool IsDeleted,
+  /// The owner record in Property, for a taxpayer's account.
+  Guid? OwnerId = null);
 
 public sealed record RoleDto(
   Guid Id,
@@ -136,7 +140,9 @@ public sealed record CurrentUserDto(
   IReadOnlyList<string> Roles,
   IReadOnlyList<string> Permissions,
   /// The names of the roles in `Roles`, in the same order - what a screen shows.
-  IReadOnlyList<string> RoleNames);
+  IReadOnlyList<string> RoleNames,
+  /// Set for a taxpayer's account: the person's owner record in Property; the taxpayer portal reads Taxation's /my.
+  Guid? OwnerId = null);
 
 public sealed record SecuritySettingsDto(
   int PasswordMinimumLength,
@@ -172,11 +178,11 @@ public static class IdentityMappings
     x.Id.Value, x.Username.Value, x.Email.Value, x.DisplayName.Value, x.EmployeeId, x.EmployeeCode?.Value, x.IsActive, x.IsAuthorizedOfficer,
     x.MustChangePassword, x.IsLockedOut(now), x.LockedUntil, x.FailedLoginAttempts,
     x.LastLoginAt, x.LastLoginIp?.Value, x.PasswordChangedAt, x.EmailVerifiedAt, x.CreatedAt, x.CreatedBy,
-    x.IsDeleted, x.DeletedAt, x.DeletedBy);
+    x.IsDeleted, x.DeletedAt, x.DeletedBy, x.OwnerId);
 
   public static UserListItemDto ToListItemDto(this User x, DateTime now, IReadOnlyList<string> roles, IReadOnlyList<string> roleNames, bool hasAccess) => new(
     x.Id.Value, x.Username.Value, x.Email.Value, x.DisplayName.Value, x.EmployeeCode?.Value, x.IsActive, x.IsLockedOut(now),
-    x.LastLoginAt, roles, roleNames, x.EmployeeId, x.MustChangePassword, x.IsAuthorizedOfficer, hasAccess, x.CreatedAt, x.IsDeleted);
+    x.LastLoginAt, roles, roleNames, x.EmployeeId, x.MustChangePassword, x.IsAuthorizedOfficer, hasAccess, x.CreatedAt, x.IsDeleted, x.OwnerId);
 
   public static RoleDto ToDto(this Role x, int permissionCount, int holderCount = 0) => new(
     x.Id.Value, x.Code.Value, x.RoleName.Value, x.Description, x.IsSystem, x.IsActive, permissionCount, holderCount);
@@ -212,6 +218,7 @@ public static class IdentityMappings
       x.Id.Value, x.Username.Value, x.Email.Value, x.DisplayName.Value, x.EmployeeId, x.EmployeeCode?.Value, x.IsAuthorizedOfficer, x.MustChangePassword,
       roles,
       resolved.PermissionCodes.OrderBy(p => p, StringComparer.Ordinal).ToList(),
-      roles.Select(code => roleNames?.GetValueOrDefault(code) ?? code).ToList());
+      roles.Select(code => roleNames?.GetValueOrDefault(code) ?? code).ToList(),
+      x.OwnerId);
   }
 }

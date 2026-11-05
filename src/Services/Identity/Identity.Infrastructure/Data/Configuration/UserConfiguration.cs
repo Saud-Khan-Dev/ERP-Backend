@@ -41,6 +41,7 @@ public class UserConfiguration : EntityConfiguration<User, UserId>
       .IsRequired();
 
     builder.Property(x => x.EmployeeId).IsRequired(false);
+    builder.Property(x => x.OwnerId).IsRequired(false);
 
     builder.Property(x => x.EmployeeCode)
       .HasConversion(c => c!.Value, dbValue => EmployeeCode.Of(dbValue))
@@ -83,6 +84,8 @@ public class UserConfiguration : EntityConfiguration<User, UserId>
     builder.HasIndex(x => x.Username).IsUnique().HasFilter("deleted_at IS NULL");
     builder.HasIndex(x => x.Email).IsUnique().HasFilter("deleted_at IS NULL");
     builder.HasIndex(x => x.EmployeeId).IsUnique().HasFilter("employee_id IS NOT NULL");
+    // one account per taxpayer
+    builder.HasIndex(x => x.OwnerId).IsUnique().HasFilter("owner_id IS NOT NULL");
     // HR's number is unique among linked accounts in use; an older code Identity issued (unlinked) may repeat one of them.
     builder.HasIndex(x => x.EmployeeCode).IsUnique().HasFilter("employee_code IS NOT NULL AND employee_id IS NOT NULL AND deleted_at IS NULL");
     builder.HasIndex(x => x.IsActive);

@@ -25,6 +25,10 @@ All ids are Guid-backed strongly typed ids; `.Of(guid)` rejects `Guid.Empty`.
     with it by `LinkEmployee` (`PUT /users/{id}/employee-link`); unique among linked accounts. Identity issues no codes
     (the template was removed 2026-10-20, migration `UserSearchLockoutWindowHrNumbers`); an older code on an unlinked
     account is shown as "old" and cleared when the account is unlinked.
+  - `OwnerId`: a **taxpayer's** account - the person's owner record in Property, no FK. Set by `LinkOwner`
+    (`PUT /users/{id}/owner-link`, or `ownerId` on `POST /users`); unique among linked accounts (migration
+    `TaxpayerOwnerLink`). A taxpayer needs no roles: Taxation's `/my` shows them their own records, so such an account is
+    left out of the "no access" list and bell count. One account may be both an employee's and a taxpayer's.
   - Generated column `search_text` (lower username, email, code, name) behind the Users search.
   - **`IsAuthorizedOfficer`**: the DG's designation under GDA Act s.2(a-i)/28/30. It is a designation, not a
     role, and can't be set on an inactive account.
@@ -81,6 +85,7 @@ All ids are Guid-backed strongly typed ids; `.Of(guid)` rejects `Guid.Empty`.
   - **`ast`**: the account's access stamp (see "Token freshness")
   - **`stn`** / **`sof`**: one claim per town / HRM office the person works on (data scope); none = everywhere
   - `emp`, only if linked to an employee
+  - `own`, only if linked to a Property owner (a taxpayer's account; Taxation's `/my`)
   - **`pwd`** = `"change"` while the account holds a temporary password: such a token carries NO `perm` and NO `role`
     claims, so it opens only the caller's own `/auth/*` routes (`RequireSignedIn` refuses it too)
   - **`ao`** = `"true"`, only for authorized officers
@@ -178,7 +183,7 @@ All ids are Guid-backed strongly typed ids; `.Of(guid)` rejects `Guid.Empty`.
 | `GET /directory/users?ids=|search=` (names only), `GET /attention` (`users.locked`, `users.temporary-password`, `users.no-access`, `roles.ending`, `signins.failed` - each only for who may act) | any signed-in person (`RequireSignedIn`) |
 | `POST /users` (roles need `IAM_USERS.ASSIGN` too) | `IAM_USERS.CREATE` |
 | `GET /users` (search part of name/username/email/code; `status` = active, locked, temporary-password, never-signed-in, no-access, role-ending, deactivated, deleted; `roleId` = holds it now; `sort` = name, username, lastSignIn, registered; `direction`; pages ≤ 200), `GET /users/summary`, `GET /users/{id}?includeDeleted=` | `IAM_USERS.VIEW` |
-| `PUT /users/{id}` (name and email), `PUT /users/{id}/employee-link` | `IAM_USERS.EDIT` |
+| `PUT /users/{id}` (name and email), `PUT /users/{id}/employee-link`, `PUT /users/{id}/owner-link` (`{ ownerId }`, null unlinks; not your own account; `OwnerLinked` / `OwnerUnlinked` lines) | `IAM_USERS.EDIT` |
 | `POST /users/{id}/reset-password` | `IAM_USERS.RESET` |
 | `POST /users/{id}/activate|deactivate|unlock` | `IAM_USERS.DISABLE` |
 | `DELETE /users/{id}` (soft), `POST /users/{id}/restore` | `IAM_USERS.DELETE` |

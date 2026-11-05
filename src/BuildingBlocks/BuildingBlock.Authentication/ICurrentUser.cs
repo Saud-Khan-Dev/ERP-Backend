@@ -20,6 +20,9 @@ public interface ICurrentUser
   /// HRM employee reference, when the account is linked to one.
   Guid? EmployeeId { get; }
 
+  /// Property owner reference, when the account is a taxpayer's (linked to their owner record).
+  Guid? OwnerId { get; }
+
   /// Effective permission codes carried by the token.
   IReadOnlyCollection<string> Permissions { get; }
 

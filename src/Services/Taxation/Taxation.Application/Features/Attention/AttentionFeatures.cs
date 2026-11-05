@@ -4,7 +4,7 @@ using Microsoft.EntityFrameworkCore;
 /// caller may act on, each with an exact count (zero = checked, nothing waits). Keys are listed in docs/claude/taxation.md.
 public sealed record GetAttentionQuery : IQuery<Result<AttentionResponse>>;
 
-public class AttentionHandlers(IApplicationDbContext context, TaxSetup setup, DueNotices dueNotices, ICurrentUser currentUser, IClock clock) :
+public class AttentionHandlers(IApplicationDbContext context, TaxSetup setup, DueNotices dueNotices, Ledger ledger, ICurrentUser currentUser, IClock clock) :
   IQueryHandler<GetAttentionQuery, Result<AttentionResponse>>
 {
   public async Task<Result<AttentionResponse>> Handle(GetAttentionQuery query, CancellationToken cancellationToken)
@@ -15,6 +15,21 @@ public class AttentionHandlers(IApplicationDbContext context, TaxSetup setup, Du
     bool Can(string permission) => currentUser.HasPermission(permission);
     static DateTimeOffset? At(DateTime? utc) => utc is { } t ? new DateTimeOffset(DateTime.SpecifyKind(t, DateTimeKind.Utc)) : null;
     static DateTimeOffset? Day(DateOnly? day) => day is { } d ? new DateTimeOffset(d.ToDateTime(TimeOnly.MinValue), TimeSpan.FromHours(5)) : null;
+
+    // ---- the taxpayer's own (an account linked to a Property owner) ----
+    if (currentUser.OwnerId is { } owner)
+    {
+      var mine = context.MyFileIds(owner, today);
+      var due = 0;
+      foreach (var id in await mine.ToListAsync(cancellationToken))
+        if (await ledger.DuesAsync(await context.LoadTaxFileAsync(id.Value, cancellationToken), cancellationToken) > 0)
+          due++;
+      items.Add(new("my.taxDue", due, ForMe: true));
+      var since = today.AddDays(-30);
+      var recent = await context.Notices.AsNoTracking().Where(n => mine.Contains(n.TaxFileId) && n.Status == NoticeStatus.Issued && n.IssueDate >= since).GroupBy(n => 1)
+        .Select(g => new { Count = g.Count(), Latest = g.Max(n => n.IssueDate) }).FirstOrDefaultAsync(cancellationToken);
+      items.Add(new("my.notices", recent?.Count ?? 0, Day(recent?.Latest), ForMe: true));
+    }
 
     // ---- demand runs ----
     if (Can(PermissionCatalog.Tax.Approve) || Can(PermissionCatalog.Tax.Create))

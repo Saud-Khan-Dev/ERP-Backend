@@ -38,6 +38,9 @@ public class CreateUserHandler(
       if (holder is not null)
         return Result<CreateUserCommandResult>.Failure($"This person already has an account ({holder}).");
     }
+    if (input.OwnerId is { } ownerId && await context.Users.IgnoreQueryFilters().AsNoTracking().Where(u => u.OwnerId == ownerId)
+          .Select(u => u.Username.Value).FirstOrDefaultAsync(cancellationToken) is { } ownerHolder)
+      return Result<CreateUserCommandResult>.Failure($"This owner already has an account ({ownerHolder}).");
     var employeeCode = input.EmployeeId is null || string.IsNullOrWhiteSpace(input.EmployeeCode) ? null : EmployeeCode.Of(input.EmployeeCode);
 
     // roles are resolved and authorized before anything is written
@@ -72,6 +75,8 @@ public class CreateUserHandler(
       mustChangePassword: true,
       now: now);
 
+    if (input.OwnerId is not null)
+      user.LinkOwner(input.OwnerId);
     await context.Users.AddAsync(user, cancellationToken);
 
     foreach (var role in roles)
@@ -80,6 +85,9 @@ public class CreateUserHandler(
 
     await activity.RecordAsync(ActivityAction.UserCreated, ActivityTargetType.User, user.Id.Value, user.DisplayName.Value,
       roles.Count == 0 ? null : string.Join(", ", roles.Select(r => r.RoleName.Value)), cancellationToken);
+    if (user.OwnerId is { } linkedOwner)
+      await activity.RecordAsync(ActivityAction.OwnerLinked, ActivityTargetType.User, user.Id.Value, user.DisplayName.Value,
+        $"Property owner {linkedOwner}", cancellationToken);
     await ConflictCheck.EnsureAcceptedAsync(activity, roleCodes, input.ConflictReason, ActivityTargetType.User, user.Id.Value, user.DisplayName.Value, cancellationToken);
 
     await context.SaveChangesAsync(cancellationToken);

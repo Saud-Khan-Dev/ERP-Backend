@@ -48,6 +48,9 @@ public sealed class JwtTokenService(IOptions<JwtOptions> options) : ITokenServic
     if (user.EmployeeId is { } employeeId)
       claims.Add(new Claim(ErpClaimTypes.EmployeeId, employeeId.ToString()));
 
+    if (user.OwnerId is { } ownerId)
+      claims.Add(new Claim(ErpClaimTypes.OwnerId, ownerId.ToString()));
+
     if (user.IsAuthorizedOfficer)
       claims.Add(new Claim(ErpClaimTypes.AuthorizedOfficer, "true"));
 

@@ -18,7 +18,9 @@ public sealed record CreateUserInput(
   /// Ignored (Identity no longer issues employee codes).
   bool AutoGenerateEmployeeCode = false,
   /// Why the person may hold two duties that should be kept apart (needed only when the roles put such a pair together).
-  string? ConflictReason = null);
+  string? ConflictReason = null,
+  /// A taxpayer's account: the person's owner record in Property. A taxpayer needs no roles; they see their own records.
+  Guid? OwnerId = null);
 
 /// GeneratedPassword is populated only when the server generated it — it is shown to the
 /// administrator once and never stored in plaintext or retrievable again.
@@ -37,6 +39,7 @@ public class CreateUserInputValidator : AbstractValidator<CreateUserInput>
     RuleFor(x => x.EmployeeCode).MaximumLength(EmployeeCode.MaxLength);
     RuleFor(x => x.EmployeeCode).NotEmpty().When(x => x.EmployeeId is not null)
       .WithMessage("The HR employee number is missing - choose the person again.");
+    RuleFor(x => x.OwnerId).Must(id => id != Guid.Empty).WithMessage("Choose the person's owner record.");
     RuleFor(x => x.EmployeeId).Must(id => id != Guid.Empty).WithMessage("Choose the person's HR record.");
   }
 }

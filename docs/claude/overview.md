@@ -155,7 +155,8 @@ Each service filters its records by the person's scope (Property and Taxation by
 sub-units), blocks maker-checker violations through `IDutyRules`, and writes its audit trail (`audit_entry`), which
 Administration › Activity reads from every service at once. Taxation calls Property with the caller's own token, so its
 users need `PROPERTY.VIEW` too; Taxation and Assets read HRM's staff directory (`/directory/*`). A token for an account
-linked to an HRM employee also carries `emp`, which HRM's self-service (`/me`) uses. Every service answers
+linked to an HRM employee also carries `emp`, which HRM's self-service (`/me`) uses; a taxpayer's account (linked to a
+Property owner) carries `own`, which Taxation's taxpayer portal (`/my`) uses. Every service answers
 `GET /attention` (BuildingBlock `AttentionItemDto`): exact counts of what waits for the caller, for the notification bell.
 
 ## Team workflow

@@ -251,6 +251,23 @@ public class UserEndpoints : ICarterModule
       .WithSummary("Link Account To HR Record")
       .WithDescription("Links the account to the person's HR record (employeeId from HRM's staff directory) and shows HR's employee number (employeeCode) as the account's code; both null unlink it. One HR record has one account. HRM keeps its own side (POST /employees/{id}/user); the token's emp claim follows on the person's next sign-in or refresh.");
 
+    app.MapPut("/users/{id}/owner-link", async (Guid id, OwnerLinkRequest request, ISender sender) =>
+    {
+      var result = await sender.Send(new LinkOwnerCommand(id, request.OwnerId));
+
+      if (!result.IsSuccess)
+        return Results.BadRequest(new { Message = result.Message });
+
+      return Results.Ok(new OwnerLinkResponse(result.Value!.OwnerId));
+    })
+      .RequirePermission(PermissionCatalog.Users.Edit)
+      .WithName("LinkUserToOwner")
+      .Produces<OwnerLinkResponse>(StatusCodes.Status200OK)
+      .ProducesProblem(StatusCodes.Status400BadRequest)
+      .ProducesProblem(StatusCodes.Status404NotFound)
+      .WithSummary("Link Account To Taxpayer")
+      .WithDescription("Makes the account a taxpayer's: ownerId is the person's owner record in Property (null unlinks it). One owner has one account. The person then sees their own properties and taxes in Taxation's /my, and needs no roles. The token's own claim follows at once (the person's tokens are re-issued).");
+
     app.MapPost("/users/{id}/restore", async (Guid id, ISender sender) =>
     {
       var result = await sender.Send(new RestoreUserCommand(id));
@@ -340,6 +357,8 @@ public sealed record AssignRoleRequest(Guid RoleId, DateTime? ExpiresAt = null);
 public sealed record SetUserRolesRequest(IReadOnlyList<RoleGrantInput>? Roles, string? ConflictReason = null);
 public sealed record SetUserRolesResponse(int Added, int Removed);
 public sealed record EmployeeLinkRequest(Guid? EmployeeId, string? EmployeeCode);
+public sealed record OwnerLinkRequest(Guid? OwnerId);
+public sealed record OwnerLinkResponse(Guid? OwnerId);
 public sealed record EmployeeLinkResponse(Guid? EmployeeId, string? EmployeeCode);
 public sealed record RestoreUserResponse(bool IsSuccess);
 public sealed record AssignRoleResponse(Guid UserRoleId);

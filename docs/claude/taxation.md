@@ -82,7 +82,7 @@ Taxation.Domain/
                     WorkCalendar, NoticeTable (the table of particulars), NoticeServices (NoticeLadder, FilePrefix)
 Taxation.Application/
   Features/<Area>/  commands, queries, validators and handlers per area (Setup, TaxFiles, Demands, Notices, Penalties,
-                    Payments, Fees with clearances, Reports with the overview, Attention)
+                    Payments, Fees with clearances, Reports with the overview, Attention, Taxpayer - the /my portal)
   Services/         TaxSetup (configuration in force), Ledger (dues, per-item payments, carrying, credits, reversal),
                     Assessor, CodeIssuer, CalendarProvider, Messenger (SMS, reference syncs), NoticeComposer,
                     TaxFileImporter, NoticeEscalation, DueNotices, DailyJob (singleton), PaymentPosting (the rules
@@ -99,7 +99,8 @@ Taxation.Infrastructure/
 Taxation.Api/  Endpoints/ (SetupEndpoints, TaxFileEndpoints, DemandNoticeEndpoints, MoneyEndpoints, GatewayEndpoints, ReportEndpoints),
                DailyJobService (hosted), TaxationExceptionHandler, TaxAuthorization, LenientEnumConverter
 src/Tests/Taxation.Domain.Tests/       xUnit, tests named after the rules
-src/Tests/Taxation.Integration.Tests/  the payment path on a real PostgreSQL (not in ERP.slnx; see Testing)
+src/Tests/Taxation.Integration.Tests/  the payment path and the taxpayer portal on a real PostgreSQL (not in ERP.slnx;
+                                       see Testing)
 ```
 
 ## How the main flows work
@@ -248,7 +249,8 @@ src/Tests/Taxation.Integration.Tests/  the payment path on a real PostgreSQL (no
 - **Attention** (`GET /attention`, any signed-in user, only the queues the caller may act on): `runs.computed`,
   `runs.problems`, `notices.pending`, `notices.unserved`, `notices.due`, `demands.overdue`, `demands.defaulted`,
   `yearend.pending`, `surcharge.due`, `clearances.expiring`, `fees.due`, `references.failed`, `references.pending`,
-  `sms.queued`, `ratesets.draft`, `setup.blocking`, `gateway.held` (held, or received over 5 minutes ago and not yet
+  `sms.queued`, `ratesets.draft`, `setup.blocking`, `my.taxDue` and `my.notices` (a taxpayer's own, see "Taxpayer
+  portal"), `gateway.held` (held, or received over 5 minutes ago and not yet
   worked; every town and TAX.POST). Each count matches a register filter (`/demands?overdue=true`,
   `?noticeDue=true`, `?yearEndDue=true`, `/demand-runs?status=COMPUTED`, `/reference-syncs?status=`, `/sms-messages?status=`,
   `/clearances?expiringWithinDays=7`).
@@ -272,6 +274,37 @@ src/Tests/Taxation.Integration.Tests/  the payment path on a real PostgreSQL (no
   (TAX.VIEW, scoped) and `GET /rate-sets/{id}/history` (any tax reader), shaped like `GET /audit`; `GET /audit`,
   `/audit/kinds` (IAM_AUDIT.VIEW) and `POST /audit/exports` (TAX.EXPORT) from `MapAuditTrail`; `GET /system/status`
   (IAM_SYSTEM.VIEW). The old `GET /audit-log` is gone.
+
+## Taxpayer portal (`/my`)
+
+For the person who pays, as HRM's `/me` is for the employee. The Section registers them: an Identity account with their
+email and a first password, linked to their owner record in Property (`POST /users` with `ownerId`, or
+`PUT /users/{id}/owner-link`). The token then carries `own`; the account needs no roles. They sign in with their email
+and change the first password, as every new account does.
+
+- **What they see** (`TaxpayerScope.MyFileIds`): the tax files on which their owner record is a payer **today** (owner,
+  lessee, tenant or allottee), and only what is under those files. A file they no longer pay on drops out. Anything
+  else is 404, as if it did not exist. Read only.
+- **Never shown:** a draft or cancelled demand, a notice not yet confirmed (PENDING) or cancelled.
+- Endpoints (`TaxpayerEndpoints`, any signed-in person; a token with no `own` gets `linked: false` and 404s):
+
+  | Endpoint | Returns |
+  | --- | --- |
+  | `GET /my` | `{ linked, name, totalDue, files: [MyTaxFileDto] }` - per file: file no., property code, plot no., old ID, town (`NG`), category, status, how they hold it (role, share), the 1Link reference (plain and in groups of four), dues now and the current year's demand summary |
+  | `GET /my/tax-files/{id}` | `{ file, demands, notices, payments }` - demands newest year first (`DemandSummaryDto`), the issued notices (`MyNoticeDto`), payments with what each settled (`PaymentDto`) |
+  | `GET /my/tax-files/{id}/payment` | how to pay: `psid`, `psidFormatted`, `amount` (all that is due), `payerName`, `merchantName`, `bankName` (the letterhead's QR bank), `qrPayload` - the EMVCo payment QR string for the whole amount (null when nothing is due); draw it with any QR library (the staff screens use `qrcode-generator`) |
+  | `GET /my/demands/{id}` | a year's demand head by head (`DemandDto`), its arrears, surcharges and issued notices |
+  | `GET /my/notices/{id}` | an issued notice exactly as printed (`NoticeDto`; logos from `GET /letterheads/{id}/logo/{side}`) |
+  | `GET /my/messages?pageIndex&pageSize` | the SMS the Section sent them, newest first |
+
+- **Bell** (`GET /attention`, `forMe`): `my.taxDue` (their files with something due) and `my.notices` (notices issued on
+  their files in the last 30 days, `oldest` = the latest notice's day).
+- **Paying.** The portal shows the 1Link reference ("account number" for a banking app's bill payment) and the QR; the
+  money is paid in the bank's app. It reaches the file when the bank reports it (the gateway groundwork above, not
+  connected yet) - until then the Section posts it.
+- No screens yet: the frontend builds them on these endpoints (the Tax Dummy prototype's "Taxpayer portal" is the
+  agreed look). Test login on the dev data: `asif.jadoon@example.com` (owner of PROP-00001, file
+  GDA-NATHIAGALI-RSD-001), created by the demo seed - not in the repo's seeders.
 
 ## Seeds (`TaxationSeeder`)
 
@@ -339,7 +372,8 @@ taxation-api.e2e.mjs` and `taxation-ui.e2e.mjs`) drive the whole contract on sta
 
 **Testing the payment path.** `src/Tests/Taxation.Integration.Tests` runs the real handlers, migrations and audit trail
 on PostgreSQL: forged and unverifiable messages, repeats, a dozen copies of one report at once, competing payments that
-would overpay, held and retried money, a half-worked report, dismissal, hand-posting refused, settlement matching. It
+would overpay, held and retried money, a half-worked report, dismissal, hand-posting refused, settlement matching, and
+the taxpayer portal (a taxpayer sees their own files, dues, payment QR, payments and SMS, and nothing of anyone else's). It
 needs the ASP.NET Core runtime and a throwaway database (it refuses `ERP_DB`: its audit lines cannot be deleted), so it
 is not in `ERP.slnx`. With Docker only:
 

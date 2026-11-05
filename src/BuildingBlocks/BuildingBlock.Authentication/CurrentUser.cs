@@ -18,6 +18,8 @@ public sealed class CurrentUser(IHttpContextAccessor httpContextAccessor) : ICur
 
   public Guid? EmployeeId => ReadGuid(ErpClaimTypes.EmployeeId);
 
+  public Guid? OwnerId => ReadGuid(ErpClaimTypes.OwnerId);
+
   public Guid? SessionId => ReadGuid(ErpClaimTypes.SessionId);
 
   public long? AccessStamp => long.TryParse(Read(ErpClaimTypes.AccessStamp), out var stamp) ? stamp : null;
