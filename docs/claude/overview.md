@@ -22,7 +22,7 @@ PostgreSQL database:
 | Identity (auth, users, roles, permissions) | 5142 | `identity-api` 5142:8080 | `/auth-service/` | `auth` |
 | Property Management | 5141 | `poperty-management-api` 5141:8080 (sic) | `/property-management-service/` | `property` |
 | Assets Management | 5139 | `assets-management-api` 5139:8080 | `/assets-management-service/` | `assets` |
-| HRM (employees, posts, attendance, leave, performance, payroll, employee portal) | 5144 | `hrm-api` 5144:8080 | `/hrm-service/` | `hrms` |
+| HRM (employees, posts, attendance, leave, payroll, employee portal) | 5144 | `hrm-api` 5144:8080 | `/hrm-service/` | `hrms` |
 | Taxation (tax files, demands, notices, surcharges, payments, fees, clearances) | 5146 | `taxation-api` 5146:8080 | `/taxation-service/` | `taxation` |
 | YARP API gateway | 5195 | `yarpapigateway` 5000:8080 | n/a | n/a |
 | PostgreSQL 17 | 5432 | `postgres` | n/a | db `ERP_DB` |

@@ -146,6 +146,7 @@ public class FeeHandlers(
   Ledger ledger,
   Messenger messenger,
   CodeIssuer codes,
+  IPaymentGateway gateway,
   ICurrentUser currentUser,
   IDutyRules dutyRules,
   IAuditTrail audit,
@@ -379,6 +380,7 @@ public class FeeHandlers(
   /// connection fee starts the water charges from today, unless a date is already recorded).
   private async Task<Payment> TakeReceiptAsync(Fee fee, TaxFile? file, Party? party, FeePaymentInput pay, CancellationToken cancellationToken)
   {
+    gateway.EnsureHandPosted(pay.Channel);
     var manual = Payment.IsManual(pay.Channel);
     string? receipt = null;
     if (manual)

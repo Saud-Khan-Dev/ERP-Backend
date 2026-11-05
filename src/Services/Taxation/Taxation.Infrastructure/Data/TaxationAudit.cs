@@ -4,8 +4,9 @@
 /// set, a circle's towns and posts under the circle, a notice table's rows and columns under the table.
 ///
 /// Not written one by one: the lines of a demand (a run writes them in bulk), the pieces of a payment (its allocations),
-/// the reference syncs and SMS queued after an act (logs of their own), and the daily job's run row - the acts that write
-/// them record their own line ("Ran", "Approved", "Received" ...).
+/// the reference syncs and SMS queued after an act (logs of their own), a gateway's reports and a settlement report's lines
+/// (kept in their own tables), and the daily job's run row - the acts that write them record their own line ("Ran",
+/// "Approved", "Posted", "Held" ...).
 public static class TaxationAudit
 {
   public const string Module = "Taxation";
@@ -15,6 +16,8 @@ public static class TaxationAudit
     profile
       .Skip<DemandLine>()
       .Skip<PaymentAllocation>()
+      .Skip<GatewayNotification>()
+      .Skip<SettlementLine>()
       .Skip<PsidSync>()
       .Skip<SmsMessage>()
       .Skip<JobRun>()
@@ -44,6 +47,7 @@ public static class TaxationAudit
       .Field("EndstNo", "Endorsement no.").Field("Psid", "1Link reference").Field("ServedByEmployeeId", "Served by (employee)"));
     profile.Entity<Payment>(e => e.Kind("Payment").Code(p => p.ReceiptNo ?? p.TransactionRef).Label(p => p.PayerName).Under<TaxFile>(p => p.TaxFileId)
       .Field("Psid", "1Link reference"));
+    profile.Entity<SettlementBatch>(e => e.Kind("Settlement report").Code(b => b.BatchRef));
     profile.Entity<Fee>(e => e.Kind("Fee").Code(f => f.FeeNo).Under<TaxFile>(f => f.TaxFileId).Field("HeadId", "Head").Field("ExemptionReason", "Waiver or exemption reason"));
     profile.Entity<Clearance>(e => e.Kind("Clearance").Code(c => c.ClearanceNo).Label(c => c.PayerName).Under<TaxFile>(c => c.TaxFileId));
     profile.Entity<Party>(e => e.Kind("Party").Label(p => p.Name).Field("CnicNtn", "CNIC / NTN"));

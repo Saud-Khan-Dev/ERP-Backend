@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Needs a PostgreSQL server (TAX_TEST_DB) and the ASP.NET Core runtime, so it is not part of ERP.slnx.
+       How to run it: docs/claude/taxation.md, "Testing the payment path". -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../Services/Taxation/Taxation.Infrastructure/Taxation.Infrastructure.csproj" />
+    <ProjectReference Include="../../Services/Taxation/Taxation.Application/Taxation.Application.csproj" />
+  </ItemGroup>
+
+</Project>

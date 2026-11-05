@@ -40,6 +40,8 @@ public static class PermissionCatalog
     public const string Adjust = "ADJUST";
     /// Decide a person's pay (a pay change, the next increment date).
     public const string Pay = "PAY";
+    /// Check money on record against the bank's own report of what reached the account.
+    public const string Reconcile = "RECONCILE";
   }
 
   // ---- modules ----
@@ -341,6 +343,8 @@ public static class PermissionCatalog
     public const string Issue = "TAX.ISSUE";
     /// Enter or correct opening arrears.
     public const string Adjust = "TAX.ADJUST";
+    /// Import the bank's settlement reports and read how they compare with the payments.
+    public const string Reconcile = "TAX.RECONCILE";
   }
 
   /// Taxation setup: circles, heads, rate sets, settings, special policies, penalty rules, notice templates, letterhead
@@ -472,6 +476,7 @@ public static class PermissionCatalog
     One(Tax.Waive, "Waive or exempt fees");
     One(Tax.Issue, "Issue and revoke tax clearances");
     One(Tax.Adjust, "Enter and correct opening arrears");
+    One(Tax.Reconcile, "Import bank settlement reports and reconcile payments");
     Crud(Modules.TaxSetup, "taxation setup");
     One(TaxSetup.Approve, "Approve the rate set in force");
 
@@ -530,6 +535,7 @@ public static class PermissionCatalog
     [Tax.Waive] = [Tax.Approve],
     [Tax.Issue] = [Tax.Approve],
     [Tax.Adjust] = [Tax.Create, Tax.Edit],
+    [Tax.Reconcile] = [Tax.Approve],
     [Users.Export] = [Users.View],
     [Users.Reset] = [Users.Edit],
     [Users.Disable] = [Users.Edit],
@@ -547,6 +553,7 @@ public static class PermissionCatalog
   public static IReadOnlyList<Conflict> Conflicts { get; } =
   [
     new(Tax.Post, Tax.Reverse, "Posts payments and reverses them - a cashier should not reverse their own receipts."),
+    new(Tax.Post, Tax.Reconcile, "Posts payments and checks them against the bank - the check should be someone else's."),
     new(Tax.Create, Tax.Waive, "Charges fees and waives them - charging and waiving should be two people."),
     new(TaxSetup.Edit, TaxSetup.Approve, "Drafts the rate set and approves it - the tariff should pass through two people."),
     new(Payroll.Approve, Payroll.Post, "Approves a pay run and pays it out - approval and payment should be two people."),

@@ -10,7 +10,7 @@ HRM, Taxation and a YARP gateway over one PostgreSQL database (`ERP_DB`, one sch
 - Identity (auth, users, roles, permissions, JWT): `docs/claude/identity.md`
 - Property Management (property register, GDA Act rules): `docs/claude/property-management.md`
 - Assets Management (fixed-asset register): `docs/claude/assets-management.md`
-- HRM (employees, posts, attendance, leave, performance, payroll, employee portal): `docs/claude/hrm.md`
+- HRM (employees, posts, attendance, leave, payroll, employee portal): `docs/claude/hrm.md`
 - Taxation (tax files, demands, notices, surcharges, payments, fees, clearances): `docs/claude/taxation.md`
 - API gateway (YARP): `docs/claude/api-gateway.md`
 

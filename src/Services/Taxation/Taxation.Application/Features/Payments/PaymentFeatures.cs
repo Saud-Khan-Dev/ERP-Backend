@@ -51,7 +51,8 @@ public class PaymentHandlers(
   TaxSetup setup,
   Ledger ledger,
   Messenger messenger,
-  CodeIssuer codes,
+  PaymentPosting posting,
+  IPaymentGateway gateway,
   ICurrentUser currentUser,
   IDutyRules dutyRules,
   IAuditTrail audit,
@@ -65,6 +66,7 @@ public class PaymentHandlers(
 {
   public async Task<Result<ReceivePaymentResult>> Handle(ReceivePaymentCommand command, CancellationToken cancellationToken)
   {
+    gateway.EnsureHandPosted(command.Channel);
     var digits = new string((command.Psid ?? "").Where(char.IsAsciiDigit).ToArray());
     var fileId = await context.ScopedFiles().AsNoTracking().Where(f => f.Psid == digits).Select(f => f.Id).FirstOrDefaultAsync(cancellationToken)
       ?? throw new TaxFileNotFoundException($"No property has the reference {command.Psid}.");
@@ -72,51 +74,14 @@ public class PaymentHandlers(
     await using var transaction = await context.BeginTransactionAsync(cancellationToken);
     await context.LockTaxFileAsync(fileId, cancellationToken);
     var file = await context.LoadTaxFileAsync(fileId.Value, cancellationToken);
-    var today = clock.Today;
 
-    var reference = Text(command.TransactionRef);
-    if (reference is not null && await context.Payments.AsNoTracking().FirstOrDefaultAsync(p => p.TransactionRef == reference, cancellationToken) is { } posted)
-    {
-      if (posted.TaxFileId != file.Id || posted.Amount != Rupees.Round(command.Amount))
-        return Result<ReceivePaymentResult>.Failure($"Transaction {reference} was already posted for another reference or amount.");
-      var dues = await ledger.DuesAsync(file, cancellationToken);
-      return Result<ReceivePaymentResult>.Success(new(posted.Id.Value, true, posted.Amount, dues, dues, [], posted.ReceiptNo));
-    }
-
-    var duesBefore = await ledger.DuesAsync(file, cancellationToken);
-    if (duesBefore <= 0)
-      return Result<ReceivePaymentResult>.Failure($"Nothing is owed on reference {Numbers.FormatPsid(file.Psid)}.");
-    var amount = Rupees.Round(command.Amount);
-    if (amount > duesBefore)
-      return Result<ReceivePaymentResult>.Failure($"The amount exceeds the {Rupees.Text(duesBefore)} behind this reference.");
-    var paidAt = command.PaidAt ?? clock.UtcNow;
-    if (DateOnly.FromDateTime(paidAt.AddHours(5)) < file.OpenedOn)
-      return Result<ReceivePaymentResult>.Failure($"{file.FileNo} was opened on {file.OpenedOn:dd'/'MM'/'yyyy}; a payment on it cannot be dated before that.");
-
-    var manual = Payment.IsManual(command.Channel);
-    var receipt = manual ? await ReceiptNoAsync(command.ReceiptNo, cancellationToken) : null;
-    if (manual && receipt is null)
-      return Result<ReceivePaymentResult>.Failure($"Receipt no. {command.ReceiptNo!.Trim()} is already used. Each cash or counter receipt has its own number.");
-
-    var payer = file.Addressee(today);
-    var payment = Payment.Receive(PaymentId.New(), file, payer?.Name, command.Channel, amount, reference, receipt, command.BankCode, paidAt,
-      manual ? Guard.Actor(currentUser.UserId, "receive cash") : currentUser.UserId, clock.UtcNow);
-    context.Payments.Add(payment);
-
-    var surcharge = await setup.HeadAsync(HeadCodes.Surcharge, cancellationToken);
-    var touched = await ledger.SettleAsync(file, payment, surcharge.Id, today, cancellationToken);
-
-    var last = touched.LastOrDefault();
-    var values = last is not null ? Messenger.Values(file, last, payer?.Name) : Messenger.FileValues(file, payer?.Name ?? "");
-    values["amount"] = Rupees.Text(amount);
-    values["balance"] = Rupees.Text(duesBefore - amount);
-    await messenger.SmsAsync(MessageCodes.PaymentReceived, file, last, null, last?.PayerMobile ?? payer?.Mobile, payer?.OwnerId, values, cancellationToken);
-    await messenger.SyncAsync(file, PsidSyncReason.Payment, last?.Id, null, null,
-      $"{Rupees.Text(amount)} by {EnumText.Words(command.Channel)}{(receipt is null ? "" : " receipt " + receipt)}{(last is null ? " (opening arrears)" : "")}", cancellationToken);
+    var taken = await posting.TakeAsync(file, new PaymentReceived(command.Amount, command.Channel, command.TransactionRef, command.ReceiptNo, command.BankCode, command.PaidAt), cancellationToken);
+    if (!taken.IsSuccess || taken.Value!.AlreadyPosted)
+      return taken;
 
     await context.SaveChangesAsync(cancellationToken);
     await transaction.CommitAsync(cancellationToken);
-    return Result<ReceivePaymentResult>.Success(new(payment.Id.Value, false, amount, duesBefore, duesBefore - amount, touched.Select(d => d.Id.Value).ToList(), receipt));
+    return taken;
   }
 
   public async Task<Result<ReversePaymentResult>> Handle(ReversePaymentCommand command, CancellationToken cancellationToken)
@@ -281,23 +246,8 @@ public class PaymentHandlers(
     return Result<GetSmsMessagesQueryResult>.Success(new(new PaginatedResult<SmsDto>(query.Pagination.Pageindex, query.Pagination.PageSize, total, data)));
   }
 
-  /// The receipt number of a cash or counter payment: the one typed (null when it is already used), else the next free one.
-  private async Task<string?> ReceiptNoAsync(string? typed, CancellationToken cancellationToken)
-  {
-    if (Text(typed) is { } given)
-      return await context.Payments.AnyAsync(p => p.ReceiptNo == given, cancellationToken) ? null : given;
-    while (true)
-    {
-      var next = Numbers.ReceiptNo(await codes.NextAsync(NumberSequence.ReceiptNo, cancellationToken));
-      if (!await context.Payments.AnyAsync(p => p.ReceiptNo == next, cancellationToken))
-        return next;
-    }
-  }
-
   private async Task<List<PaymentDto>> DtosAsync(IReadOnlyList<Payment> payments, CancellationToken cancellationToken) =>
       await PaymentDtos.ForAsync(context, setup, payments, cancellationToken);
-
-  private static string? Text(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }
 
 /// Payment rows as the registers, the receipt and the file show them.

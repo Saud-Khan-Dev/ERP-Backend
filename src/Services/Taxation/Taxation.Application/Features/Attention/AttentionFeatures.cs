@@ -57,6 +57,17 @@ public class AttentionHandlers(IApplicationDbContext context, TaxSetup setup, Du
 
     }
 
+    // ---- bank gateways ----
+    if (Can(PermissionCatalog.Tax.Post) && !context.IsLimited())
+    {
+      // held, or left half worked (a report normally takes seconds)
+      var stuck = clock.UtcNow.AddMinutes(-GatewayNotification.StuckMinutes);
+      var held = await context.GatewayNotifications.AsNoTracking()
+        .Where(n => n.Status == GatewayNotificationStatus.Held || (n.Status == GatewayNotificationStatus.Received && n.ReceivedAt < stuck)).GroupBy(n => 1)
+        .Select(g => new { Count = g.Count(), Oldest = g.Min(n => n.ReceivedAt) }).FirstOrDefaultAsync(cancellationToken);
+      items.Add(new("gateway.held", held?.Count ?? 0, At(held?.Oldest)));
+    }
+
     // the bulk runs: notices due for their next stage, and years that are over still waiting for the year-end surcharge
     if (Can(PermissionCatalog.Tax.Run))
     {

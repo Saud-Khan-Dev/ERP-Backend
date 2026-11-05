@@ -154,6 +154,8 @@ public class TaxationExceptionHandler(ILogger<TaxationExceptionHandler> logger) 
     ["notice_notice_no_key"] = "This notice number is already in use. Try again.",
     ["notice_endst_no_key"] = "Another notice took the same endorsement number at the same moment. Try again.",
     ["payment_transaction_ref_key"] = "This transaction reference was already posted.",
+    ["settlement_batch_channel_batch_ref_key"] = "This settlement report was already imported.",
+    ["settlement_line_matched_key"] = "A transaction on this report was settled by another report at the same moment. Try again.",
     ["fee_fee_no_key"] = "This fee number is already in use. Try again.",
     ["clearance_clearance_no_key"] = "This clearance number is already in use. Try again."
   };

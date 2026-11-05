@@ -44,6 +44,9 @@ public interface IApplicationDbContext
   DbSet<PsidSync> PsidSyncs { get; }
   DbSet<Payment> Payments { get; }
   DbSet<PaymentAllocation> PaymentAllocations { get; }
+  DbSet<GatewayNotification> GatewayNotifications { get; }
+  DbSet<SettlementBatch> SettlementBatches { get; }
+  DbSet<SettlementLine> SettlementLines { get; }
 
   // ---- 6. fees, parties, clearances, messages ----
   DbSet<Party> Parties { get; }
@@ -69,4 +72,11 @@ public interface IApplicationDbContext
   /// Locks a tax file's row and its open demands until the transaction ends, so money on one file is taken one payment
   /// at a time (a second payment waits, then sees what the first settled). Only inside a transaction.
   Task LockTaxFileAsync(TaxFileId id, CancellationToken cancellationToken);
+
+  /// Keeps a gateway's report at once, in its own commit. False when (source, event id) is already on record: a repeat.
+  /// The row is not tracked afterwards; read it again to work on it.
+  Task<bool> TryAddGatewayNotificationAsync(GatewayNotification notification, CancellationToken cancellationToken);
+
+  /// Forgets everything loaded or changed and not saved (after a rolled-back attempt).
+  void DiscardChanges();
 }

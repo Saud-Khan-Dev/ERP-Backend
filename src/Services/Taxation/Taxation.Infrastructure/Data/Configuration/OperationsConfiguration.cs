@@ -363,6 +363,71 @@ public class PaymentConfiguration : EntityConfiguration<Payment, PaymentId>
   }
 }
 
+public class GatewayNotificationConfiguration : EntityConfiguration<GatewayNotification, GatewayNotificationId>
+{
+  public const string EventKey = "integration_inbox_source_event_id_key";
+
+  protected override AuditColumns Audit => AuditColumns.None;
+
+  public override void Configure(EntityTypeBuilder<GatewayNotification> builder)
+  {
+    base.Configure(builder);
+    builder.ToTable("integration_inbox");
+    builder.Property(x => x.Source).HasMaxLength(30).IsRequired();
+    builder.Property(x => x.EventType).HasMaxLength(80).IsRequired();
+    builder.Property(x => x.EventId).HasMaxLength(80).IsRequired();
+    builder.Property(x => x.Channel).UpperSnake(15).IsRequired();
+    builder.Property(x => x.Psid).HasMaxLength(30).IsRequired();
+    builder.Property(x => x.TransactionRef).HasMaxLength(60).IsRequired();
+    builder.Property(x => x.BankCode).HasMaxLength(20);
+    builder.Property(x => x.Status).UpperSnake(10).IsRequired();
+    builder.Property(x => x.Error).HasMaxLength(500);
+    builder.Ignore(x => x.IsOpen);
+    builder.XminVersion(x => x.Version);
+    // the same report twice is one report, even when both arrive at the same moment
+    builder.HasIndex(x => new { x.Source, x.EventId }).IsUnique().HasDatabaseName(EventKey);
+    builder.HasIndex(x => new { x.Status, x.ReceivedAt });
+    builder.HasIndex(x => x.TransactionRef);
+    builder.HasOne<TaxFile>().WithMany().HasForeignKey(x => x.TaxFileId).OnDelete(DeleteBehavior.Restrict);
+    builder.HasOne<Payment>().WithMany().HasForeignKey(x => x.PaymentId).OnDelete(DeleteBehavior.Restrict);
+  }
+}
+
+public class SettlementBatchConfiguration : EntityConfiguration<SettlementBatch, SettlementBatchId>
+{
+  protected override AuditColumns Audit => AuditColumns.Created;
+
+  public override void Configure(EntityTypeBuilder<SettlementBatch> builder)
+  {
+    base.Configure(builder);
+    builder.ToTable("settlement_batch");
+    builder.Property(x => x.Channel).UpperSnake(15).IsRequired();
+    builder.Property(x => x.BatchRef).HasMaxLength(60).IsRequired();
+    builder.HasIndex(x => new { x.Channel, x.BatchRef }).IsUnique().HasDatabaseName("settlement_batch_channel_batch_ref_key");
+    builder.HasMany(x => x.Lines).WithOne().HasForeignKey(l => l.BatchId).OnDelete(DeleteBehavior.Restrict);
+    builder.Navigation(x => x.Lines).UsePropertyAccessMode(PropertyAccessMode.Field);
+  }
+}
+
+public class SettlementLineConfiguration : EntityConfiguration<SettlementLine, SettlementLineId>
+{
+  protected override AuditColumns Audit => AuditColumns.None;
+
+  public override void Configure(EntityTypeBuilder<SettlementLine> builder)
+  {
+    base.Configure(builder);
+    builder.ToTable("settlement_line");
+    builder.Property(x => x.TransactionRef).HasMaxLength(60).IsRequired();
+    builder.Property(x => x.Psid).HasMaxLength(30);
+    builder.Property(x => x.Match).UpperSnake(20).IsRequired();
+    builder.Property(x => x.Note).HasMaxLength(300);
+    builder.HasIndex(x => new { x.BatchId, x.TransactionRef }).IsUnique().HasDatabaseName("settlement_line_batch_id_transaction_ref_key");
+    // a transaction is settled once, across every report
+    builder.HasIndex(x => x.TransactionRef).IsUnique().HasFilter("match = 'MATCHED'").HasDatabaseName("settlement_line_matched_key");
+    builder.HasOne<Payment>().WithMany().HasForeignKey(x => x.PaymentId).OnDelete(DeleteBehavior.Restrict);
+  }
+}
+
 public class PaymentAllocationConfiguration : EntityConfiguration<PaymentAllocation, PaymentAllocationId>
 {
   public override void Configure(EntityTypeBuilder<PaymentAllocation> builder)

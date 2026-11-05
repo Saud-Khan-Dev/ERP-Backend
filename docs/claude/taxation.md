@@ -13,7 +13,8 @@ GDA's income module: the annual property tax demand and everything around it.
 - notices in the Section's printed format (letterhead, table of particulars, QR / 1Link block), reviewed and confirmed
   before issue;
 - the in-year and year-end surcharges;
-- payments against each property's constant 1Link reference, reference syncs, SMS;
+- payments against each property's constant 1Link reference, reference syncs, SMS; the groundwork for bank gateways
+  (verified reports only, the held-payment queue, settlement reports) with no gateway connected yet;
 - case-by-case fees and clearance certificates.
 
 - Port `http://localhost:5146` (launchSettings) / `5146:8080` in compose (`taxation-api`), gateway prefix `/taxation-service/`.
@@ -26,7 +27,7 @@ the domain ports one for one, and from the recordings of 12 Oct 2026 the DBML ci
 
 What the DBML has and this service does not build yet (no rules decided, or no system to talk to): `challan` (one-off
 PSIDs), `refund`, `sealing`, `water_connection`, `non_utilization_case`, `enlistment_licence`, `malba_security`,
-`agreement_schedule_line`, `integration_inbox` / `integration_outbox`, `sync_checkpoint` and `import_batch` /
+`agreement_schedule_line`, `integration_outbox`, `sync_checkpoint` and `import_batch` /
 `import_row`. (`audit_log` is built; `job_run` is the service's own addition.) The columns that point at them (`payment.challan_id`, `demand_line.schedule_line_id`,
 `arrears.import_row_id`) are plain uuids for now. `notice.sms_message_id` has no foreign key on purpose
 (`sms_message.notice_id` points back; both are written in one save).
@@ -35,7 +36,7 @@ PSIDs), `refund`, `sealing`, `water_connection`, `non_utilization_case`, `enlist
 
 | Module | Codes | Used for |
 | --- | --- | --- |
-| `TAX` | VIEW, CREATE, EDIT, DELETE, APPROVE, POST, EXPORT, RUN, REVERSE, WAIVE, ISSUE, ADJUST | CREATE opens files (a mapped category, not exempt, no uplift), computes runs, prepares notices, charges fees, registers parties; EDIT syncs files, keeps the details, reviews, confirms, serves notices, issues a hand-made notice at once, keeps parties; APPROVE approves / cancels demand runs and the in-year surcharge, sets overrides, holds, category and status, opens a file in another category / exempt / with an uplift, sets amounts and Normal/Special on a hand-made notice, issues pending notices in bulk; POST receives payments and takes fee receipts; DELETE removes a party with no fee and an opening-arrears row not yet billed; **EXPORT** notes a CSV / print in the trail (`POST /audit/exports`); **RUN** runs the daily job, the year-end surcharge and "prepare the notices due"; **REVERSE** reverses a payment; **WAIVE** waives a fee or charges one exempt; **ISSUE** issues and revokes clearances (and marks one used, as PROPERTY.APPROVE does); **ADJUST** adds and corrects opening arrears |
+| `TAX` | VIEW, CREATE, EDIT, DELETE, APPROVE, POST, EXPORT, RUN, REVERSE, WAIVE, ISSUE, ADJUST, RECONCILE | CREATE opens files (a mapped category, not exempt, no uplift), computes runs, prepares notices, charges fees, registers parties; EDIT syncs files, keeps the details, reviews, confirms, serves notices, issues a hand-made notice at once, keeps parties; APPROVE approves / cancels demand runs and the in-year surcharge, sets overrides, holds, category and status, opens a file in another category / exempt / with an uplift, sets amounts and Normal/Special on a hand-made notice, issues pending notices in bulk; POST receives payments and takes fee receipts; DELETE removes a party with no fee and an opening-arrears row not yet billed; **EXPORT** notes a CSV / print in the trail (`POST /audit/exports`); **RUN** runs the daily job, the year-end surcharge and "prepare the notices due"; **REVERSE** reverses a payment; **WAIVE** waives a fee or charges one exempt; **ISSUE** issues and revokes clearances (and marks one used, as PROPERTY.APPROVE does); **ADJUST** adds and corrects opening arrears; **RECONCILE** imports the bank's settlement reports and reads them (given once to holders of APPROVE; it should not meet POST). POST also retries a held gateway payment, REVERSE dismisses one |
 | `TAX_SETUP` | VIEW, CREATE, EDIT, DELETE, APPROVE | circles, heads, category map, rate sets (APPROVE approves one), settings (EDIT also takes back a future value), special policies, penalty rules (versions; EDIT takes back a future one), templates, letterhead, notice table. DELETE removes a circle, head or policy nothing refers to |
 
 Setup lists, reports and the overview are readable with `TAX.VIEW` or `TAX_SETUP.VIEW` (`TaxAuthorization.AnyTaxReader`);
@@ -74,7 +75,8 @@ Taxation.Domain/
   Models/TaxFiles   TaxFile (+ basis, payers, head values, overrides, holds, agreements and step revisions)
   Models/Demands    Demand (+ DemandLine, Arrears, Penalty), DemandRun, PenaltyRun, SurchargeRules
   Models/Notices    Notice (+ NoticeVariables, NoticeParticulars, NoticeChanges)
-  Models/Payments   PsidSync, Payment (+ PaymentAllocation), Party, Fee, Clearance, SmsMessage
+  Models/Payments   PsidSync, Payment (+ PaymentAllocation), Party, Fee, Clearance, SmsMessage,
+                    GatewayNotification (integration_inbox), SettlementBatch (+ SettlementLine)
   Models/Jobs       JobRun (the daily job's runs)       Models/Audit  AuditLog
   Services/         TaxCalculator (the annual computation), TaxFormula (safe formula parser), Numbers, PaymentQr,
                     WorkCalendar, NoticeTable (the table of particulars), NoticeServices (NoticeLadder, FilePrefix)
@@ -83,18 +85,21 @@ Taxation.Application/
                     Payments, Fees with clearances, Reports with the overview, Attention)
   Services/         TaxSetup (configuration in force), Ledger (dues, per-item payments, carrying, credits, reversal),
                     Assessor, CodeIssuer, CalendarProvider, Messenger (SMS, reference syncs), NoticeComposer,
-                    TaxFileImporter, NoticeEscalation, DueNotices, DailyJob (singleton)
-  Abstractions/     IPropertyDirectory, IHrmDirectory, INumberSource, IFileStorage
+                    TaxFileImporter, NoticeEscalation, DueNotices, DailyJob (singleton), PaymentPosting (the rules
+                    of taking money, for staff and gateways), GatewayPayments (a gateway's report into a payment)
+  Abstractions/     IPropertyDirectory, IHrmDirectory, INumberSource, IFileStorage, IPaymentGateway
 Taxation.Infrastructure/
   Data/Configuration/  EF mapping (SetupConfiguration, OperationsConfiguration)
   Data/TaxationAudit.cs   the audit-trail profile (kinds, codes, Under<TaxFile> for every child, skipped bulk rows)
   Data/TaxationJobs.cs    ISystemJobSource: the daily job (job_run), the last demand run and surcharge run
   Data/Seed/TaxationSeeder.cs   Data/PostgresNumberSource.cs (the schema's sequences)
   Clients/ServiceClients.cs     PropertyServiceClient, HrmServiceClient, ForwardAuthorizationHandler
+  Gateways/NoPaymentGateway.cs  the IPaymentGateway in place until a real adapter exists: trusts nothing
   Storage/LocalFileStorage      letterhead logos under FileStorage:RootPath
-Taxation.Api/  Endpoints/ (SetupEndpoints, TaxFileEndpoints, DemandNoticeEndpoints, MoneyEndpoints, ReportEndpoints),
+Taxation.Api/  Endpoints/ (SetupEndpoints, TaxFileEndpoints, DemandNoticeEndpoints, MoneyEndpoints, GatewayEndpoints, ReportEndpoints),
                DailyJobService (hosted), TaxationExceptionHandler, TaxAuthorization, LenientEnumConverter
-src/Tests/Taxation.Domain.Tests/  xUnit, tests named after the rules
+src/Tests/Taxation.Domain.Tests/       xUnit, tests named after the rules
+src/Tests/Taxation.Integration.Tests/  the payment path on a real PostgreSQL (not in ERP.slnx; see Testing)
 ```
 
 ## How the main flows work
@@ -210,8 +215,32 @@ src/Tests/Taxation.Domain.Tests/  xUnit, tests named after the rules
 - **Searches.** The payments register finds a payment by receipt, transaction, reference (typed with or without the
   spaces it is printed with) or the file no.; the notices register by notice / endorsement no., reference, file no. or
   the payer of its demand.
-- **No 1Link connector and no SMS gateway exist yet**: reference syncs stay PENDING and SMS stay QUEUED (the bell
-  counts both).
+- **Bank gateways (groundwork; no gateway is connected).** A gateway's own route belongs to its adapter and does not
+  exist yet, so nothing accepts a payment from outside. What is built, for any gateway:
+  - `IPaymentGateway` (Application/Abstractions): the adapter alone reads the gateway's messages. `VerifyAsync` must
+    authenticate a message as the gateway's official specification says and confirm the payment with the gateway where
+    it can; it answers Genuine (the facts), Refused (forged, unconfirmed) or Unavailable (cannot tell now - never a
+    failed payment). `NoPaymentGateway` is registered until a real adapter replaces it: everything is Unavailable.
+  - `GatewayPayments.ReceiveAsync` acts only on Genuine facts. The report is first kept in its own commit in
+    `integration_inbox` (one row per source and event id, so a repeat is harmless and a crash loses nothing), then taken
+    under the file's lock through `PaymentPosting` - the same rules as a cashier's payment - and the row marked POSTED
+    in the same transaction. A repeat with other facts is refused. Money that cannot be applied (no such reference, more
+    than is owed, part of a rupee, a transaction already posted elsewhere) is **HELD**, never dropped. Refused messages
+    are logged without their content and not stored.
+  - The channels a gateway reports (`IPaymentGateway.Channels`, none until an adapter exists) can no longer be posted by
+    hand (`POST /payments`, `POST /fees/{id}/pay`): the gateway is then the only proof of that money.
+  - `GET /gateway-payments?status=held` (TAX.VIEW; `waiting=true` lists exactly what the bell's `gateway.held` counts -
+    held, or RECEIVED over `GatewayNotification.StuckMinutes` ago), `POST /gateway-payments/{id}/retry` (TAX.POST: the facts on record,
+    nothing can be changed) and `/dismiss {reason}` (TAX.REVERSE). Every town needed: a report is not in a town.
+  - **Settlement reports** (`POST /settlements`, `GET /settlements`, `GET /settlements/{id}`, TAX.RECONCILE, every town):
+    the bank's report in a neutral JSON form (reading its own file format is the adapter's), compared line by line with
+    the payments - MATCHED, NOT_IN_ERP, AMOUNT_DIFFERS, REFERENCE_DIFFERS, REVERSED_IN_ERP, ALREADY_SETTLED - and the
+    period's payments no report has settled. It changes no payment. A report imports once; a transaction is matched once
+    across all reports (`settlement_line_matched_key`). A settlement date still to come is refused; a line's time given
+    without a zone is Pakistan time (the bank prints it so) and kept in UTC. The import writes one "Imported" line.
+  - Still to come with a real gateway: its adapter and route (authentication, rate limits, the gateway's reply codes),
+    voids (they wait as HELD for a person to reverse), posting a NOT_IN_ERP line, refunds.
+- **No SMS gateway exists yet**: reference syncs stay PENDING and SMS stay QUEUED (the bell counts both).
 - **Daily job** (`DailyJob`, run by `DailyJobService` every 15 minutes once the day's hour has come, once a day): applies
   the year-end surcharge to years that are over and prepares the notices that fall due (`NoticeEscalation`). Each run is
   a `job_run` row (RUNNING / DONE / FAILED, counts, summary). `GET /daily-job` lists the recent runs; `POST
@@ -219,7 +248,8 @@ src/Tests/Taxation.Domain.Tests/  xUnit, tests named after the rules
 - **Attention** (`GET /attention`, any signed-in user, only the queues the caller may act on): `runs.computed`,
   `runs.problems`, `notices.pending`, `notices.unserved`, `notices.due`, `demands.overdue`, `demands.defaulted`,
   `yearend.pending`, `surcharge.due`, `clearances.expiring`, `fees.due`, `references.failed`, `references.pending`,
-  `sms.queued`, `ratesets.draft`, `setup.blocking`. Each count matches a register filter (`/demands?overdue=true`,
+  `sms.queued`, `ratesets.draft`, `setup.blocking`, `gateway.held` (held, or received over 5 minutes ago and not yet
+  worked; every town and TAX.POST). Each count matches a register filter (`/demands?overdue=true`,
   `?noticeDue=true`, `?yearEndDue=true`, `/demand-runs?status=COMPUTED`, `/reference-syncs?status=`, `/sms-messages?status=`,
   `/clearances?expiringWithinDays=7`).
 - **Overview and reports** (`ReportEndpoints`): `GET /tax-overview?fiscalYear=` (files, the year's demands by status,
@@ -237,7 +267,8 @@ src/Tests/Taxation.Domain.Tests/  xUnit, tests named after the rules
   Reopened (file), Corrected / Taken back (opening arrears, overrides, holds); a notice's printed-field edits are a line
   each with the reason. Runs write in `Quietly()` and record one Ran line (demand run worked out, surcharge run, year-end,
   issue pending notices, prepare due notices, the daily job - "System · Daily job" when scheduled). Not written line by
-  line: demand_line, payment_allocation, psid_sync, sms_message, job_run. Endpoints: `GET /tax-files/{id}/history`
+  line: demand_line, payment_allocation, psid_sync, sms_message, job_run, integration_inbox and settlement_line (a gateway
+  payment writes Posted / Matched / Held / Dismissed lines, a settlement report Imported). Endpoints: `GET /tax-files/{id}/history`
   (TAX.VIEW, scoped) and `GET /rate-sets/{id}/history` (any tax reader), shaped like `GET /audit`; `GET /audit`,
   `/audit/kinds` (IAM_AUDIT.VIEW) and `POST /audit/exports` (TAX.EXPORT) from `MapAuditTrail`; `GET /system/status`
   (IAM_SYSTEM.VIEW). The old `GET /audit-log` is gone.
@@ -305,6 +336,22 @@ Rs 14,500). Add a test for every new rule, named after it. For API behaviour, ru
 against Postgres and step through `Taxation.Api.http`. The frontend's functional suites (`ERP-Frontend/tools/e2e/
 taxation-api.e2e.mjs` and `taxation-ui.e2e.mjs`) drive the whole contract on standing E2E fixtures in Thandiani
 (Circle I) - see `taxation-fixtures.mjs` there.
+
+**Testing the payment path.** `src/Tests/Taxation.Integration.Tests` runs the real handlers, migrations and audit trail
+on PostgreSQL: forged and unverifiable messages, repeats, a dozen copies of one report at once, competing payments that
+would overpay, held and retried money, a half-worked report, dismissal, hand-posting refused, settlement matching. It
+needs the ASP.NET Core runtime and a throwaway database (it refuses `ERP_DB`: its audit lines cannot be deleted), so it
+is not in `ERP.slnx`. With Docker only:
+
+```bash
+docker network create tax-test
+docker run -d --rm --name tax-test-pg --network tax-test -e POSTGRES_PASSWORD=test -e POSTGRES_DB=tax_test postgres:17-alpine
+docker run --rm --network tax-test --user "$(id -u):$(id -g)" -e HOME=/tmp -e NUGET_PACKAGES="$HOME/.nuget/packages" \
+  -e TAX_TEST_DB='Host=tax-test-pg;Database=tax_test;Username=postgres;Password=test;Maximum Pool Size=40' \
+  -v "$PWD:$PWD" -v "$HOME/.nuget:$HOME/.nuget" -w "$PWD/src" mcr.microsoft.com/dotnet/sdk:10.0 \
+  dotnet test Tests/Taxation.Integration.Tests
+docker stop tax-test-pg && docker network rm tax-test
+```
 
 ## Gotchas
 

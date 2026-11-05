@@ -124,7 +124,7 @@ All ids are Guid-backed strongly typed ids; `.Of(guid)` rejects `Guid.Empty`.
   HR_SETUP, HR_SENSITIVE, ATTENDANCE, PAYROLL, PAYROLL_SETUP, TAX, TAX_SETUP, DASHBOARD.
 - Actions (`Domain/Enums/PermissionAction.cs` mirrors `PermissionCatalog.Actions`; a code whose action is not in the
   enum is SKIPPED by the seeder): VIEW CREATE EDIT DELETE APPROVE POST ASSIGN REVOKE EXPORT RUN RESET DISABLE OVERRIDE
-  REVERSE WAIVE ISSUE ADJUST PAY. One code is one act an owner may give or withhold on its own (reversing a payment is
+  REVERSE WAIVE ISSUE ADJUST PAY RECONCILE. One code is one act an owner may give or withhold on its own (reversing a payment is
   TAX.REVERSE, not "approve").
 - `PermissionCatalog.InheritedFrom`: a code split off an older one is given, ONCE when the seeder first creates it, to
   every role holding the older code (one `PermissionsSeeded` line, actor "System · Startup").

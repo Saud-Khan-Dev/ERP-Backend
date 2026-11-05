@@ -1,11 +1,15 @@
 // =====================================================================
 //  GDA TAXATION MODULE — Database Schema (DBML for dbdiagram.io)
-//  Status: IMPLEMENTED by src/Services/Taxation (migrations InitialTaxationSchema and
-//          TaxationFixesOct2026), except the tables whose note says NOT BUILT YET. Companion document:
+//  Status: IMPLEMENTED by src/Services/Taxation (migrations InitialTaxationSchema,
+//          TaxationFixesOct2026 and GatewayInboxAndSettlement), except the tables whose note says NOT BUILT YET. Companion document:
 //          "GDA Taxation Module - Integration Analysis and ERD v1.0"
 //  Sources: Taxation SRS v1.1 (briefing of 8 Oct 2026 + "Taxation introduction
 //           for DG sb"), docs/gda_property_module.dbml, docs/gda_hrms_schema.dbml
 //           and the Property / HRM / Identity code on main (fd86957).
+//  v1.13, 2 Nov 2026 (GatewayInboxAndSettlement): integration_inbox built for bank gateways - typed
+//  payment facts instead of a raw payload (nothing secret is kept), status and the payment it
+//  became, unique (source, event_id); settlement_batch and settlement_line added (the bank's
+//  settlement reports compared with the payments).
 //  v1.12, 21 Oct 2026 (TaxationFixesOct2026): concurrency tokens (Postgres xmin) on tax_file,
 //  demand, demand_run, notice, penalty_run, payment, fee and clearance; tax_circle.officer_post_id
 //  moved to a TO staff row; tax_head.charged_on_notice and MISC removed; rate_set.base_fiscal_year;
@@ -896,15 +900,65 @@ Table taxation.sms_message {
 }
 
 Table taxation.integration_inbox {
-  id            uuid [pk]
-  source        varchar(30) [not null, note: 'property, hrm, onelink']
-  event_type    varchar(80) [not null]
-  event_id      varchar(80) [unique, not null, note: 'makes consumption idempotent']
-  payload       jsonb [not null]
-  received_at   timestamp [not null]
-  processed_at  timestamp
-  error         text
-  Note: 'NOT BUILT YET in the Taxation service.'
+  id              uuid [pk]
+  source          varchar(30) [not null, note: 'the gateway (IPaymentGateway.Source)']
+  event_type      varchar(80) [not null, note: 'PAYMENT']
+  event_id        varchar(80) [not null, note: 'the gateway\'s id of the report; with source, makes a repeat harmless']
+  channel         varchar(15) [not null, note: 'ONELINK, QR_CODE, ONLINE (never CASH or BANK_COUNTER)']
+  psid            varchar(30) [not null, note: 'digits only']
+  amount          decimal(18,2) [not null, note: 'as reported; part of a rupee is HELD, never rounded']
+  transaction_ref varchar(60) [not null]
+  bank_code       varchar(20)
+  paid_at         timestamp [not null]
+  received_at     timestamp [not null]
+  processed_at    timestamp
+  status          varchar(10) [not null, note: 'RECEIVED, POSTED, HELD, DISMISSED']
+  tax_file_id     uuid
+  payment_id      uuid [note: 'the payment it became (POSTED)']
+  error           varchar(500) [note: 'why it is HELD, or why it was DISMISSED']
+  xmin            xid [note: 'concurrency token (system column)']
+  indexes {
+    (source, event_id) [unique, name: 'integration_inbox_source_event_id_key']
+    (status, received_at)
+    transaction_ref
+  }
+  Note: 'A payment a bank gateway reported and its adapter proved genuine, kept before it is worked (own commit), so a crash or a refusal never loses it. Only the facts are kept - never the raw message, signatures or keys. Forged messages are not stored.'
+}
+
+Table taxation.settlement_batch {
+  id               uuid [pk]
+  channel          varchar(15) [not null]
+  batch_ref        varchar(60) [not null, note: 'the bank\'s report reference']
+  settlement_date  date [not null]
+  covers_from      date [not null]
+  covers_to        date [not null]
+  imported_at      timestamp [not null]
+  total_amount     decimal(18,2) [not null]
+  line_count       int [not null]
+  matched_count    int [not null]
+  exception_count  int [not null]
+  created_at       timestamp [not null, default: `now()`]
+  created_by       uuid [note: 'LOGICAL -> auth.users']
+  indexes {
+    (channel, batch_ref) [unique, name: 'settlement_batch_channel_batch_ref_key']
+  }
+  Note: 'One settlement report from the bank: proof the money reached GDA\'s account. It changes no payment.'
+}
+
+Table taxation.settlement_line {
+  id               uuid [pk]
+  batch_id         uuid [not null]
+  transaction_ref  varchar(60) [not null]
+  psid             varchar(30)
+  amount           decimal(18,2) [not null]
+  paid_at          timestamp
+  match            varchar(20) [not null, note: 'MATCHED, NOT_IN_ERP, AMOUNT_DIFFERS, REFERENCE_DIFFERS, REVERSED_IN_ERP, ALREADY_SETTLED']
+  payment_id       uuid
+  note             varchar(300)
+  indexes {
+    (batch_id, transaction_ref) [unique]
+    transaction_ref [unique, name: 'settlement_line_matched_key', note: 'WHERE match = \'MATCHED\': a transaction is settled once']
+  }
 }
 
 Table taxation.integration_outbox {
@@ -973,7 +1027,7 @@ Table taxation.audit_log {
 
 Table taxation.audit_entry {
   id           uuid [pk]
-  at           timestamptz [not null]
+  at           timestamp [not null]
   module       varchar(60) [not null, note: 'Taxation']
   actor_id     uuid [note: 'LOGICAL -> auth.users; NULL = the system ("System · Daily job", "System · Start-up seed")']
   actor_name   varchar(200) [not null, note: 'the display name at the time']
@@ -1319,6 +1373,10 @@ Ref: taxation.malba_security.fee_id > taxation.fee.id
 Ref: taxation.malba_security.refund_id > taxation.refund.id
 Ref: taxation.clearance.tax_file_id > taxation.tax_file.id
 Ref: taxation.clearance.fee_id > taxation.fee.id
+Ref: taxation.integration_inbox.tax_file_id > taxation.tax_file.id
+Ref: taxation.integration_inbox.payment_id > taxation.payment.id
+Ref: taxation.settlement_line.batch_id > taxation.settlement_batch.id
+Ref: taxation.settlement_line.payment_id > taxation.payment.id
 Ref: taxation.sms_message.tax_file_id > taxation.tax_file.id
 Ref: taxation.sms_message.demand_id > taxation.demand.id
 Ref: taxation.sms_message.notice_id > taxation.notice.id
