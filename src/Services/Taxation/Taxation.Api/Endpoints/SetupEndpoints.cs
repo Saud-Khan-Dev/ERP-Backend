@@ -373,7 +373,8 @@ public class SetupEndpoints : ICarterModule
         SafeFiles.Protect(response);
         return result.IsSuccess ? Results.File(result.Value!.Content, result.Value.ContentType, result.Value.FileName) : Results.BadRequest(new { result.Message });
       })
-      .RequireAnyPermission(TaxAuthorization.AnyTaxReader)
+      // any signed-in person: the logos are printed on every notice, and a taxpayer reads their own notices (/my)
+      .RequireSignedIn()
       .WithTags("Notices Setup").WithName("GetLogo").ProducesProblem(StatusCodes.Status404NotFound)
       .WithSummary("Get Logo").WithDescription("side = left (GDA logo, also the watermark) | right (KP emblem).");
 

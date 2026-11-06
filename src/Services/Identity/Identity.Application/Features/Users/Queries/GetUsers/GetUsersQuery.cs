@@ -11,12 +11,32 @@ public sealed record GetUsersQuery(
   bool IncludeDeleted = false,
   string? Status = null,
   string? Sort = null,
-  string? Direction = null) : IQuery<Result<GetUsersQueryResult>>;
+  string? Direction = null,
+  string? Kind = null) : IQuery<Result<GetUsersQueryResult>>;
 
 /// The shadow property the search matches (a generated column: username, email, employee code and name, lower case).
 public static class UserSearch
 {
   public const string Property = "SearchText";
+}
+
+/// Who an account is for. `staff`: GDA staff, linked to an HR record. `outside`: someone outside GDA (no HR record) - a
+/// taxpayer, a consultant, an auditor. `taxpayer`: linked to a Property owner record (staff or outside).
+public static class UserKindFilter
+{
+  public const string Staff = "staff";
+  public const string Outside = "outside";
+  public const string Taxpayer = "taxpayer";
+
+  public static readonly IReadOnlyList<string> All = [Staff, Outside, Taxpayer];
+
+  public static IQueryable<User> Apply(IQueryable<User> users, string? kind) => kind switch
+  {
+    Staff => users.Where(u => u.EmployeeId != null),
+    Outside => users.Where(u => u.EmployeeId == null),
+    Taxpayer => users.Where(u => u.OwnerId != null),
+    _ => users,
+  };
 }
 
 /// The states the Users register filters by - each one a question an administrator asks.
@@ -30,7 +50,8 @@ public static class UserStatusFilter
   public const string TemporaryPassword = "temporary-password";
   /// Active, and has never signed in.
   public const string NeverSignedIn = "never-signed-in";
-  /// Active, but no live role of a switched-on role and no live Allow exception: can open nothing.
+  /// Active, but no live role of a switched-on role and no live Allow exception, and neither linked to an HR record (My
+  /// workspace) nor to a Property owner (My property tax): can open nothing.
   public const string NoAccess = "no-access";
   /// Switched off by an administrator.
   public const string Deactivated = "deactivated";
@@ -54,5 +75,7 @@ public class GetUsersQueryValidator : AbstractValidator<GetUsersQuery>
       .WithMessage("Sort by name, username, lastSignIn or registered.");
     RuleFor(x => x.Direction).Must(d => d is null || d is "asc" or "desc").WithMessage("Direction is asc or desc.");
     RuleFor(x => x.Search).MaximumLength(100);
+    RuleFor(x => x.Kind).Must(k => k is null || UserKindFilter.All.Contains(k))
+      .WithMessage($"Kind must be one of: {string.Join(", ", UserKindFilter.All)}.");
   }
 }

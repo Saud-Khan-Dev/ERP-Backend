@@ -13,6 +13,7 @@ public class GetUsersHandler(IApplicationDbContext context)
       : context.Users.AsNoTracking();
 
     users = UserFilters.WithStatus(context, users, query.Status, now);
+    users = UserKindFilter.Apply(users, query.Kind);
 
     if (query.IsActive.HasValue)
       users = users.Where(u => u.IsActive == query.IsActive.Value);
@@ -67,14 +68,15 @@ public class GetUsersHandler(IApplicationDbContext context)
     var roleNames = grants.GroupBy(x => x.UserId)
         .ToDictionary(g => g.Key, g => (IReadOnlyList<string>)g.Select(x => x.IsActive ? x.Name.Value : $"{x.Name.Value} (switched off)").OrderBy(n => n).ToList());
 
-    // "can open nothing": no live grant of a switched-on role and no live Allow exception
+    // "can open nothing": no live grant of a switched-on role and no live Allow exception - and neither linked to HR (My
+    // workspace) nor a taxpayer (My property tax), which open with no role (the same rule as the NoAccess filter)
     var withAccess = (await UserFilters.WithAccess(context, now).Where(id => userIds.Contains(id)).ToListAsync(cancellationToken)).ToHashSet();
 
     var data = page
         .Select(u => u.ToListItemDto(now,
           roleCodes.GetValueOrDefault(u.Id, Array.Empty<string>()),
           roleNames.GetValueOrDefault(u.Id, Array.Empty<string>()),
-          withAccess.Contains(u.Id)))
+          withAccess.Contains(u.Id) || u.OwnerId != null || u.EmployeeId != null))
         .ToList();
 
     return Result<GetUsersQueryResult>.Success(new GetUsersQueryResult(
@@ -94,7 +96,8 @@ public static class UserFilters
     UserStatusFilter.TemporaryPassword => users.Where(u => u.IsActive && u.MustChangePassword),
     UserStatusFilter.NeverSignedIn => users.Where(u => u.IsActive && u.LastLoginAt == null),
     // a taxpayer's account opens only their own records (Taxation /my): no roles is what it should have
-    UserStatusFilter.NoAccess => users.Where(u => u.IsActive && u.OwnerId == null && !WithAccess(context, now).Contains(u.Id)),
+    // a staff member linked to HR opens My workspace and a taxpayer My property tax, both with no role
+    UserStatusFilter.NoAccess => users.Where(u => u.IsActive && u.OwnerId == null && u.EmployeeId == null && !WithAccess(context, now).Contains(u.Id)),
     UserStatusFilter.Deactivated => users.Where(u => !u.IsActive && u.DeletedAt == null),
     UserStatusFilter.Deleted => users.Where(u => u.DeletedAt != null),
     UserStatusFilter.RoleEnding => users.Where(u => context.UserRoles.Any(ur => ur.UserId == u.Id && ur.RevokedAt == null

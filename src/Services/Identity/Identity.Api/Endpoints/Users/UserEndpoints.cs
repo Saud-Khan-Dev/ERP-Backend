@@ -25,13 +25,14 @@ public class UserEndpoints : ICarterModule
 
     app.MapGet("/users", async (
       ISender sender, int? pageIndex, int? pageSize, string? search, Guid? roleId, bool? isActive, bool? includeDeleted,
-      string? status, string? sort, string? direction) =>
+      string? status, string? sort, string? direction, string? kind) =>
     {
       var result = await sender.Send(new GetUsersQuery(
         new PaginationRequest(pageIndex ?? 0, pageSize ?? 20), search, roleId, isActive, includeDeleted ?? false,
         string.IsNullOrWhiteSpace(status) ? null : status.Trim(),
         string.IsNullOrWhiteSpace(sort) ? null : sort.Trim(),
-        string.IsNullOrWhiteSpace(direction) ? null : direction.Trim()));
+        string.IsNullOrWhiteSpace(direction) ? null : direction.Trim(),
+        string.IsNullOrWhiteSpace(kind) ? null : kind.Trim()));
 
       return Results.Ok(new GetUsersResponse(result.Value!.Users));
     })
@@ -39,7 +40,7 @@ public class UserEndpoints : ICarterModule
       .WithName("GetUsers")
       .Produces<GetUsersResponse>(StatusCodes.Status200OK)
       .WithSummary("Get Users")
-      .WithDescription("The Users register: search (part of the name, username, email or employee code), status (active, locked, temporary-password, never-signed-in, no-access, deactivated, deleted), roleId (people who hold the role now), sort (name, username, lastSignIn, registered) and direction (asc, desc). Pages of at most 200.");
+      .WithDescription("The Users register: kind (staff = linked to an HR record, outside = not on GDA's staff, taxpayer = linked to a Property owner record), search (part of the name, username, email or employee code), status (active, locked, temporary-password, never-signed-in, no-access, deactivated, deleted), roleId (people who hold the role now), sort (name, username, lastSignIn, registered) and direction (asc, desc). Pages of at most 200.");
 
     app.MapGet("/users/summary", async (ISender sender) =>
     {

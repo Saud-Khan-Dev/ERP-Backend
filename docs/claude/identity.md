@@ -28,7 +28,8 @@ All ids are Guid-backed strongly typed ids; `.Of(guid)` rejects `Guid.Empty`.
   - `OwnerId`: a **taxpayer's** account - the person's owner record in Property, no FK. Set by `LinkOwner`
     (`PUT /users/{id}/owner-link`, or `ownerId` on `POST /users`); unique among linked accounts (migration
     `TaxpayerOwnerLink`). A taxpayer needs no roles: Taxation's `/my` shows them their own records, so such an account is
-    left out of the "no access" list and bell count. One account may be both an employee's and a taxpayer's.
+    left out of the "no access" list and bell count, and its row reads `hasAccess: true` - as is an account linked to an HR
+    record (it opens My workspace with no role). One account may be both an employee's and a taxpayer's.
   - Generated column `search_text` (lower username, email, code, name) behind the Users search.
   - **`IsAuthorizedOfficer`**: the DG's designation under GDA Act s.2(a-i)/28/30. It is a designation, not a
     role, and can't be set on an inactive account.
@@ -182,7 +183,7 @@ All ids are Guid-backed strongly typed ids; `.Of(guid)` rejects `Guid.Empty`.
 | `GET /auth/me` (permissions resolved live, with `roleNames`), `POST /auth/change-password`, `GET /auth/sessions` (ended ones: real endings only, last 50), `POST /auth/sessions/{id}/revoke`, `POST /auth/sessions/revoke-others` | any valid token |
 | `GET /directory/users?ids=|search=` (names only), `GET /attention` (`users.locked`, `users.temporary-password`, `users.no-access`, `roles.ending`, `signins.failed` - each only for who may act) | any signed-in person (`RequireSignedIn`) |
 | `POST /users` (roles need `IAM_USERS.ASSIGN` too) | `IAM_USERS.CREATE` |
-| `GET /users` (search part of name/username/email/code; `status` = active, locked, temporary-password, never-signed-in, no-access, role-ending, deactivated, deleted; `roleId` = holds it now; `sort` = name, username, lastSignIn, registered; `direction`; pages ≤ 200), `GET /users/summary`, `GET /users/{id}?includeDeleted=` | `IAM_USERS.VIEW` |
+| `GET /users` (`kind` = staff (an HR record), outside (none), taxpayer (an owner record); search part of name/username/email/code; `status` = active, locked, temporary-password, never-signed-in, no-access, role-ending, deactivated, deleted; `roleId` = holds it now; `sort` = name, username, lastSignIn, registered; `direction`; pages ≤ 200), `GET /users/summary`, `GET /users/{id}?includeDeleted=` | `IAM_USERS.VIEW` |
 | `PUT /users/{id}` (name and email), `PUT /users/{id}/employee-link`, `PUT /users/{id}/owner-link` (`{ ownerId }`, null unlinks; not your own account; `OwnerLinked` / `OwnerUnlinked` lines) | `IAM_USERS.EDIT` |
 | `POST /users/{id}/reset-password` | `IAM_USERS.RESET` |
 | `POST /users/{id}/activate|deactivate|unlock` | `IAM_USERS.DISABLE` |

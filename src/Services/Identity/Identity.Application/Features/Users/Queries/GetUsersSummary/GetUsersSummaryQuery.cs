@@ -14,7 +14,11 @@ public sealed record UsersSummaryDto(
   int Deleted,
   int AuthorizedOfficers,
   /// Active accounts that signed in during the last seven days.
-  int SignedInLast7Days);
+  int SignedInLast7Days,
+  /// Who the accounts (not deleted) are for: GDA staff (an HR record), outside GDA (none), taxpayers (an owner record).
+  int Staff,
+  int Outside,
+  int Taxpayers);
 
 public sealed record GetUsersSummaryQuery : IQuery<Result<UsersSummaryDto>>;
 
@@ -39,7 +43,10 @@ public class GetUsersSummaryHandler(IApplicationDbContext context) : IQueryHandl
       Deactivated: await Count(UserStatusFilter.Deactivated),
       Deleted: await Count(UserStatusFilter.Deleted),
       AuthorizedOfficers: await users.CountAsync(u => u.IsActive && u.IsAuthorizedOfficer, cancellationToken),
-      SignedInLast7Days: await users.CountAsync(u => u.IsActive && u.LastLoginAt != null && u.LastLoginAt >= now.AddDays(-7), cancellationToken));
+      SignedInLast7Days: await users.CountAsync(u => u.IsActive && u.LastLoginAt != null && u.LastLoginAt >= now.AddDays(-7), cancellationToken),
+      Staff: await UserKindFilter.Apply(users, UserKindFilter.Staff).CountAsync(cancellationToken),
+      Outside: await UserKindFilter.Apply(users, UserKindFilter.Outside).CountAsync(cancellationToken),
+      Taxpayers: await UserKindFilter.Apply(users, UserKindFilter.Taxpayer).CountAsync(cancellationToken));
 
     return Result<UsersSummaryDto>.Success(summary);
   }

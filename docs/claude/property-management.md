@@ -281,6 +281,13 @@ or hold no share anywhere (`OwnershipLink`, a view over `property_ownership` no 
 every town call `IgnoreQueryFilters()` (codes in use, case numbers, an owner's commitments, custom-field values).
 `GET /directory/towns` (signed in): every active town `{ towns: [{ id, code, name }] }` for Administration's scope picker.
 
+`GET /my/properties` (signed in; `PortalEndpoints`, `Features/Portal`): the taxpayer portal's side of Property - the
+properties the caller's owner record (the token's `own` claim, never the request) holds TODAY: a current ownership
+(`Owner`, with the share), a rental or lease in force (`Tenant` / `Lessee`, with the agreement no., amount and frequency)
+or an allotment in force (`Allottee`). Each with name, address, town, type, classification and the current areas in
+sq ft. `{ linked, name, ownerCode, properties }`; `linked: false` for an account that is not a taxpayer's. Not narrowed
+by a town scope (a taxpayer has none).
+
 Bell: `GET /attention` (any signed-in user; counts follow the caller's rights and towns): transfers.pending,
 transfers.unregistered, plans.waiting, allotments.unconfirmed (APPROVE); appeals.overdue (LEGAL.APPROVE); agreements.ending
 (60 days), agreements.overdue (EDIT); hearings.week, legal.next-passed, encroachments.open (LEGAL.EDIT); fines.unpaid (EDIT

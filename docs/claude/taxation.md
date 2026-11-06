@@ -302,9 +302,16 @@ and change the first password, as every new account does.
 - **Paying.** The portal shows the 1Link reference ("account number" for a banking app's bill payment) and the QR; the
   money is paid in the bank's app. It reaches the file when the bank reports it (the gateway groundwork above, not
   connected yet) - until then the Section posts it.
-- No screens yet: the frontend builds them on these endpoints (the Tax Dummy prototype's "Taxpayer portal" is the
-  agreed look). Test login on the dev data: `asif.jadoon@example.com` (owner of PROP-00001, file
-  GDA-NATHIAGALI-RSD-001), created by the demo seed - not in the repo's seeders.
+- **What each property is** comes from Property's `GET /my/properties` (same `own` claim; name, address, town, type,
+  areas, how they hold it), since Taxation keeps no property name and a taxpayer has no `PROPERTY.VIEW`. The portal
+  joins the two on the property code.
+- **Logos.** `GET /letterheads/{id}/logo/{side}` is open to any signed-in person (the logos are printed on every
+  notice), so the taxpayer's notice shows its letterhead.
+- **Screens:** the frontend's `/my-taxes` (Home with every property and the total due, a property with how to pay -
+  reference and QR -, the tax year by year head by head, notices and payments; a notice as printed; messages). The
+  Section links an account in Administration › Users › an account › Taxpayer. Test login on the dev data:
+  `asif.jadoon@example.com` (owner of PROP-00001, file GDA-NATHIAGALI-RSD-001), created by the demo seed - not in the
+  repo's seeders.
 
 ## Seeds (`TaxationSeeder`)
 
