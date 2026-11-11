@@ -213,7 +213,7 @@ public class DemandAndNoticeTests
   public void Band_limits_must_rise_and_only_the_last_band_is_open()
   {
     var set = global::RateSet.Create(RateSetId.New(), "Draft", "Board", null, D("2026-07-01"));
-    Assert.Contains("must rise", Assert.Throws<DomainException>(() => set.SetLtfFactors(Town, TaxCategory.Res, LtfComponent.Land, [new(500, 5), new(400, 6)])).Message);
+    Assert.Contains("must be higher", Assert.Throws<DomainException>(() => set.SetLtfFactors(Town, TaxCategory.Res, LtfComponent.Land, [new(500, 5), new(400, 6)])).Message);
     Assert.Contains("only the last", Assert.Throws<DomainException>(() => set.SetLtfFactors(Town, TaxCategory.Res, LtfComponent.Land, [new(null, 5), new(400, 6)])).Message);
   }
 

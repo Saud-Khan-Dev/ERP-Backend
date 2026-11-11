@@ -35,7 +35,7 @@ public class UploadDocumentCommandValidator : AbstractValidator<UploadDocumentCo
     RuleFor(x => x.PropertyId).NotEmpty().When(x => x.OwnerId is null)
       .WithMessage("A property document needs the property it belongs to.");
     RuleFor(x => x.PropertyId).Null().When(x => x.OwnerId is not null)
-      .WithMessage("An owner's document is not filed under a property - leave propertyId out.");
+      .WithMessage("An owner's document is not filed under a property. Leave propertyId out.");
     RuleFor(x => x.EntityType).NotEqual(DocumentEntityType.Owner).When(x => x.OwnerId is null)
       .WithMessage("An owner's paper is filed on the owner (POST /owners/{id}/documents), not on a property.");
     RuleFor(x => x.DocumentTypeId).NotEmpty();

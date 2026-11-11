@@ -88,14 +88,14 @@ public class PropertyAllotment : Aggregate<AllotmentId>
 
     if (!classification.Is(GdaPropertyClassificationCode))
       throw new DomainException(
-        $"Only GDA property can be allotted; {property.PropertyCode.Value} is classified as {classification.Name.Value}.");
+        $"Only GDA property can be allotted. {property.PropertyCode.Value} is marked as {classification.Name.Value}.");
 
     // a plot people hold privately is not GDA's to give, whatever its classification says
     var privateShares = (currentShares ?? Array.Empty<HeldShare>()).Where(s => !s.IsGovernment).ToList();
     if (privateShares.Count > 0)
       throw new DomainException(
-        $"{property.PropertyCode.Value} is held by {string.Join(" and ", privateShares.OrderByDescending(s => s.SharePct).Select(s => $"{s.HolderName} ({s.SharePct:0.####}%)"))}; "
-        + "only land GDA holds can be allotted. If GDA has acquired it, record that transfer first, or correct the classification.");
+        $"{property.PropertyCode.Value} is owned by {string.Join(" and ", privateShares.OrderByDescending(s => s.SharePct).Select(s => $"{s.HolderName} ({s.SharePct:0.####}%)"))}. "
+        + "Only land that GDA owns can be allotted. If GDA has acquired it, record that transfer first, or correct the classification.");
 
     EnsureNoneInForce(inForce, except: null);
     EnsureNotFuture(allotmentDate, today, "The allotment date");
@@ -154,7 +154,7 @@ public class PropertyAllotment : Aggregate<AllotmentId>
 
     if (!IsInForceStatus(currentStatus))
       throw new DomainException(
-        $"Allotment {AllotmentNo.Value} is {currentStatus.Name.Value.ToLowerInvariant()}; only an allotment in force can be cancelled.");
+        $"Allotment {AllotmentNo.Value} is {currentStatus.Name.Value.ToLowerInvariant()}. Only an active allotment can be cancelled.");
 
     if (cancellationDate < AllotmentDate)
       throw new DomainException("An allotment cannot be cancelled before it was made.");
@@ -191,7 +191,7 @@ public class PropertyAllotment : Aggregate<AllotmentId>
 
     if (!currentStatus.Is(SystemMasterCodes.Cancelled))
       throw new DomainException(
-        $"Only a cancelled allotment can be restored; {AllotmentNo.Value} is {currentStatus.Name.Value.ToLowerInvariant()}.");
+        $"Only a cancelled allotment can be restored. {AllotmentNo.Value} is {currentStatus.Name.Value.ToLowerInvariant()}.");
 
     if (restorationDate < CancellationDate)
       throw new DomainException($"An allotment cannot be restored before it was cancelled ({CancellationDate:yyyy-MM-dd}).");
@@ -220,18 +220,18 @@ public class PropertyAllotment : Aggregate<AllotmentId>
     EnsureCurrent(currentStatus);
 
     if (newStatus.Is(SystemMasterCodes.Cancelled))
-      throw new DomainException("Use the cancel act, so the cancellation order is recorded.");
+      throw new DomainException("Use the Cancel action, so the cancellation order is recorded.");
 
     if (newStatus.Is(SystemMasterCodes.Active) || newStatus.Is(SystemMasterCodes.Restored))
       throw new DomainException(
-        "An allotment cannot be put back in force through a status change; a cancelled allotment is restored with the restore act.");
+        "An allotment cannot be made active again by changing its status. A cancelled allotment is restored with the Restore action.");
 
     if (!newStatus.Is(SurrenderedCode) && !newStatus.Is(SystemMasterCodes.Expired))
       throw new DomainException($"An allotment can only be surrendered or expired here, not set to '{newStatus.Name.Value}'.");
 
     if (!IsInForceStatus(currentStatus))
       throw new DomainException(
-        $"Allotment {AllotmentNo.Value} is {currentStatus.Name.Value.ToLowerInvariant()}; only an allotment in force can be surrendered or expired.");
+        $"Allotment {AllotmentNo.Value} is {currentStatus.Name.Value.ToLowerInvariant()}. Only an active allotment can be surrendered or expired.");
 
     newStatus.EnsureActive();
     IReadOnlyList<PropertyOwnership> ended = Array.Empty<PropertyOwnership>();
@@ -246,11 +246,11 @@ public class PropertyAllotment : Aggregate<AllotmentId>
     else if (ExpiryDate is { } expiry)
     {
       if (expiry >= record.Today)
-        throw new DomainException($"{AllotmentNo.Value} expires on {expiry:yyyy-MM-dd}; it can be marked expired after that.");
+        throw new DomainException($"{AllotmentNo.Value} expires on {expiry:yyyy-MM-dd}. It can be marked expired after that.");
     }
     else
     {
-      var expired = date ?? throw new DomainException($"{AllotmentNo.Value} has no expiry date; give the date it expired.");
+      var expired = date ?? throw new DomainException($"{AllotmentNo.Value} has no expiry date. Give the date it expired.");
       EnsureWithinTerm(expired, record.Today, "expiry");
       ExpiryDate = expired;
     }
@@ -284,7 +284,7 @@ public class PropertyAllotment : Aggregate<AllotmentId>
 
     if (TakesEffectOn > record.Today)
       throw new DomainException(
-        $"{AllotmentNo.Value} takes effect on {TakesEffectOn:yyyy-MM-dd}; the allottee can be confirmed as owner from that day.");
+        $"{AllotmentNo.Value} takes effect on {TakesEffectOn:yyyy-MM-dd}. The allottee can be confirmed as owner from that day.");
 
     if (effectiveFrom < TakesEffectOn)
       throw new DomainException(TakesEffectOn == AllotmentDate
@@ -292,13 +292,13 @@ public class PropertyAllotment : Aggregate<AllotmentId>
         : $"Ownership through {AllotmentNo.Value} cannot start before the allotment takes effect ({TakesEffectOn:yyyy-MM-dd}).");
 
     if (RestorationDate is { } restored && effectiveFrom < restored)
-      throw new DomainException($"{AllotmentNo.Value} was restored on {restored:yyyy-MM-dd}; confirm ownership from that date or later.");
+      throw new DomainException($"{AllotmentNo.Value} was restored on {restored:yyyy-MM-dd}. Confirm ownership from that date or later.");
 
     EnsureNotFuture(effectiveFrom, record.Today, "The ownership start date");
 
     if (OwnershipShares.Total(record.Current) >= OwnershipShares.Whole)
       throw new DomainException(
-        $"Someone already holds 100% of {record.Property.PropertyCode.Value}; transfer a share to the allottee instead.");
+        $"Someone already owns 100% of {record.Property.PropertyCode.Value}. Transfer a share to the allottee instead.");
 
     PropertyOwnership.EnsureCanOpen(allottee, sharePct, effectiveFrom, record);
 
@@ -334,7 +334,7 @@ public class PropertyAllotment : Aggregate<AllotmentId>
 
     if (ConfirmedOwnership(ownerships) is { IsCurrent: true } confirmed)
       throw new DomainException(
-        $"{AllotmentNo.Value} was confirmed as ownership ({confirmed.OwnershipSharePct:0.####}% from {confirmed.EffectiveFrom:yyyy-MM-dd}); cancel or surrender the allotment first.");
+        $"{AllotmentNo.Value} was confirmed as ownership ({confirmed.OwnershipSharePct:0.####}% from {confirmed.EffectiveFrom:yyyy-MM-dd}). Cancel or surrender the allotment first.");
 
     IsActive = false;
   }
@@ -349,7 +349,7 @@ public class PropertyAllotment : Aggregate<AllotmentId>
     {
       if (date < row.EffectiveFrom)
         throw new DomainException(
-          $"{AllotmentNo.Value} was confirmed as ownership from {row.EffectiveFrom:yyyy-MM-dd}; date the {act} on or after that.");
+          $"{AllotmentNo.Value} was confirmed as ownership from {row.EffectiveFrom:yyyy-MM-dd}. Date the {act} on or after that.");
 
       row.EnsureCanEnd(record, $"the allotment is {(act == "cancellation" ? "cancelled" : "surrendered")}");
     }
@@ -364,13 +364,13 @@ public class PropertyAllotment : Aggregate<AllotmentId>
   {
     if (inForce is not null && inForce.Allotment.Id != except)
       throw new DomainException(
-        $"{inForce.Allotment.AllotmentNo.Value} to {inForce.AllotteeName} is already in force on this plot; cancel, surrender or expire it first.");
+        $"{inForce.Allotment.AllotmentNo.Value} to {inForce.AllotteeName} is already active on this plot. Cancel, surrender or expire it first.");
   }
 
   private static void EnsureNotFuture(DateOnly date, DateOnly today, string what)
   {
     if (date > today)
-      throw new DomainException($"{what} cannot be in the future ({date:yyyy-MM-dd}); today is {today:yyyy-MM-dd}.");
+      throw new DomainException($"{what} cannot be in the future ({date:yyyy-MM-dd}). Today is {today:yyyy-MM-dd}.");
   }
 
   private void EnsureWithinTerm(DateOnly date, DateOnly today, string act)

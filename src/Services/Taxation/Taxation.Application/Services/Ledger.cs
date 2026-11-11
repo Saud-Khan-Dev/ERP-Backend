@@ -130,7 +130,7 @@ public sealed class Ledger(IApplicationDbContext context)
       payment.Allocate(settled);
     }
     if (left > 0)
-      throw new DomainException($"{Rupees.Text(left)} of the payment found nothing to settle.");
+      throw new DomainException($"{Rupees.Text(left)} of the payment could not be applied to anything owed.");
     return touched;
   }
 

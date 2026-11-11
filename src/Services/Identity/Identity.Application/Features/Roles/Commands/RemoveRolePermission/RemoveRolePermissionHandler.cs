@@ -10,7 +10,7 @@ public class RemoveRolePermissionHandler(IApplicationDbContext context, Identity
     var permissionId = PermissionId.Of(command.PermissionId);
 
     var role = await context.Roles.AsNoTracking().FirstOrDefaultAsync(r => r.Id == roleId, cancellationToken)
-      ?? throw new RoleNotFoundException("This role was not found - it may have been deleted.");
+      ?? throw new RoleNotFoundException("This role was not found. It may have been deleted.");
 
     guard.EnsureCanAdministerRole(role);
 
@@ -21,7 +21,7 @@ public class RemoveRolePermissionHandler(IApplicationDbContext context, Identity
 
     var link = await context.RolePermissions
         .FirstOrDefaultAsync(rp => rp.RoleId == roleId && rp.PermissionId == permissionId, cancellationToken)
-      ?? throw new PermissionNotFoundException("That permission is not attached to this role.");
+      ?? throw new PermissionNotFoundException("This role does not have that permission.");
 
     context.RolePermissions.Remove(link);
     await activity.RecordAsync(ActivityAction.RolePermissionRemoved, ActivityTargetType.Role, role.Id.Value, role.RoleName.Value,

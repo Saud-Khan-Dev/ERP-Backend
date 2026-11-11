@@ -12,6 +12,6 @@ public class RejectDisposalCommandValidator : AbstractValidator<RejectDisposalCo
   {
     RuleFor(x => x.AssetId).NotEmpty();
     RuleFor(x => x.Reason).NotEmpty().WithMessage("Say why the proposal is rejected.")
-      .MinimumLength(5).WithMessage("Say why the proposal is rejected - a few words at least.").MaximumLength(500);
+      .MinimumLength(5).WithMessage("Say why the proposal is rejected. Use a few words at least.").MaximumLength(500);
   }
 }

@@ -220,9 +220,9 @@ public class NoticeHandlers(
       notice.Change(changes, await LayoutColumnsAsync(notice, cancellationToken), actor, clock.UtcNow, await MovedReplyByAsync(notice, changes, cancellationToken));
     RecordEdits(notice, edits);
     if (notice.IssueDate > clock.Today)
-      return Result<UpdatedResult>.Failure($"Notice {notice.NoticeNo} is dated {notice.IssueDate:yyyy-MM-dd}; it is issued on or after that date.");
+      return Result<UpdatedResult>.Failure($"Notice {notice.NoticeNo} is dated {notice.IssueDate:yyyy-MM-dd}. It can be issued only on or after that date.");
     if (file.HoldOn(clock.Today) is { } hold)
-      return Result<UpdatedResult>.Failure($"{file.FileNo} is on litigation hold since {hold.StartedOn:yyyy-MM-dd}; no notice is issued while it is open.");
+      return Result<UpdatedResult>.Failure($"{file.FileNo} has been on litigation hold since {hold.StartedOn:yyyy-MM-dd}. No notice can be issued while the hold is open.");
     await composer.ConfirmAsync(notice, demand, file, actor, cancellationToken);
     audit.Record("Issued", notice, $"{EnumText.Words(notice.Stage)} notice, endorsement {notice.EndstNo}, {Rupees.Text(notice.AmountWithinDue)} behind the reference");
     await context.SaveChangesAsync(cancellationToken);
@@ -259,12 +259,12 @@ public class NoticeHandlers(
         continue;
       if (file.HoldOn(today) is { } hold)
       {
-        skipped.Add(new(notice.Id.Value, notice.NoticeNo, $"{file.FileNo} is on litigation hold since {hold.StartedOn:dd'/'MM'/'yyyy}"));
+        skipped.Add(new(notice.Id.Value, notice.NoticeNo, $"{file.FileNo} has been on litigation hold since {hold.StartedOn:dd'/'MM'/'yyyy}"));
         continue;
       }
       if (demand.Balance <= 0)
       {
-        skipped.Add(new(notice.Id.Value, notice.NoticeNo, $"nothing is owed on {demand.DemandNo} now - cancel it"));
+        skipped.Add(new(notice.Id.Value, notice.NoticeNo, $"nothing is owed on {demand.DemandNo} now, so cancel it"));
         continue;
       }
       await composer.ConfirmAsync(notice, demand, file, actor, cancellationToken);
@@ -342,7 +342,7 @@ public class NoticeHandlers(
     var next = demand is null || demand.Balance <= 0 ? NoticeStage.First : Ladder[Math.Min(reached + 1, Ladder.Length - 1)];
     var yearStart = FiscalYear.Start(fy);
     if (demand is null && today < yearStart)
-      notes.Insert(0, $"FY {FiscalYear.Label(fy)} starts on {yearStart:dd'/'MM'/'yyyy}; its demand is created from that day.");
+      notes.Insert(0, $"FY {FiscalYear.Label(fy)} starts on {yearStart:dd'/'MM'/'yyyy}. Its demand can be created from that day.");
 
     var heads = (await setup.HeadsAsync(cancellationToken)).ToDictionary(h => h.Id);
     var options = new List<HeadOptionDto>();
@@ -404,11 +404,11 @@ public class NoticeHandlers(
     if (issueDate > today)
       return Result<ManualNoticeResult>.Failure("A notice cannot be dated in the future.");
     if (command.IssueNow && !currentUser.HasPermission(PermissionCatalog.Tax.Edit))
-      return Result<ManualNoticeResult>.Failure("Issuing a notice at once needs the right to issue notices (TAX.EDIT). Save it for review; an officer issues it.");
+      return Result<ManualNoticeResult>.Failure("Issuing a notice at once needs the right to issue notices (TAX.EDIT). Save it for review. An officer will then issue it.");
     if (file.TaxStatus == TaxStatus.Closed)
-      return Result<ManualNoticeResult>.Failure($"{file.FileNo} is closed; a closed file gets no notices.");
+      return Result<ManualNoticeResult>.Failure($"{file.FileNo} is closed. A closed file gets no notices.");
     if (file.HoldOn(issueDate) is { } hold)
-      return Result<ManualNoticeResult>.Failure($"Litigation hold since {hold.StartedOn:yyyy-MM-dd} ({hold.Reason}): no tax or fee while it is open.");
+      return Result<ManualNoticeResult>.Failure($"On litigation hold since {hold.StartedOn:yyyy-MM-dd} ({hold.Reason}). No tax or fee is charged while the hold is open.");
     await setup.TemplateAsync(command.Stage, cancellationToken);
 
     // the rows of earlier dues and other charges, checked before anything changes
@@ -419,7 +419,7 @@ public class NoticeHandlers(
       if (!head.IsActive)
         return Result<ManualNoticeResult>.Failure($"{head.Name} is inactive.");
       if (!head.OnNotice)
-        return Result<ManualNoticeResult>.Failure($"{head.Name} is a fee; charge it on its own, not on a notice.");
+        return Result<ManualNoticeResult>.Failure($"{head.Name} is a fee. Charge it on its own, not on a notice.");
       if (row.FiscalYear > fy)
         return Result<ManualNoticeResult>.Failure($"A row for FY {FiscalYear.Label(row.FiscalYear.Value)} is after the notice year.");
       rows.Add((row, head));
@@ -434,18 +434,18 @@ public class NoticeHandlers(
       // creating the year's demand with a notice stands in for the run's approval
       var yearStart = FiscalYear.Start(fy);
       if (today < yearStart)
-        return Result<ManualNoticeResult>.Failure($"FY {FiscalYear.Label(fy)} starts on {yearStart:dd'/'MM'/'yyyy}; its demand is created from that day.");
+        return Result<ManualNoticeResult>.Failure($"FY {FiscalYear.Label(fy)} starts on {yearStart:dd'/'MM'/'yyyy}. Its demand can be created from that day.");
       if (issueDate < yearStart)
         return Result<ManualNoticeResult>.Failure($"FY {FiscalYear.Label(fy)}'s demand cannot be dated before the year starts ({yearStart:dd'/'MM'/'yyyy}).");
       if (!canApprove)
-        return Result<ManualNoticeResult>.Failure($"FY {FiscalYear.Label(fy)} has no demand on {file.FileNo} yet. Creating it with a notice stands in for the run's approval and needs approval rights (TAX.APPROVE).");
+        return Result<ManualNoticeResult>.Failure($"FY {FiscalYear.Label(fy)} has no demand on {file.FileNo} yet. Creating it with a notice takes the place of the run's approval. So it needs approval rights (TAX.APPROVE).");
       if (file.TaxStatus != TaxStatus.Active)
-        return Result<ManualNoticeResult>.Failure($"{file.FileNo} is {EnumText.Words(file.TaxStatus)}; no demand is created for it.");
+        return Result<ManualNoticeResult>.Failure($"{file.FileNo} is {EnumText.Words(file.TaxStatus)}. No demand can be created for it.");
     }
     else if (demand!.IssuedOn is { } issuedOn && issueDate < issuedOn)
-      return Result<ManualNoticeResult>.Failure($"{demand.DemandNo} was issued on {issuedOn:dd'/'MM'/'yyyy}; a notice on it cannot be dated before that.");
+      return Result<ManualNoticeResult>.Failure($"{demand.DemandNo} was issued on {issuedOn:dd'/'MM'/'yyyy}. A notice on it cannot be dated before that.");
     if (command.Stage == NoticeStage.Surcharge && (demand is null || demand.PenaltySum(PenaltyKind.IntraYear) <= 0))
-      return Result<ManualNoticeResult>.Failure("A surcharge notice follows a surcharge run; this year's demand has no in-year surcharge.");
+      return Result<ManualNoticeResult>.Failure("A surcharge notice comes after a surcharge run. This year's demand has no in-year surcharge.");
 
     // changing what is charged needs approval rights: typed amounts and Normal / Special switches
     if (!canApprove && (command.HeadModes is { Count: > 0 } || command.LineAmounts is { Count: > 0 }))
@@ -516,7 +516,7 @@ public class NoticeHandlers(
     if (command.LineAmounts is { Count: > 0 } amounts)
     {
       if (!created)
-        return Result<ManualNoticeResult>.Failure("The year's demand is issued; its amounts are changed by switching a head Normal / Special, not typed in.");
+        return Result<ManualNoticeResult>.Failure("The year's demand is issued. To change its amounts, switch a head between Normal and Special. Do not type them in.");
       foreach (var entry in amounts)
       {
         var index = lines.FindIndex(l => l.HeadId.Value == entry.HeadId);
@@ -532,14 +532,14 @@ public class NoticeHandlers(
     }
 
     if ((rows.Count > 0 || changes.Count > 0) && reason is null)
-      return Result<ManualNoticeResult>.Failure("Give the reason for the amounts you entered or changed (kept in the audit trail).");
+      return Result<ManualNoticeResult>.Failure("Give the reason for the amounts you entered or changed (it is kept in the audit trail).");
 
     var surcharge = await setup.HeadAsync(HeadCodes.Surcharge, cancellationToken);
     if (created)
     {
       foreach (var draft in await context.DemandsWithItems().Where(d => d.TaxFileId == file.Id && d.FiscalYear == fy && d.Status == DemandStatus.Draft).ToListAsync(cancellationToken))
         context.Demands.Remove(draft);
-      var payer = file.Addressee(issueDate) ?? throw new DomainException("Property has no owner, lessee, tenant or allottee for it. Record one there and sync the file.");
+      var payer = file.Addressee(issueDate) ?? throw new DomainException("Property shows no owner, lessee, tenant or allottee for this property. Record one there and sync the file.");
       demand = Demand.Draft(DemandId.New(), await codes.DemandNoAsync(fy, cancellationToken), null, file, file.CurrentBasis!, payer, fy, lines, 0);
       context.Demands.Add(demand);
       var billed = await ledger.CarryIntoAsync(demand, surcharge.Id, actor, clock.UtcNow, today, cancellationToken);
@@ -588,7 +588,7 @@ public class NoticeHandlers(
     if (policy.HeadId != head.Id)
       throw new DomainException($"\"{policy.Name}\" is not a policy for {head.Name}.");
     if (!policy.AvailableFor(head.Id, file.TaxCategory, fy))
-      throw new DomainException($"\"{policy.Name}\" is not in force for this property in FY {FiscalYear.Label(fy)}.");
+      throw new DomainException($"\"{policy.Name}\" is not active for this property in FY {FiscalYear.Label(fy)}.");
     return policy;
   }
 

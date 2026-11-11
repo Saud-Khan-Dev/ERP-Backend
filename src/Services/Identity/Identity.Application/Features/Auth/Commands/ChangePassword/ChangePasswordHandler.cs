@@ -16,7 +16,7 @@ public class ChangePasswordHandler(
       ?? throw new InvalidCredentialsException("No authenticated user");
 
     var user = await context.Users.FirstOrDefaultAsync(u => u.Id == UserId.Of(userId), cancellationToken)
-      ?? throw new UserNotFoundException("This account was not found - it may have been deleted.");
+      ?? throw new UserNotFoundException("This account was not found. It may have been deleted.");
 
     var security = await securitySettings.GetAsync(cancellationToken);
     if (passwordHasher.Verify(user.PasswordHash.Value, command.CurrentPassword) == PasswordVerificationOutcome.Failed)
@@ -32,7 +32,7 @@ public class ChangePasswordHandler(
       }
       await context.SaveChangesAsync(cancellationToken);
       return Result<ChangePasswordCommandResult>.Failure(locked
-        ? $"Your current password is incorrect. Too many wrong passwords: the account is locked for {security.LockoutMinutes} minutes."
+        ? $"Your current password is incorrect. There were too many wrong passwords, so the account is locked for {security.LockoutMinutes} minutes."
         : "Your current password is incorrect.");
     }
 

@@ -30,8 +30,8 @@ public sealed class DocumentType : MasterData
       return;
 
     throw new DomainException(AppliesToOwner
-      ? $"'{Name.Value}' is an owner's document - file it on the owner, not on a property."
-      : $"'{Name.Value}' is a property document - it cannot be filed on an owner.");
+      ? $"'{Name.Value}' is an owner's document. File it on the owner, not on a property."
+      : $"'{Name.Value}' is a property document. It cannot be filed on an owner.");
   }
 
   protected override void ApplyExtras(MasterExtras extras)
@@ -40,11 +40,11 @@ public sealed class DocumentType : MasterData
     folder = folder.Trim().ToLowerInvariant();
 
     if (folder.Length > StorageFolderMaxLength || !FolderPattern.IsMatch(folder))
-      throw new DomainException("storage_folder may only contain lower-case letters, digits, '-' and '_' (e.g. notices).");
+      throw new DomainException("The storage folder can only have small letters, digits, '-' and '_' (e.g. notices).");
 
     var appliesTo = extras.AppliesTo ?? AppliesTo;
     if (!Enum.IsDefined(appliesTo))
-      throw new DomainException("applies_to must be PROPERTY or OWNER.");
+      throw new DomainException("Applies to must be PROPERTY or OWNER.");
 
     // property_owner.cnic_document_id points at this kind, so it is always an owner's document
     if (Is(SystemMasterCodes.DocumentCnicCopy) && appliesTo != DocumentScope.Owner)

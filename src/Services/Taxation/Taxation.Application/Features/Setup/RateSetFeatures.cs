@@ -120,7 +120,7 @@ public class RateSetHandlers(IApplicationDbContext context, IPropertyDirectory p
   {
     var set = await context.LoadRateSetAsync(command.Id, cancellationToken);
     if (set.Status != RateSetStatus.Draft)
-      return Result<UpdatedResult>.Failure($"'{set.Name}' is approved; approved rates are kept.");
+      return Result<UpdatedResult>.Failure($"'{set.Name}' is approved. Approved rates are kept and cannot be deleted.");
     context.RateSets.Remove(set);
     await context.SaveChangesAsync(cancellationToken);
     return CommandResults.Updated();

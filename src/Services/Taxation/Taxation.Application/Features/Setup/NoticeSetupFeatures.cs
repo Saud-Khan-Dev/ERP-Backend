@@ -124,9 +124,9 @@ public class NoticeSetupHandlers(IApplicationDbContext context, TaxSetup setup, 
   {
     var extension = Path.GetExtension(command.FileName ?? "");
     if (!LogoTypes.ContainsKey(extension))
-      throw new DomainException("A logo is a PNG, JPG, SVG or WEBP image.");
+      throw new DomainException("A logo must be a PNG, JPG, SVG or WEBP image.");
     if (command.Length <= 0 || command.Length > MaxLogoBytes)
-      throw new DomainException("A logo can be up to 1 MB.");
+      throw new DomainException("A logo cannot be larger than 1 MB.");
     var path = await storage.SaveAsync(command.Content, "letterhead", extension.ToLowerInvariant(), cancellationToken);
     return Result<UploadLogoResult>.Success(new(path));
   }
@@ -140,7 +140,7 @@ public class NoticeSetupHandlers(IApplicationDbContext context, TaxSetup setup, 
     {
       "left" => letterhead.LogoLeftRef,
       "right" => letterhead.LogoRightRef,
-      _ => throw new DomainException("The side is left or right.")
+      _ => throw new DomainException("The side must be left or right.")
     } ?? throw new StoredFileNotFoundException("This letterhead has no logo on that side.");
     var stream = await storage.OpenReadAsync(path, cancellationToken) ?? throw new StoredFileNotFoundException("The logo file is missing from storage.");
     var type = LogoTypes.GetValueOrDefault(Path.GetExtension(path), "application/octet-stream");

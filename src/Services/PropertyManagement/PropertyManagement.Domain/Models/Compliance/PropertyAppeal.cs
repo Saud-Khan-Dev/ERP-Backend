@@ -110,7 +110,7 @@ public class PropertyAppeal : Aggregate<AppealId>
       throw new DomainException("An appeal cannot be decided before it was filed.");
 
     if (today is { } day && decisionDate > day)
-      throw new DomainException($"The decision date cannot be in the future ({decisionDate:yyyy-MM-dd}); today is {day:yyyy-MM-dd}.");
+      throw new DomainException($"The decision date cannot be in the future ({decisionDate:yyyy-MM-dd}). Today is {day:yyyy-MM-dd}.");
 
     DecisionDate = decisionDate;
     DecisionOutcome = outcome;
@@ -147,7 +147,7 @@ public class PropertyAppeal : Aggregate<AppealId>
     if (earlier.IsOpen)
       throw new DomainException($"Appeal {earlier.AppealNo.Value} against order {earlier.AppealedOrderRef} is still {Describe(earlier.AppealStatus)}. Record its decision, or withdraw it, before filing another appeal against the same order.");
 
-    throw new DomainException($"Appeal {earlier.AppealNo.Value} against order {earlier.AppealedOrderRef} was decided on {earlier.DecisionDate:yyyy-MM-dd}; the decision is final (Act s.32), so the order cannot be appealed again.");
+    throw new DomainException($"Appeal {earlier.AppealNo.Value} against order {earlier.AppealedOrderRef} was decided on {earlier.DecisionDate:yyyy-MM-dd}. The decision is final (Act s.32), so the order cannot be appealed again.");
   }
 
   /// Same record when both name one; otherwise the same order reference.
@@ -199,7 +199,7 @@ public class PropertyAppeal : Aggregate<AppealId>
     var daysAfterReceipt = AppealDate.DayNumber - received.DayNumber;
 
     if (daysAfterReceipt > FilingWindowDays)
-      warnings.Add($"The appeal was filed {daysAfterReceipt} days after the order was {(OrderReceivedDate is null ? "passed" : "received")}; Act s.32(1) allows {FilingWindowDays} days.");
+      warnings.Add($"The appeal was filed {daysAfterReceipt} days after the order was {(OrderReceivedDate is null ? "passed" : "received")}. Act s.32(1) allows {FilingWindowDays} days.");
 
     return warnings;
   }

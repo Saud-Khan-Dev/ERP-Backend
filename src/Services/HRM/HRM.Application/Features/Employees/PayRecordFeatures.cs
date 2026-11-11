@@ -91,19 +91,19 @@ public class PayRecordHandlers(IApplicationDbContext context, PayService pay, Hr
     var stageId = PayScaleStageId.Of(command.PayScaleStageId);
     var scale = await pay.ScaleOfStageAsync(stageId, cancellationToken);
     if (scale.Status != RecordStatus.Active || !scale.Range.Contains(date))
-      return Result<RecordPayChangeResult>.Failure($"That stage belongs to a scale not in force on {date:dd'/'MM'/'yyyy}.");
+      return Result<RecordPayChangeResult>.Failure($"That stage belongs to a scale that is not active on {date:dd'/'MM'/'yyyy}.");
 
     // the pay follows the grade of the regular post held that day
     var held = await reader.RegularPostOnAsync(employee.Id, date, cancellationToken);
     if (held is null)
-      return Result<RecordPayChangeResult>.Failure($"{employee.DisplayName} holds no regular post on {date:dd'/'MM'/'yyyy}; the pay follows the post's grade. Place the employee on a post first.");
+      return Result<RecordPayChangeResult>.Failure($"{employee.DisplayName} has no regular post on {date:dd'/'MM'/'yyyy}. The pay follows the post's grade. Place the employee on a post first.");
     if (held.Version.GradeId != scale.GradeId)
     {
       var grades = await lookup.GradesAsync(cancellationToken);
       var postBps = grades[held.Version.GradeId.Value].BpsNumber;
       var stageBps = grades[scale.GradeId.Value].BpsNumber;
       return Result<RecordPayChangeResult>.Failure($"Post {held.Post.PostCode} is BPS-{postBps} on {date:dd'/'MM'/'yyyy}, but that stage is of the BPS-{stageBps} scale. "
-        + $"Choose a stage of the BPS-{postBps} scale; a move to another grade is a promotion or a demotion.");
+        + $"Choose a stage of the BPS-{postBps} scale. A move to another grade is a promotion or a demotion.");
     }
 
     var before = await pay.RecordOnAsync(employee.Id, date.AddDays(-1), cancellationToken);
@@ -159,7 +159,7 @@ public class PayRecordHandlers(IApplicationDbContext context, PayService pay, Hr
       var employee = employees[record.EmployeeId];
       if (ownRule && currentUser.EmployeeId == employee.Id.Value)
       {
-        skipped.Add(new(employee.Id.Value, employee.EmployeeNumber, "Your own record: nobody decides on their own pay. Someone else runs it for you."));
+        skipped.Add(new(employee.Id.Value, employee.EmployeeNumber, "This is your own record. Nobody can decide their own pay. Someone else must run it for you."));
         continue;
       }
       if (employee.HasLeftService || employee.EmploymentStatus == EmploymentStatus.Suspended || employee.ProfileStatus != RecordStatus.Active)
@@ -231,7 +231,7 @@ public class PayRecordHandlers(IApplicationDbContext context, PayService pay, Hr
       var employee = employees[record.EmployeeId];
       if (ownRule && currentUser.EmployeeId == employee.Id.Value)
       {
-        skipped.Add(new(employee.Id.Value, employee.EmployeeNumber, "Your own record: nobody decides on their own pay. Someone else runs it for you."));
+        skipped.Add(new(employee.Id.Value, employee.EmployeeNumber, "This is your own record. Nobody can decide their own pay. Someone else must run it for you."));
         continue;
       }
       if (employee.HasLeftService)

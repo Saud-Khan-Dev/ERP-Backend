@@ -70,7 +70,7 @@ public class HrmExceptionHandler(ILogger<HrmExceptionHandler> logger) : IExcepti
       // the exception text is for the log, never for the person at the desk
       _ => (
         Title: "Server error",
-        Detail: $"Something went wrong on the server. Try again; if it keeps happening, tell the administrator (reference {context.TraceIdentifier}).",
+        Detail: $"Something went wrong on the server. Try again. If it keeps happening, tell the administrator (reference {context.TraceIdentifier}).",
         StatusCode: StatusCodes.Status500InternalServerError
       )
     };
@@ -125,7 +125,7 @@ public class HrmExceptionHandler(ILogger<HrmExceptionHandler> logger) : IExcepti
     {
       PostgresErrorCodes.UniqueViolation => ("Conflict", known ?? "A record with the same values already exists.", StatusCodes.Status409Conflict),
       PostgresErrorCodes.ExclusionViolation => ("Conflict", known ?? "The period overlaps another one that is already on record.", StatusCodes.Status409Conflict),
-      PostgresErrorCodes.ForeignKeyViolation => ("Conflict", known ?? "The record is still referred to elsewhere, or refers to something that does not exist.", StatusCodes.Status409Conflict),
+      PostgresErrorCodes.ForeignKeyViolation => ("Conflict", known ?? "The record is still used elsewhere, or it points to something that does not exist.", StatusCodes.Status409Conflict),
       PostgresErrorCodes.CheckViolation => ("Rejected", known ?? $"The values break the rule '{error.ConstraintName}'.", StatusCodes.Status400BadRequest),
       PostgresErrorCodes.SerializationFailure or PostgresErrorCodes.DeadlockDetected =>
         ("Conflict", "Someone else changed the same records at the same moment. Try again.", StatusCodes.Status409Conflict),
@@ -188,7 +188,7 @@ public class HrmExceptionHandler(ILogger<HrmExceptionHandler> logger) : IExcepti
     ["ex_psv_no_overlap"] = "The grade already has an active pay scale for part of that period.",
     ["ex_pv_no_overlap"] = "The post already has a version for part of that period.",
     ["ex_epr_no_overlap"] = "The employee already has a pay record for part of that period.",
-    ["ex_pa_one_regular"] = "The employee already holds a regular post in that period.",
+    ["ex_pa_one_regular"] = "The employee already has a regular post in that period.",
     ["ex_pp_no_overlap"] = "Another active performance period covers part of those dates.",
     ["ex_es_no_overlap"] = "The employee already has a shift for part of that period.",
     ["ex_la_no_overlap"] = "The employee already has a pending or approved leave in those dates.",

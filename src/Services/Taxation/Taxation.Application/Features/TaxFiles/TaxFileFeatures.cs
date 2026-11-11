@@ -297,7 +297,7 @@ public class TaxFileHandlers(
   {
     var file = await context.LoadTaxFileAsync(command.Id, cancellationToken);
     if (file.UpliftDiffers(command.Details) && !currentUser.HasPermission(PermissionCatalog.Tax.Approve))
-      return Result<UpdatedResult>.Failure("The file's completion-certificate uplift changes its tax like an override; changing it needs approval rights (TAX.APPROVE).");
+      return Result<UpdatedResult>.Failure("The file's completion-certificate uplift changes its tax like an override. So changing it needs approval rights (TAX.APPROVE).");
     file.Update(command.Details);
     await context.SaveChangesAsync(cancellationToken);
     return CommandResults.Updated();
@@ -318,7 +318,7 @@ public class TaxFileHandlers(
   {
     var file = await context.LoadTaxFileAsync(command.Id, cancellationToken);
     if (command.Status == TaxStatus.Closed && await ledger.DuesAsync(file, cancellationToken) > 0)
-      return Result<UpdatedResult>.Failure($"{file.FileNo} still owes {Rupees.Text(await ledger.DuesAsync(file, cancellationToken))}; a file is closed only when nothing is due.");
+      return Result<UpdatedResult>.Failure($"{file.FileNo} still owes {Rupees.Text(await ledger.DuesAsync(file, cancellationToken))}. A file can be closed only when nothing is due.");
     var before = file.TaxStatus;
     file.ChangeStatus(command.Status, command.Reason, clock.Today);
     if (file.TaxStatus != before)
@@ -435,7 +435,7 @@ public class TaxFileHandlers(
     {
       var head = await setup.HeadAsync(row.HeadCode.Trim().ToUpperInvariant(), cancellationToken);
       if (row.FiscalYear is { } fy && fy >= FiscalYear.Of(clock.Today))
-        return Result<UpdatedResult>.Failure($"Opening arrears are of earlier years; FY {FiscalYear.Label(fy)} is not.");
+        return Result<UpdatedResult>.Failure($"Opening arrears must be for earlier years. FY {FiscalYear.Label(fy)} is not an earlier year.");
       if (!head.IsActive)
         return Result<UpdatedResult>.Failure($"{head.Name} is inactive.");
       context.ArrearsRows.Add(Arrears.Imported(ArrearsId.New(), file.Id, head, row.FiscalYear, row.Amount, row.Description, null, actor, clock.UtcNow));
@@ -466,7 +466,7 @@ public class TaxFileHandlers(
     var row = await OpeningRowAsync(file, command.ArrearsId, cancellationToken);
     var head = await setup.HeadAsync(command.Row.HeadCode.Trim().ToUpperInvariant(), cancellationToken);
     if (command.Row.FiscalYear is { } fy && fy >= FiscalYear.Of(clock.Today))
-      return Result<UpdatedResult>.Failure($"Opening arrears are of earlier years; FY {FiscalYear.Label(fy)} is not.");
+      return Result<UpdatedResult>.Failure($"Opening arrears must be for earlier years. FY {FiscalYear.Label(fy)} is not an earlier year.");
     var before = row.OriginalAmount;
     row.CorrectOpening(head, command.Row.FiscalYear, command.Row.Amount, command.Row.Description, command.Reason, Guard.Actor(currentUser.UserId, "correct opening arrears"),
       clock.UtcNow);
@@ -482,9 +482,9 @@ public class TaxFileHandlers(
     var file = await context.LoadTaxFileAsync(command.Id, cancellationToken);
     var row = await OpeningRowAsync(file, command.ArrearsId, cancellationToken);
     if (!row.IsUnbilledOpening)
-      return Result<UpdatedResult>.Failure("This due is billed on a demand now; correct it with a notice instead.");
+      return Result<UpdatedResult>.Failure("This due is billed on a demand now. Correct it with a notice instead.");
     if (row.Settled > 0)
-      return Result<UpdatedResult>.Failure($"{Rupees.Text(row.Settled)} was already paid on it; correct its amount instead of removing it.");
+      return Result<UpdatedResult>.Failure($"{Rupees.Text(row.Settled)} was already paid on it. Correct its amount instead of removing it.");
     audit.Record("Taken back", row, $"Entered by mistake: {command.Reason.Trim()}");
     context.ArrearsRows.Remove(row);
     await messenger.SyncAsync(file, PsidSyncReason.Correction, null, null, null, $"opening arrears of {Rupees.Text(row.OriginalAmount)} removed: {command.Reason.Trim()}",
@@ -499,7 +499,7 @@ public class TaxFileHandlers(
     var row = await context.ArrearsRows.FirstOrDefaultAsync(a => a.Id == id && a.TaxFileId == file.Id, cancellationToken)
       ?? throw new TaxFileNotFoundException($"The opening due {arrearsId} was not found on {file.FileNo}.");
     if (row.Source != ArrearsSource.Import)
-      throw new DomainException("Only an opening due of the old register is corrected here.");
+      throw new DomainException("Only an opening due on the old register can be corrected here.");
     return row;
   }
 

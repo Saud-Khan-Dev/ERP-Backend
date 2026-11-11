@@ -24,10 +24,10 @@ public class TransferAssetCommandValidator : AbstractValidator<TransferAssetComm
     RuleFor(x => x.Reason).MaximumLength(1000);
     RuleFor(x => x)
       .Must(x => x.ToDepartmentId.HasValue || x.ToCustodianId.HasValue || x.ToLocationId.HasValue || x.ClearCustodian || x.ClearDepartment)
-      .WithMessage("Say where the asset goes: a location, a person or a department.");
+      .WithMessage("Say where the asset goes. Choose a location, a person or a department.");
     RuleFor(x => x).Must(x => !(x.ClearCustodian && x.ToCustodianId.HasValue))
-      .WithMessage("Choose a new custodian, or 'nobody' - not both.");
+      .WithMessage("Choose a new custodian or 'nobody', not both.");
     RuleFor(x => x).Must(x => !(x.ClearDepartment && x.ToDepartmentId.HasValue))
-      .WithMessage("Choose a new department, or 'none' - not both.");
+      .WithMessage("Choose a new department or 'none', not both.");
   }
 }

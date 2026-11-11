@@ -38,6 +38,6 @@ public class CurrencyLookup : Entity<Currency>
   private static void ValidateMinorUnits(short minorUnits)
   {
     if (minorUnits is < 0 or > 6)
-      throw new DomainException("minor_units must be between 0 and 6.");
+      throw new DomainException("The number of decimal places (minor_units) must be between 0 and 6.");
   }
 }

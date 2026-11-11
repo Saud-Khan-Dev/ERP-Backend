@@ -55,9 +55,9 @@ public class LifecycleEventType : Aggregate<LifecycleEventTypeId>
     if (IsSystem)
     {
       if (code != Code || NormalizeStage(stage) != Stage)
-        throw new DomainException($"'{Name.Value}' is written by the system itself; only its name and description can change.");
+        throw new DomainException($"'{Name.Value}' is recorded by the system itself. Only its name and description can change.");
       if (!isActive)
-        throw new DomainException($"'{Name.Value}' is written by the system itself and cannot be switched off.");
+        throw new DomainException($"'{Name.Value}' is recorded by the system itself and cannot be switched off.");
     }
 
     if (inUse && code != Code)
@@ -73,7 +73,7 @@ public class LifecycleEventType : Aggregate<LifecycleEventTypeId>
   public void EnsureDeletable()
   {
     if (IsSystem)
-      throw new DomainException($"'{Name.Value}' is written by the system itself and cannot be deleted.");
+      throw new DomainException($"'{Name.Value}' is recorded by the system itself and cannot be deleted.");
   }
 
   private static string? NormalizeStage(string? stage) =>

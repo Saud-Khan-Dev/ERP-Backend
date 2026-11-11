@@ -24,7 +24,7 @@ public sealed class TaxSetup(IApplicationDbContext context)
 
   public async Task<TaxHead> HeadAsync(string code, CancellationToken cancellationToken) =>
       (await HeadsAsync(cancellationToken)).FirstOrDefault(h => h.Code == code)
-        ?? throw new TaxHeadNotFoundException($"The tax head {code} is missing. Restart the service to restore the seeded heads.");
+        ?? throw new TaxHeadNotFoundException($"The tax head {code} is missing. Restart the service to add the standard heads again.");
 
   public async Task<IReadOnlyDictionary<TaxHeadId, string>> HeadCodesAsync(CancellationToken cancellationToken) =>
       (await HeadsAsync(cancellationToken)).ToDictionary(h => h.Id, h => h.Code);
@@ -38,7 +38,7 @@ public sealed class TaxSetup(IApplicationDbContext context)
     var id = await context.RateSets.AsNoTracking()
       .Where(s => s.Status != RateSetStatus.Draft && s.EffectiveFrom <= date && (s.EffectiveTo == null || s.EffectiveTo >= date))
       .OrderByDescending(s => s.EffectiveFrom).Select(s => s.Id).FirstOrDefaultAsync(cancellationToken)
-      ?? throw new DomainException($"No approved rate set is in force on {date:yyyy-MM-dd}. Approve one in Configuration → Rate sets.");
+      ?? throw new DomainException($"No approved rate set is in use on {date:yyyy-MM-dd}. Approve one in Configuration → Rate sets.");
     if (_rateSets.TryGetValue(id, out var cached))
       return cached;
     return _rateSets[id] = await context.LoadRateSetAsync(id.Value, cancellationToken);

@@ -41,7 +41,7 @@ public class FirstOwnerAndIdentityTests
     PropertyOwner a = Owner("A"), b = Owner("B");
     var record = Record(property, new[] { Own(property, a, 100) }, new[] { a, b });
 
-    Assert.Contains("already held. A new owner comes in only through a transfer",
+    Assert.Contains("already has owners. A new owner can come in only through a transfer",
       Message(() => PropertyOwnership.RegisterFirstOwners([First(b, 100)], record)));
   }
 
@@ -117,7 +117,7 @@ public class FirstOwnerAndIdentityTests
     var dead = Person("Late Fazal", new PropertyOwner.OldIdentity(OldIdType.OldNic, "11-22-33"), died: "2010-05-01");
     var record = Record(property, new[] { Own(property, dead, 100, "2001-01-01") }, new[] { dead, heir });
 
-    Assert.Contains("passes only by inheritance or a court decree",
+    Assert.Contains("can pass only by inheritance or a court decree",
       Message(() => Initiate(record, "2026-10-01", "TRF-00091", Gives(dead, 100), Gets(heir, 100))));
 
     var inheritance = Master<TransferType>(SystemMasterCodes.TransferInheritance);

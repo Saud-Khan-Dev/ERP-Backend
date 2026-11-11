@@ -11,7 +11,7 @@ public class CancelDisposalHandler(IApplicationDbContext context, ICurrentUser c
     var asset = await AssetRecordGuard.LoadAsync(context, assetId, track: true, cancellationToken);
 
     var disposal = await context.AssetDisposals.FirstOrDefaultAsync(d => d.AssetId == assetId && d.State == DisposalState.Approved, cancellationToken)
-      ?? throw new AssetDisposalNotFoundException("This asset has not been disposed of. A proposal waiting for approval is rejected or withdrawn instead.");
+      ?? throw new AssetDisposalNotFoundException("This asset has not been disposed of. If a proposal is waiting for approval, reject or withdraw it instead.");
 
     // the status it had before: the "from" side of its disposal event
     var disposalType = await SystemEvents.TypeAsync(context, EventPurpose.Disposal, cancellationToken);

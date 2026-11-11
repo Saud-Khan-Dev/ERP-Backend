@@ -35,7 +35,7 @@ public class OrgUnitHandlers(IApplicationDbContext context, IClock clock) :
   {
     var unit = await context.LoadOrgUnitAsync(command.Id, cancellationToken);
     var asOf = command.AsOf ?? clock.Today;
-    var version = unit.VersionOn(asOf) ?? throw new DomainException($"Unit {unit.Code} has no version in force on {asOf:dd'/'MM'/'yyyy}.");
+    var version = unit.VersionOn(asOf) ?? throw new DomainException($"Unit {unit.Code} has no active version on {asOf:dd'/'MM'/'yyyy}.");
     var details = await ResolveAsync(unit.Id, command.Details, version.EffectiveFrom, version.Details, cancellationToken);
     unit.CorrectOn(asOf, details);
 
@@ -111,7 +111,7 @@ public class OrgUnitHandlers(IApplicationDbContext context, IClock clock) :
       var version = post.VersionOn(date)
         ?? throw new DomainException($"Post {post.PostCode} does not exist on {date:yyyy-MM-dd}.");
       if (version.OrgUnitId != unitId)
-        throw new DomainException($"Post {post.PostCode} belongs to another unit; the head post must be one of this unit's posts.");
+        throw new DomainException($"Post {post.PostCode} belongs to another unit. The head post must be one of this unit's posts.");
       if (version.LifecycleStatus == PostLifecycle.Abolished)
         throw new DomainException($"Post {post.PostCode} is abolished.");
     }

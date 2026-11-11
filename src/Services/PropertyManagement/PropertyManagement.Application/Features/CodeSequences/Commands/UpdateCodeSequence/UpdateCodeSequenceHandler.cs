@@ -18,7 +18,7 @@ public class UpdateCodeSequenceHandler(IApplicationDbContext context, CodeGenera
 
     if (highest is not null && highest >= sequence.NextNumber)
       return Result<UpdateCodeSequenceCommandResult>.Failure(
-        $"{sequence.Format(highest.Value).Value} is already in use; the next number must be at least {highest + 1}.");
+        $"{sequence.Format(highest.Value).Value} is already in use. The next number must be at least {highest + 1}.");
 
     await context.SaveChangesAsync(cancellationToken);
     return Result<UpdateCodeSequenceCommandResult>.Success(new UpdateCodeSequenceCommandResult(sequence.ToDto()));

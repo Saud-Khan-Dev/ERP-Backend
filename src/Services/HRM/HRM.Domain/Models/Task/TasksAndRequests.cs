@@ -49,7 +49,7 @@ public class EmployeeTask : Aggregate<EmployeeTaskId>
   {
     EnsureOpen();
     if (Status == EmployeeTaskStatus.OnHold)
-      throw new DomainException("The task is on hold; resume it before recording progress.");
+      throw new DomainException("The task is on hold. Resume it before recording progress.");
 
     var update = EmployeeTaskUpdate.Create(Id, Guard.Between(progressPercentage, 0, 100, "Progress"), notes, Guard.Actor(updatedBy, "update a task"), at);
     _updates.Add(update);
@@ -186,7 +186,7 @@ public class EmployeeRequest : Aggregate<EmployeeRequestId>
       throw new DomainException("The supporting document belongs to a different employee.");
 
     if (string.IsNullOrWhiteSpace(subject) && string.IsNullOrWhiteSpace(description))
-      throw new DomainException("Say what the request is about (a subject or a description).");
+      throw new DomainException("Enter what the request is about, as a subject or a description.");
 
     return new EmployeeRequest
     {
@@ -207,7 +207,7 @@ public class EmployeeRequest : Aggregate<EmployeeRequestId>
   public void Reject(Guid? reviewedBy, DateTime at, string? remarks)
   {
     if (string.IsNullOrWhiteSpace(remarks))
-      throw new DomainException("Give the reason for rejecting the request.");
+      throw new DomainException("Enter the reason for rejecting the request.");
     Decide(EmployeeRequestStatus.Rejected, reviewedBy, at, remarks);
   }
 

@@ -15,7 +15,7 @@ public class GetOwnersHandler(IApplicationDbContext context, MasterLookup master
       owners = context.VisibleOwners(owners);
 
     if (query.Role is OwnerRole.Encroacher or OwnerRole.Litigant or OwnerRole.Appellant && !currentUser.HasPermission(PermissionCatalog.PropertyLegal.View))
-      throw new PermissionRequiredException("Encroachers, litigants and appellants are legal matters; they need Legal: view (PROPERTY_LEGAL.VIEW).");
+      throw new PermissionRequiredException("Encroachers, litigants and appellants are part of legal matters. Seeing them needs Legal: view (PROPERTY_LEGAL.VIEW).");
 
     // a current holding: an active or disputed share on a property still on the register
     var activeProperties = context.Properties.AsNoTracking().Where(p => p.IsActive).Select(p => p.Id);

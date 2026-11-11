@@ -76,12 +76,12 @@ public class LeaveService(IApplicationDbContext context, WorkCalendar calendar)
       if (!balance.HasEntitlement)
       {
         if (type.IsBalanceTracked)
-          throw new DomainException($"{type.Name} has no days for {year}: set its days per year in Configuration › Leave.");
+          throw new DomainException($"{type.Name} has no days for {year}. Set its days per year in Configuration › Leave.");
         continue;
       }
 
       if (requested > balance.Available)
-        throw new DomainException($"Only {balance.Available:0.##} day(s) of {type.Name} are available in {year}; {requested:0.##} asked for.");
+        throw new DomainException($"Only {balance.Available:0.##} day(s) of {type.Name} are available in {year}. You asked for {requested:0.##}.");
     }
   }
 }

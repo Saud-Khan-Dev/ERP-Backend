@@ -57,7 +57,7 @@ public class PropertyAreaRegularization : Aggregate<AreaRegularizationId>
     Guard.Positive(additionalArea, "Additional area");
 
     if (applicationDate > today)
-      throw new DomainException($"The application date cannot be in the future ({applicationDate:yyyy-MM-dd}); today is {today:yyyy-MM-dd}.");
+      throw new DomainException($"The application date cannot be in the future ({applicationDate:yyyy-MM-dd}). Today is {today:yyyy-MM-dd}.");
 
     var regularization = new PropertyAreaRegularization
     {
@@ -94,8 +94,8 @@ public class PropertyAreaRegularization : Aggregate<AreaRegularizationId>
           || (decision.ApprovedByEmployeeId is { } employee && employee != ApprovedByEmployeeId)
           || (approvedBy is not null && !string.Equals(approvedBy, ApprovedBy, StringComparison.Ordinal)))
         throw new DomainException(RegularizationStatus == RegularizationStatus.Rejected
-          ? "This case was rejected; the decision is final. Open a new case if the owner applies again."
-          : "This case was regularized; the decision is final. Only when its effect ends, the order reference and the remarks can still change.");
+          ? "This case was rejected. The decision is final. Open a new case if the owner applies again."
+          : "This case was regularized. The decision is final. Only the date its effect ends, the order reference and the remarks can still change.");
 
       Guard.DateOrder(EffectiveFrom, decision.EffectiveTo, "Effective from", "Effective to");
       EffectiveTo = decision.EffectiveTo;
@@ -133,7 +133,7 @@ public class PropertyAreaRegularization : Aggregate<AreaRegularizationId>
       throw new DomainException("A regularized case needs its regularization date.");
 
     if (decision.RegularizationDate is { } decided && decided > today)
-      throw new DomainException($"The regularization date cannot be in the future ({decided:yyyy-MM-dd}); today is {today:yyyy-MM-dd}.");
+      throw new DomainException($"The regularization date cannot be in the future ({decided:yyyy-MM-dd}). Today is {today:yyyy-MM-dd}.");
 
     Guard.DateOrder(ApplicationDate, decision.RegularizationDate, "Application date", "Regularization date");
     Guard.DateOrder(decision.EffectiveFrom, decision.EffectiveTo, "Effective from", "Effective to");

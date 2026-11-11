@@ -108,10 +108,10 @@ public class AssetDepreciationSchedule : Aggregate<AssetDepreciationScheduleId>
       throw new DomainException("The method does not match the schedule.");
 
     if (method.Kind == DepreciationMethodKind.UnitsOfProduction)
-      throw new DomainException("Units-of-production months are entered by hand with the use of the month.");
+      throw new DomainException("Units-of-production months are entered by hand, with how much the asset was used that month.");
 
     if (!IsActive)
-      throw new DomainException("This schedule is closed; nothing more is written on it.");
+      throw new DomainException("This schedule is closed. Nothing more can be added to it.");
 
     var generated = new List<AssetDepreciationEntry>();
     var live = LiveEntries.ToList();
@@ -157,7 +157,7 @@ public class AssetDepreciationSchedule : Aggregate<AssetDepreciationScheduleId>
   public AssetDepreciationEntry AddManualEntry(DateOnly periodStart, DateOnly periodEnd, decimal depreciationAmount)
   {
     if (!IsActive)
-      throw new DomainException("This schedule is closed; nothing more is written on it.");
+      throw new DomainException("This schedule is closed. Nothing more can be added to it.");
 
     if (periodStart < StartDate)
       throw new DomainException("The period cannot start before the schedule does.");
@@ -200,7 +200,7 @@ public class AssetDepreciationSchedule : Aggregate<AssetDepreciationScheduleId>
     var entry = FindEntry(entryId);
 
     if (entry.Posted)
-      throw new DomainException("A posted month cannot be deleted. Reverse it instead - the reversal stays on record.");
+      throw new DomainException("A posted month cannot be deleted. Reverse it instead. The reversal stays on record.");
 
     _entries.Remove(entry);
   }
@@ -221,7 +221,7 @@ public class AssetDepreciationSchedule : Aggregate<AssetDepreciationScheduleId>
       throw new DomainException("This schedule is already closed.");
 
     if (PostedThrough is { } posted && endDate <= posted)
-      throw new DomainException($"Months are posted up to {posted:dd'/'MM'/'yyyy}. The schedule can only close after them - reverse those months first.");
+      throw new DomainException($"Months are posted up to {posted:dd'/'MM'/'yyyy}. The schedule can only close after them. Reverse those months first.");
 
     RemoveDraftsAfter(endDate.AddDays(-1));
     IsActive = false;

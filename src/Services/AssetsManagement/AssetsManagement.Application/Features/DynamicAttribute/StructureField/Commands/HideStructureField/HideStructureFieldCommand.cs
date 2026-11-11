@@ -15,7 +15,7 @@ public class HideStructureFieldCommandValidator : AbstractValidator<HideStructur
   public HideStructureFieldCommandValidator()
   {
     RuleFor(x => x.Scope).IsInEnum().Must(s => s is AttributeScope.AssetType or AttributeScope.Category)
-      .WithMessage("A field is left off a type or a category (a class is the top of the structure).");
+      .WithMessage("A field can be left off only a type or a category. A class is the top of the structure.");
     RuleFor(x => x.TargetId).NotEmpty();
     RuleFor(x => x.DefinitionId).NotEmpty();
   }

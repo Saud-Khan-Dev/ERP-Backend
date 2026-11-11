@@ -130,7 +130,7 @@ public class Employee : Aggregate<EmployeeId>
   {
     EnsureProfileActive();
     if (employmentType.Basis == EmploymentBasis.Regular && EmploymentBasis != EmploymentBasis.Regular)
-      throw new DomainException($"{DisplayName} is {EnumText.WithArticle(EmploymentBasis)} employee. Making them regular is a regularization: draft a Regularization HR action instead.");
+      throw new DomainException($"{DisplayName} is {EnumText.WithArticle(EmploymentBasis)} employee. They can be made regular only through a Regularization HR action. Draft one instead.");
 
     ApplyEmployment(employmentType, employmentMethodId, projectId);
     if (!EmploymentTerms.HasTerm(EmploymentBasis))
@@ -166,12 +166,12 @@ public class Employee : Aggregate<EmployeeId>
   {
     EnsureProfileActive();
     if (!EmploymentTerms.HasTerm(EmploymentBasis))
-      throw new DomainException($"{DisplayName} is a regular employee; only fixed-term, deputation and project staff have a term.");
+      throw new DomainException($"{DisplayName} is a regular employee. Only fixed-term, deputation and project staff have a term.");
 
     Guard.DateOrder(from, to, "Term start", "Term end");
     var department = Guard.Text(lendingDepartment, 200, "Parent department");
     if (EmploymentBasis == EmploymentBasis.Deputation && department is null)
-      throw new DomainException("Name the parent department the deputationist comes from.");
+      throw new DomainException("Enter the parent department that the deputationist comes from.");
     if (EmploymentBasis != EmploymentBasis.Deputation && department is not null)
       throw new DomainException("Only a deputationist (deputation in) has a parent department.");
 
@@ -207,11 +207,11 @@ public class Employee : Aggregate<EmployeeId>
   public string? AppointmentAgeProblem(DateOnly on, int retirementAge)
   {
     if (AgeOn(on) is not { } age)
-      return $"Enter {DisplayName}'s date of birth before the appointment: the retirement date is worked out from it.";
+      return $"Enter {DisplayName}'s date of birth before the appointment. The retirement date is worked out from it.";
     if (age < 18)
-      return $"{DisplayName} is {age} on {on:dd'/'MM'/'yyyy}; a government servant must be at least 18 when appointed.";
+      return $"{DisplayName} is {age} on {on:dd'/'MM'/'yyyy}. A government servant must be at least 18 when appointed.";
     if (age >= retirementAge)
-      return $"{DisplayName} is {age} on {on:dd'/'MM'/'yyyy}, at or past the retirement age of {retirementAge}.";
+      return $"{DisplayName} is {age} on {on:dd'/'MM'/'yyyy}. That is at or past the retirement age of {retirementAge}.";
     return null;
   }
 
@@ -241,7 +241,7 @@ public class Employee : Aggregate<EmployeeId>
       return;
 
     if (EmploymentStatus == EmploymentStatus.Deceased)
-      throw new DomainException($"{DisplayName} is recorded as deceased; the service status cannot change.");
+      throw new DomainException($"{DisplayName} is recorded as deceased. Their service status cannot change.");
 
     EmploymentStatus = status;
   }
@@ -491,7 +491,7 @@ public class EmployeeContact : Entity<EmployeeContactId>
     {
       var digits = text.Count(char.IsAsciiDigit);
       if (digits < 7 || digits > 15 || text.Any(c => !(char.IsAsciiDigit(c) || c is '+' or '-' or ' ' or '(' or ')')))
-        throw new DomainException($"'{text}' is not a phone number (digits, spaces, '+', '-' and brackets only).");
+        throw new DomainException($"'{text}' is not a valid phone number. Use only digits, spaces, '+', '-' and brackets.");
     }
 
     return text;

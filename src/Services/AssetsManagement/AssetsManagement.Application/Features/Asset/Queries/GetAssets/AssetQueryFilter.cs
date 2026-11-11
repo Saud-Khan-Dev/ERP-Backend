@@ -301,10 +301,10 @@ public static class AssetQueryFilter
   {
     AttributeCode code;
     try { code = AttributeCode.Of(filter.Code); }
-    catch (DomainException) { throw new DomainException("One of the field filters names a field that does not exist. Clear the field filters."); }
+    catch (DomainException) { throw new DomainException("One of the field filters is for a field that does not exist. Clear the field filters."); }
 
     var definition = await context.AttributeDefinitions.AsNoTracking().FirstOrDefaultAsync(d => d.Code == code, cancellationToken)
-      ?? throw new DomainException("One of the field filters names a field that does not exist. Clear the field filters.");
+      ?? throw new DomainException("One of the field filters is for a field that does not exist. Clear the field filters.");
 
     // only fields set up as "Filter" (or "Search") keep the typed values a filter reads
     var definitionId = definition.Id;
@@ -331,7 +331,7 @@ public static class AssetQueryFilter
           AttributeFilterOperator.Gte => values.Where(v => v.ValueNumber >= number),
           AttributeFilterOperator.Lt => values.Where(v => v.ValueNumber < number),
           AttributeFilterOperator.Lte => values.Where(v => v.ValueNumber <= number),
-          _ => throw new DomainException($"'{label}' is a number: compare it with =, ≠, >, ≥, < or ≤.")
+          _ => throw new DomainException($"'{label}' is a number. Compare it with =, ≠, >, ≥, < or ≤.")
         };
         break;
       }
@@ -353,7 +353,7 @@ public static class AssetQueryFilter
           AttributeFilterOperator.Gte => isDate ? values.Where(v => v.ValueDate >= date) : values.Where(v => v.ValueDatetime >= moment),
           AttributeFilterOperator.Lt => isDate ? values.Where(v => v.ValueDate < date) : values.Where(v => v.ValueDatetime < moment),
           AttributeFilterOperator.Lte => isDate ? values.Where(v => v.ValueDate <= date) : values.Where(v => v.ValueDatetime <= moment),
-          _ => throw new DomainException($"'{label}' is a date: compare it with on, before or after.")
+          _ => throw new DomainException($"'{label}' is a date. Compare it with on, before or after.")
         };
         break;
       }
@@ -367,7 +367,7 @@ public static class AssetQueryFilter
         {
           AttributeFilterOperator.Eq => values.Where(v => v.ValueBoolean == flag),
           AttributeFilterOperator.Neq => values.Where(v => v.ValueBoolean != flag),
-          _ => throw new DomainException($"'{label}' is a yes / no field: filter on 'is' or 'is not'.")
+          _ => throw new DomainException($"'{label}' is a yes / no field. Filter on 'is' or 'is not'.")
         };
         break;
       }
@@ -383,7 +383,7 @@ public static class AssetQueryFilter
           AttributeFilterOperator.Eq => values.Where(v => v.ValueText == text),
           AttributeFilterOperator.Neq => values.Where(v => v.ValueText != text),
           AttributeFilterOperator.Contains => values.Where(v => v.ValueText != null && v.ValueText.ToUpper().Contains(text.ToUpperInvariant())),
-          _ => throw new DomainException($"'{label}' is text: filter on 'is', 'is not' or 'contains'.")
+          _ => throw new DomainException($"'{label}' is text. Filter on 'is', 'is not' or 'contains'.")
         };
         break;
       }

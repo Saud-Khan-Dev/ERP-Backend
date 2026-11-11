@@ -64,7 +64,7 @@ public class Property : Aggregate<PropertyId>
 
     if (allotmentInForce is { } allotted && classification.Id != PropertyClassificationId)
       throw new DomainException(
-        $"{PropertyCode.Value} is allotted to {allotted.AllotteeName} ({allotted.Allotment.AllotmentNo.Value}); its classification cannot change while the allotment is in force.");
+        $"{PropertyCode.Value} is allotted to {allotted.AllotteeName} ({allotted.Allotment.AllotmentNo.Value}). Its classification cannot change while the allotment is active.");
 
     Apply(propertyName, town, propertyType, classification, addressLine, khasraSurveyNo, description, remarks);
   }
@@ -156,7 +156,7 @@ public class Property : Aggregate<PropertyId>
     ArgumentNullException.ThrowIfNull(classification);
 
     if (propertyName.Value.Length > NameMaxLength)
-      throw new DomainException($"Property name cannot exceed {NameMaxLength} characters.");
+      throw new DomainException($"Property name can have at most {NameMaxLength} characters.");
 
     // an inactive master may stay on an old record, but cannot be newly chosen
     if (town.Id != TownId) town.EnsureActive();

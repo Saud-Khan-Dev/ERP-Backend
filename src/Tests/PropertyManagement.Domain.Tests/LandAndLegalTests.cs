@@ -122,7 +122,7 @@ public class BoundarySlopeTests
   {
     Survey(52, out var warnings);
 
-    Assert.Equal("Slope 52° is above the 45° limit of the Building & Construction Regulations 2026 - the survey is recorded; check before approving construction.",
+    Assert.Equal("Slope 52° is above the 45° limit of the Building & Construction Regulations 2026. The survey is still recorded. Check it before approving construction.",
       Assert.Single(warnings));
   }
 
@@ -361,7 +361,7 @@ public class CourtCaseRuleTests
     var lower = File("CS-1");
 
     var pending = Assert.Throws<DomainException>(() => File("CA-1", related: new PropertyLitigation.Related(null, null, null, lower, Pending)));
-    Assert.Contains("only a decided case can be appealed", pending.Message);
+    Assert.Contains("Only a decided case can be appealed", pending.Message);
 
     lower.Decide(Pending, Decided, D("2026-09-01"), "Suit dismissed");
     var appeal = File("CA-1", related: new PropertyLitigation.Related(null, null, null, lower, Decided));
@@ -704,7 +704,7 @@ public class AgreementEndingTests
   {
     var lease = Lease(LeaseActive, "2026-10-13");
 
-    Assert.Contains("LSE-00001 ends on 2026-10-13; it can be marked expired after that.",
+    Assert.Contains("LSE-00001 ends on 2026-10-13. It can be marked expired after that.",
       Assert.Throws<DomainException>(() => lease.Expire(LeaseActive, Expired, Today)).Message);
 
     lease.Expire(LeaseActive, Expired, Today.AddDays(1));

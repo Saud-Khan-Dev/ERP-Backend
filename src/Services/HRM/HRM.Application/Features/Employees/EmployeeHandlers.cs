@@ -31,7 +31,7 @@ public class EmployeeHandlers(
     {
       if (command.Appointment is not { } placement)
         return Result<RegisterEmployeeCommandResult>.Failure(
-          $"Your access is limited to {await scope.OfficeNamesAsync(cancellationToken)}: register the employee with an appointment to a post there.");
+          $"You can only work on {await scope.OfficeNamesAsync(cancellationToken)}. Register the employee with an appointment to a post there.");
       var unit = await context.PostVersions.AsNoTracking()
         .Where(v => v.PostId == PostId.Of(placement.PostId) && v.EffectiveFrom <= placement.EffectiveFrom && (v.EffectiveTo == null || v.EffectiveTo >= placement.EffectiveFrom))
         .Select(v => v.OrgUnitId).FirstOrDefaultAsync(cancellationToken);
@@ -128,7 +128,7 @@ public class EmployeeHandlers(
     var reason = string.IsNullOrWhiteSpace(input.ChangeReason) ? null : input.ChangeReason.Trim();
     var needsReason = changes.Where(c => EmployeeFields.NeedReason.Contains(c.Field)).Select(c => c.Field).ToList();
     if (reason is null && needsReason.Count > 0)
-      return Result<UpdatedResult>.Failure($"Say why the {(needsReason[0] == EmployeeFields.Cnic ? "CNIC" : "date of birth")} is corrected; the reason is kept in the employee's history.");
+      return Result<UpdatedResult>.Failure($"Say why the {(needsReason[0] == EmployeeFields.Cnic ? "CNIC" : "date of birth")} is corrected. The reason is kept in the employee's history.");
 
     foreach (var (name, oldValue, newValue) in changes)
       log.Add(employee.Id, name, oldValue, newValue, reason);
@@ -225,7 +225,7 @@ public class EmployeeHandlers(
       var placed = await context.PositionAssignments.AnyAsync(a => a.EmployeeId == employee.Id && a.Status == RecordStatus.Active
         && (a.EffectiveTo == null || a.EffectiveTo >= clock.Today), cancellationToken);
       if (placed)
-        return Result<UpdatedResult>.Failure($"{employee.DisplayName} still holds a post. Record the separation (or end the assignments) before deactivating the profile.");
+        return Result<UpdatedResult>.Failure($"{employee.DisplayName} still has a post. Record the separation, or end the assignments, before deactivating the profile.");
     }
 
     var old = employee.ProfileStatus;

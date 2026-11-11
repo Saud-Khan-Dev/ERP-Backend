@@ -31,7 +31,7 @@ public class SetUserScopeHandler(IApplicationDbContext context, IdentityGuard gu
   {
     var userId = UserId.Of(command.UserId);
     var user = await context.Users.FirstOrDefaultAsync(u => u.Id == userId, cancellationToken)
-      ?? throw new UserNotFoundException("This account was not found - it may have been deleted.");
+      ?? throw new UserNotFoundException("This account was not found. It may have been deleted.");
     guard.EnsureNotSelf(userId, "set the towns and offices of");
     await guard.EnsureCanActOnAsync(userId, "set the towns and offices of", cancellationToken);
 

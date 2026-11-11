@@ -21,7 +21,7 @@ public class GatewayNotificationHandlers(IApplicationDbContext context, GatewayP
   ICommandHandler<RetryGatewayNotificationCommand, Result<RetryGatewayNotificationResult>>,
   ICommandHandler<DismissGatewayNotificationCommand, Result<UpdatedResult>>
 {
-  private const string EveryTown = "The gateway's payments are not tied to a town; this needs access to every town.";
+  private const string EveryTown = "The gateway's payments are not linked to a town. So this needs access to every town.";
 
   public async Task<Result<GetGatewayNotificationsQueryResult>> Handle(GetGatewayNotificationsQuery query, CancellationToken cancellationToken)
   {

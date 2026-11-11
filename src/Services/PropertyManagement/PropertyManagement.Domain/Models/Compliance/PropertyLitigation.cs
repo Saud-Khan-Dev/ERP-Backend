@@ -154,7 +154,7 @@ public class PropertyLitigation : Aggregate<LitigationId>
       throw new DomainException($"A hearing cannot be before the case was filed ({filed:yyyy-MM-dd}).");
 
     if (today is { } day && hearingDate > day)
-      throw new DomainException($"A hearing is recorded once it has taken place; {hearingDate:yyyy-MM-dd} is in the future. Set it as the next hearing date instead.");
+      throw new DomainException($"A hearing is recorded only after it has taken place. {hearingDate:yyyy-MM-dd} is in the future. Set it as the next hearing date instead.");
 
     if (nextHearingDate is { } next && next <= hearingDate)
       throw new DomainException("The next hearing must be after this one.");
@@ -174,10 +174,10 @@ public class PropertyLitigation : Aggregate<LitigationId>
     status.EnsureActive();
 
     if (status.Is(SystemMasterCodes.Decided))
-      throw new DomainException("Use decide, so the decision date and outcome are recorded.");
+      throw new DomainException("Use Decide, so the decision date and outcome are recorded.");
 
     if (status.Is(SystemMasterCodes.Appealed))
-      throw new DomainException("An appeal is filed as a new case with this one as its lower-court case; that marks this case appealed.");
+      throw new DomainException("To appeal, file a new case and choose this one as its lower-court case. That marks this case as appealed.");
 
     if (status.Id == LitigationStatusId)
       throw new DomainException($"Case {CaseNo} is already {status.Name.Value}.");
@@ -198,7 +198,7 @@ public class PropertyLitigation : Aggregate<LitigationId>
       throw new DomainException($"A case cannot be decided before it was filed ({filed:yyyy-MM-dd}).");
 
     if (today is { } day && decisionDate > day)
-      throw new DomainException($"The decision date cannot be in the future ({decisionDate:yyyy-MM-dd}); today is {day:yyyy-MM-dd}.");
+      throw new DomainException($"The decision date cannot be in the future ({decisionDate:yyyy-MM-dd}). Today is {day:yyyy-MM-dd}.");
 
     if (result is { } r && !Enum.IsDefined(r))
       throw new DomainException("Unknown case result.");
@@ -230,7 +230,7 @@ public class PropertyLitigation : Aggregate<LitigationId>
       throw new DomainException($"Case {CaseNo} was already appealed to {AppealedTo}. File a further appeal against that case.");
 
     if (!currentStatus.Is(SystemMasterCodes.Decided))
-      throw new DomainException($"Case {CaseNo} is {currentStatus.Name.Value}; only a decided case can be appealed. Record its decision first.");
+      throw new DomainException($"Case {CaseNo} is {currentStatus.Name.Value}. Only a decided case can be appealed. Record its decision first.");
   }
 
   private LitigationParty AddPartyCore(PartyInput party)
@@ -285,10 +285,10 @@ public class PropertyLitigation : Aggregate<LitigationId>
       throw new DomainException($"Case {CaseNo} has been decided. File an appeal as a new case with this one as its parent.");
 
     if (currentStatus.Is(SystemMasterCodes.Appealed))
-      throw new DomainException($"Case {CaseNo} was appealed to {AppealedTo}; record further proceedings on the higher-court case.");
+      throw new DomainException($"Case {CaseNo} was appealed to {AppealedTo}. Record what happens next on the higher-court case.");
 
     if (IsClosedStatus(currentStatus))
-      throw new DomainException($"Case {CaseNo} is {currentStatus.Name.Value} and closed; it can no longer change.");
+      throw new DomainException($"Case {CaseNo} is {currentStatus.Name.Value} and closed. It can no longer change.");
   }
 
   private static Guid RequireOfficer(Guid? officerId) =>

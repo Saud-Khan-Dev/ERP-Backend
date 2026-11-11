@@ -34,6 +34,6 @@ public static class OwnerScope
   public static void EnsureTownInScope(this IApplicationDbContext context, MasterId townId, string townName)
   {
     if (context.TownScope is { } towns && !towns.Contains(townId.Value))
-      throw new PermissionRequiredException($"You work on other towns, not {townName}: a property there is registered or changed by someone who works on {townName} (Administration › Users › where they work).");
+      throw new PermissionRequiredException($"Your work towns do not include {townName}. A property there can be registered or changed only by someone who works on {townName} (Administration › Users › where they work).");
   }
 }

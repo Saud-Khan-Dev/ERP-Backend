@@ -44,7 +44,7 @@ public class PayScaleInputValidator : AbstractValidator<PayScaleInput>
     RuleFor(x => x.MinBasicPay).GreaterThanOrEqualTo(0);
     RuleFor(x => x.MaxBasicPay).GreaterThanOrEqualTo(x => x.MinBasicPay).WithMessage("The maximum basic pay cannot be below the minimum.");
     RuleFor(x => x).Must(x => x.AnnualIncrement.HasValue != (x.Stages is { Count: > 0 }))
-      .WithMessage("Give either the annual increment (the stages are laid out from it) or the stages, not both.");
+      .WithMessage("Enter either the annual increment or the stages, not both. If you enter the increment, the stages are made from it.");
     RuleFor(x => x.AnnualIncrement).GreaterThan(0).When(x => x.AnnualIncrement.HasValue);
     RuleFor(x => x.IncrementRule).MaximumLength(1000);
   }
@@ -59,7 +59,7 @@ public class CreatePayScalesCommandValidator : AbstractValidator<CreatePayScales
     RuleFor(x => x.Scales).NotEmpty();
     RuleForEach(x => x.Scales).SetValidator(new PayScaleInputValidator());
     RuleFor(x => x.Scales).Must(s => s.Select(x => x.GradeId).Distinct().Count() == s.Count)
-      .WithMessage("Each grade may appear only once in a notification.");
+      .WithMessage("Each grade can be used only once in a notification.");
   }
 }
 
@@ -69,7 +69,7 @@ public class ReplacePayScaleStagesCommandValidator : AbstractValidator<ReplacePa
   {
     RuleFor(x => x.Id).NotEmpty();
     RuleFor(x => x).Must(x => x.AnnualIncrement.HasValue != (x.Stages is { Count: > 0 }))
-      .WithMessage("Give either the annual increment or the stages, not both.");
+      .WithMessage("Enter either the annual increment or the stages, not both.");
   }
 }
 
@@ -98,7 +98,7 @@ public class PayScaleHandlers(IApplicationDbContext context, ICurrentUser curren
       foreach (var current in existing.Where(v => v.GradeId == grade.Id && v.Range.Overlaps(command.EffectiveFrom, null)))
       {
         if (current.EffectiveFrom >= command.EffectiveFrom)
-          return Result<CreatePayScalesCommandResult>.Failure($"{grade.Label} already has a scale from {current.EffectiveFrom:yyyy-MM-dd}; a new one must start after it.");
+          return Result<CreatePayScalesCommandResult>.Failure($"{grade.Label} already has a scale from {current.EffectiveFrom:yyyy-MM-dd}. A new one must start after it.");
         current.CloseOn(command.EffectiveFrom.AddDays(-1));
       }
 

@@ -16,7 +16,7 @@ public class OwnershipApprovalRuleTests
     var record = new OwnershipRecord(property, Array.Empty<PropertyOwnership>(), new[] { someone }, Array.Empty<PropertyTransfer>(),
       Array.Empty<PropertyEncumbrance>(), Today, new PropertyAllotment.InForce(allotment, "Shazia Bibi"));
 
-    Assert.Contains("only by confirming the allottee as owner",
+    Assert.Contains("the only way to give the plot an owner is to confirm the allottee as owner",
       Message(() => PropertyOwnership.RegisterFirstOwners([new PropertyOwnership.FirstOwner(someone, Owned, 100, D("2026-01-01"))], record)));
   }
 
@@ -144,7 +144,7 @@ public class EnforcedChargeRuleTests
     charge.Enforce(property, "Foreclosed.");
     var record = Record(property, new[] { ownB }, new[] { b, d, bank }, charges: new[] { charge });
 
-    Assert.Contains("which was enforced; it can only be transferred to Bank of Khyber",
+    Assert.Contains("The charge was enforced, so the share can only be transferred to Bank of Khyber",
       Message(() => Initiate(record, "2026-10-01", "TRF-00061", Gives(b, 100), Gets(d, 100))));
 
     Assert.Equal(TransferStatus.Initiated, Initiate(record, "2026-10-01", "TRF-00062", Gives(b, 100), Gets(bank, 100)).TransferStatus);
@@ -182,7 +182,7 @@ public class AllotmentLandRuleTests
   {
     var (property, classification) = NewPlot();
 
-    Assert.Equal("PROP-00001 is held by Saad (61%) and Saud (39%); only land GDA holds can be allotted. If GDA has acquired it, record that transfer first, or correct the classification.",
+    Assert.Equal("PROP-00001 is owned by Saad (61%) and Saud (39%). Only land that GDA owns can be allotted. If GDA has acquired it, record that transfer first, or correct the classification.",
       Message(() => PropertyAllotment.Allot(AllotmentId.New(), property, classification, Owner("Shazia Bibi"), BusinessCode.Of("ALT-00039"), Plot, Active,
         D("2025-01-01"), null, null, null, null, null, null, Today,
         new[] { new PropertyAllotment.HeldShare("Saud", 39, false), new PropertyAllotment.HeldShare("Saad", 61, false) })));
@@ -219,7 +219,7 @@ public class AllotmentLandRuleTests
     var allotment = PropertyAllotment.Allot(AllotmentId.New(), property, classification, allottee, BusinessCode.Of("ALT-00042"), Plot, Active,
       D("2026-10-01"), D("2027-01-13"), null, null, null, null, null, Today);
 
-    Assert.Equal("ALT-00042 takes effect on 2027-01-13; the allottee can be confirmed as owner from that day.",
+    Assert.Equal("ALT-00042 takes effect on 2027-01-13. The allottee can be confirmed as owner from that day.",
       Message(() => allotment.ConfirmOwnership(OwnershipId.New(), Active, allottee, Owned, 100, Today, null, null,
         Record(property, Array.Empty<PropertyOwnership>(), new[] { allottee }))));
   }
@@ -230,7 +230,7 @@ public class AllotmentLandRuleTests
     var (property, classification) = NewPlot();
     var allotment = Allot(property, classification, Owner("Shazia Bibi"), no: "ALT-00043");
 
-    Assert.Contains("its classification cannot change while the allotment is in force", Message(() => property.UpdateDetails(
+    Assert.Contains("Its classification cannot change while the allotment is active", Message(() => property.UpdateDetails(
       Name.Of("Plot 7"), Master<Town>("NATHIA_GALI"), Master<PropertyType>("RESIDENTIAL"), Master<PropertyClassification>("PRIVATE_PROPERTY"),
       null, null, null, null, new PropertyAllotment.InForce(allotment, "Shazia Bibi"))));
   }
@@ -246,7 +246,7 @@ public class AgreementOverlapRuleTests
   {
     var running = new[] { new AgreementSpan(AgreementSpanKind.Lease, "LSE-00005", "Ali Khan", D("2026-01-01"), D("2030-12-31")) };
 
-    Assert.Equal("LSE-00005 to Ali Khan already runs from 2026-01-01 to 2030-12-31 on this property; a second lease cannot overlap it. Renew or end LSE-00005 first, or start the new lease after 2030-12-31.",
+    Assert.Equal("LSE-00005 to Ali Khan already runs from 2026-01-01 to 2030-12-31 on this property. A second lease cannot overlap it. Renew or end LSE-00005 first, or start the new lease after 2030-12-31.",
       Message(() => AgreementOverlap.Check(new AgreementSpan(AgreementSpanKind.Lease, "LSE-00006", "Sara", D("2028-01-01"), D("2032-12-31")), running)));
 
     Assert.Empty(AgreementOverlap.Check(new AgreementSpan(AgreementSpanKind.Lease, "LSE-00006", "Sara", D("2031-01-01"), D("2035-12-31")), running));
@@ -266,7 +266,7 @@ public class AgreementOverlapRuleTests
     var running = new[] { new AgreementSpan(AgreementSpanKind.Contract, "CON-00001", "ParkCo", D("2026-01-01"), null, Parking) };
 
     Assert.Empty(AgreementOverlap.Check(new AgreementSpan(AgreementSpanKind.Contract, "CON-00002", "CleanCo", D("2026-02-01"), null, Cleaning), running));
-    Assert.Contains("a second contract of this type cannot overlap it",
+    Assert.Contains("A second contract of this type cannot overlap it",
       Message(() => AgreementOverlap.Check(new AgreementSpan(AgreementSpanKind.Contract, "CON-00003", "ParkCo 2", D("2026-03-01"), null, Parking), running)));
   }
 
@@ -300,7 +300,7 @@ public class AgreementTermsRuleTests
   {
     var rental = Rental(RentActive);
 
-    Assert.Contains("its terms are history", Message(() => rental.UpdateTerms(RentActive, RentTerms(rent: 15000))));
+    Assert.Contains("its terms cannot be edited", Message(() => rental.UpdateTerms(RentActive, RentTerms(rent: 15000))));
 
     rental.UpdateTerms(RentActive, RentTerms(reference: "AGR-1/corrected"));
     Assert.Equal(("AGR-1/corrected", 18500m), (rental.AgreementReference, rental.RentAmount));
@@ -386,8 +386,8 @@ public class AgreementTermsRuleTests
       new PropertyOutsourcing.Terms(Master<OutsourcingType>("PARKING"), D("2026-01-01"), D("2026-12-31"), null, 100000, AmountFrequency.Monthly, null, null, null,
         MoneyDirection.Receivable));
 
-    Assert.Contains("changes status only through its acts", Message(() => contract.ChangeStatus(active, suspended, D("2026-06-01"))));
-    Assert.Contains("its terms are history", Message(() => contract.Update(active, new PropertyOutsourcing.Terms(Master<OutsourcingType>("PARKING"),
+    Assert.Contains("changes status only through its actions", Message(() => contract.ChangeStatus(active, suspended, D("2026-06-01"))));
+    Assert.Contains("its terms cannot be edited", Message(() => contract.Update(active, new PropertyOutsourcing.Terms(Master<OutsourcingType>("PARKING"),
       D("2026-01-01"), D("2026-12-31"), null, 50000, AmountFrequency.Monthly, null, null, null, MoneyDirection.Receivable))));
   }
 
@@ -418,7 +418,7 @@ public class AgreementTermsRuleTests
 
     lease.UpdateTerms(active, Terms("AGR-9A"));
     Assert.Equal("AGR-9A", lease.AgreementReference);
-    Assert.Contains("its terms are history", Message(() => lease.UpdateTerms(active, Terms("AGR-9A", 200000))));
+    Assert.Contains("its terms cannot be edited", Message(() => lease.UpdateTerms(active, Terms("AGR-9A", 200000))));
   }
 
   [Fact]
@@ -517,7 +517,7 @@ public class DecidedRecordRuleTests
     var regularization = PropertyAreaRegularization.Open(AreaRegularizationId.New(), Property(), Sqft, 500, D("2026-01-01"),
       Decision(RegularizationStatus.Regularized, "2026-02-01"), Today);
 
-    Assert.Contains("the decision is final", Message(() => regularization.UpdateCase(Decision(RegularizationStatus.Pending), Today)));
+    Assert.Contains("The decision is final", Message(() => regularization.UpdateCase(Decision(RegularizationStatus.Pending), Today)));
 
     regularization.UpdateCase(Decision(RegularizationStatus.Regularized, effectiveTo: "2026-09-01"), Today);
     Assert.False(regularization.CountsTowardArea(Today));

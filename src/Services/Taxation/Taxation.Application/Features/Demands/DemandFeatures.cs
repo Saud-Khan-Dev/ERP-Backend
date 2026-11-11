@@ -62,7 +62,7 @@ public class DemandRunHandlers(
   {
     var fy = command.FiscalYear;
     TaxCircleId? circleId = command.CircleId is { } c ? (await context.LoadCircleAsync(c, cancellationToken)).Id : null;
-    if (await context.CircleRefusalAsync(circleId, "work out a demand run", cancellationToken) is { } outside)
+    if (await context.CircleRefusalAsync(circleId, "calculate a demand run", cancellationToken) is { } outside)
       return Result<ComputeRunResult>.Failure(outside);
 
     // a run writes its drafts in bulk: the trail gets one line for the run, not one per demand
@@ -114,7 +114,7 @@ public class DemandRunHandlers(
 
         var basis = file.CurrentBasis!;
         var payer = file.Addressee(yearStart) ?? file.Addressee(clock.Today)
-          ?? throw new DomainException("Property has no owner, lessee, tenant or allottee for it. Record one there and sync the file.");
+          ?? throw new DomainException("Property shows no owner, lessee, tenant or allottee for this property. Record one there and sync the file.");
         var arrears = await ledger.ArrearsPreviewAsync(file, fy, cancellationToken);
 
         if (demand is null)
@@ -149,10 +149,10 @@ public class DemandRunHandlers(
     var run = await context.LoadRunAsync(command.Id, cancellationToken);
     var actor = Guard.Actor(currentUser.UserId, "approve a demand run");
     if (run.Status != DemandRunStatus.Computed)
-      return Result<ApproveRunResult>.Failure($"The run is {EnumText.Words(run.Status).ToLowerInvariant()}; only a computed run can be approved.");
+      return Result<ApproveRunResult>.Failure($"The run is {EnumText.Words(run.Status).ToLowerInvariant()}. Only a computed run can be approved.");
     if (await context.CircleRefusalAsync(run.CircleId, "approve this demand run", cancellationToken) is { } outside)
       return Result<ApproveRunResult>.Failure(outside);
-    if (await dutyRules.SeparationRefusalAsync(DutyRules.TaxDemandRun, run.ComputedBy, actor, "approve a demand run you worked out", cancellationToken) is { } refusal)
+    if (await dutyRules.SeparationRefusalAsync(DutyRules.TaxDemandRun, run.ComputedBy, actor, "approve a demand run you calculated", cancellationToken) is { } refusal)
       return Result<ApproveRunResult>.Failure(refusal);
     var today = clock.Today;
     run.Approve(actor, clock.UtcNow, today);
@@ -187,7 +187,7 @@ public class DemandRunHandlers(
         if (file.HoldOn(today) is { } hold)
         {
           // a hold put on after the run was worked out: the demand stands, its notice waits for the hold to end
-          held.Add(new RunProblemDto(file.Id.Value, file.FileNo, $"On litigation hold since {hold.StartedOn:dd'/'MM'/'yyyy}: no first notice while it is open."));
+          held.Add(new RunProblemDto(file.Id.Value, file.FileNo, $"On litigation hold since {hold.StartedOn:dd'/'MM'/'yyyy}. No first notice is sent while the hold is open."));
         }
         else
         {
@@ -225,21 +225,21 @@ public class DemandRunHandlers(
       return [new RunProblemDto(Guid.Empty, "", DomainMessages.Text(ex))];
     }
     if (ctx.RateSet.Id != run.RateSetId)
-      stale.Add(new RunProblemDto(Guid.Empty, "", $"The rate set in force on 1 July is now '{ctx.RateSet.Name}', not the one the run was worked out with."));
+      stale.Add(new RunProblemDto(Guid.Empty, "", $"The rate set in use on 1 July is now '{ctx.RateSet.Name}'. It is not the one the run was calculated with."));
     foreach (var demand in drafts)
     {
       if (!files.TryGetValue(demand.TaxFileId, out var file))
       {
-        stale.Add(new RunProblemDto(demand.TaxFileId.Value, demand.DemandNo, "The file is no longer active; its draft would still be issued."));
+        stale.Add(new RunProblemDto(demand.TaxFileId.Value, demand.DemandNo, "The file is no longer active. Its draft would still be issued."));
         continue;
       }
       try
       {
         var fresh = Assessor.Assess(ctx, file);
         if (fresh.Suspended)
-          stale.Add(new RunProblemDto(file.Id.Value, file.FileNo, $"Not assessed now ({fresh.SuspendedReason})"));
+          stale.Add(new RunProblemDto(file.Id.Value, file.FileNo, $"Not taxed now ({fresh.SuspendedReason})"));
         else if (fresh.Total != demand.CurrentAmount)
-          stale.Add(new RunProblemDto(file.Id.Value, file.FileNo, $"Worked out again now: {Rupees.Text(fresh.Total)} instead of {Rupees.Text(demand.CurrentAmount)}"));
+          stale.Add(new RunProblemDto(file.Id.Value, file.FileNo, $"Calculated again now: {Rupees.Text(fresh.Total)} instead of {Rupees.Text(demand.CurrentAmount)}"));
         else if (file.CurrentBasis is { } basis && basis.Id != demand.BasisId)
           stale.Add(new RunProblemDto(file.Id.Value, file.FileNo, $"Property data synced on {basis.SyncedAt.AddHours(5):dd'/'MM'/'yyyy} after the run (same amount)"));
       }
@@ -324,8 +324,8 @@ public class DemandRunHandlers(
         if (assessment.Suspended)
           continue;
         if (file.Addressee(yearStart) is null && file.Addressee(clock.Today) is null)
-          throw new DomainException("Property has no owner, lessee, tenant or allottee for it. Record one there and sync the file.");
-        problems.Add(new RunProblemDto(file.Id.Value, file.FileNo, "Can be worked out now - compute the run again to include it."));
+          throw new DomainException("Property shows no owner, lessee, tenant or allottee for this property. Record one there and sync the file.");
+        problems.Add(new RunProblemDto(file.Id.Value, file.FileNo, "Can be calculated now. Compute the run again to include it."));
       }
       catch (DomainException ex)
       {

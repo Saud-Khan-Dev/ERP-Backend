@@ -91,18 +91,18 @@ public class RepayLoanCommandValidator : AbstractValidator<RepayLoanCommand>
   {
     RuleFor(x => x.Amount).GreaterThan(0);
     RuleFor(x => x.Remarks).MaximumLength(2000);
-    RuleFor(x => x.ReceiptNumber).NotEmpty().WithMessage("Give the receipt or challan number of the repayment.").MaximumLength(100);
+    RuleFor(x => x.ReceiptNumber).NotEmpty().WithMessage("Enter the receipt or challan number of the repayment.").MaximumLength(100);
   }
 }
 
 public class CloseLoanCommandValidator : AbstractValidator<CloseLoanCommand>
 {
-  public CloseLoanCommandValidator() => RuleFor(x => x.Remarks).NotEmpty().WithMessage("Give the reason for closing the loan.").MaximumLength(1000);
+  public CloseLoanCommandValidator() => RuleFor(x => x.Remarks).NotEmpty().WithMessage("Enter the reason for closing the loan.").MaximumLength(1000);
 }
 
 public class WaiveInstallmentCommandValidator : AbstractValidator<WaiveInstallmentCommand>
 {
-  public WaiveInstallmentCommandValidator() => RuleFor(x => x.Reason).NotEmpty().WithMessage("Give the reason (the sanction) for waiving the installment.").MaximumLength(1000);
+  public WaiveInstallmentCommandValidator() => RuleFor(x => x.Reason).NotEmpty().WithMessage("Enter the reason (the sanction) for waiving the installment.").MaximumLength(1000);
 }
 
 public class LoanHandlers(IApplicationDbContext context, HrLookup lookup, ICurrentUser currentUser, IClock clock, DutyGuard duty, IAuditTrail audit) :
@@ -150,9 +150,9 @@ public class LoanHandlers(IApplicationDbContext context, HrLookup lookup, ICurre
     var i = command.Type;
     var used = await context.Loans.AnyAsync(l => l.LoanTypeId == type.Id, cancellationToken);
     if (used && type.IsGpfAdvance != i.IsGpfAdvance)
-      return Result<UpdatedResult>.Failure($"'{type.Name}' already has loans; whether it is a GP Fund advance cannot change.");
+      return Result<UpdatedResult>.Failure($"'{type.Name}' already has loans, so you cannot change whether it is a GP Fund advance.");
     if (used && type.SalaryComponentId?.Value != i.SalaryComponentId)
-      return Result<UpdatedResult>.Failure($"'{type.Name}' already has loans; their installments stay on the same deduction line.");
+      return Result<UpdatedResult>.Failure($"'{type.Name}' already has loans. Their installments must stay on the same deduction line.");
 
     type.Update(i.Name, await ComponentAsync(i.SalaryComponentId, cancellationToken), i.IsGpfAdvance, i.DefaultInterestRate);
     if (await context.LoanTypes.AnyAsync(t => t.Id != type.Id && t.Name.ToLower() == type.Name.ToLower(), cancellationToken))
@@ -223,7 +223,7 @@ public class LoanHandlers(IApplicationDbContext context, HrLookup lookup, ICurre
     if (command.SanctionNow)
     {
       if (!currentUser.HasPermission(PermissionCatalog.Payroll.Approve))
-        return Result<CreatedResult>.Failure("Sanctioning a loan needs PAYROLL.APPROVE; enter the application and let an approving officer sanction it.");
+        return Result<CreatedResult>.Failure("Sanctioning a loan needs PAYROLL.APPROVE. Enter the application and let an approving officer sanction it.");
       await duty.EnsureNotOwnRecordAsync(employee.Id, "sanction a loan", employee, cancellationToken);
       await duty.EnsureSeparateAsync(DutyRules.LoanSanction, currentUser.UserId, "sanction a loan you entered", employee, cancellationToken);
     }
@@ -242,7 +242,7 @@ public class LoanHandlers(IApplicationDbContext context, HrLookup lookup, ICurre
   {
     var loan = await context.LoadLoanAsync(command.Id, cancellationToken);
     if (!loan.IsPending)
-      return Result<UpdatedResult>.Failure($"The loan is {EnumText.Words(loan.Status)}; only a pending application can be sanctioned.");
+      return Result<UpdatedResult>.Failure($"The loan is {EnumText.Words(loan.Status)}. Only a pending application can be sanctioned.");
     await duty.EnsureNotOwnRecordAsync(loan.EmployeeId, "sanction a loan", loan, cancellationToken);
     // maker-checker (LOAN_SANCTION): whoever entered the application does not sanction it
     await duty.EnsureSeparateAsync(DutyRules.LoanSanction, loan.CreatedBy, "sanction a loan you entered", loan, cancellationToken);
@@ -317,7 +317,7 @@ public class LoanHandlers(IApplicationDbContext context, HrLookup lookup, ICurre
     else
     {
       if (type.IsGpfAdvance)
-        return Result<UpdatedResult>.Failure("A GP Fund advance is the employee's own money; recover it or settle it against the fund, not write it off.");
+        return Result<UpdatedResult>.Failure("A GP Fund advance is the employee's own money. It cannot be written off. Recover it or settle it against the fund.");
       loan.WriteOff(command.Remarks, currentUser.UserId, clock.UtcNow);
       audit.Record(HrmVerbs.WrittenOff, loan, $"Reason: {command.Remarks} · Rs {loan.RemainingBalance:#,##0.##} given up");
     }
@@ -333,7 +333,7 @@ public class LoanHandlers(IApplicationDbContext context, HrLookup lookup, ICurre
     await EnsureNotInPayrollAsync(loan, cancellationToken);
     var type = await context.LoanTypes.AsNoTracking().FirstAsync(t => t.Id == loan.LoanTypeId, cancellationToken);
     if (type.IsGpfAdvance)
-      return Result<UpdatedResult>.Failure("Installments of a GP Fund advance cannot be waived; the fund must be made whole.");
+      return Result<UpdatedResult>.Failure("Installments of a GP Fund advance cannot be waived. The fund must get all of its money back.");
 
     var installment = loan.Installment(LoanInstallmentId.Of(command.InstallmentId));
     var forgiven = loan.WaiveInstallment(installment.Id, command.Reason, currentUser.UserId, clock.UtcNow);
@@ -390,8 +390,8 @@ public class LoanHandlers(IApplicationDbContext context, HrLookup lookup, ICurre
       .FirstOrDefaultAsync(cancellationToken);
 
     if (run is not null)
-      throw new DomainException($"The {run.Year}-{run.Month:00} payroll ({EnumText.Words(run.Status)}) is recovering an installment of this loan; "
-        + "finalize it, or recalculate it after this change.");
+      throw new DomainException($"The {run.Year}-{run.Month:00} payroll ({EnumText.Words(run.Status)}) is recovering an installment of this loan. "
+        + "Finalize it, or recalculate it after this change.");
   }
 
   private async Task<List<LoanSummaryDto>> SummariesAsync(List<EmployeeLoan> loans, CancellationToken cancellationToken)

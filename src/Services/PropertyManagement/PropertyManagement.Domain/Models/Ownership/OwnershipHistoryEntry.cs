@@ -91,7 +91,7 @@ public class OwnershipHistoryEntry : Aggregate<HistoryEntryId>
     ArgumentNullException.ThrowIfNull(context);
     EnsureOn(context.Property);
     if (Status is not (HistoryEntryStatus.Waiting or HistoryEntryStatus.Rejected))
-      throw new DomainException($"{EntryNo.Value} is {Status.ToString().ToLowerInvariant()}; only a waiting or rejected history is put right.");
+      throw new DomainException($"{EntryNo.Value} is {Status.ToString().ToLowerInvariant()}. Only a waiting or rejected history can be corrected.");
     EnsureFits(context, propertyHeldBefore);
     var normalized = HistoryPlayer.Normalize(steps);
     HistoryPlayer.Play(normalized, context, n => BusinessCode.Of($"STEP-{n}"), Id);
@@ -137,7 +137,7 @@ public class OwnershipHistoryEntry : Aggregate<HistoryEntryId>
     context.Property.EnsureActive();
     if (propertyHeldBefore)
       throw new DomainException(
-        $"{context.Property.PropertyCode.Value} already has owners on the register. Its history from the old records is entered only while nobody is on record.");
+        $"{context.Property.PropertyCode.Value} already has owners on the register. Its history from the old records can be entered only while it has no owners on record.");
   }
 
   private void Decide(HistoryEntryStatus status, Approver by, DateOnly today, string? reason)
@@ -153,7 +153,7 @@ public class OwnershipHistoryEntry : Aggregate<HistoryEntryId>
   private void EnsureWaiting(string act)
   {
     if (!IsWaiting)
-      throw new DomainException($"{EntryNo.Value} is {Status.ToString().ToLowerInvariant()}; only a waiting ownership history can be {act}.");
+      throw new DomainException($"{EntryNo.Value} is {Status.ToString().ToLowerInvariant()}. Only a waiting ownership history can be {act}.");
   }
 
   private void EnsureOn(Property property)
@@ -204,7 +204,7 @@ public static class HistoryPlayer
       if (previous is { } before && date <= before)
       {
         if (s.Precision == DatePrecision.Exact)
-          throw new DomainException($"{label} ({date:dd'/'MM'/'yyyy}) is not after the step before it: enter the steps oldest first.");
+          throw new DomainException($"{label} ({date:dd'/'MM'/'yyyy}) is not after the step before it. Enter the steps oldest first.");
         date = before.AddDays(1);
       }
       previous = date;

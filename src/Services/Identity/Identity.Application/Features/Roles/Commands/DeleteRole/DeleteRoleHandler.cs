@@ -10,7 +10,7 @@ public class DeleteRoleHandler(IApplicationDbContext context,
     var id = RoleId.Of(command.Id);
 
     var role = await context.Roles.FirstOrDefaultAsync(r => r.Id == id, cancellationToken)
-      ?? throw new RoleNotFoundException("This role was not found - it may have been deleted.");
+      ?? throw new RoleNotFoundException("This role was not found. It may have been deleted.");
 
     // the domain refuses to delete a system role
     role.EnsureDeletable();

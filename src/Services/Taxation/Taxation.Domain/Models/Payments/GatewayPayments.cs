@@ -39,7 +39,7 @@ public class GatewayNotification : Aggregate<GatewayNotificationId>
     if (Payment.IsManual(facts.Channel))
       throw new DomainException("A gateway reports bank payments, not cash or counter receipts.");
     if (facts.Amount <= 0)
-      throw new DomainException("A gateway payment must be for a positive amount.");
+      throw new DomainException("A gateway payment must be for an amount more than zero.");
     return new GatewayNotification
     {
       Id = id,
@@ -145,7 +145,7 @@ public class SettlementBatch : Aggregate<SettlementBatchId>
     if (settlementDate < coversFrom)
       throw new DomainException("The bank cannot settle a period before it starts.");
     if (settlementDate > DateOnly.FromDateTime(now.AddHours(5)))
-      throw new DomainException("The settlement date is still to come; a report is imported once the bank has settled.");
+      throw new DomainException("The settlement date has not come yet. Import a report only after the bank has settled.");
     if (lines.Count == 0)
       throw new DomainException("The settlement report has no lines.");
     var repeated = lines.GroupBy(l => (l.TransactionRef ?? "").Trim()).FirstOrDefault(g => g.Count() > 1);
@@ -193,7 +193,7 @@ public class SettlementLine : Entity<SettlementLineId>
   internal static SettlementLine Compare(SettlementLineId id, SettlementBatchId batchId, SettlementLineInput input, SettledPayment? payment, bool settledBefore)
   {
     if (input.Amount <= 0)
-      throw new DomainException($"Transaction {input.TransactionRef} has no positive amount.");
+      throw new DomainException($"Transaction {input.TransactionRef} must have an amount more than zero.");
     var psid = new string((input.Psid ?? "").Where(char.IsAsciiDigit).ToArray());
     var line = new SettlementLine
     {
@@ -210,8 +210,8 @@ public class SettlementLine : Entity<SettlementLineId>
       _ when settledBefore => (SettlementMatch.AlreadySettled, "The bank settled this transaction on an earlier report."),
       null => (SettlementMatch.NotInErp, "The bank settled it but no payment is on record."),
       { Status: PaymentStatus.Reversed } => (SettlementMatch.ReversedInErp, "The bank settled it but the payment was reversed here."),
-      _ when payment.Amount != input.Amount => (SettlementMatch.AmountDiffers, $"The bank settled {Rupees.Text(input.Amount)}; {Rupees.Text(payment.Amount)} is on record."),
-      _ when line.Psid is not null && payment.Psid != line.Psid => (SettlementMatch.ReferenceDiffers, $"The bank settled it on {line.Psid}; it is on record on {payment.Psid}."),
+      _ when payment.Amount != input.Amount => (SettlementMatch.AmountDiffers, $"The bank settled {Rupees.Text(input.Amount)}, but {Rupees.Text(payment.Amount)} is on record."),
+      _ when line.Psid is not null && payment.Psid != line.Psid => (SettlementMatch.ReferenceDiffers, $"The bank settled it on {line.Psid}, but it is on record on {payment.Psid}."),
       _ => (SettlementMatch.Matched, null)
     };
     return line;

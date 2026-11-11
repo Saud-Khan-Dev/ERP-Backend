@@ -14,12 +14,12 @@ public class DeleteMasterHandler(IApplicationDbContext context)
       ?? throw new MasterDataNotFoundException($"{descriptor.Label} {command.Id} was not found.");
 
     if (SystemMasterCodes.IsRequired(descriptor.ClrType, master.Code.Value))
-      return Result<DeleteMasterCommandResult>.Failure($"'{master.Name.Value}' is used by the system - it can be renamed but not deleted.");
+      return Result<DeleteMasterCommandResult>.Failure($"'{master.Name.Value}' is used by the system. It can be renamed but not deleted.");
 
     var used = (await context.ReferenceCountsAsync(descriptor.ClrType, new[] { command.Id }, cancellationToken)).GetValueOrDefault(command.Id);
     if (used > 0)
       return Result<DeleteMasterCommandResult>.Failure(
-        $"'{master.Name.Value}' is used by {used} record(s), so it cannot be deleted. Switch it off instead: old records keep it, new ones cannot choose it.");
+        $"'{master.Name.Value}' is used by {used} record(s), so it cannot be deleted. Switch it off instead. Old records keep it, but new ones cannot choose it.");
 
     descriptor.Remove(context, master);
     await context.SaveChangesAsync(cancellationToken);

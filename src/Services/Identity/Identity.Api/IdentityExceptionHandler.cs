@@ -72,20 +72,20 @@ public class IdentityExceptionHandler(ILogger<IdentityExceptionHandler> logger, 
 
       DbUpdateConcurrencyException => (
         Title: nameof(DbUpdateConcurrencyException),
-        Detail: "The record was modified by someone else. Reload it and try again.",
+        Detail: "Someone else changed this record. Reload it and try again.",
         StatusCode: StatusCodes.Status409Conflict
       ),
 
       // the database's own text names tables and constraints - it goes to the log, never to the screen
       DbUpdateException => (
         Title: nameof(DbUpdateException),
-        Detail: "This change clashes with a record saved meanwhile (the same username, email or link). Reload and try again.",
+        Detail: "Someone saved a record with the same username, email or link in the meantime. Reload and try again.",
         StatusCode: StatusCodes.Status409Conflict
       ),
 
       _ => (
         Title: "ServerError",
-        Detail: "Something went wrong on the server. Try again; if it keeps happening, tell your administrator the time it happened.",
+        Detail: "Something went wrong on the server. Try again. If it keeps happening, tell your administrator the time it happened.",
         StatusCode: StatusCodes.Status500InternalServerError
       )
     };

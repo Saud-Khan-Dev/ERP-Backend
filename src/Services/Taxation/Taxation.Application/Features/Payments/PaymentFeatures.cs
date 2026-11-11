@@ -119,7 +119,7 @@ public class PaymentHandlers(
         .Where(c => c.TaxFileId == file.Id && c.IssuedOn >= since && c.Status == ClearanceStatus.Issued && c.ValidUntil >= clock.Today)
         .Select(c => c.ClearanceNo).ToListAsync(cancellationToken);
       foreach (var no in clearances)
-        warnings.Add($"Clearance {no} was issued while this payment counted; revoke it if it should not stand.");
+        warnings.Add($"Clearance {no} was issued while this payment was counted. Revoke the clearance if it should no longer be valid.");
     }
 
     await context.SaveChangesAsync(cancellationToken);

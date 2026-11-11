@@ -59,7 +59,7 @@ public class TransferRuleTests
     Assert.Contains("waiting for approval", Message(() => transfer.Complete("clerk1", null, record, Owned, Sale)));
 
     MakeLegacyApproved(transfer);
-    Assert.Contains("complete it", Message(() => Approve(transfer, record)));
+    Assert.Contains("Complete it", Message(() => Approve(transfer, record)));
 
     var change = transfer.Complete("clerk1", "ORDER-7", record, Owned, Sale);
 
@@ -85,7 +85,7 @@ public class TransferRuleTests
 
     var message = Message(() => Initiate(record, "2026-10-02", "TRF-00042", Gives(b, 30), Gets(c, 30)));
     Assert.Contains("TRF-00041", message);
-    Assert.Contains("cancel or approve that first", message);
+    Assert.Contains("Cancel or approve that transfer first", message);
 
     // what is left over can still be given
     Initiate(record, "2026-10-02", "TRF-00043", Gives(b, 20), Gets(c, 20));
@@ -120,7 +120,7 @@ public class TransferRuleTests
     var record = Record(property, new[] { Own(property, b, 20, "2020-01-01") }, owners);
 
     var message = Message(() => Approve(transfer, record));
-    Assert.Contains("now holds 20%", message);
+    Assert.Contains("now owns 20%", message);
     Assert.Equal(TransferStatus.Initiated, transfer.TransferStatus);
   }
 
@@ -195,7 +195,7 @@ public class TransferRuleTests
     PropertyOwner c = Owner("C"), d = Owner("D");
     var record = Record(property, new[] { Own(property, c, 100, "2026-10-01") }, new[] { c, d });
 
-    Assert.Equal("C holds this share only since 2026-10-01; date the transfer after that.",
+    Assert.Equal("C has owned this share only since 2026-10-01. Date the transfer after that.",
       Message(() => Initiate(record, "2026-09-15", "TRF-00001", Gives(c, 50), Gets(d, 50))));
 
     // the same day would put two entries for C on one date
@@ -270,7 +270,7 @@ public class TransferRuleTests
     var record = Record(property, new[] { Own(property, b, 70), ownD }, new[] { b, d });
     ownD.MarkDisputed(property, null);
 
-    Assert.Equal("D's 30% is disputed; resolve the dispute before transferring it.",
+    Assert.Equal("D's 30% is disputed. Resolve the dispute before transferring it.",
       Message(() => Initiate(record, "2026-10-01", "TRF-00001", Gives(d, 30), Gets(b, 30))));
   }
 
@@ -315,7 +315,7 @@ public class TransferRuleTests
     var mortgage = Charge(property, ownB);
     var record = Record(property, new[] { ownB }, new[] { b, d }, charges: new[] { mortgage });
 
-    Assert.Equal("B's share is under the charge held by Bank of Khyber (ref MRT-1); release it before the share is transferred.",
+    Assert.Equal("B's share is under the charge held by Bank of Khyber (ref MRT-1). Release the charge before the share is transferred.",
       Message(() => Initiate(record, "2026-10-01", "TRF-00001", Gives(b, 50), Gets(d, 50))));
 
     mortgage.Release(property, D("2026-10-02"), "REL-1", Today);
@@ -357,7 +357,7 @@ public class TransferRuleTests
 
     d.Deactivate(new PropertyOwner.Commitments([], [], []));
 
-    Assert.Contains("is inactive; reactivate the owner record", Message(() => Initiate(record, "2026-10-01", "TRF-00002", Gives(b, 100), Gets(d, 100))));
+    Assert.Contains("is inactive. Reactivate the owner record", Message(() => Initiate(record, "2026-10-01", "TRF-00002", Gives(b, 100), Gets(d, 100))));
     Assert.Contains("is inactive", Message(() => Approve(transfer, record)));
   }
 

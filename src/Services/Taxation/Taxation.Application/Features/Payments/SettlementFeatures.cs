@@ -33,7 +33,7 @@ public class SettlementHandlers(IApplicationDbContext context, IAuditTrail audit
   IQueryHandler<GetSettlementsQuery, Result<GetSettlementsQueryResult>>,
   IQueryHandler<GetSettlementQuery, Result<GetSettlementQueryResult>>
 {
-  private const string EveryTown = "A settlement report covers every town; this needs access to every town.";
+  private const string EveryTown = "A settlement report covers every town. So this needs access to every town.";
 
   public async Task<Result<SettlementBatchDto>> Handle(ImportSettlementCommand command, CancellationToken cancellationToken)
   {

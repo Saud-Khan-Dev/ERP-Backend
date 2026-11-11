@@ -114,7 +114,7 @@ public class User : Aggregate<UserId>
     if (employeeId == Guid.Empty)
       throw new DomainException("Choose the person's HR record.");
     if (employeeId is not null && employeeCode is null)
-      throw new DomainException("A linked account shows the person's HR employee number - it is missing.");
+      throw new DomainException("The person's HR employee number is missing. A linked account needs it.");
 
     EmployeeId = employeeId;
     EmployeeCode = employeeId is null ? null : employeeCode;
@@ -145,7 +145,7 @@ public class User : Aggregate<UserId>
       throw new AccountUnavailableException("This account no longer exists.");
 
     if (!IsActive)
-      throw new AccountUnavailableException("This account is inactive. Contact your administrator.");
+      throw new AccountUnavailableException("This account is switched off. Contact your administrator.");
 
     if (IsLockedOut(now))
       throw new AccountUnavailableException($"This account is locked until {LockedUntil:u}. Contact your administrator.");
@@ -221,7 +221,7 @@ public class User : Aggregate<UserId>
     EnsureNotDeleted();
 
     if (isAuthorizedOfficer && !IsActive)
-      throw new DomainException("An inactive account cannot be designated an authorized officer.");
+      throw new DomainException("A switched-off account cannot be made an authorized officer.");
 
     IsAuthorizedOfficer = isAuthorizedOfficer;
     AccessChanged();

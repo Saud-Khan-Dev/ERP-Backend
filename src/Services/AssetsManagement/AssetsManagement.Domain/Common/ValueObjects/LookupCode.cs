@@ -22,7 +22,7 @@ public sealed record LookupCode
       throw new DomainException($"Code cannot exceed {MaxLength} characters.");
 
     if (!Pattern.IsMatch(value))
-      throw new DomainException("Code may only contain letters, digits and underscores (e.g. IT_EQUIPMENT).");
+      throw new DomainException("Code can use only letters, numbers and underscores (for example IT_EQUIPMENT).");
 
     return new LookupCode(value);
   }

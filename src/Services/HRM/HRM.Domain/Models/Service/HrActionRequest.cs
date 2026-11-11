@@ -149,7 +149,7 @@ public class HrActionRequest : Aggregate<HrActionRequestId>
   public void Reject(Guid? rejectedBy, DateTime at, string? remarks)
   {
     if (string.IsNullOrWhiteSpace(remarks))
-      throw new DomainException("Give the reason for rejecting the HR action.");
+      throw new DomainException("Enter the reason for rejecting the HR action.");
     Move(HrActionStatus.Pending, HrActionStatus.Rejected, "rejected");
     Decide(rejectedBy, at, remarks, "reject an HR action");
   }
@@ -184,7 +184,7 @@ public class HrActionRequest : Aggregate<HrActionRequestId>
       throw new DomainException("The employee's post has changed since this action was drafted. Cancel it and draft a new one.");
 
     if (TakesEffectOnItsDate(ActionType) && EffectiveDate > today)
-      throw new DomainException($"This {EnumText.Words(ActionType)} takes effect on {EffectiveDate:dd'/'MM'/'yyyy}; apply it on or after that day.");
+      throw new DomainException($"This {EnumText.Words(ActionType)} takes effect on {EffectiveDate:dd'/'MM'/'yyyy}. Apply it on or after that day.");
   }
 
   public void MarkApplied(ServiceHistoryId serviceHistoryId, Guid? appliedBy, DateTime at)
@@ -249,7 +249,7 @@ public class HrActionRequest : Aggregate<HrActionRequestId>
   private void EnsureStatus(HrActionStatus expected, string verb)
   {
     if (Status != expected)
-      throw new DomainException($"Only {EnumText.WithArticle(expected)} HR action can be {verb}; this one is {Describe(Status)}.");
+      throw new DomainException($"Only {EnumText.WithArticle(expected)} HR action can be {verb}. This one is {Describe(Status)}.");
   }
 
   private static string Describe(Enum value) => EnumText.Words(value);
@@ -311,7 +311,7 @@ public class EmployeeSeparation : Aggregate<SeparationId>
       string? pensionReference)
   {
     if (SettlementPayrollTransactionId is not null)
-      throw new DomainException("The final settlement has been paid through payroll; its figures can no longer change.");
+      throw new DomainException("The final settlement has been paid through payroll. Its figures can no longer change.");
 
     OrderNumber = Guard.Text(orderNumber, 100, "Order number");
     Reason = Guard.Text(reason, 4000, "Reason");

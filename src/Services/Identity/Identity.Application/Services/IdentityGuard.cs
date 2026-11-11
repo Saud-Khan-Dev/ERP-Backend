@@ -36,7 +36,7 @@ public class IdentityGuard(IApplicationDbContext context, ICurrentUser currentUs
       .Select(p => p.PermissionName.Value)
       .OrderBy(n => n)
       .ToListAsync(cancellationToken);
-    throw new AccessRefusedException($"You cannot {action} this account: it can do things you cannot ({string.Join(", ", names.Take(3))}{(names.Count > 3 ? $" and {names.Count - 3} more" : "")}). An administrator who holds that access must do it.");
+    throw new AccessRefusedException($"You cannot {action} this account. It can do things that you cannot ({string.Join(", ", names.Take(3))}{(names.Count > 3 ? $" and {names.Count - 3} more" : "")}). An administrator who has that access must do it.");
   }
 
   /// Nobody hands out access they do not have themselves (a Super Administrator excepted).
@@ -55,7 +55,7 @@ public class IdentityGuard(IApplicationDbContext context, ICurrentUser currentUs
     var held = currentUser.Permissions.ToHashSet(StringComparer.OrdinalIgnoreCase);
     var missing = wanted.Where(p => !held.Contains(p.Code.Value)).Select(p => p.PermissionName.Value).OrderBy(n => n).ToList();
     if (missing.Count > 0)
-      throw new AccessRefusedException($"You cannot {what}: it gives access you do not have yourself ({string.Join(", ", missing.Take(4))}{(missing.Count > 4 ? $" and {missing.Count - 4} more" : "")}).");
+      throw new AccessRefusedException($"You cannot {what}. It gives access that you do not have yourself ({string.Join(", ", missing.Take(4))}{(missing.Count > 4 ? $" and {missing.Count - 4} more" : "")}).");
   }
 
   /// Giving roles is giving everything they carry.
@@ -82,7 +82,7 @@ public class IdentityGuard(IApplicationDbContext context, ICurrentUser currentUs
     var holds = await context.UserRoles.AsNoTracking()
       .AnyAsync(ur => ur.UserId == UserId.Of(me) && ur.RoleId == roleId && ur.RevokedAt == null && (ur.ExpiresAt == null || ur.ExpiresAt > now), cancellationToken);
     if (holds)
-      throw new AccessRefusedException("You hold this role yourself - another administrator must change what it can do.");
+      throw new AccessRefusedException("You hold this role yourself. Another administrator must change what it can do.");
   }
 
   /// The caller holds a permission (from the token) - for commands whose extra parts need more than the route asks.
@@ -109,7 +109,7 @@ public class IdentityGuard(IApplicationDbContext context, ICurrentUser currentUs
     ArgumentNullException.ThrowIfNull(targetUserId);
 
     if (currentUser.UserId == targetUserId.Value)
-      throw new AccessRefusedException($"You cannot {action} your own account - another administrator must do it.");
+      throw new AccessRefusedException($"You cannot {action} your own account. Another administrator must do it.");
   }
 
   /// Only an existing Super Admin may grant or remove the Super Admin role.
@@ -118,7 +118,7 @@ public class IdentityGuard(IApplicationDbContext context, ICurrentUser currentUs
     ArgumentNullException.ThrowIfNull(role);
 
     if (role.IsSuperAdmin && !CallerIsSuperAdmin)
-      throw new AccessRefusedException("Only a Super Administrator may give or take away the Super Administrator role.");
+      throw new AccessRefusedException("Only a Super Administrator can give or take away the Super Administrator role.");
   }
 
   /// The system must always keep at least one usable Super Admin, or nobody can administer it again.
@@ -149,6 +149,6 @@ public class IdentityGuard(IApplicationDbContext context, ICurrentUser currentUs
         .CountAsync(u => u.IsActive, cancellationToken);
 
     if (otherSuperAdmins == 0)
-      throw new AccessRefusedException($"This is the last active Super Administrator; {action} would leave nobody able to manage the system.");
+      throw new AccessRefusedException($"This is the last active Super Administrator. Nobody would be left to manage the system after {action}.");
   }
 }

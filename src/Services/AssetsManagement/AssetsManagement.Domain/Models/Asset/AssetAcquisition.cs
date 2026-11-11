@@ -62,14 +62,14 @@ public class AssetAcquisition : Aggregate<AssetAcquisitionId>
 
     if ((depreciationPosted || scheduleActive) && acquisitionCost != AcquisitionCost)
       throw new DomainException(depreciationPosted
-        ? "The cost cannot change: depreciation has already been posted on it."
-        : "The cost cannot change while a depreciation schedule worked out from it is running. Close the schedule first.");
+        ? "The cost cannot change. Depreciation has already been posted on it."
+        : "The cost cannot change while a depreciation schedule based on it is running. Close the schedule first.");
 
     if (depreciationPosted && acquisitionDate != AcquisitionDate)
-      throw new DomainException("The purchase date cannot change: depreciation has already been posted from it.");
+      throw new DomainException("The purchase date cannot change. Depreciation has already been posted from it.");
 
     if (depreciationPosted && currencyCode != CurrencyCode)
-      throw new DomainException("The currency cannot change: depreciation has already been posted in it.");
+      throw new DomainException("The currency cannot change. Depreciation has already been posted in it.");
 
     Apply(acquisitionDate, acquisitionCost, currencyCode, exchangeRate, supplierName, purchaseReference, acquisitionType, warrantyStartDate, warrantyExpiryDate, today);
   }

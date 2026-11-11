@@ -145,7 +145,7 @@ public static class PayrollCalculator
           deductionLines.Add(new LineResult(null, gpf.Id, null, ComponentSource.Gpf, ComponentType.Deduction, null, null, null, null,
             decimal.Round(input.GpfSubscription, 2), null, period.From));
         else
-          notes.Add("GP Fund subscription not deducted: the GPF salary component is missing or inactive.");
+          notes.Add("GP Fund subscription was not deducted. The GPF salary component is missing or inactive.");
       }
 
       foreach (var installment in input.Installments.OrderBy(i => i.Priority).ThenBy(i => i.DueDate).ThenBy(i => i.InstallmentNumber))
@@ -157,7 +157,7 @@ public static class PayrollCalculator
     }
     else if (input.Installments.Count > 0)
     {
-      notes.Add("No payable days this month: loan installments are left for a later month.");
+      notes.Add("No payable days this month. Loan installments are left for a later month.");
     }
 
     var taxable = lines.Where(l => l.ComponentType == ComponentType.Earning && IsTaxable(l.ComponentId, catalog)).Sum(l => l.Amount) + input.TaxableAdjustments;
@@ -205,7 +205,7 @@ public static class PayrollCalculator
           $"Installment {installment.InstallmentNumber} due {installment.DueDate:yyyy-MM-dd}", installment.Amount, null, installment.DueDate,
           new LoanDeductionResult(installment.LoanId, installment.InstallmentId, installment.Amount)));
     else
-      notes.Add("No order covers this month: nothing is paid.");
+      notes.Add("No order covers this month, so nothing is paid.");
 
     var taxable = (catalog.BasicPay.IsTaxable ? gross : 0) + input.TaxableAdjustments;
     var tax = input.Tax is { } taxInput && taxable > 0 ? MonthlyTax(taxInput, taxable, catalog.BasicPay.IsTaxable ? gross : 0) : 0m;
@@ -277,7 +277,7 @@ public static class PayrollCalculator
       var post = input.PostVersions.FirstOrDefault(v => v.PostId == assignment.PostId && v.Range.Contains(from));
       if (post is null)
       {
-        notes.Add($"No post version in effect on {from:yyyy-MM-dd}; those days are not paid.");
+        notes.Add($"No post version is active on {from:yyyy-MM-dd}. Those days are not paid.");
         continue;
       }
 
@@ -385,13 +385,13 @@ public static class PayrollCalculator
       deductions.Remove(line);
       notes.Add(line.Source switch
       {
-        ComponentSource.Loan => $"{line.FormulaReference} not recovered: the pay does not cover it.",
-        ComponentSource.Gpf => "GP Fund subscription not deducted: the pay does not cover it.",
-        _ => "A deduction was left out: the pay does not cover it."
+        ComponentSource.Loan => $"{line.FormulaReference} was not recovered. The pay does not cover it.",
+        ComponentSource.Gpf => "GP Fund subscription was not deducted. The pay does not cover it.",
+        _ => "A deduction was left out. The pay does not cover it."
       });
     }
 
     if (Net() < 0)
-      notes.Add($"Net pay is negative ({Net():N2}): recover the balance in a later month.");
+      notes.Add($"Net pay is negative ({Net():N2}). Recover the balance in a later month.");
   }
 }

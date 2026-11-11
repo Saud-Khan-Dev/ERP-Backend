@@ -70,7 +70,7 @@ public class AssetDepreciationEntry : Entity<AssetDepreciationEntryId>
       throw new DomainException("This month is already posted.");
 
     if (LastDay > today)
-      throw new DomainException($"The period {PeriodStart:dd'/'MM'/'yyyy} - {LastDay:dd'/'MM'/'yyyy} has not ended yet. A month is posted once it is over.");
+      throw new DomainException($"The period {PeriodStart:dd'/'MM'/'yyyy} - {LastDay:dd'/'MM'/'yyyy} has not ended yet. A month can be posted only once it is over.");
 
     Posted = true;
     PostedAt = postedAt;
@@ -83,7 +83,7 @@ public class AssetDepreciationEntry : Entity<AssetDepreciationEntryId>
     ArgumentNullException.ThrowIfNull(reversedBy);
 
     if (!Posted)
-      throw new DomainException("Only a posted month can be reversed. A draft month is deleted instead.");
+      throw new DomainException("Only a posted month can be reversed. Delete a draft month instead.");
 
     if (IsReversed)
       throw new DomainException("This month has already been reversed.");

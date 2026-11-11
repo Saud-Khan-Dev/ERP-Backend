@@ -31,7 +31,7 @@ public class CreateOrgUnitCommandValidator : AbstractValidator<CreateOrgUnitComm
     RuleFor(x => x.Code).NotEmpty().MaximumLength(OrganizationUnit.CodeMaxLength);
     RuleFor(x => x.Details).NotNull().SetValidator(new OrgUnitDetailsInputValidator());
     RuleFor(x => x.Details.HeadPostId).Null().When(x => x.Details is not null)
-      .WithMessage("A new unit has no posts yet; set the head post once its posts are sanctioned.");
+      .WithMessage("A new unit has no posts yet. Set the head post when its posts are sanctioned.");
   }
 }
 

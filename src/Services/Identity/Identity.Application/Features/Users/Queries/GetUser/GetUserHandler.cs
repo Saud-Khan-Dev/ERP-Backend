@@ -10,7 +10,7 @@ public class GetUserHandler(IApplicationDbContext context, IUserPermissionServic
 
     var users = query.IncludeDeleted ? context.Users.IgnoreQueryFilters() : context.Users;
     var user = await users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == id, cancellationToken)
-      ?? throw new UserNotFoundException("This account was not found - it may have been deleted.");
+      ?? throw new UserNotFoundException("This account was not found. It may have been deleted.");
 
     // grants in force and grants that ran out; a removed grant is history (Activity), not something the person holds
     var roles = await context.UserRoles.AsNoTracking()

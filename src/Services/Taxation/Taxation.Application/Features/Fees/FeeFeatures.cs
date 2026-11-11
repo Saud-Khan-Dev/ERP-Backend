@@ -229,7 +229,7 @@ public class FeeHandlers(
   {
     var party = await context.LoadPartyAsync(command.Id, cancellationToken);
     if (!command.IsActive && await context.Fees.AnyAsync(f => f.PartyId == party.Id && f.Status == FeeStatus.Due, cancellationToken))
-      return Result<UpdatedResult>.Failure($"{party.Name} still has fees due; take or waive them first.");
+      return Result<UpdatedResult>.Failure($"{party.Name} still has fees due. Collect or waive them first.");
     party.SetActive(command.IsActive);
     await context.SaveChangesAsync(cancellationToken);
     return CommandResults.Updated();
@@ -239,7 +239,7 @@ public class FeeHandlers(
   {
     var party = await context.LoadPartyAsync(command.Id, cancellationToken);
     if (await context.Fees.AnyAsync(f => f.PartyId == party.Id, cancellationToken) || await context.Payments.AnyAsync(p => p.PartyId == party.Id, cancellationToken))
-      return Result<UpdatedResult>.Failure($"{party.Name} has fees on record; deactivate the party instead.");
+      return Result<UpdatedResult>.Failure($"{party.Name} has fees on record. Deactivate the party instead.");
     context.Parties.Remove(party);
     await context.SaveChangesAsync(cancellationToken);
     return CommandResults.Updated();
@@ -279,17 +279,17 @@ public class FeeHandlers(
   {
     var exempt = !string.IsNullOrWhiteSpace(command.ExemptionReason);
     if (exempt && !currentUser.HasPermission(PermissionCatalog.Tax.Waive))
-      return Result<ChargeFeeResult>.Failure("Charging a fee as exempt waives it, which needs the right to waive fees (TAX.WAIVE). Charge it due and ask an officer to waive it.");
+      return Result<ChargeFeeResult>.Failure("Charging a fee as exempt waives it. That needs the right to waive fees (TAX.WAIVE). Charge it as due and ask an officer to waive it.");
     if (exempt && await dutyRules.SeparationRefusalAsync(DutyRules.TaxFeeWaive, currentUser.UserId, currentUser.UserId, "exempt a fee you are charging",
           cancellationToken) is { } refusal)
-      return Result<ChargeFeeResult>.Failure(refusal + " Charge it due; another officer waives it.");
+      return Result<ChargeFeeResult>.Failure(refusal + " Charge it as due. Another officer can then waive it.");
     if (command.PayNow is not null && !currentUser.HasPermission(PermissionCatalog.Tax.Post))
-      return Result<ChargeFeeResult>.Failure("Taking the fee's receipt needs the cashier's right (TAX.POST). Charge it due; the cashier takes the receipt.");
+      return Result<ChargeFeeResult>.Failure("Taking the fee's receipt needs the cashier's right (TAX.POST). Charge it as due. The cashier will then take the receipt.");
 
     var (head, file, quote, _) = await QuoteAsync(command.Basis, cancellationToken);
     Party? party = command.PartyId is { } pid ? await context.LoadPartyAsync(pid, cancellationToken) : null;
     if (party is { IsActive: false })
-      return Result<ChargeFeeResult>.Failure($"{party.Name} is deactivated; activate the party to charge it a fee.");
+      return Result<ChargeFeeResult>.Failure($"{party.Name} is deactivated. Activate the party to charge it a fee.");
     var fee = Fee.Charge(FeeId.New(), Numbers.FeeNo(await codes.NextAsync(NumberSequence.FeeNo, cancellationToken)), head, file?.Id, party?.Id, command.SourceType,
       command.SourceId, command.SourceNo, quote.Quantity, quote.Unit, quote.RowId, quote.Amount, command.ExemptionReason);
     context.Fees.Add(fee);
@@ -446,7 +446,7 @@ public class FeeHandlers(
   {
     var head = await setup.HeadAsync(input.HeadCode.Trim().ToUpperInvariant(), cancellationToken);
     if (head.HeadKind != HeadKind.Other || head.ChargedOnNotice)
-      throw new DomainException($"{head.Name} is not a fee{(head.HeadKind == HeadKind.Regular ? "; it is part of the annual demand" : "; it is charged on notices")}.");
+      throw new DomainException($"{head.Name} is not a fee{(head.HeadKind == HeadKind.Regular ? ". It is part of the annual demand" : ". It is charged on notices")}.");
     var file = input.TaxFileId is { } fid ? await context.LoadTaxFileAsync(fid, cancellationToken) : null;
     var set = await setup.RateSetOnAsync(clock.Today, cancellationToken);
     var category = file?.TaxCategory is TaxCategory.Com or TaxCategory.Res ? file.TaxCategory : (TaxCategory?)null;

@@ -20,7 +20,7 @@ public class DeleteUnusedHandlers(IApplicationDbContext context) :
     var type = await context.LoanTypes.FirstOrDefaultAsync(t => t.Id == typeId, cancellationToken)
       ?? throw new LoanTypeNotFoundException($"Loan type {command.Id} was not found.");
     if (await context.Loans.AnyAsync(l => l.LoanTypeId == type.Id, cancellationToken))
-      throw new InUseException($"Loans of the kind '{type.Name}' were sanctioned, so it cannot be deleted. Deactivate it instead.");
+      throw new InUseException($"Loans of type '{type.Name}' were sanctioned, so it cannot be deleted. Deactivate it instead.");
     context.LoanTypes.Remove(type);
     await context.SaveChangesAsync(cancellationToken);
     return CommandResults.Updated();
@@ -30,7 +30,7 @@ public class DeleteUnusedHandlers(IApplicationDbContext context) :
   {
     var component = await context.LoadComponentAsync(command.Id, cancellationToken);
     if (component.IsSystem)
-      throw new InUseException($"'{component.ComponentName}' is part of how payroll works; it cannot be deleted.");
+      throw new InUseException($"'{component.ComponentName}' is part of how payroll works, so it cannot be deleted.");
     if (await context.SalaryRules.AnyAsync(r => r.SalaryComponentId == component.Id, cancellationToken)
         || await context.SalaryOverrides.AnyAsync(o => o.SalaryComponentId == component.Id, cancellationToken)
         || await context.PayrollLines.AnyAsync(l => l.SalaryComponentId == component.Id, cancellationToken)
@@ -63,7 +63,7 @@ public class DeleteUnusedHandlers(IApplicationDbContext context) :
     if (await context.ServiceHistory.AnyAsync(h => h.OldOrgUnitId == id || h.NewOrgUnitId == id, cancellationToken)
         || await context.HrActions.AnyAsync(a => a.OldOrgUnitId == id || a.NewOrgUnitId == id, cancellationToken)
         || await context.SalaryRules.AnyAsync(r => r.ApplicableOrgUnitId == id, cancellationToken))
-      throw new InUseException($"Service records or salary rules name unit {unit.Code}, so it cannot be deleted. Close it instead.");
+      throw new InUseException($"Service records or salary rules use unit {unit.Code}, so it cannot be deleted. Close it instead.");
 
     context.OrganizationUnitVersions.RemoveRange(await context.OrganizationUnitVersions.Where(v => v.OrgUnitId == id).ToListAsync(cancellationToken));
     context.OrganizationUnits.Remove(unit);

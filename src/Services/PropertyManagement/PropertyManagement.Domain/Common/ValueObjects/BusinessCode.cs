@@ -20,10 +20,10 @@ public sealed record BusinessCode
     value = value.Trim().ToUpperInvariant();
 
     if (value.Length > MaxLength)
-      throw new DomainException($"Code cannot exceed {MaxLength} characters.");
+      throw new DomainException($"Code can have at most {MaxLength} characters.");
 
     if (!Pattern.IsMatch(value))
-      throw new DomainException("Code may only contain letters, digits, '-', '_' and '/' (e.g. PROP-00001).");
+      throw new DomainException("Code can only have letters, digits, '-', '_' and '/' (e.g. PROP-00001).");
 
     return new BusinessCode(value);
   }

@@ -20,10 +20,10 @@ public sealed record Username
     value = value.Trim().ToLowerInvariant();
 
     if (value.Length is < MinLength or > MaxLength)
-      throw new DomainException($"Username must be between {MinLength} and {MaxLength} characters.");
+      throw new DomainException($"Username must be {MinLength} to {MaxLength} characters long.");
 
     if (!Pattern.IsMatch(value))
-      throw new DomainException("Username may only contain lower-case letters, digits, '.', '_' and '-', and must start with a letter or digit.");
+      throw new DomainException("Username can only have small letters, digits, '.', '_' and '-'. It must start with a letter or a digit.");
 
     return new Username(value);
   }

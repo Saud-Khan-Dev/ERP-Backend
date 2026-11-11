@@ -36,7 +36,7 @@ public class SpecialPolicy : Aggregate<SpecialPolicyId>
     Method = input.Method;
     Value = Guard.Positive(input.Value, "Value");
     if (Method == PolicyMethod.PercentOfNormal && Value > 1000)
-      throw new DomainException("A percentage of the normal tax cannot exceed 1000 %.");
+      throw new DomainException("A percentage of the normal tax cannot be more than 1000 %.");
     AppliesTo = input.AppliesTo;
     AnnualIncrease = Method != PolicyMethod.PercentOfNormal && input.AnnualIncrease;
     Guard.DateOrder(input.EffectiveFrom, input.EffectiveTo, "Effective from", "Effective to");
@@ -114,7 +114,7 @@ public class PenaltyRule : Aggregate<PenaltyRuleId>
 
     if (Kind == PenaltyKind.IntraYear)
     {
-      PeriodValue = Guard.Between(input.PeriodValue ?? throw new DomainException("Give the period after which the surcharge may be applied."), 0, 366, "Period");
+      PeriodValue = Guard.Between(input.PeriodValue ?? throw new DomainException("Give the period after which the surcharge can be applied."), 0, 366, "Period");
       PeriodUnit = input.PeriodUnit ?? global::PeriodUnit.Months;
       PeriodAnchor = input.PeriodAnchor ?? global::PeriodAnchor.FyStart;
     }
@@ -134,9 +134,9 @@ public class PenaltyRule : Aggregate<PenaltyRuleId>
   public PenaltyRule? Revise(PenaltyRuleInput input, DateOnly effectiveFrom, IReadOnlyList<PenaltyRule> versions)
   {
     if (versions.Any(v => v.Code == Code && v.EffectiveFrom > EffectiveFrom))
-      throw new DomainException($"{Name} already has a version from {versions.Where(v => v.Code == Code && v.EffectiveFrom > EffectiveFrom).Min(v => v.EffectiveFrom):dd'/'MM'/'yyyy}; change that one.");
+      throw new DomainException($"{Name} already has a version from {versions.Where(v => v.Code == Code && v.EffectiveFrom > EffectiveFrom).Min(v => v.EffectiveFrom):dd'/'MM'/'yyyy}. Change that one instead.");
     if (effectiveFrom < EffectiveFrom)
-      throw new DomainException($"This version of {Name} starts on {EffectiveFrom:dd'/'MM'/'yyyy}; a change cannot start before it.");
+      throw new DomainException($"This version of {Name} starts on {EffectiveFrom:dd'/'MM'/'yyyy}. A change cannot start before it.");
     if (effectiveFrom == EffectiveFrom)
     {
       Update(input);
@@ -161,9 +161,9 @@ public class PenaltyRule : Aggregate<PenaltyRuleId>
   public static PenaltyRule? Void(PenaltyRule future, IReadOnlyList<PenaltyRule> versions, DateOnly today)
   {
     if (future.EffectiveFrom <= today)
-      throw new DomainException($"This version of {future.Name} is in force since {future.EffectiveFrom:dd'/'MM'/'yyyy}; change it from a new date instead.");
+      throw new DomainException($"This version of {future.Name} has been active since {future.EffectiveFrom:dd'/'MM'/'yyyy}. Change it from a new date instead.");
     if (versions.Any(v => v.Code == future.Code && v.EffectiveFrom > future.EffectiveFrom))
-      throw new DomainException("A later version follows it; take that one back first.");
+      throw new DomainException("A later version comes after it. Take that one back first.");
     var previous = versions.Where(v => v.Code == future.Code && v.EffectiveFrom < future.EffectiveFrom).OrderByDescending(v => v.EffectiveFrom).FirstOrDefault();
     if (previous is not null && previous.EffectiveTo == future.EffectiveFrom.AddDays(-1))
       previous.EffectiveTo = null;

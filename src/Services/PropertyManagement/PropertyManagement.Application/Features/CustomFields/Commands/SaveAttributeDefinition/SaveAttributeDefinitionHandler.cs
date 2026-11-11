@@ -34,7 +34,7 @@ public class SaveAttributeDefinitionHandler(IApplicationDbContext context, Maste
     {
       code = MasterCode.Of(input.Code);
       if (taken.Contains(code.Value))
-        return Result<SaveAttributeDefinitionCommandResult>.Failure($"Another field already uses the key {code.Value}; leave the key empty and one is made from the name.");
+        return Result<SaveAttributeDefinitionCommandResult>.Failure($"Another field already uses the key {code.Value}. Leave the key empty and one will be made from the name.");
     }
     else
     {

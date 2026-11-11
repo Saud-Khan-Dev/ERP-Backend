@@ -86,7 +86,7 @@ public class RateSet : Aggregate<RateSetId>
     if (townId == Guid.Empty)
       throw new DomainException("Choose the town.");
     if (category == TaxCategory.Exempt)
-      throw new DomainException("Exempt properties are not assessed; give factors for residential or commercial.");
+      throw new DomainException("Exempt properties are not taxed. Give factors for residential or commercial.");
 
     var what = $"{(category == TaxCategory.Com ? "Commercial" : "Residential")} {(component == LtfComponent.Land ? "land" : "covered area")} factors";
     var checkedBands = CheckBands(bands, what);
@@ -193,7 +193,7 @@ public class RateSet : Aggregate<RateSetId>
         return [new(basis, basis == RateBasis.Fixed ? null : UnitLabel(basis, input.UnitLabel, who), false, null, null, null, 0m, RateType.Flat, null)];
       }
       default:
-        throw new DomainException($"{head.Name} is built in; its rates are not entered here.");
+        throw new DomainException($"{head.Name} is built in. Its rates are not entered here.");
     }
   }
 
@@ -202,9 +202,9 @@ public class RateSet : Aggregate<RateSetId>
     var basis = input.Basis ?? RateBasis.Fixed;
     var type = input.RateType ?? (basis == RateBasis.Fixed ? RateType.Flat : basis == RateBasis.PercentOfValue ? RateType.Percent : RateType.PerUnit);
     if (basis == RateBasis.PercentOfValue && type != RateType.Percent)
-      throw new DomainException("A rate on the value is a percentage.");
+      throw new DomainException("A rate on the value must be a percentage.");
     if (type == RateType.Percent && basis != RateBasis.PercentOfValue)
-      throw new DomainException("A percentage is charged on the value (basis PERCENT_OF_VALUE).");
+      throw new DomainException("A percentage can only be charged on the value (basis PERCENT_OF_VALUE).");
 
     if (input.Bands is { Count: > 0 })
     {
@@ -234,7 +234,7 @@ public class RateSet : Aggregate<RateSetId>
   {
     if (basis != RateBasis.Custom)
       return null;
-    return Guard.Text(unit, 60, "Unit") ?? throw new DomainException($"Name the {who} quantity (e.g. sq ft of signboard).");
+    return Guard.Text(unit, 60, "Unit") ?? throw new DomainException($"Name the {who} quantity (for example, sq ft of signboard).");
   }
 
   /// Rising limits, only the last band open ("and above"), at least one band.
@@ -250,9 +250,9 @@ public class RateSet : Aggregate<RateSetId>
     {
       var upTo = bands[i].UpTo;
       if (upTo is null && i < bands.Count - 1)
-        throw new DomainException($"{what}: only the last band may be open (\"and above\").");
+        throw new DomainException($"{what}: only the last band can be open (\"and above\").");
       if (upTo is not null && (upTo <= 0 || (previous is not null && upTo <= previous)))
-        throw new DomainException($"{what}: the band limits must rise.");
+        throw new DomainException($"{what}: each band limit must be higher than the last one.");
       previous = upTo;
     }
     return bands.ToList();
@@ -330,7 +330,7 @@ public class RateSet : Aggregate<RateSetId>
     var first = FirstYearFrom(effectiveFrom);
     var baseYear = FiscalYear.Valid(baseFiscalYear ?? first, "The increase base year");
     if (baseYear > first)
-      throw new DomainException($"The rates are first used for FY {FiscalYear.Label(first)}; the annual increase cannot be counted from a later year.");
+      throw new DomainException($"The rates are first used for FY {FiscalYear.Label(first)}. The annual increase cannot be counted from a later year.");
     BaseFiscalYear = baseYear;
   }
 }

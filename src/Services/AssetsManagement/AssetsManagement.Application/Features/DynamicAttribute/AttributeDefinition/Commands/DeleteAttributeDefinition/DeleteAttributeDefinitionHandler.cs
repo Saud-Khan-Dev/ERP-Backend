@@ -15,7 +15,7 @@ public class DeleteAttributeDefinitionHandler(IApplicationDbContext context, IAs
     var holders = (await queries.AssetsHoldingAsync([definition.Code.Value], cancellationToken)).GetValueOrDefault(definition.Code.Value);
     if (holders > 0)
       return Result<DeleteAttributeDefinitionCommandResult>.Failure(
-        $"{holders} {(holders == 1 ? "asset holds" : "assets hold")} a value for '{definition.Name.Value}', so it cannot be deleted. Switch it off instead - the values stay on their records.");
+        $"{holders} {(holders == 1 ? "asset has" : "assets have")} a value for '{definition.Name.Value}', so it cannot be deleted. Switch it off instead. The values stay on their records.");
 
     // its places on forms, its typed rows and its history go with it (cascade); a list of choices only it used goes too
     var optionSetId = definition.OptionSetId;

@@ -138,7 +138,7 @@ public class Asset : Aggregate<AssetId>
       throw new DomainException($"The status '{to.Name.Value}' is switched off. Choose another status.");
 
     if (to.IsTerminal)
-      throw new DomainException($"'{to.Name.Value}' is a final status. Use Dispose to end the asset's life - it also records how it left and its book value.");
+      throw new DomainException($"'{to.Name.Value}' is a final status. Use Dispose to end the asset's life. Dispose also records how it left and its book value.");
 
     StatusId = to.Id;
   }
@@ -152,7 +152,7 @@ public class Asset : Aggregate<AssetId>
     EnsureEditable(from);
 
     if (!finalStatus.IsTerminal)
-      throw new DomainException($"'{finalStatus.Name.Value}' is not a final status. A disposal must end in a final status (e.g. Disposed).");
+      throw new DomainException($"'{finalStatus.Name.Value}' is not a final status. A disposal must end in a final status (for example Disposed).");
 
     if (!finalStatus.IsActive)
       throw new DomainException($"The status '{finalStatus.Name.Value}' is switched off. Choose another final status.");
@@ -242,7 +242,7 @@ public class Asset : Aggregate<AssetId>
       throw new DomainException("This asset has been deleted.");
 
     if (currentStatus.Id == StatusId && currentStatus.IsTerminal)
-      throw new DomainException($"This asset is '{currentStatus.Name.Value}' - its record is closed and cannot change any more.");
+      throw new DomainException($"This asset is '{currentStatus.Name.Value}'. Its record is closed and cannot change any more.");
   }
 
   private void EnsureCurrent(AssetStatus status)

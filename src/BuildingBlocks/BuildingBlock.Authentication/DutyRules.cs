@@ -32,31 +32,31 @@ public static class DutyRules
   public static IReadOnlyList<DutyRule> All { get; } =
   [
     new(OwnRecord, "Human Resources", "Nobody decides on their own record",
-      "An officer cannot change their own pay, salary bank account, payslip or personal details, sanction their own loan, approve their own leave, request or HR action, or verify their own documents."),
+      "An officer cannot change their own pay, salary bank account, payslip or personal details. They cannot sanction their own loan, or approve their own leave, request or HR action. They cannot verify their own documents either."),
     new(HrAction, "Human Resources", "HR actions pass through two people",
-      "An appointment, transfer, promotion or other HR action is approved by someone other than the person who drafted or submitted it."),
+      "An appointment, transfer, promotion or other HR action must be approved by someone other than the person who drafted or submitted it."),
     new(PayrollApprove, "Human Resources", "Payroll is approved by someone else",
-      "A payroll run is approved by someone other than the person who prepared, reviewed or adjusted it."),
+      "A payroll run must be approved by someone other than the person who prepared, reviewed or adjusted it."),
     new(PayrollPay, "Human Resources", "Payroll is paid by someone else",
-      "A payroll run is finalized and paid out by someone other than the person who approved it."),
+      "A payroll run must be finalized and paid out by someone other than the person who approved it."),
     new(LoanSanction, "Human Resources", "Loans pass through two people",
-      "A loan is sanctioned by someone other than the person who entered the application."),
+      "A loan must be sanctioned by someone other than the person who entered the application."),
     new(LeaveApprove, "Human Resources", "Leave entered by a clerk is approved by someone else",
-      "Leave entered on someone's behalf is approved by someone other than the person who entered it."),
+      "When leave is entered for someone else, it must be approved by someone other than the person who entered it."),
     new(PropertyTransfer, "Property", "Transfers pass through two people",
-      "A transfer of ownership - including one recorded after it happened - is approved by someone other than the person who started or recorded it."),
+      "A transfer of ownership must be approved by someone other than the person who started or recorded it. This also applies to a transfer recorded after it happened."),
     new(TaxDemandRun, "Taxation", "Demand runs pass through two people",
-      "The annual demand is approved by someone other than the person who computed it."),
+      "The annual demand must be approved by someone other than the person who worked it out."),
     new(TaxRateSet, "Taxation", "The tariff passes through two people",
-      "A rate set is approved by someone other than the person who drafted it."),
+      "A rate set must be approved by someone other than the person who drafted it."),
     new(TaxPaymentReverse, "Taxation", "A cashier does not reverse their own receipts",
-      "A payment is reversed by someone other than the person who posted it."),
+      "A payment can only be reversed by someone other than the person who posted it."),
     new(TaxFeeWaive, "Taxation", "Fees are waived by someone else",
-      "A fee is waived or exempted by someone other than the person who charged it."),
+      "A fee can only be waived or exempted by someone other than the person who charged it."),
     new(AssetDisposal, "Assets", "Disposals pass through two people",
-      "An asset disposal is approved by someone other than the person who proposed it."),
+      "An asset disposal must be approved by someone other than the person who proposed it."),
     new(DepreciationReverse, "Assets", "Depreciation is reversed by someone else",
-      "A posted depreciation entry is reversed by someone other than the person who posted it."),
+      "A posted depreciation entry can only be reversed by someone other than the person who posted it."),
   ];
 
   public static DutyRule? Find(string code) => All.FirstOrDefault(r => r.Code == code);
@@ -80,7 +80,7 @@ public static class DutyRuleExtensions
     if (!await rules.IsOnAsync(code, cancellationToken))
       return null;
     var rule = DutyRules.Find(code);
-    return $"You cannot {act}: {rule?.Title.ToLowerInvariant() ?? "this needs a second person"} (Administration › Configuration › Separation of duties).";
+    return $"You cannot {act}. {rule?.Title ?? "This needs a second person"}. This rule is set in Administration › Configuration › Separation of duties.";
   }
 }
 

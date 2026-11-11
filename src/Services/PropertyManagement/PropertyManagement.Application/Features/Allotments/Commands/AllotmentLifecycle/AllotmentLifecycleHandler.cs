@@ -40,7 +40,7 @@ public class AllotmentLifecycleHandler(IApplicationDbContext context, MasterLook
 
     // a surrender ends the allottee's hold on the plot (and an ownership confirmed through it): a decision, not a record
     if (status.Is(PropertyAllotment.SurrenderedCode) && !currentUser.HasPermission(PermissionCatalog.Property.Approve))
-      throw new PermissionRequiredException("Accepting the surrender of an allotment is an approver's act; ask an officer who can approve.");
+      throw new PermissionRequiredException("Only an approver can accept the surrender of an allotment. Ask an officer who can approve.");
 
     var record = await RecordAsync(allotment, cancellationToken);
 

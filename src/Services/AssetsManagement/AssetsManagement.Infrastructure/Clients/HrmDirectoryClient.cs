@@ -54,7 +54,7 @@ public sealed class HrmDirectoryClient(HttpClient http, ILogger<HrmDirectoryClie
   private async Task<T?> GetAsync<T>(string path, CancellationToken cancellationToken) where T : class
   {
     if (http.BaseAddress is null)
-      throw new ExternalServiceException("HR is not linked to Assets on this server (Services:HrmBaseUrl is not set), so custodians and departments cannot be checked.");
+      throw new ExternalServiceException("HR is not linked to Assets on this server (Services:HrmBaseUrl is not set). So custodians and departments cannot be checked.");
 
     HttpResponseMessage response;
     try
@@ -72,7 +72,7 @@ public sealed class HrmDirectoryClient(HttpClient http, ILogger<HrmDirectoryClie
       if (response.StatusCode == HttpStatusCode.NotFound)
         return null;
       if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
-        throw new ExternalServiceException("The HR service refused to show its staff directory to the signed-in user.");
+        throw new ExternalServiceException("The HR service did not let you see its staff directory.");
       if (!response.IsSuccessStatusCode)
       {
         logger.LogWarning("HRM answered {Status} to {Path}", (int)response.StatusCode, path);

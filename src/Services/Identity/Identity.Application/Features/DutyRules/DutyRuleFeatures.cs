@@ -60,7 +60,7 @@ public class SwitchDutyRuleHandler(IApplicationDbContext context, IdentityGuard 
   public async Task<Result<DutyRuleDto>> Handle(SwitchDutyRuleCommand command, CancellationToken cancellationToken)
   {
     if (!guard.CallerIsSuperAdmin)
-      throw new DomainException("Only a Super Administrator may switch a separation-of-duty rule.");
+      throw new DomainException("Only a Super Administrator can switch a Separation of duties rule on or off.");
     var rule = DutyRules.Find(command.Code)!;
     var now = DateTime.UtcNow;
     var name = currentUser.AuditName;

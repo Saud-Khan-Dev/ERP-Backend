@@ -36,6 +36,6 @@ public class UploadDocumentHandler(IApplicationDbContext context, MasterLookup m
       ?? throw new OwnerNotFoundException($"Owner {ownerId.Value} was not found.");
 
     if (owner.CnicDocumentId is not null)
-      throw new PermissionRequiredException($"{owner.Name} already has a CNIC copy on file; replacing it needs Property: edit.");
+      throw new PermissionRequiredException($"{owner.Name} already has a CNIC copy on file. Replacing it needs Property: edit.");
   }
 }

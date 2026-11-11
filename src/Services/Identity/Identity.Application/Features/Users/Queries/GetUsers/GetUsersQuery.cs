@@ -73,7 +73,7 @@ public class GetUsersQueryValidator : AbstractValidator<GetUsersQuery>
       .WithMessage($"Status must be one of: {string.Join(", ", UserStatusFilter.All)}.");
     RuleFor(x => x.Sort).Must(s => s is null || s is "name" or "username" or "lastSignIn" or "registered")
       .WithMessage("Sort by name, username, lastSignIn or registered.");
-    RuleFor(x => x.Direction).Must(d => d is null || d is "asc" or "desc").WithMessage("Direction is asc or desc.");
+    RuleFor(x => x.Direction).Must(d => d is null || d is "asc" or "desc").WithMessage("Direction must be asc or desc.");
     RuleFor(x => x.Search).MaximumLength(100);
     RuleFor(x => x.Kind).Must(k => k is null || UserKindFilter.All.Contains(k))
       .WithMessage($"Kind must be one of: {string.Join(", ", UserKindFilter.All)}.");

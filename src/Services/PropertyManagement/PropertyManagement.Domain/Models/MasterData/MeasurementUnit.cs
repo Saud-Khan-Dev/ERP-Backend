@@ -13,10 +13,10 @@ public sealed class MeasurementUnit : MasterData
     var factor = extras.FactorToBase ?? (FactorToBase > 0 ? FactorToBase : (isBase ? 1m : 0m));
 
     if (factor <= 0)
-      throw new DomainException("A measurement unit needs factor_to_base greater than zero (square feet per unit).");
+      throw new DomainException("A measurement unit needs a factor above zero (the square feet in one unit).");
 
     if (isBase && factor != 1m)
-      throw new DomainException("The base unit (square feet) must have factor_to_base = 1.");
+      throw new DomainException("The base unit (square feet) must have a factor of 1.");
 
     FactorToBase = decimal.Round(factor, 8);
     IsBase = isBase;

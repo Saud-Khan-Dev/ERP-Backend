@@ -9,13 +9,13 @@ public class UpdateRoleHandler(IApplicationDbContext context,
   {
     var id = RoleId.Of(command.Id);
     var role = await context.Roles.FirstOrDefaultAsync(r => r.Id == id, cancellationToken)
-      ?? throw new RoleNotFoundException("This role was not found - it may have been deleted.");
+      ?? throw new RoleNotFoundException("This role was not found. It may have been deleted.");
 
     // the same guard rails as changing what the role can do: not a role you hold, only a Super Administrator touches the
     // built-in one, and switching a role back on hands out everything it carries
     await guard.EnsureNotOwnRoleAsync(id, cancellationToken);
     if (role.IsSuperAdmin && !guard.CallerIsSuperAdmin)
-      throw new DomainException("Only a Super Administrator may change the Super Administrator role.");
+      throw new DomainException("Only a Super Administrator can change the Super Administrator role.");
     if (command.IsActive && !role.IsActive)
       await guard.EnsureCanGrantRolesAsync([id], "switch this role back on", cancellationToken);
 

@@ -76,7 +76,7 @@ public class PropertyMeasurement : Aggregate<PropertyMeasurementId>
       measurement.IsCurrent = false;
       warnings = new[]
       {
-        $"Measured on {measuredOn:yyyy-MM-dd}, before the current measurement of {newer.MeasuredOn:yyyy-MM-dd}: it is kept as history and the current measurement stays in force."
+        $"Measured on {measuredOn:yyyy-MM-dd}, which is before the current measurement of {newer.MeasuredOn:yyyy-MM-dd}. It is kept as history, and the current measurement stays in use."
       };
       return measurement;
     }

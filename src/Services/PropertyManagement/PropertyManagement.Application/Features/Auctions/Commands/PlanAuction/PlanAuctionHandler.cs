@@ -13,7 +13,7 @@ public class PlanAuctionHandler(IApplicationDbContext context, MasterLookup mast
     // an auction of a property that is let, contracted out or allotted is allowed (the agreement may end first) but said
     var warnings = (await context.RunningOnAsync(property.Id, cancellationToken))
       .Select(s => $"{property.PropertyCode.Value} is {s.Kind switch { AgreementSpanKind.Allotment => "allotted to", AgreementSpanKind.Lease => "leased to", AgreementSpanKind.Rental => "rented to", _ => "under contract with" }} "
-        + $"{s.PartyName} ({s.Code}){(s.End is { } end ? $" until {end:yyyy-MM-dd}" : " with no end date")}; settle that before the property changes hands.")
+        + $"{s.PartyName} ({s.Code}){(s.End is { } end ? $" until {end:yyyy-MM-dd}" : " with no end date")}. Settle that before the property changes hands.")
       .ToList();
 
     await context.Auctions.AddAsync(auction, cancellationToken);

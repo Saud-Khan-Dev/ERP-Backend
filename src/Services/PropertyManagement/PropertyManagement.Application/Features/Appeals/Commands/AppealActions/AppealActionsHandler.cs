@@ -128,7 +128,7 @@ public class AppealActionsHandler(IApplicationDbContext context, MasterLookup ma
     var property = await context.LoadPropertyAsync(allotment.PropertyId.Value, cancellationToken);
     var other = await context.AllotmentInForceAsync(property.Id, allotment.Id, cancellationToken);
     if (other is not null)
-      return new[] { $"Allotment {allotment.AllotmentNo.Value} was not restored: {other.Allotment.AllotmentNo.Value} to {other.AllotteeName} is in force on the plot now. Settle that first, then restore it." };
+      return new[] { $"Allotment {allotment.AllotmentNo.Value} was not restored. {other.Allotment.AllotmentNo.Value} to {other.AllotteeName} is active on the plot now. Settle that first, then restore it." };
 
     context.Touch(property);
     var restoredOn = appeal.DecisionDate ?? PropertyWriteGuard.Today();
@@ -136,7 +136,7 @@ public class AppealActionsHandler(IApplicationDbContext context, MasterLookup ma
       restoredOn < (allotment.CancellationDate ?? restoredOn) ? allotment.CancellationDate!.Value : restoredOn,
       appeal.AppealNo.Value, other, PropertyWriteGuard.Today());
 
-    return new[] { $"Allotment {allotment.AllotmentNo.Value} is restored by this decision; confirm the allottee as owner again if they had been." };
+    return new[] { $"Allotment {allotment.AllotmentNo.Value} is restored by this decision. If the allottee was confirmed as owner before, confirm them again." };
   }
 
   private async Task<IReadOnlyList<string>> ReopenPlanAsync(PropertyAppeal appeal, Guid planId, CancellationToken cancellationToken)

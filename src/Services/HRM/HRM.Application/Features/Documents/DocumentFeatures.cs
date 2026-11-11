@@ -247,14 +247,14 @@ public class DocumentHandlers(IApplicationDbContext context, FileUploads files, 
     var document = await context.LoadDocumentAsync(command.Id, cancellationToken);
     await EnsureProfileActiveAsync(document.EmployeeId, cancellationToken);
     if (document.VerificationStatus == VerificationStatus.Verified)
-      return Result<UpdatedResult>.Failure("A verified document stays on the file.");
+      return Result<UpdatedResult>.Failure("A verified document cannot be deleted. It stays on the file.");
 
     var referenced = await context.ServiceHistory.AnyAsync(h => h.SupportingDocumentId == document.Id, cancellationToken)
       || await context.PositionAssignments.AnyAsync(a => a.OrderDocumentId == document.Id, cancellationToken)
       || await context.HrActions.AnyAsync(a => a.SupportingDocumentId == document.Id, cancellationToken)
       || await context.Requests.AnyAsync(r => r.SupportingDocumentId == document.Id, cancellationToken);
     if (referenced)
-      return Result<UpdatedResult>.Failure("This document supports a service record, an HR action or a request, so it stays on the file.");
+      return Result<UpdatedResult>.Failure("This document supports a service record, an HR action or a request, so it must stay on the file.");
 
     context.Documents.Remove(document);
     await context.SaveChangesAsync(cancellationToken);

@@ -144,7 +144,7 @@ public class AssetDisposal : Aggregate<AssetDisposalId>
   {
     ArgumentNullException.ThrowIfNull(cancelledBy);
     if (State != DisposalState.Approved)
-      throw new DomainException("Only an approved disposal can be cancelled. A proposal is rejected or withdrawn instead.");
+      throw new DomainException("Only an approved disposal can be cancelled. Reject or withdraw a proposal instead.");
     if (string.IsNullOrWhiteSpace(reason))
       throw new DomainException("Say why the disposal is cancelled.");
 
@@ -172,7 +172,7 @@ public class AssetDisposal : Aggregate<AssetDisposalId>
   private static void CheckFinalStatus(AssetStatus toStatus)
   {
     if (!toStatus.IsTerminal)
-      throw new DomainException($"'{toStatus.Name.Value}' is not a final status. A disposal must end in a final status (e.g. Disposed).");
+      throw new DomainException($"'{toStatus.Name.Value}' is not a final status. A disposal must end in a final status (for example Disposed).");
 
     if (!toStatus.IsActive)
       throw new DomainException($"The status '{toStatus.Name.Value}' is switched off. Choose another final status.");
@@ -194,7 +194,7 @@ public class AssetDisposal : Aggregate<AssetDisposalId>
       throw new DomainException($"The disposal date cannot be before the purchase date ({purchaseDate.Value:dd'/'MM'/'yyyy}).");
 
     if (method.RequiresValue && disposalValue is null)
-      throw new DomainException($"'{method.Name.Value}' records what was received: enter the proceeds.");
+      throw new DomainException($"'{method.Name.Value}' records what was received. Enter the proceeds.");
 
     if (!method.AllowsValue && disposalValue is not null)
       throw new DomainException($"'{method.Name.Value}' records no proceeds. Leave the proceeds empty, or choose another method.");
@@ -206,6 +206,6 @@ public class AssetDisposal : Aggregate<AssetDisposalId>
       throw new DomainException("Choose the currency of the proceeds.");
 
     if (disposalValue is not null && purchaseCurrency is not null && currencyCode != purchaseCurrency)
-      throw new DomainException($"Record the proceeds in {purchaseCurrency.Value}, the currency the asset was bought in - the gain or loss is worked out against its book value.");
+      throw new DomainException($"Record the proceeds in {purchaseCurrency.Value}, the currency the asset was bought in. The gain or loss is worked out against its book value.");
   }
 }

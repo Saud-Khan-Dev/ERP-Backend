@@ -13,6 +13,6 @@ public class ReverseDepreciationEntryCommandValidator : AbstractValidator<Revers
     RuleFor(x => x.ScheduleId).NotEmpty();
     RuleFor(x => x.EntryId).NotEmpty();
     RuleFor(x => x.Reason).NotEmpty().WithMessage("Say why the month is reversed.")
-      .MinimumLength(5).WithMessage("Say why the month is reversed - a few words at least.").MaximumLength(500);
+      .MinimumLength(5).WithMessage("Say why the month is reversed. Use a few words at least.").MaximumLength(500);
   }
 }

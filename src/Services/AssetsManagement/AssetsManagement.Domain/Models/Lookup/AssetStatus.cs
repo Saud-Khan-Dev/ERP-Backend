@@ -19,7 +19,7 @@ public class AssetStatus : Aggregate<AssetStatusId>
     ArgumentNullException.ThrowIfNull(name);
 
     if (isTerminal && allowsAssignment)
-      throw new DomainException("A final status cannot allow moves: the record is closed in it.");
+      throw new DomainException("A final status cannot allow moves. The record is closed once it has this status.");
 
     return new AssetStatus
     {
@@ -42,13 +42,13 @@ public class AssetStatus : Aggregate<AssetStatusId>
     ArgumentNullException.ThrowIfNull(name);
 
     if (inUse && (isTerminal != IsTerminal || allowsAssignment != AllowsAssignment))
-      throw new DomainException($"'{Name.Value}' is used by assets, so what it allows cannot change - it would change those assets too. Add a new status instead.");
+      throw new DomainException($"'{Name.Value}' is used by assets, so what it allows cannot change. A change would affect those assets too. Add a new status instead.");
 
     if (inUse && code != Code)
       throw new DomainException($"'{Name.Value}' is used by assets, so its code cannot change.");
 
     if (isTerminal && allowsAssignment)
-      throw new DomainException("A final status cannot allow moves: the record is closed in it.");
+      throw new DomainException("A final status cannot allow moves. The record is closed once it has this status.");
 
     Code = code;
     Name = name;

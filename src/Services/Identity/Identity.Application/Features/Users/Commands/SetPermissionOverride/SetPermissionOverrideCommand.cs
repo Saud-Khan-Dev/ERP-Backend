@@ -22,6 +22,6 @@ public class SetPermissionOverrideCommandValidator : AbstractValidator<SetPermis
     RuleFor(x => x.ExpiresAt)
       .GreaterThan(DateTime.UtcNow)
       .When(x => x.ExpiresAt.HasValue)
-      .WithMessage("The expiry date must be in the future.");
+      .WithMessage("The end date must be in the future.");
   }
 }

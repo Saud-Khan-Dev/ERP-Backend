@@ -136,10 +136,10 @@ public class SecuritySettings : Aggregate<SecuritySettingsId>
       int refreshTokenDays)
   {
     Between(passwordMinimumLength, MinPasswordLength, MaxPasswordLength, "The minimum password length");
-    Between(maxFailedLoginAttempts, MinFailedAttempts, MaxFailedAttempts, "The number of failed attempts before lockout");
-    Between(lockoutMinutes, MinLockoutMinutes, MaxLockoutMinutes, "The lockout duration in minutes");
-    Between(accessTokenMinutes, MinAccessTokenMinutes, MaxAccessTokenMinutes, "The access-token lifetime in minutes");
-    Between(refreshTokenDays, MinRefreshTokenDays, MaxRefreshTokenDays, "The sign-in lifetime in days");
+    Between(maxFailedLoginAttempts, MinFailedAttempts, MaxFailedAttempts, "The number of wrong attempts before the account locks");
+    Between(lockoutMinutes, MinLockoutMinutes, MaxLockoutMinutes, "The minutes an account stays locked");
+    Between(accessTokenMinutes, MinAccessTokenMinutes, MaxAccessTokenMinutes, "The minutes an access token lasts");
+    Between(refreshTokenDays, MinRefreshTokenDays, MaxRefreshTokenDays, "The days a sign-in lasts");
 
     PasswordMinimumLength = passwordMinimumLength;
     PasswordRequireUppercase = passwordRequireUppercase;

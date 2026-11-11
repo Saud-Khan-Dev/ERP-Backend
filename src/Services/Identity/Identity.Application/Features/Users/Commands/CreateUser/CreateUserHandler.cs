@@ -106,7 +106,7 @@ public class CreateUserHandler(
     var roles = await context.Roles.Where(r => ids.Contains(r.Id)).ToListAsync(cancellationToken);
 
     if (roles.Count != ids.Count)
-      throw new RoleNotFoundException("One or more of the supplied roles was not found.");
+      throw new RoleNotFoundException("Some of the chosen roles were not found.");
 
     var inactive = roles.FirstOrDefault(r => !r.IsActive);
     if (inactive is not null)

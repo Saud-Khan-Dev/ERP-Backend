@@ -34,6 +34,6 @@ public class GetLoginAttemptsQueryValidator : AbstractValidator<GetLoginAttempts
     RuleFor(x => x.Pagination.Pageindex).GreaterThanOrEqualTo(0).WithMessage("The page number cannot be negative.");
     RuleFor(x => x.Pagination.PageSize).InclusiveBetween(1, 200).WithMessage("Ask for between 1 and 200 sign-ins at a time.");
     RuleFor(x => x.Reason).Must(r => string.IsNullOrWhiteSpace(r) || SignInFailureReasons.Texts.ContainsKey(r))
-      .WithMessage($"The reason is one of: {string.Join(", ", SignInFailureReasons.Texts.Keys)}.");
+      .WithMessage($"The reason must be one of: {string.Join(", ", SignInFailureReasons.Texts.Keys)}.");
   }
 }

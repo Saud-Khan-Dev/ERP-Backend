@@ -152,7 +152,7 @@ public class SalaryOverrideInputValidator : AbstractValidator<SalaryOverrideInpu
   public SalaryOverrideInputValidator()
   {
     RuleFor(x => x).Must(x => x.OverrideFixedAmount.HasValue != x.OverridePercentage.HasValue)
-      .WithMessage("Give either a fixed amount or a percentage.");
+      .WithMessage("Enter either a fixed amount or a percentage.");
     RuleFor(x => x.OverrideFixedAmount).GreaterThanOrEqualTo(0).When(x => x.OverrideFixedAmount.HasValue);
     RuleFor(x => x.OverridePercentage).InclusiveBetween(0, 1000).When(x => x.OverridePercentage.HasValue);
     RuleFor(x => x.EffectiveTo).GreaterThanOrEqualTo(x => x.EffectiveFrom).When(x => x.EffectiveTo.HasValue)
@@ -224,7 +224,7 @@ public class SalaryHandlers(IApplicationDbContext context, HrLookup lookup, ICur
 
     // the type decides which side of the slip a line falls on; it cannot flip once rules, loans or slips use it
     if (component.ComponentType != i.ComponentType && await IsComponentInUseAsync(component.Id, cancellationToken))
-      return Result<UpdatedResult>.Failure($"{component.ComponentCode} is already used by rules, loans or pay slips; its type cannot change.");
+      return Result<UpdatedResult>.Failure($"{component.ComponentCode} is already used by rules, loans or pay slips. Its type cannot change.");
 
     component.Update(i.ComponentName, i.ComponentType, i.IsTaxable);
     if (await context.SalaryComponents.AnyAsync(c => c.Id != component.Id && c.ComponentName.ToLower() == component.ComponentName.ToLower(), cancellationToken))
@@ -242,7 +242,7 @@ public class SalaryHandlers(IApplicationDbContext context, HrLookup lookup, ICur
       var today = clock.Today;
       if (await context.SalaryRules.AnyAsync(r => r.SalaryComponentId == component.Id && r.Status == RecordStatus.Active
           && (r.EffectiveTo == null || r.EffectiveTo >= today), cancellationToken))
-        return Result<UpdatedResult>.Failure($"{component.ComponentCode} still has rules in force; close them first.");
+        return Result<UpdatedResult>.Failure($"{component.ComponentCode} still has active rules. Close them first.");
       if (await context.LoanTypes.AnyAsync(t => t.SalaryComponentId == component.Id && t.IsActive, cancellationToken))
         return Result<UpdatedResult>.Failure($"Active loan types recover their installments on {component.ComponentCode}.");
     }
@@ -289,7 +289,7 @@ public class SalaryHandlers(IApplicationDbContext context, HrLookup lookup, ICur
   {
     var rule = await LoadRuleAsync(command.Id, cancellationToken, tracked: true);
     if (await IsRuleSettledAsync(rule.Id, cancellationToken))
-      return Result<UpdatedResult>.Failure($"Rule {rule.RuleVersion} is on approved or finalized pay slips; revise it (a new version from a date) instead of editing it.");
+      return Result<UpdatedResult>.Failure($"Rule {rule.RuleVersion} is used on approved or finalized pay slips. Revise it instead of editing it. A revision is a new version from a date.");
 
     var component = await context.SalaryComponents.FirstAsync(c => c.Id == rule.SalaryComponentId, cancellationToken);
     await EnsureScopeExistsAsync(command.Rule, cancellationToken);
@@ -305,7 +305,7 @@ public class SalaryHandlers(IApplicationDbContext context, HrLookup lookup, ICur
     if (from <= current.EffectiveFrom)
       return Result<CreatedResult>.Failure($"The new version must start after {current.EffectiveFrom:yyyy-MM-dd}, when rule {current.RuleVersion} started.");
     if (current.EffectiveTo is { } to && from > to.AddDays(1))
-      return Result<CreatedResult>.Failure($"Rule {current.RuleVersion} already ended on {to:yyyy-MM-dd}; add a new rule instead.");
+      return Result<CreatedResult>.Failure($"Rule {current.RuleVersion} already ended on {to:yyyy-MM-dd}. Add a new rule instead.");
 
     var component = await context.SalaryComponents.FirstAsync(c => c.Id == current.SalaryComponentId, cancellationToken);
     await EnsureScopeExistsAsync(command.Rule, cancellationToken);
@@ -387,7 +387,7 @@ public class SalaryHandlers(IApplicationDbContext context, HrLookup lookup, ICur
     var item = await LoadOverrideAsync(command.Id, cancellationToken);
     await duty.EnsureNotOwnRecordAsync(item.EmployeeId, "change a salary override", item, cancellationToken);
     if (await IsOverrideSettledAsync(item, cancellationToken))
-      return Result<UpdatedResult>.Failure("The override is on approved or finalized pay slips; end it and add a new one from the date the amount changes.");
+      return Result<UpdatedResult>.Failure("The override is used on approved or finalized pay slips. End it, and add a new one from the date the amount changes.");
 
     var i = command.Override;
     item.Update(i.OverrideFixedAmount, i.OverridePercentage, i.EffectiveFrom, i.EffectiveTo, i.Remarks, await OverridesOfAsync(item.EmployeeId, item.SalaryComponentId, cancellationToken));
@@ -409,7 +409,7 @@ public class SalaryHandlers(IApplicationDbContext context, HrLookup lookup, ICur
     var item = await LoadOverrideAsync(command.Id, cancellationToken);
     await duty.EnsureNotOwnRecordAsync(item.EmployeeId, "change a salary override", item, cancellationToken);
     if (await IsOverrideSettledAsync(item, cancellationToken))
-      return Result<UpdatedResult>.Failure("The override is on approved or finalized pay slips; end it instead.");
+      return Result<UpdatedResult>.Failure("The override is used on approved or finalized pay slips. End it instead.");
 
     context.SalaryOverrides.Remove(item);
     await context.SaveChangesAsync(cancellationToken);

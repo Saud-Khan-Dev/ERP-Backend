@@ -18,7 +18,7 @@ public class PayrollInputBuilder(IApplicationDbContext context)
       .Select(t => t.SalaryComponentId!).ToListAsync(cancellationToken)).ToHashSet();
 
     SalaryComponent System(string code) => components.FirstOrDefault(c => c.ComponentCode == code)
-      ?? throw new DomainException($"The {code} salary component is missing; restart the HRM service to restore it.");
+      ?? throw new DomainException($"The {code} salary component is missing. Restart the HRM service to restore it.");
 
     return new PayrollCatalog(components, rules, System(SystemComponents.BasicPay), System(SystemComponents.IncomeTax),
       components.FirstOrDefault(c => c.ComponentCode == SystemComponents.GpFund), loanComponents);

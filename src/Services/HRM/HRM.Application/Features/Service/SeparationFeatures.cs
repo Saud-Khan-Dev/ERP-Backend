@@ -69,11 +69,11 @@ public class RecordSeparationCommandValidator : AbstractValidator<RecordSeparati
   public RecordSeparationCommandValidator()
   {
     RuleFor(x => x.EmployeeId).NotEmpty();
-    RuleFor(x => x.SeparationType).IsInEnum().NotEqual(SeparationType.Other).WithMessage("Choose the kind of separation (retirement, resignation, dismissal ...).");
+    RuleFor(x => x.SeparationType).IsInEnum().NotEqual(SeparationType.Other).WithMessage("Choose the kind of separation, such as retirement, resignation or dismissal.");
     RuleFor(x => x.EmploymentStatus)
       .Must(s => EmploymentStatuses.LeftService.Contains(s!.Value))
       .When(x => x.EmploymentStatus.HasValue)
-      .WithMessage("After a separation the status is one of the left-service states (retired, resigned, dismissed ...).");
+      .WithMessage("After a separation, the status must be one of the left-service states, such as retired, resigned or dismissed.");
     RuleFor(x => x.NoticePeriodDays).GreaterThanOrEqualTo(0).When(x => x.NoticePeriodDays.HasValue);
     RuleFor(x => x.OrderNumber).MaximumLength(100);
     RuleFor(x => x.Reason).MaximumLength(4000);

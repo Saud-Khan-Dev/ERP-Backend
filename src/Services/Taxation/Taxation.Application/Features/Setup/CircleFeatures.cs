@@ -121,7 +121,7 @@ public class CircleHandlers(IApplicationDbContext context, IPropertyDirectory pr
   {
     var circle = await context.LoadCircleAsync(command.Id, cancellationToken);
     if ((await UsedCirclesAsync(cancellationToken)).Contains(circle.Id))
-      return Result<UpdatedResult>.Failure($"Circle {circle.Code} has tax files, runs or notices; deactivate it instead.");
+      return Result<UpdatedResult>.Failure($"Circle {circle.Code} has tax files, runs or notices. Deactivate it instead.");
     var today = clock.Today;
     if (circle.Towns.FirstOrDefault(t => t.EffectiveTo is null || t.EffectiveTo >= today) is { } town)
       return Result<UpdatedResult>.Failure($"{town.TownCode} is in circle {circle.Code}{(town.EffectiveFrom > today ? $" from {town.EffectiveFrom:dd'/'MM'/'yyyy}" : "")}. Take the town out first.");
@@ -139,7 +139,7 @@ public class CircleHandlers(IApplicationDbContext context, IPropertyDirectory pr
       ?? throw new TaxCircleNotFoundException($"Town assignment {command.AssignmentId} was not found in circle {circle.Code}.");
     var open = await context.TaxFiles.CountAsync(f => f.TownId == assignment.TownId && f.CircleId == circle.Id && f.TaxStatus != TaxStatus.Closed, cancellationToken);
     if (open > 0)
-      return Result<UpdatedResult>.Failure($"{assignment.TownCode} has {open} open tax file{(open == 1 ? "" : "s")} in circle {circle.Code}. Assign the town to another circle instead; its files move with it.");
+      return Result<UpdatedResult>.Failure($"{assignment.TownCode} has {open} open tax file{(open == 1 ? "" : "s")} in circle {circle.Code}. Assign the town to another circle instead. Its files move with it.");
     var history = await context.CircleTowns.Where(t => t.TownId == assignment.TownId).ToListAsync(cancellationToken);
     circle.EndTown(assignment.Id, command.LastDay, history);
     await context.SaveChangesAsync(cancellationToken);
@@ -383,7 +383,7 @@ public class HeadHandlers(IApplicationDbContext context, TaxSetup setup, IClock 
     if (await context.TaxHeads.AnyAsync(x => x.Id != head.Id && x.Name.ToLower() == h.Name.Trim().ToLower(), cancellationToken))
       return Result<UpdatedResult>.Failure($"Another head is called \"{h.Name.Trim()}\".");
     if (head.ChargedOnNotice && !h.ChargedOnNotice && await ChargedOnNoticesAsync(head.Id, cancellationToken))
-      return Result<UpdatedResult>.Failure($"{head.Name} is already on demands as an earlier due; it stays a charge notices carry.");
+      return Result<UpdatedResult>.Failure($"{head.Name} is already on demands as an earlier due. So it must stay a charge that notices carry.");
     head.UpdateOther(h.Name, h.IsRefundable, h.SortOrder, h.AccountsHeadCode, h.ChargedOnNotice);
     await setup.EnsureLayoutRowAsync(head, await setup.HeadsAsync(cancellationToken), clock.Today, cancellationToken);
     await context.SaveChangesAsync(cancellationToken);
@@ -404,7 +404,7 @@ public class HeadHandlers(IApplicationDbContext context, TaxSetup setup, IClock 
   {
     var head = await context.LoadHeadAsync(command.Id, cancellationToken);
     if (head.IsSystem || head.IsBuiltin)
-      return Result<UpdatedResult>.Failure($"{head.Name} is used by the module itself and cannot be deleted.");
+      return Result<UpdatedResult>.Failure($"{head.Name} is used by the system itself and cannot be deleted.");
     var id = head.Id;
     var used = await context.DemandLines.AnyAsync(l => l.HeadId == id, cancellationToken)
       || await context.ArrearsRows.AnyAsync(a => a.HeadId == id, cancellationToken)
@@ -415,7 +415,7 @@ public class HeadHandlers(IApplicationDbContext context, TaxSetup setup, IClock 
       || await context.HeadValues.AnyAsync(v => v.HeadId == id, cancellationToken)
       || await context.RateSets.AnyAsync(s => s.Status != RateSetStatus.Draft && s.RateBands.Any(b => b.HeadId == id), cancellationToken);
     if (used)
-      return Result<UpdatedResult>.Failure($"{head.Name} is already used (charged, paid, set on a property or in an approved rate set); deactivate it instead.");
+      return Result<UpdatedResult>.Failure($"{head.Name} is already used (charged, paid, set on a property or in an approved rate set). Deactivate it instead.");
 
     var drafts = await context.RateSets.Where(s => s.Status == RateSetStatus.Draft && s.RateBands.Any(b => b.HeadId == id)).Include(s => s.RateBands).ToListAsync(cancellationToken);
     foreach (var draft in drafts)

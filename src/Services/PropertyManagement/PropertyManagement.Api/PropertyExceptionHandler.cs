@@ -63,7 +63,7 @@ public class PropertyExceptionHandler(ILogger<PropertyExceptionHandler> logger) 
 
       _ => (
         Title: "ServerError",
-        Detail: $"Something went wrong on the server and nothing was saved. Try again; if it keeps happening, tell the administrator (reference {context.TraceIdentifier}).",
+        Detail: $"Something went wrong on the server and nothing was saved. Try again. If it keeps happening, tell the administrator (reference {context.TraceIdentifier}).",
         StatusCode: StatusCodes.Status500InternalServerError
       )
     };

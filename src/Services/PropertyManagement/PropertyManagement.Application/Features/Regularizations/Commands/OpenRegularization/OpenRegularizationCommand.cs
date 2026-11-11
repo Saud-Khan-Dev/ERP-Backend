@@ -40,6 +40,6 @@ public static class RegularizationDecisions
   {
     if (PropertyAreaRegularization.IsDecided(status) && status != before && !currentUser.HasPermission(PermissionCatalog.Property.Approve))
       throw new PermissionRequiredException(
-        $"Marking a regularization case {(status == RegularizationStatus.Regularized ? "regularized" : "rejected")} is an approver's decision; ask an officer who can approve.");
+        $"Only an approver can mark a regularization case {(status == RegularizationStatus.Regularized ? "regularized" : "rejected")}. Ask an officer who can approve.");
   }
 }

@@ -71,7 +71,7 @@ public class PropertyEncroachment : Aggregate<EncroachmentId>
     status.EnsureActive();
 
     if (status.Is(SystemMasterCodes.Resolved) || status.Is(SystemMasterCodes.Regularized))
-      throw new DomainException("A new encroachment cannot start resolved; record it and then resolve it.");
+      throw new DomainException("A new encroachment cannot start as resolved. Record it first, then resolve it.");
 
     if (detectionDate > today)
       throw new DomainException("The detection date cannot be in the future.");
@@ -153,7 +153,7 @@ public class PropertyEncroachment : Aggregate<EncroachmentId>
     status.EnsureActive();
 
     if (status.Is(SystemMasterCodes.Resolved) || status.Is(SystemMasterCodes.Regularized))
-      throw new DomainException("Use resolve, so the resolution date and type are recorded.");
+      throw new DomainException("Use Resolve, so the resolution date and type are recorded.");
 
     EncroachmentStatusId = status.Id;
   }
@@ -165,7 +165,7 @@ public class PropertyEncroachment : Aggregate<EncroachmentId>
     EnsureUnresolved();
 
     if (today is { } day && resolutionDate > day)
-      throw new DomainException($"The resolution date cannot be in the future ({resolutionDate:yyyy-MM-dd}); today is {day:yyyy-MM-dd}.");
+      throw new DomainException($"The resolution date cannot be in the future ({resolutionDate:yyyy-MM-dd}). Today is {day:yyyy-MM-dd}.");
 
     if (!Enum.IsDefined(resolutionType))
       throw new DomainException("Unknown resolution type.");

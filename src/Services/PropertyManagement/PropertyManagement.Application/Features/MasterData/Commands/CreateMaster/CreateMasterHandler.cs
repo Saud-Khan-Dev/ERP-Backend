@@ -7,7 +7,7 @@ public class CreateMasterHandler(IApplicationDbContext context)
     var input = command.Item;
     if (descriptor.ReadOnly)
       return Result<CreateMasterCommandResult>.Failure(
-        $"{descriptor.Label} values are set by the system's own acts, so a new one could never be used. Rename an existing value instead.");
+        $"{descriptor.Label} values are set by the system, so a new one could never be used. Rename an existing value instead.");
 
     var code = MasterCode.Of(input.Code);
 

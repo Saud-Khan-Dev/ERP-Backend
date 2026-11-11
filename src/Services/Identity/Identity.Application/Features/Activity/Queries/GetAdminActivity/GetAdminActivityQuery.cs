@@ -55,8 +55,8 @@ public class GetAdminActivityQueryValidator : AbstractValidator<GetAdminActivity
     RuleFor(x => x.Pagination.Pageindex).GreaterThanOrEqualTo(0).WithMessage("The page number cannot be negative.");
     RuleFor(x => x.Pagination.PageSize).InclusiveBetween(1, 200).WithMessage("Ask for between 1 and 200 lines at a time.");
     RuleFor(x => x.Kind).Must(k => string.IsNullOrWhiteSpace(k) || ActivityKinds.Actions.ContainsKey(k))
-      .WithMessage($"The kind of change is one of: {string.Join(", ", ActivityKinds.Actions.Keys)}.");
+      .WithMessage($"The kind of change must be one of: {string.Join(", ", ActivityKinds.Actions.Keys)}.");
     RuleFor(x => x.Action).Must(a => string.IsNullOrWhiteSpace(a) || Enum.TryParse<ActivityAction>(a, ignoreCase: true, out _))
-      .WithMessage("That action is not one Administration records.");
+      .WithMessage("Administration does not record that action.");
   }
 }

@@ -83,7 +83,7 @@ public class PropertyTransfer : Aggregate<TransferId>
 
     if (transferDate > record.Today.AddDays(FarFutureDays) && !confirmFarFuture)
       throw new DomainException(
-        $"The transfer is dated {transferDate:yyyy-MM-dd}, more than {FarFutureDays} days ahead; until then the givers' shares stay promised. Check the date, or confirm that it is right.");
+        $"The transfer is dated {transferDate:yyyy-MM-dd}, more than {FarFutureDays} days ahead. Until then, the shares it gives cannot be used in another transfer. Check the date, or confirm that it is right.");
 
     relationship = Guard.Text(relationship, 100, "Relationship");
     if (transferType.RequiresRelationship && relationship is null)
@@ -168,7 +168,7 @@ public class PropertyTransfer : Aggregate<TransferId>
 
     var date = approvalDate ?? transferDate;
     if (date > record.Today)
-      throw new DomainException($"The approval date cannot be in the future ({date:yyyy-MM-dd}); today is {record.Today:yyyy-MM-dd}.");
+      throw new DomainException($"The approval date cannot be in the future ({date:yyyy-MM-dd}). Today is {record.Today:yyyy-MM-dd}.");
     if (date < transferDate)
       throw new DomainException($"A transfer cannot be approved before its transfer date ({transferDate:yyyy-MM-dd}).");
 
@@ -187,7 +187,7 @@ public class PropertyTransfer : Aggregate<TransferId>
   {
     if (transferDate > today)
       throw new DomainException(
-        $"A transfer that already happened cannot be dated in the future ({transferDate:yyyy-MM-dd}); today is {today:yyyy-MM-dd}. Initiate it instead.");
+        $"A transfer that already happened cannot be dated in the future ({transferDate:yyyy-MM-dd}). Today is {today:yyyy-MM-dd}. Initiate it instead.");
   }
 
   /// Approves AND completes the transfer in one step: the rules are checked again against the record as it
@@ -212,7 +212,7 @@ public class PropertyTransfer : Aggregate<TransferId>
       case TransferStatus.Initiated:
         break;
       case TransferStatus.Approved:
-        throw new DomainException($"{TransferNo.Value} was approved earlier but not completed; complete it to register the change.");
+        throw new DomainException($"{TransferNo.Value} was approved earlier but not completed. Complete it to register the change.");
       default:
         throw new DomainException($"{TransferNo.Value} is {Describe(TransferStatus)} and can no longer be approved.");
     }
@@ -220,7 +220,7 @@ public class PropertyTransfer : Aggregate<TransferId>
     EnsureDue(record.Today);
 
     if (approvalDate > record.Today)
-      throw new DomainException($"The approval date cannot be in the future ({approvalDate:yyyy-MM-dd}); today is {record.Today:yyyy-MM-dd}.");
+      throw new DomainException($"The approval date cannot be in the future ({approvalDate:yyyy-MM-dd}). Today is {record.Today:yyyy-MM-dd}.");
 
     if (approvalDate < TransferDate)
       throw new DomainException($"A transfer cannot be approved before its transfer date ({TransferDate:yyyy-MM-dd}).");
@@ -251,7 +251,7 @@ public class PropertyTransfer : Aggregate<TransferId>
       case TransferStatus.Approved:
         break;
       case TransferStatus.Initiated:
-        throw new DomainException($"{TransferNo.Value} is waiting for approval; approving it registers the change.");
+        throw new DomainException($"{TransferNo.Value} is waiting for approval. Approve it to register the change.");
       default:
         throw new DomainException($"{TransferNo.Value} is {Describe(TransferStatus)} and cannot be completed.");
     }
@@ -272,7 +272,7 @@ public class PropertyTransfer : Aggregate<TransferId>
     EnsureOn(property);
 
     if (TransferStatus != TransferStatus.Initiated)
-      throw new DomainException($"Only a transfer waiting for approval can be rejected; {TransferNo.Value} is {Describe(TransferStatus)}.");
+      throw new DomainException($"Only a transfer waiting for approval can be rejected. {TransferNo.Value} is {Describe(TransferStatus)}.");
 
     Close(TransferStatus.Rejected, reason, "Rejection reason", rejectedBy, today);
   }
@@ -284,7 +284,7 @@ public class PropertyTransfer : Aggregate<TransferId>
     EnsureOn(property);
 
     if (TransferStatus == TransferStatus.Completed)
-      throw new DomainException($"{TransferNo.Value} is completed and cannot be cancelled; record a new transfer to reverse it.");
+      throw new DomainException($"{TransferNo.Value} is completed and cannot be cancelled. To reverse it, record a new transfer.");
 
     if (!IsPending)
       throw new DomainException($"{TransferNo.Value} is already {Describe(TransferStatus)}.");
@@ -359,7 +359,7 @@ public class PropertyTransfer : Aggregate<TransferId>
         OwnershipId.New(), PropertyId, ownerId, tenureId ?? newTenureType.Id, newShare, TransferDate,
         TransferTypeId, Id, acquiredViaAllotmentId: null, TransferReferenceNo,
         remarks: held > 0
-          ? $"Created by transfer {TransferNo.Value}: {held:0.####}% already held + {delta:0.####}% received."
+          ? $"Created by transfer {TransferNo.Value}: {held:0.####}% already owned + {delta:0.####}% received."
           : $"Created by transfer {TransferNo.Value}."));
     }
 
@@ -424,7 +424,7 @@ public class PropertyTransfer : Aggregate<TransferId>
     var totalReceived = received.Values.Sum();
     if (totalGiven != totalReceived)
       throw new DomainException(
-        $"Transferors give {totalGiven:0.####}% but transferees receive {totalReceived:0.####}%; the two sides must match.");
+        $"Transferors give {totalGiven:0.####}% but transferees receive {totalReceived:0.####}%. The two sides must match.");
 
     var changing = given.Keys.Union(received.Keys)
         .Where(id => received.GetValueOrDefault(id) - given.GetValueOrDefault(id) != 0)
@@ -440,7 +440,7 @@ public class PropertyTransfer : Aggregate<TransferId>
         ?? throw new DomainException("A party of this transfer is not a registered owner.");
 
       if (!owner.IsActive)
-        throw new DomainException($"{owner.OwnerName.Value} ({owner.OwnerCode.Value}) is inactive; reactivate the owner record before using it in a transfer.");
+        throw new DomainException($"{owner.OwnerName.Value} ({owner.OwnerCode.Value}) is inactive. Reactivate the owner record before using it in a transfer.");
 
       if (received.GetValueOrDefault(ownerId) - given.GetValueOrDefault(ownerId) > 0)
       {
@@ -454,8 +454,8 @@ public class PropertyTransfer : Aggregate<TransferId>
     var receivers = received.Keys.ToList();
     if (record.PropertyCharge is { } propertyCharge && !propertyCharge.AllowsTransferTo(receivers))
       throw new DomainException(propertyCharge.Status == EncumbranceStatus.Enforced
-        ? $"{code} is under {propertyCharge.Describe()} on the whole property, which was enforced; shares can only be transferred to {propertyCharge.HolderName}."
-        : $"{code} is under {propertyCharge.Describe()} on the whole property; release it before any transfer.");
+        ? $"{code} is under {propertyCharge.Describe()} on the whole property. The charge was enforced, so shares can only be transferred to {propertyCharge.HolderName}."
+        : $"{code} is under {propertyCharge.Describe()} on the whole property. Release the charge before any transfer.");
 
     foreach (var (ownerId, share) in given)
     {
@@ -463,28 +463,28 @@ public class PropertyTransfer : Aggregate<TransferId>
       var current = record.CurrentRowsOf(ownerId).ToList();
 
       if (current.Count == 0)
-        throw new DomainException($"{name} is not a current owner of {code}; only a current owner can give a share.");
+        throw new DomainException($"{name} is not a current owner of {code}. Only a current owner can give a share.");
 
       var disputed = current.Where(r => !r.IsTransferable).Sum(r => r.OwnershipSharePct);
       if (disputed > 0)
-        throw new DomainException($"{name}'s {disputed:0.####}% is disputed; resolve the dispute before transferring it.");
+        throw new DomainException($"{name}'s {disputed:0.####}% is disputed. Resolve the dispute before transferring it.");
 
       var held = current.Sum(r => r.OwnershipSharePct);
       if (share > held)
         throw new DomainException(atApproval
-          ? $"{name} now holds {held:0.####}% of {code}, not the {share:0.####}% this transfer gives; cancel {TransferNo.Value} and initiate a new transfer."
-          : $"{name} cannot give {share:0.####}% while holding {held:0.####}%.");
+          ? $"{name} now owns {held:0.####}% of {code}, not the {share:0.####}% this transfer gives. Cancel {TransferNo.Value} and initiate a new transfer."
+          : $"{name} cannot give {share:0.####}% because they own only {held:0.####}%.");
 
       var others = record.PendingTransfersGivenBy(ownerId, except: Id).ToList();
       var committed = others.Sum(t => t._parties.Where(p => p.OwnerId == ownerId && p.PartyRole == TransferPartyRole.Transferor).Sum(p => p.SharePct));
       if (committed + share > held)
         throw new DomainException(
-          $"{name} holds {held:0.####}%, of which {committed:0.####}% is already being transferred in {string.Join(", ", others.Select(t => t.TransferNo.Value))}; cancel or approve that first.");
+          $"{name} owns {held:0.####}%. Of this, {committed:0.####}% is already being transferred in {string.Join(", ", others.Select(t => t.TransferNo.Value))}. Cancel or approve that transfer first.");
 
       if (current.Select(record.ChargeOn).FirstOrDefault(c => c is not null && !c.AllowsTransferTo(receivers)) is { } charge)
         throw new DomainException(charge.Status == EncumbranceStatus.Enforced
-          ? $"{name}'s share is under {charge.Describe()}, which was enforced; it can only be transferred to {charge.HolderName}."
-          : $"{name}'s share is under {charge.Describe()}; release it before the share is transferred.");
+          ? $"{name}'s share is under {charge.Describe()}. The charge was enforced, so the share can only be transferred to {charge.HolderName}."
+          : $"{name}'s share is under {charge.Describe()}. Release the charge before the share is transferred.");
     }
 
     // the new rows start on the transfer date: it must come after every party's earlier entries
@@ -507,7 +507,7 @@ public class PropertyTransfer : Aggregate<TransferId>
     ArgumentNullException.ThrowIfNull(record);
     record.Property.EnsureActive();
     if (FromHistoryEntryId is null || TransferStatus != TransferStatus.Completed)
-      throw new DomainException($"{TransferNo.Value} was not entered from the old records; a transfer is put right by another transfer.");
+      throw new DomainException($"{TransferNo.Value} was not entered from the old records. To correct a transfer, record another transfer.");
     transferType.EnsureActive();
     if (earliest is { } after && date <= after)
       throw new DomainException($"{TransferNo.Value} must stay after the step before it ({after:dd'/'MM'/'yyyy}).");
@@ -544,7 +544,7 @@ public class PropertyTransfer : Aggregate<TransferId>
     foreach (var ownerId in Given().Keys)
       if (record.Owner(ownerId) is { DateOfDeath: { } died } owner && TransferDate > died)
         throw new DomainException(
-          $"{owner.OwnerName.Value} died on {died:dd'/'MM'/'yyyy}, before this transfer ({TransferDate:dd'/'MM'/'yyyy}); their share passes only by inheritance or a court decree.");
+          $"{owner.OwnerName.Value} died on {died:dd'/'MM'/'yyyy}, before this transfer ({TransferDate:dd'/'MM'/'yyyy}). Their share can pass only by inheritance or a court decree.");
   }
 
   private void EnsureDue(DateOnly today)

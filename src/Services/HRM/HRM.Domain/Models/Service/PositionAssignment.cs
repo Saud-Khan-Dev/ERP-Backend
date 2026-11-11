@@ -49,7 +49,7 @@ public class PositionAssignment : Aggregate<PositionAssignmentId>
       throw new DomainException($"Post {post.PostCode} is abolished on {effectiveFrom:yyyy-MM-dd}.");
 
     if (employeeAssignments.Any(a => a.IsLive && a.PostId == post.Id && a.Range.Overlaps(range)))
-      throw new DomainException($"{employee.DisplayName} already holds post {post.PostCode} in that period.");
+      throw new DomainException($"{employee.DisplayName} already has post {post.PostCode} in that period.");
 
     if (type == AssignmentType.Regular)
     {
@@ -57,7 +57,7 @@ public class PositionAssignment : Aggregate<PositionAssignmentId>
       PostCapacity.EnsureSeatFree(post.PostCode, version.SanctionedCount, postAssignments, range, self: null);
 
       if (employeeAssignments.FirstOrDefault(a => a.TakesSeat && a.Range.Overlaps(range)) is { } held)
-        throw new DomainException($"{employee.DisplayName} already holds a regular post from {held.EffectiveFrom:yyyy-MM-dd}. End it before giving another.");
+        throw new DomainException($"{employee.DisplayName} already has a regular post from {held.EffectiveFrom:yyyy-MM-dd}. End it before giving another one.");
     }
 
     return new PositionAssignment
@@ -82,7 +82,7 @@ public class PositionAssignment : Aggregate<PositionAssignmentId>
     EnsureLive();
 
     if (lastDay < EffectiveFrom)
-      throw new DomainException($"The assignment started on {EffectiveFrom:yyyy-MM-dd}; it cannot end before that.");
+      throw new DomainException($"The assignment started on {EffectiveFrom:yyyy-MM-dd}. It cannot end before that.");
 
     if (EffectiveTo is { } end && lastDay > end)
       throw new DomainException($"The assignment already ends on {end:yyyy-MM-dd}.");
@@ -131,6 +131,6 @@ public static class PostCapacity
   {
     var taken = MostHeld(postAssignments, range, self);
     if (taken >= sanctionedCount)
-      throw new DomainException($"Post {postCode} is full: {taken} of {sanctionedCount} seat(s) are already held in that period.");
+      throw new DomainException($"Post {postCode} is full. {taken} of {sanctionedCount} seat(s) are already taken in that period.");
   }
 }

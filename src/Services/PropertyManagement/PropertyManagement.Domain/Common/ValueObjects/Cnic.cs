@@ -23,7 +23,7 @@ public sealed record Cnic
       throw new DomainException("CNIC 00000-0000000-0 is not a real CNIC.");
 
     if (digits[0] == '0')
-      throw new DomainException("A CNIC cannot start with 0 - check the first digit.");
+      throw new DomainException("A CNIC cannot start with 0. Check the first digit.");
 
     return new Cnic(Format(digits));
   }

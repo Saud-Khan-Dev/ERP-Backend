@@ -13,6 +13,6 @@ public class CancelDisposalCommandValidator : AbstractValidator<CancelDisposalCo
   public CancelDisposalCommandValidator()
   {
     RuleFor(x => x.AssetId).NotEmpty();
-    RuleFor(x => x.Reason).NotEmpty().WithMessage("Say why the disposal is cancelled.").MinimumLength(5).WithMessage("Say why the disposal is cancelled - a few words at least.").MaximumLength(500);
+    RuleFor(x => x.Reason).NotEmpty().WithMessage("Say why the disposal is cancelled.").MinimumLength(5).WithMessage("Say why the disposal is cancelled. Use a few words at least.").MaximumLength(500);
   }
 }

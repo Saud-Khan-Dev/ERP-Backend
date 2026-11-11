@@ -9,7 +9,7 @@ public class SetAuthorizedOfficerHandler(IApplicationDbContext context, Identity
     var id = UserId.Of(command.Id);
 
     var user = await context.Users.FirstOrDefaultAsync(u => u.Id == id, cancellationToken)
-      ?? throw new UserNotFoundException("This account was not found - it may have been deleted.");
+      ?? throw new UserNotFoundException("This account was not found. It may have been deleted.");
 
     // a legal designation is a privilege: nobody grants it to themselves
     guard.EnsureNotSelf(id, "change the authorized-officer designation of");

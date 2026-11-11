@@ -21,10 +21,10 @@ public class SavePropertyAttributesHandler(IApplicationDbContext context)
         ?? throw new AttributeDefinitionNotFoundException($"Custom field {input.AttributeDefinitionId} was not found.");
 
       if (!activeGroups.Contains(definition.AttributeGroupId))
-        throw new DomainException($"'{definition.Label.Value}' is in a group that is switched off; its value can be read but not changed.");
+        throw new DomainException($"'{definition.Label.Value}' is in a group that is switched off. Its value can be read but not changed.");
 
       if (!definition.AppliesTo(property.PropertyTypeId.Value, property.PropertyClassificationId.Value))
-        throw new DomainException($"'{definition.Label.Value}' does not apply to this kind of property; its value can be read but not changed.");
+        throw new DomainException($"'{definition.Label.Value}' does not apply to this kind of property. Its value can be read but not changed.");
 
       var value = existing.FirstOrDefault(v => v.AttributeDefinitionId == definitionId);
 

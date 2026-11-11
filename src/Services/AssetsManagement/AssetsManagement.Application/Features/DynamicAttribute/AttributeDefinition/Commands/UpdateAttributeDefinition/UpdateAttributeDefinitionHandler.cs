@@ -19,7 +19,7 @@ public class UpdateAttributeDefinitionHandler(IApplicationDbContext context, IAs
     {
       // the code is the JSONB key inside asset.extra_attributes: immutable once assets hold values
       if (hasValues)
-        return Result<UpdateAttributeDefinitionCommandResult>.Failure($"The code of '{definition.Name.Value}' cannot change: assets already hold values for it.");
+        return Result<UpdateAttributeDefinitionCommandResult>.Failure($"The code of '{definition.Name.Value}' cannot change. Assets already have values for it.");
 
       if (await context.AttributeDefinitions.AnyAsync(d => d.Id != id && d.Code == code, cancellationToken))
         return Result<UpdateAttributeDefinitionCommandResult>.Failure("Another field already uses this code.");
@@ -28,7 +28,7 @@ public class UpdateAttributeDefinitionHandler(IApplicationDbContext context, IAs
     }
 
     if (hasValues && definition.DataType != input.DataType)
-      return Result<UpdateAttributeDefinitionCommandResult>.Failure($"What '{definition.Name.Value}' takes (text, number, date …) cannot change: assets already hold values for it.");
+      return Result<UpdateAttributeDefinitionCommandResult>.Failure($"The kind of data '{definition.Name.Value}' takes (text, number, date …) cannot change. Assets already have values for it.");
 
     OptionSetId? optionSetId = null;
     if (input.OptionSetId.HasValue)

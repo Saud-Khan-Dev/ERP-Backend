@@ -192,10 +192,10 @@ public class MarkHolidayCommandValidator : AbstractValidator<MarkHolidayCommand>
 {
   public MarkHolidayCommandValidator()
   {
-    RuleFor(x => x.Name).NotEmpty().WithMessage("Name the holiday (e.g. Eid ul Fitr).").MaximumLength(150);
-    RuleFor(x => x.To).GreaterThanOrEqualTo(x => x.From).When(x => x.To.HasValue).WithMessage("The last day comes on or after the first.");
+    RuleFor(x => x.Name).NotEmpty().WithMessage("Enter the name of the holiday (e.g. Eid ul Fitr).").MaximumLength(150);
+    RuleFor(x => x.To).GreaterThanOrEqualTo(x => x.From).When(x => x.To.HasValue).WithMessage("The last day must be on or after the first day.");
     RuleFor(x => x).Must(x => (x.To ?? x.From).DayNumber - x.From.DayNumber < MarkHolidayRules.MaxDays)
-      .WithMessage($"A holiday is marked for at most {MarkHolidayRules.MaxDays} days at a time.");
+      .WithMessage($"A holiday can be marked for at most {MarkHolidayRules.MaxDays} days at a time.");
   }
 }
 
@@ -239,7 +239,7 @@ public class HolidayHandlers(IApplicationDbContext context, HrLookup lookup, ICl
     var today = clock.Today;
     var last = command.To ?? command.From;
     if (last > today.AddDays(MarkHolidayRules.DaysAhead))
-      return Result<MarkHolidayResult>.Failure($"A holiday is marked at most {MarkHolidayRules.DaysAhead} days ahead.");
+      return Result<MarkHolidayResult>.Failure($"A holiday can be marked at most {MarkHolidayRules.DaysAhead} days ahead.");
 
     var marked = 0;
     var days = 0;
@@ -405,7 +405,7 @@ public class GetAttendanceQueryValidator : AbstractValidator<GetAttendanceQuery>
   {
     RuleFor(x => x.Pagination.PageSize).InclusiveBetween(1, 500);
     RuleFor(x => x.To).GreaterThanOrEqualTo(x => x.From).WithMessage("'To' cannot be before 'from'.");
-    RuleFor(x => x).Must(x => x.To.DayNumber - x.From.DayNumber <= 366).WithMessage("Ask for at most a year at a time.");
+    RuleFor(x => x).Must(x => x.To.DayNumber - x.From.DayNumber <= 366).WithMessage("Choose at most one year at a time.");
   }
 }
 
@@ -531,7 +531,7 @@ public class AttendanceHandlers(IApplicationDbContext context, WorkCalendar cale
   public async Task<Result<GetAttendanceSummaryQueryResult>> Handle(GetAttendanceSummaryQuery query, CancellationToken cancellationToken)
   {
     if (query.Month is < 1 or > 12)
-      return Result<GetAttendanceSummaryQueryResult>.Failure("Month must be 1-12.");
+      return Result<GetAttendanceSummaryQueryResult>.Failure("Month must be between 1 and 12.");
 
     var from = new DateOnly(query.Year, query.Month, 1);
     var to = from.AddMonths(1).AddDays(-1);
@@ -721,18 +721,18 @@ public class AttendanceHandlers(IApplicationDbContext context, WorkCalendar cale
     var date = input.AttendanceDate;
     // no attendance is taken on a holiday, nor on a day of approved leave (it is marked from the leave itself)
     if (day.Calendar.IsHoliday(date) && input.Status != AttendanceStatus.Holiday)
-      throw new DomainException($"{date:dd'/'MM'/'yyyy} is a holiday; no attendance is taken on it.");
+      throw new DomainException($"{date:dd'/'MM'/'yyyy} is a holiday. No attendance is taken on it.");
     if (day.Leave.TryGetValue((employeeId, date), out var away) && !away.HalfDay
         && input.Status is not (AttendanceStatus.OnLeave or AttendanceStatus.HalfDay))
-      throw new DomainException($"The employee is on approved leave on {date:dd'/'MM'/'yyyy}; the day is marked from the leave. Cancel the leave if they came to work.");
+      throw new DomainException($"The employee is on approved leave on {date:dd'/'MM'/'yyyy}. The day is marked from the leave. If they came to work, cancel the leave.");
     switch (input.Status)
     {
       case AttendanceStatus.OnLeave when !day.Leave.ContainsKey((employeeId, date)):
-        throw new DomainException($"There is no approved leave on {date:dd'/'MM'/'yyyy}; apply for the leave first, then the day is marked on leave.");
+        throw new DomainException($"There is no approved leave on {date:dd'/'MM'/'yyyy}. Apply for the leave first. Then the day is marked as on leave.");
       case AttendanceStatus.Holiday when !day.Calendar.IsHoliday(date):
         throw new DomainException($"{date:dd'/'MM'/'yyyy} is not a holiday where the employee works.");
       case AttendanceStatus.Weekend when day.Calendar.IsWorkingDay(date) && !day.Calendar.IsHoliday(date):
-        throw new DomainException($"{date:dd'/'MM'/'yyyy} is a working day of the employee's shift.");
+        throw new DomainException($"{date:dd'/'MM'/'yyyy} is a working day in the employee's shift.");
     }
 
     var shift = day.Calendar.ShiftOn(date);

@@ -127,7 +127,7 @@ public class TaxHead : Aggregate<TaxHeadId>
   public void UpdateRegular(RegularHeadInput input)
   {
     if (HeadKind != HeadKind.Regular)
-      throw new DomainException($"{Name} is charged case by case; it has no annual calculation.");
+      throw new DomainException($"{Name} is charged case by case. It has no annual calculation.");
 
     if (IsBuiltin)
     {
@@ -154,9 +154,9 @@ public class TaxHead : Aggregate<TaxHeadId>
   public void UpdateOther(string name, bool isRefundable, int sortOrder, string? accountsHeadCode, bool chargedOnNotice)
   {
     if (HeadKind != HeadKind.Other)
-      throw new DomainException($"{Name} is a regular head; change it with its calculation.");
+      throw new DomainException($"{Name} is a regular head. Change it together with its calculation.");
     if (IsSystem && !chargedOnNotice)
-      throw new DomainException($"{Name} is carried on notices by the module itself.");
+      throw new DomainException($"{Name} is added to notices by the system itself.");
     Name = Guard.RequiredText(name, 100, "Head name");
     IsRefundable = isRefundable;
     SortOrder = sortOrder;
@@ -170,14 +170,14 @@ public class TaxHead : Aggregate<TaxHeadId>
   public void SetActive(bool isActive)
   {
     if (!isActive && IsSystem)
-      throw new DomainException($"{Name} is used by the module itself and cannot be deactivated.");
+      throw new DomainException($"{Name} is used by the system itself and cannot be deactivated.");
     IsActive = isActive;
   }
 
   private void ApplyRegular(RegularHeadInput input)
   {
     if (input.CalcMethod is global::CalcMethod.Ltf or global::CalcMethod.Agreement)
-      throw new DomainException("Property tax (LTF) and annual rent (agreement) are built in; choose bands, rate, fixed or formula.");
+      throw new DomainException("Property tax (LTF) and annual rent (agreement) are built in. Choose bands, rate, fixed or formula.");
 
     Name = Guard.RequiredText(input.Name, 100, "Head name");
     CalcMethod = input.CalcMethod;
@@ -185,7 +185,7 @@ public class TaxHead : Aggregate<TaxHeadId>
     ChargedFrom = input.ChargedFrom;
     FacilityLabel = Guard.Text(input.FacilityLabel, 60, "Facility");
     if (ChargedFrom == ChargedFrom.Facility && FacilityLabel is null)
-      throw new DomainException("Name the facility the head is charged for (e.g. water connection).");
+      throw new DomainException("Name the facility the head is charged for (for example, water connection).");
     if (ChargedFrom != ChargedFrom.Facility)
       FacilityLabel = null;
     IsConditional = ChargedFrom == ChargedFrom.Facility;

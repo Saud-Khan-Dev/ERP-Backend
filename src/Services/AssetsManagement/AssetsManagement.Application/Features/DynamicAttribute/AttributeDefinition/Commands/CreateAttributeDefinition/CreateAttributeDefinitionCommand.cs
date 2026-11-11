@@ -32,11 +32,11 @@ public class AttributeDefinitionInputValidator : AbstractValidator<AttributeDefi
     RuleFor(x => x.OptionSetId)
       .NotEmpty()
       .When(x => x.DataType is AttributeDataType.Select or AttributeDataType.MultiSelect)
-      .WithMessage("SELECT and MULTISELECT attributes require an option set.");
+      .WithMessage("SELECT and MULTISELECT attributes need an option set.");
     RuleFor(x => x.ReferenceEntity)
       .NotEmpty()
       .When(x => x.DataType == AttributeDataType.Reference)
-      .WithMessage("REFERENCE attributes must declare the referenced entity.");
+      .WithMessage("REFERENCE attributes must say which entity they point to.");
   }
 }
 

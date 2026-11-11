@@ -62,10 +62,10 @@ public static class TaxCalculator
     var lines = new List<ComputedLine>();
 
     if (!file.IsAssessable)
-      return new Assessment(true, $"The file is {EnumText.Words(file.TaxStatus)}{(file.TaxCategory == TaxCategory.Exempt ? " (exempt category)" : "")}; it is not assessed.", lines, notes, file.TaxCategory, 100m, 0);
+      return new Assessment(true, $"The file is {EnumText.Words(file.TaxStatus)}{(file.TaxCategory == TaxCategory.Exempt ? " (exempt category)" : "")}. No tax is calculated for it.", lines, notes, file.TaxCategory, 100m, 0);
 
     if (file.HoldOn(yearStart) is { } hold)
-      return new Assessment(true, $"Litigation hold since {hold.StartedOn:yyyy-MM-dd} ({hold.Reason}): no tax or fee is levied while it is open.", lines, notes, file.TaxCategory, 100m, 0);
+      return new Assessment(true, $"On litigation hold since {hold.StartedOn:yyyy-MM-dd} ({hold.Reason}). No tax or fee is charged while the hold is open.", lines, notes, file.TaxCategory, 100m, 0);
 
     // completion-certificate uplift: the grace years after the plan; held periods do not count (Part 1 11:31)
     var category = file.TaxCategory;
@@ -82,12 +82,12 @@ public static class TaxCalculator
         category = rateBasis == UpliftRateBasis.Commercial ? TaxCategory.Com : file.TaxCategory;
         upliftPct = file.UpliftPct ?? (file.TaxCategory == TaxCategory.Com ? settings.CcUpliftPctCom : settings.CcUpliftPctRes);
         var own = file.UpliftPct is not null || file.UpliftRateBasis is not null ? " (property setting)" : "";
-        notes.Add($"No completion certificate {settings.CcGraceYears} years after the building plan ({bpa:yyyy-MM-dd}{(held > 0 ? $", {held} held days not counted" : "")}): "
+        notes.Add($"No completion certificate {settings.CcGraceYears} years after the building plan ({bpa:yyyy-MM-dd}{(held > 0 ? $", {held} days on hold not counted" : "")}): "
           + $"{(category == TaxCategory.Com ? "commercial" : "residential")} rate at {Rupees.Number(upliftPct)} %{own}.");
       }
       else if (held > 0 && rawYears >= settings.CcGraceYears)
       {
-        notes.Add($"Completion clock: {held} days under litigation hold are not counted, so the {settings.CcGraceYears}-year grace after the building plan ({bpa:yyyy-MM-dd}) has not run out yet; no uplift.");
+        notes.Add($"Completion clock: {held} days under litigation hold are not counted. So the {settings.CcGraceYears}-year grace period after the building plan ({bpa:yyyy-MM-dd}) has not ended yet. No uplift is charged.");
       }
     }
 
@@ -193,7 +193,7 @@ public static class TaxCalculator
     {
       var increased = regular.Where(h => h.AppliesAnnualIncrease).Select(h => h.Name.ToLowerInvariant()).ToList();
       if (increased.Count > 0)
-        notes.Add($"Annual increase {Rupees.Number(increasePct)} % compounded for {increaseYears} year(s) on {string.Join(", ", increased)}; annual rent follows its agreement.");
+        notes.Add($"Annual increase of {Rupees.Number(increasePct)} %, compounded for {increaseYears} year(s), on {string.Join(", ", increased)}. Annual rent follows its agreement.");
     }
 
     return new Assessment(false, null, lines, notes, category, upliftPct, increaseYears);
@@ -224,7 +224,7 @@ public static class TaxCalculator
       }
       else
       {
-        notes.Add($"{head.Name}: the special policy assigned to this property is not in force for FY {FiscalYear.Label(fy)}; the normal tax is charged.");
+        notes.Add($"{head.Name}: the special policy assigned to this property is not active for FY {FiscalYear.Label(fy)}. The normal tax is charged.");
       }
     }
     else if (ov is { Mode: OverrideMode.Special, Amount: { } special })
@@ -241,7 +241,7 @@ public static class TaxCalculator
     if (ov is { Mode: OverrideMode.Minimum, Amount: { } floor } && amount < floor)
     {
       top = Rupees.Round(floor - amount);
-      notes.Add($"{head.Name}: computed {Rupees.Text(amount)} is below the minimum {Rupees.Text(floor)} ({ov.Reason}); topped up by {Rupees.Text(top)}.");
+      notes.Add($"{head.Name}: the calculated {Rupees.Text(amount)} is below the minimum {Rupees.Text(floor)} ({ov.Reason}). {Rupees.Text(top)} was added to reach it.");
       amount += top;
       mode = LineMode.Minimum;
     }

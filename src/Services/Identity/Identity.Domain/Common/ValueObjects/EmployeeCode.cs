@@ -20,10 +20,10 @@ public sealed record EmployeeCode
     value = value.Trim().ToUpperInvariant();
 
     if (value.Length > MaxLength)
-      throw new DomainException($"Employee code cannot exceed {MaxLength} characters.");
+      throw new DomainException($"Employee code can be at most {MaxLength} characters long.");
 
     if (!Pattern.IsMatch(value))
-      throw new DomainException("Employee code may only contain letters, digits, '-', '_' and '/' (e.g. EMP-101).");
+      throw new DomainException("Employee code can only have letters, digits, '-', '_' and '/' (for example EMP-101).");
 
     return new EmployeeCode(value);
   }

@@ -41,7 +41,7 @@ public class PropertyAttributeValue : Aggregate<PropertyAttributeValueId>
   private static void EnsureUsable(AttributeDefinition definition)
   {
     if (!definition.IsActive)
-      throw new DomainException($"'{definition.Label.Value}' is no longer available for data entry.");
+      throw new DomainException($"'{definition.Label.Value}' can no longer be entered.");
   }
 
   private static string? Normalize(string? value) =>

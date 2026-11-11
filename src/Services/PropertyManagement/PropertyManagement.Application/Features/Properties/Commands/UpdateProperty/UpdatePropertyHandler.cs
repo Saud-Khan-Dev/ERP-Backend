@@ -23,7 +23,7 @@ public class UpdatePropertyHandler(IApplicationDbContext context, MasterLookup m
     await context.SaveChangesAsync(cancellationToken);
 
     var warnings = townChanged
-      ? new[] { $"{property.PropertyCode.Value} is now in {set.Town.Name.Value}. A tax file takes its number and circle from the town: ask Taxation to bring the property's file up to date." }
+      ? new[] { $"{property.PropertyCode.Value} is now in {set.Town.Name.Value}. A tax file takes its number and circle from the town. Ask Taxation to update the property's tax file." }
       : Array.Empty<string>();
 
     return Result<UpdatePropertyCommandResult>.Success(new UpdatePropertyCommandResult(true, warnings));

@@ -15,7 +15,7 @@ public class LinkEmployeeCommandValidator : AbstractValidator<LinkEmployeeComman
     RuleFor(x => x.UserId).NotEmpty();
     RuleFor(x => x.EmployeeId).Must(id => id != Guid.Empty).WithMessage("Choose the person's HR record.");
     RuleFor(x => x.EmployeeCode).NotEmpty().When(x => x.EmployeeId is not null)
-      .WithMessage("The HR employee number is missing - choose the person again.");
+      .WithMessage("The HR employee number is missing. Choose the person again.");
     RuleFor(x => x.EmployeeCode).MaximumLength(EmployeeCode.MaxLength);
   }
 }
@@ -44,8 +44,8 @@ public class LinkEmployeeHandler(IApplicationDbContext context, IdentityGuard gu
         .FirstOrDefaultAsync(cancellationToken);
       if (other is not null)
         return Result<LinkEmployeeCommandResult>.Failure(other.DeletedAt is null
-          ? $"This HR record is already linked to the account of {other.Name} ({other.Username}) - unlink it there first."
-          : $"This HR record is linked to the deleted account {other.Username} - restore and unlink that account first.");
+          ? $"This HR record is already linked to the account of {other.Name} ({other.Username}). Unlink it there first."
+          : $"This HR record is linked to the deleted account {other.Username}. Restore that account and unlink it first.");
     }
 
     var before = user.EmployeeCode?.Value;

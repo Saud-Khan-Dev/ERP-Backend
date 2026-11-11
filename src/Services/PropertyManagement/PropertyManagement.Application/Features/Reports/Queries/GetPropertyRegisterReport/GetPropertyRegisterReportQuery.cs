@@ -16,6 +16,6 @@ public class GetPropertyRegisterReportQueryValidator : AbstractValidator<GetProp
     RuleFor(x => x.Filter).NotNull().SetValidator(new PropertyFilterRules());
     // the ids travel in the query string (ids=…&ids=…), which the server caps at 8 KB - about 190 ids
     RuleFor(x => x.Ids).Must(ids => ids is null || ids.Count <= MaxIds)
-      .WithMessage($"Pick at most {MaxIds} properties by id; for more, run the report on the register's filters.");
+      .WithMessage($"Pick at most {MaxIds} properties by id. For more, run the report using the register's filters.");
   }
 }

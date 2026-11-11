@@ -23,7 +23,7 @@ public class DemandRun : Aggregate<DemandRunId>
   public static DemandRun Compute(DemandRunId id, int fiscalYear, TaxCircleId? circleId, RateSet rateSet, Guid? actor, DateTime now)
   {
     if (!rateSet.Covers(global::FiscalYear.Start(fiscalYear)))
-      throw new DomainException($"'{rateSet.Name}' is not the approved rate set in force on 1 July {fiscalYear}.");
+      throw new DomainException($"'{rateSet.Name}' is not the approved rate set in use on 1 July {fiscalYear}.");
     return new DemandRun
     {
       Id = id,
@@ -49,11 +49,11 @@ public class DemandRun : Aggregate<DemandRunId>
   public void Approve(Guid actor, DateTime now, DateOnly today)
   {
     if (Status != DemandRunStatus.Computed)
-      throw new DomainException($"The run is {EnumText.Words(Status)}; only a computed run can be approved.");
+      throw new DomainException($"The run is {EnumText.Words(Status)}. Only a computed run can be approved.");
     var yearStart = global::FiscalYear.Start(FiscalYear);
     var yearLabel = global::FiscalYear.Label(FiscalYear);
     if (today < yearStart)
-      throw new DomainException($"FY {yearLabel} starts on {yearStart:dd'/'MM'/'yyyy}; its demand is approved from that day.");
+      throw new DomainException($"FY {yearLabel} starts on {yearStart:dd'/'MM'/'yyyy}. Its demand can be approved from that day.");
     Status = DemandRunStatus.Approved;
     ApprovedBy = actor;
     ApprovedAt = now;
@@ -62,7 +62,7 @@ public class DemandRun : Aggregate<DemandRunId>
   public void Cancel()
   {
     if (Status != DemandRunStatus.Computed)
-      throw new DomainException($"The run is {EnumText.Words(Status)}; only a computed run can be cancelled.");
+      throw new DomainException($"The run is {EnumText.Words(Status)}. Only a computed run can be cancelled.");
     Status = DemandRunStatus.Cancelled;
   }
 }

@@ -38,7 +38,7 @@ public sealed class PayTiers
       if ((band.Amount is null) == (band.Rate is null))
         throw new DomainException($"Band {i + 1} needs either an amount or a rate, not both.");
       if (band.Amount is < 0 || band.Rate is < 0 or > 1000)
-        throw new DomainException($"Band {i + 1}: the amount cannot be negative and the rate must be 0-1000%.");
+        throw new DomainException($"Band {i + 1}: the amount cannot be negative, and the rate must be between 0 and 1000%.");
       if (band.UpTo is null && i != bands.Count - 1)
         throw new DomainException("Only the last band can be open-ended (upTo null).");
       if (band.UpTo is { } upTo && previous is { } before && upTo <= before)

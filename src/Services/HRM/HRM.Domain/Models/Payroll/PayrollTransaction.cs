@@ -138,7 +138,7 @@ public class PayrollTransaction : Aggregate<PayrollTransactionId>
   public void Hold(string? remarks)
   {
     if (IsHeld)
-      throw new DomainException("This salary is already held.");
+      throw new DomainException("This salary is already on hold.");
 
     Status = PayrollTransactionStatus.Held;
     Remarks = Guard.Text(remarks, 4000, "Remarks") ?? Remarks;
@@ -147,7 +147,7 @@ public class PayrollTransaction : Aggregate<PayrollTransactionId>
   public void Release(string? remarks)
   {
     if (!IsHeld)
-      throw new DomainException("This salary is not held.");
+      throw new DomainException("This salary is not on hold.");
 
     Status = PayrollTransactionStatus.Released;
     Remarks = Guard.Text(remarks, 4000, "Remarks") ?? Remarks;
@@ -325,14 +325,14 @@ public class PayrollPayment : Aggregate<PayrollPaymentId>
     ArgumentNullException.ThrowIfNull(run);
     ArgumentNullException.ThrowIfNull(transaction);
     if (account is null && method == PaymentMethod.BankTransfer)
-      throw new DomainException("A bank transfer needs the employee's salary bank account; pay by cheque or cash instead.");
+      throw new DomainException("A bank transfer needs the employee's salary bank account. Pay by cheque or cash instead.");
 
     if (run.Id != transaction.PayrollRunId)
       throw new DomainException("The pay slip does not belong to this run.");
     if (run.Status is not (PayrollRunStatus.Finalized or PayrollRunStatus.Paid))
       throw new DomainException("Salaries are paid only from a finalized run.");
     if (transaction.IsHeld)
-      throw new DomainException("This salary is held; release it before paying.");
+      throw new DomainException("This salary is on hold. Release it before paying.");
     if (transaction.NetPayable <= 0)
       throw new DomainException("There is nothing to pay on this pay slip.");
     if (account is not null && account.EmployeeId != transaction.EmployeeId)
@@ -358,7 +358,7 @@ public class PayrollPayment : Aggregate<PayrollPaymentId>
   public void Process(DateOnly paymentDate, string? paymentReference)
   {
     if (PaymentStatus != PaymentStatus.Pending)
-      throw new DomainException($"The payment is {EnumText.Words(PaymentStatus)}; only a pending one can be marked processed.");
+      throw new DomainException($"The payment is {EnumText.Words(PaymentStatus)}. Only a pending one can be marked processed.");
 
     PaymentReference = Guard.RequiredText(paymentReference, 100, "Bank reference");
     PaymentDate = paymentDate;
@@ -369,7 +369,7 @@ public class PayrollPayment : Aggregate<PayrollPaymentId>
   public void Fail(string? paymentReference)
   {
     if (PaymentStatus != PaymentStatus.Pending)
-      throw new DomainException($"The payment is {EnumText.Words(PaymentStatus)}; only a pending one can fail.");
+      throw new DomainException($"The payment is {EnumText.Words(PaymentStatus)}. Only a pending one can fail.");
 
     PaymentReference = Guard.Text(paymentReference, 100, "Bank reference") ?? PaymentReference;
     PaymentStatus = PaymentStatus.Failed;

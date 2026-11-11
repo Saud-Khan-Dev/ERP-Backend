@@ -57,7 +57,7 @@ public class GetPublicHolidaysQueryValidator : AbstractValidator<GetPublicHolida
   public GetPublicHolidaysQueryValidator()
   {
     RuleFor(x => x.To).GreaterThanOrEqualTo(x => x.From).WithMessage("'to' must not be before 'from'.");
-    RuleFor(x => x).Must(x => x.To.DayNumber - x.From.DayNumber <= 3 * 366).WithMessage("Ask for at most three years at a time.");
+    RuleFor(x => x).Must(x => x.To.DayNumber - x.From.DayNumber <= 3 * 366).WithMessage("Choose at most three years at a time.");
   }
 }
 

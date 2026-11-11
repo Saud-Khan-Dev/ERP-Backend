@@ -82,7 +82,7 @@ public class ServiceRecordWriter(IApplicationDbContext context, ServiceRecordRea
     {
       var scale = await pay.ScaleInForceAsync(version.GradeId, date, cancellationToken);
       var stage = scale.Stage(spec.StageNumber ?? 0)
-        ?? throw new DomainException($"The scale in force has no stage {spec.StageNumber}.");
+        ?? throw new DomainException($"The active scale has no stage {spec.StageNumber}.");
       await pay.StartAsync(employee.Id, stage, spec.BasicPay, date, PayChangeReasons.Appointment, spec.OrderNumber, null, null, cancellationToken);
     }
 
@@ -108,15 +108,15 @@ public class ServiceRecordWriter(IApplicationDbContext context, ServiceRecordRea
     switch (spec.Kind)
     {
       case HrActionType.Promotion when newBps <= oldBps:
-        throw new DomainException($"A promotion needs a higher grade: post {post.PostCode} is BPS-{newBps}, the current post BPS-{oldBps}.");
+        throw new DomainException($"A promotion needs a higher grade. Post {post.PostCode} is BPS-{newBps}, and the current post is BPS-{oldBps}.");
       case HrActionType.Demotion when newBps >= oldBps:
-        throw new DomainException($"A demotion needs a lower grade: post {post.PostCode} is BPS-{newBps}, the current post BPS-{oldBps}.");
+        throw new DomainException($"A demotion needs a lower grade. Post {post.PostCode} is BPS-{newBps}, and the current post is BPS-{oldBps}.");
       case HrActionType.Transfer when newBps != oldBps:
-        throw new DomainException($"Post {post.PostCode} is BPS-{newBps} and the current post BPS-{oldBps}; record a promotion or demotion instead of a transfer.");
+        throw new DomainException($"Post {post.PostCode} is BPS-{newBps} and the current post is BPS-{oldBps}. Record a promotion or demotion instead of a transfer.");
     }
 
     if (date <= current.Assignment.EffectiveFrom)
-      throw new DomainException($"The current post was taken on {current.Assignment.EffectiveFrom:yyyy-MM-dd}; the move must be dated after that.");
+      throw new DomainException($"The current post was taken on {current.Assignment.EffectiveFrom:yyyy-MM-dd}. The move must be dated after that.");
 
     var eventType = await context.LoadEventTypeAsync(ServiceEventNames.For(spec.Kind)!, cancellationToken);
     var history = EmployeeServiceHistory.Record(ServiceHistoryId.New(), employee.Id, eventType, date,
@@ -216,7 +216,7 @@ public class ServiceRecordWriter(IApplicationDbContext context, ServiceRecordRea
     if (employee.EmploymentStatus == EmploymentStatus.Deceased)
       throw new DomainException($"{employee.DisplayName} is already recorded as deceased.");
     if (spec.Type == SeparationType.Other)
-      throw new DomainException("Choose the kind of separation (retirement, resignation, dismissal ...).");
+      throw new DomainException("Choose the kind of separation, such as retirement, resignation or dismissal.");
 
     var date = spec.SeparationDate;
     if (await context.Separations.AnyAsync(s => s.EmployeeId == employee.Id, cancellationToken))
@@ -323,7 +323,7 @@ public class ServiceRecordWriter(IApplicationDbContext context, ServiceRecordRea
     var loans = await context.Loans.AsNoTracking().Where(l => l.EmployeeId == employee.Id && l.Status == LoanStatus.Active).ToListAsync(cancellationToken);
     var owed = loans.Sum(l => l.RemainingBalance);
     items.Add(loans.Count > 0
-      ? new("loans", "Recover the loans", $"{loans.Count} loan(s) still owe Rs {owed:#,##0.##}: recover them from the final settlement or record the repayment.", false)
+      ? new("loans", "Recover the loans", $"{loans.Count} loan(s) still owe Rs {owed:#,##0.##}. Recover them from the final settlement, or record the repayment.", false)
       : new("loans", "Loans", "No loan is outstanding.", true));
 
     var gpf = await context.GpFundAccounts.AsNoTracking().FirstOrDefaultAsync(a => a.EmployeeId == employee.Id, cancellationToken);
@@ -331,7 +331,7 @@ public class ServiceRecordWriter(IApplicationDbContext context, ServiceRecordRea
     {
       var balance = await context.GpFundBalances.AsNoTracking().Where(b => b.GpFundAccountId == gpf.Id.Value).Select(b => b.Balance).FirstOrDefaultAsync(cancellationToken);
       items.Add(gpf.IsOpen || balance > 0
-        ? new("gpFund", "Pay the GP Fund final payment", $"The GP Fund balance is Rs {balance:#,##0.##}; pay it out and close the account.", false)
+        ? new("gpFund", "Pay the GP Fund final payment", $"The GP Fund balance is Rs {balance:#,##0.##}. Pay it out and close the account.", false)
         : new("gpFund", "GP Fund", "The GP Fund account is closed.", true));
     }
 
@@ -353,7 +353,7 @@ public class ServiceRecordWriter(IApplicationDbContext context, ServiceRecordRea
       {
         var filled = await context.PositionAssignments.AnyAsync(a => a.PostId == unit.PostId && a.Status == RecordStatus.Active
           && a.EffectiveFrom <= day && (a.EffectiveTo == null || a.EffectiveTo >= day), cancellationToken);
-        items.Add(new("postsHeaded", $"{unit.Name} needs a head", $"Post {unit.PostCode} heads {unit.Name} and is vacant now: give its charge to someone.", filled, unit.PostId.Value));
+        items.Add(new("postsHeaded", $"{unit.Name} needs a head", $"Post {unit.PostCode} heads {unit.Name} and is vacant now. Give its charge to someone.", filled, unit.PostId.Value));
       }
 
       var codes = await context.Posts.AsNoTracking().Where(p => posts.Contains(p.Id)).Select(p => p.PostCode).ToListAsync(cancellationToken);

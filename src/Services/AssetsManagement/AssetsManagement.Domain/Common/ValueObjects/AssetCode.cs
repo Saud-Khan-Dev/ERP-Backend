@@ -21,7 +21,7 @@ public sealed record AssetCode
       throw new DomainException($"Asset code cannot exceed {MaxLength} characters.");
 
     if (!Pattern.IsMatch(value))
-      throw new DomainException("Asset code may only contain letters, digits, '-', '_' and '/' (e.g. AST-000123).");
+      throw new DomainException("Asset code can use only letters, numbers, '-', '_' and '/' (for example AST-000123).");
 
     return new AssetCode(value);
   }

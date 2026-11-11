@@ -100,7 +100,7 @@ public class PostLeaveLedgerEntryCommandValidator : AbstractValidator<PostLeaveL
     RuleFor(x => x.Year).InclusiveBetween(2000, 2100);
     RuleFor(x => x.TransactionType)
       .Must(t => t is LeaveTransactionType.Opening or LeaveTransactionType.Accrual or LeaveTransactionType.Encashment or LeaveTransactionType.Adjustment)
-      .WithMessage("Post an opening, accrual, encashment or adjustment; usage, reversals, carry-forward and lapse come from applications and the year-end.");
+      .WithMessage("Post an opening, accrual, encashment or adjustment. Usage, reversals, carry-forward and lapse come from applications and the year-end.");
     RuleFor(x => x.Days).NotEqual(0);
     RuleFor(x => x.Remarks).MaximumLength(2000);
   }
@@ -152,7 +152,7 @@ public class DecideLeaveCommandValidator : AbstractValidator<DecideLeaveCommand>
   {
     RuleFor(x => x.Decision).IsInEnum();
     RuleFor(x => x.Reason).MaximumLength(1000);
-    RuleFor(x => x.Reason).NotEmpty().When(x => x.Decision == LeaveDecision.Reject).WithMessage("Give the reason for rejecting the leave; the employee sees it.");
+    RuleFor(x => x.Reason).NotEmpty().When(x => x.Decision == LeaveDecision.Reject).WithMessage("Enter the reason for rejecting the leave. The employee will see it.");
   }
 }
 
@@ -164,7 +164,7 @@ public class LeaveApplicationInputValidator : AbstractValidator<LeaveApplication
     RuleFor(x => x.EndDate).GreaterThanOrEqualTo(x => x.StartDate).WithMessage("The leave cannot end before it starts.");
     RuleFor(x => x.Days).GreaterThan(0).When(x => x.Days.HasValue);
     RuleFor(x => x.Reason).MaximumLength(2000);
-    RuleFor(x => x).Must(x => x.EndDate.DayNumber - x.StartDate.DayNumber < 366).WithMessage("A leave application covers at most a year.");
+    RuleFor(x => x).Must(x => x.EndDate.DayNumber - x.StartDate.DayNumber < 366).WithMessage("A leave application covers at most one year.");
   }
 }
 
@@ -226,7 +226,7 @@ public class LeaveHandlers(IApplicationDbContext context, LeaveService leave, Hr
     // a type already used changes what payroll and balances mean; refuse the two switches that would rewrite history
     var used = await context.LeaveApplications.AnyAsync(a => a.LeaveTypeId == type.Id, cancellationToken);
     if (used && (type.AffectsPayroll != i.AffectsPayroll || type.IsPaid != i.IsPaid))
-      return Result<UpdatedResult>.Failure($"'{type.Name}' is already used on leave applications; whether it is paid or deducted from pay cannot change. Create a new type instead.");
+      return Result<UpdatedResult>.Failure($"'{type.Name}' is already used on leave applications, so you cannot change whether it is paid or deducted from pay. Create a new type instead.");
 
     type.Update(i.Name, i.IsPaid, i.MaxDaysPerYear, i.AccrualRule, i.CarryForwardAllowed, i.AffectsPayroll);
     if (await context.LeaveTypes.AnyAsync(t => t.Id != type.Id && t.Name.ToLower() == type.Name.ToLower(), cancellationToken))
@@ -296,7 +296,7 @@ public class LeaveHandlers(IApplicationDbContext context, LeaveService leave, Hr
   {
     var type = await context.LoadLeaveTypeAsync(command.LeaveTypeId, cancellationToken);
     var days = command.EntitledDays ?? type.MaxDaysPerYear
-      ?? throw new DomainException($"'{type.Name}' has no days per year; give the days to grant.");
+      ?? throw new DomainException($"'{type.Name}' has no days per year. Enter the days to grant.");
 
     type.EnsureActive();
     var inService = EmploymentStatuses.InService;
@@ -562,7 +562,7 @@ public class LeaveHandlers(IApplicationDbContext context, LeaveService leave, Hr
     var application = await context.LoadLeaveApplicationAsync(command.Id, cancellationToken);
     EnsureOwn(application, command.OnlyForEmployee);
     if (LeaveTypeId.Of(command.Leave.LeaveTypeId) != application.LeaveTypeId)
-      return Result<UpdatedResult>.Failure("The leave type of an application cannot change; cancel it and apply again.");
+      return Result<UpdatedResult>.Failure("The leave type of an application cannot change. Cancel it and apply again.");
 
     var type = await context.LeaveTypes.FirstAsync(t => t.Id == application.LeaveTypeId, cancellationToken);
     var input = command.Leave;
@@ -620,7 +620,7 @@ public class LeaveHandlers(IApplicationDbContext context, LeaveService leave, Hr
         if (command.OnlyForEmployee is not null)
         {
           if (wasApproved && application.StartDate <= today)
-            return Result<UpdatedResult>.Failure("The leave has started; ask HR to cancel it.");
+            return Result<UpdatedResult>.Failure("The leave has started. Ask HR to cancel it.");
           reason ??= "Withdrawn by the employee.";
         }
         else if (wasApproved && !currentUser.HasPermission(PermissionCatalog.Attendance.Approve))

@@ -112,13 +112,13 @@ public class OwnershipHistoryService(IApplicationDbContext context, MasterLookup
   public async Task<string?> WhyNotAsync(Property property, Guid? except, CancellationToken cancellationToken)
   {
     if (await context.Ownerships.AnyAsync(o => o.PropertyId == property.Id, cancellationToken))
-      return $"{property.PropertyCode.Value} already has owners on the register; its history from the old records is entered only while nobody is on record.";
+      return $"{property.PropertyCode.Value} already has owners on the register. Its history from the old records can be entered only while it has no owners on record.";
     if (await context.AllotmentInForceAsync(property.Id, except: null, cancellationToken) is { } allotted)
       return $"{property.PropertyCode.Value} is allotted to {allotted.AllotteeName} ({allotted.Allotment.AllotmentNo.Value}).";
     var waiting = await context.HistoryEntries.AsNoTracking()
       .Where(h => h.PropertyId == property.Id && h.Status == HistoryEntryStatus.Waiting && (except == null || h.Id != HistoryEntryId.Of(except.Value)))
       .Select(h => h.EntryNo).FirstOrDefaultAsync(cancellationToken);
-    return waiting is null ? null : $"{waiting.Value} already waits for this property: decide or withdraw it first.";
+    return waiting is null ? null : $"{waiting.Value} is already waiting for this property. Decide or withdraw it first.";
   }
 
   public async Task<IReadOnlyList<HistoryEntryDto>> ToDtosAsync(IReadOnlyList<OwnershipHistoryEntry> entries, CancellationToken cancellationToken)

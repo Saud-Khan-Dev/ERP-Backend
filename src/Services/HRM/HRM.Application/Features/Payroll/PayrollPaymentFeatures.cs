@@ -76,7 +76,7 @@ public class PayrollPaymentHandlers(IApplicationDbContext context, HrLookup look
     var run = await context.LoadPayrollRunAsync(command.RunId, cancellationToken);
     await duty.EnsureSeparateAsync(DutyRules.PayrollPay, run.ApprovedBy, "pay out a payroll run you approved", run, cancellationToken);
     if (run.Status is not (PayrollRunStatus.Finalized or PayrollRunStatus.Paid))
-      return Result<GeneratePaymentsResult>.Failure($"The run is {EnumText.Words(run.Status)}; salaries are paid only from a finalized run.");
+      return Result<GeneratePaymentsResult>.Failure($"The run is {EnumText.Words(run.Status)}. Salaries are paid only from a finalized run.");
 
     var slips = await context.PayrollTransactions.AsNoTracking()
       .Where(t => t.PayrollRunId == run.Id && t.Status != PayrollTransactionStatus.Held && t.NetPayable > 0
@@ -96,7 +96,7 @@ public class PayrollPaymentHandlers(IApplicationDbContext context, HrLookup look
       accounts.TryGetValue(slip.EmployeeId, out var account);
       if (account is null && command.PaymentMethod == PaymentMethod.BankTransfer)
       {
-        problems.Add($"{number}: no active salary bank account - add one, or pay by cheque or cash.");
+        problems.Add($"{number}: no active salary bank account. Add one, or pay by cheque or cash.");
         continue;
       }
 

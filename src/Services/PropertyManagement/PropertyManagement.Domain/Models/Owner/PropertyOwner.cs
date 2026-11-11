@@ -100,7 +100,7 @@ public class PropertyOwner : Aggregate<OwnerId>
     {
       EnsureCanHoldToday();
       if (DateOfDeath is { } died && died < since)
-        throw new DomainException($"{OwnerName.Value} holds a share from {since:dd'/'MM'/'yyyy}, after that date of death ({died:dd'/'MM'/'yyyy}).");
+        throw new DomainException($"{OwnerName.Value} owns a share from {since:dd'/'MM'/'yyyy}. That is after the date of death ({died:dd'/'MM'/'yyyy}).");
     }
   }
 
@@ -112,7 +112,7 @@ public class PropertyOwner : Aggregate<OwnerId>
   {
     if (!CanHoldToday)
       throw new DomainException(
-        $"{OwnerName.Value} ({OwnerCode.Value}) has no CNIC on record. Add the CNIC on the owner's record before registering a share in their name.");
+        $"{OwnerName.Value} ({OwnerCode.Value}) has no CNIC on record. Add the CNIC to the owner's record before registering a share in their name.");
   }
 
   /// A share cannot reach someone after their death: it goes to their heirs.
@@ -120,7 +120,7 @@ public class PropertyOwner : Aggregate<OwnerId>
   {
     if (DateOfDeath is { } died && date > died)
       throw new DomainException(
-        $"{OwnerName.Value} died on {died:dd'/'MM'/'yyyy}, before {date:dd'/'MM'/'yyyy}; a share cannot pass to them after that. It goes to their heirs.");
+        $"{OwnerName.Value} died on {died:dd'/'MM'/'yyyy}, before {date:dd'/'MM'/'yyyy}. A share cannot pass to them after their death. It goes to their heirs.");
   }
 
   /// To take on something new today (an allotment, a lease, a tenancy, a bid, a contract) a person is alive and has a CNIC.
@@ -130,7 +130,7 @@ public class PropertyOwner : Aggregate<OwnerId>
     if (DateOfDeath is { } died)
       throw new DomainException($"{OwnerName.Value} died on {died:dd'/'MM'/'yyyy} and cannot take on {what}.");
     if (OldIdType is not null && Cnic is null)
-      throw new DomainException($"{OwnerName.Value} ({OwnerCode.Value}) has no CNIC on record. Add it on the owner's record before {what} is given to them.");
+      throw new DomainException($"{OwnerName.Value} ({OwnerCode.Value}) has no CNIC on record. Add it to the owner's record before {what} is given to them.");
   }
 
   /// Points cnic_document_id at the owner's current CNIC copy: of the CNIC_COPY documents filed on this owner,
@@ -336,7 +336,7 @@ public class PropertyOwner : Aggregate<OwnerId>
       ownerType.EnsureActive();
 
     if (ownerName.Value.Length > NameMaxLength)
-      throw new DomainException($"Owner name cannot exceed {NameMaxLength} characters.");
+      throw new DomainException($"Owner name can have at most {NameMaxLength} characters.");
 
     var fatherHusband = Guard.Text(fatherHusbandName, FatherHusbandNameMaxLength, "Father / husband name");
 
@@ -348,9 +348,9 @@ public class PropertyOwner : Aggregate<OwnerId>
     if (oldId is not null)
     {
       if (!individual)
-        throw new DomainException("Only a person is entered with an old NIC or \"no ID on record\"; an organization is identified by its NTN.");
+        throw new DomainException("Only a person can have an old NIC or \"No ID on record\". An organization is identified by its NTN.");
       if (oldId.Type == global::OldIdType.NotRecorded && oldIdNo is not null)
-        throw new DomainException("\"No ID on record\" takes no number: leave the number empty, or choose old NIC.");
+        throw new DomainException("\"No ID on record\" takes no number. Leave the number empty, or choose old NIC.");
       if (oldId.Type == global::OldIdType.OldNic && oldIdNo is null)
         throw new DomainException("Give the old NIC number as it is written on the papers.");
     }
@@ -363,7 +363,7 @@ public class PropertyOwner : Aggregate<OwnerId>
     if (dateOfDeath is not null && !individual)
       throw new DomainException("Only a person has a date of death.");
     if (dateOfDeath is { } died && today is { } day && died > day)
-      throw new DomainException($"The date of death cannot be in the future ({died:dd'/'MM'/'yyyy}); today is {day:dd'/'MM'/'yyyy}.");
+      throw new DomainException($"The date of death cannot be in the future ({died:dd'/'MM'/'yyyy}). Today is {day:dd'/'MM'/'yyyy}.");
 
     OldIdType = oldId?.Type;
     OldIdNo = oldIdNo;
@@ -373,10 +373,10 @@ public class PropertyOwner : Aggregate<OwnerId>
     if (Organizations.TryGetValue(ownerType.Code.Value, out var organization))
     {
       if (cnic is not null)
-        throw new DomainException($"{organization} has no CNIC - use its NTN.");
+        throw new DomainException($"{organization} has no CNIC. Use its NTN.");
 
       if (fatherHusband is not null)
-        throw new DomainException($"{organization} has no father / husband name - leave it empty.");
+        throw new DomainException($"{organization} has no father / husband name. Leave it empty.");
     }
 
     OwnerTypeId = ownerType.Id;

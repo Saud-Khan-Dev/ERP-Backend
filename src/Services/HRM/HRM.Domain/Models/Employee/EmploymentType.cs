@@ -24,7 +24,7 @@ public class EmploymentType : Aggregate<EmploymentTypeId>
   public void Update(string name, string? description, EmploymentBasis basis, bool inUse)
   {
     if (inUse && basis != Basis)
-      throw new DomainException($"'{Name}' is in use, so the rules it follows cannot change. Add a new employment type instead.");
+      throw new DomainException($"'{Name}' is in use, so its rules cannot change. Add a new employment type instead.");
 
     Name = Guard.RequiredText(name, NameMaxLength, "Employment type");
     Description = Guard.Text(description, DescriptionMaxLength, "Description");

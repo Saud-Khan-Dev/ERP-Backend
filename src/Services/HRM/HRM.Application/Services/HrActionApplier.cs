@@ -201,7 +201,7 @@ public class HrActionApplier(
     var type = await checks.UnpaidLeaveTypeAsync(cancellationToken)
       ?? throw new DomainException("There is no leave type that is deducted from pay. Add one under Configuration › Leave first.");
     var from = action.EffectiveDate;
-    var to = details.EndDate ?? throw new DomainException("Give the last day of the leave without pay.");
+    var to = details.EndDate ?? throw new DomainException("Enter the last day of the leave without pay.");
 
     var pending = await context.LeaveApplications.FirstOrDefaultAsync(a => a.EmployeeId == employee.Id && a.Status == LeaveStatus.Pending
       && a.LeaveTypeId == type.Id && a.StartDate == from && a.EndDate == to, cancellationToken);

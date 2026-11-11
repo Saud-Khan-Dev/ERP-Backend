@@ -12,6 +12,6 @@ public class DeleteAssetCommandValidator : AbstractValidator<DeleteAssetCommand>
   public DeleteAssetCommandValidator()
   {
     RuleFor(x => x.Id).NotEmpty();
-    RuleFor(x => x.Reason).NotEmpty().WithMessage("Say why the asset is deleted.").MinimumLength(5).WithMessage("Say why the asset is deleted - a few words at least.").MaximumLength(500);
+    RuleFor(x => x.Reason).NotEmpty().WithMessage("Say why the asset is deleted.").MinimumLength(5).WithMessage("Say why the asset is deleted. Use a few words at least.").MaximumLength(500);
   }
 }

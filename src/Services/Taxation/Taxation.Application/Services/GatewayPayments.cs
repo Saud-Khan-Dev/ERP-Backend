@@ -122,7 +122,7 @@ public sealed class GatewayPayments(
       catch (DbUpdateException)
       {
         // the same transaction reference on another file at this same moment: the second one waits for the Section
-        refusal = "The payment could not be saved; its transaction reference may already be on record.";
+        refusal = "The payment could not be saved. Its transaction reference may already be on record.";
       }
       await transaction.RollbackAsync(cancellationToken);
     }
@@ -135,7 +135,7 @@ public sealed class GatewayPayments(
   private async Task<string?> TakeAsync(GatewayNotification row, TaxFileId fileId, CancellationToken cancellationToken)
   {
     if (Rupees.Round(row.Amount) != row.Amount)
-      return $"{row.Amount} is not a whole number of rupees; a payment on a reference is taken in whole rupees.";
+      return $"{row.Amount} is not a whole number of rupees. A payment on a reference must be in whole rupees.";
 
     var file = await context.LoadTaxFileAsync(fileId.Value, cancellationToken);
     var taken = await posting.TakeAsync(file, new PaymentReceived(row.Amount, row.Channel, row.TransactionRef, null, row.BankCode, row.PaidAt), cancellationToken);

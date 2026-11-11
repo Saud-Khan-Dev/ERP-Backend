@@ -40,8 +40,8 @@ public class LinkOwnerHandler(IApplicationDbContext context, IdentityGuard guard
         .FirstOrDefaultAsync(cancellationToken);
       if (other is not null)
         return Result<LinkOwnerCommandResult>.Failure(other.DeletedAt is null
-          ? $"This owner is already linked to the account of {other.Name} ({other.Username}) - unlink it there first."
-          : $"This owner is linked to the deleted account {other.Username} - restore and unlink that account first.");
+          ? $"This owner is already linked to the account of {other.Name} ({other.Username}). Unlink it there first."
+          : $"This owner is linked to the deleted account {other.Username}. Restore that account and unlink it first.");
     }
 
     var before = user.OwnerId;

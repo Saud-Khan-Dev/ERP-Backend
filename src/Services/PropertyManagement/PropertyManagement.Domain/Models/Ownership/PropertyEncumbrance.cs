@@ -73,10 +73,10 @@ public class PropertyEncumbrance : Aggregate<EncumbranceId>
     EnsureActive();
 
     if (releaseDate < StartDate)
-      throw new DomainException("An encumbrance cannot be released before it started.");
+      throw new DomainException("A charge cannot be released before it started.");
 
     if (releaseDate > today)
-      throw new DomainException($"The release date cannot be in the future ({releaseDate:yyyy-MM-dd}); today is {today:yyyy-MM-dd}.");
+      throw new DomainException($"The release date cannot be in the future ({releaseDate:yyyy-MM-dd}). Today is {today:yyyy-MM-dd}.");
 
     ReleaseDate = releaseDate;
     ReleaseReferenceNo = Guard.Text(releaseReferenceNo, 100, "Release reference no.");
@@ -92,7 +92,7 @@ public class PropertyEncumbrance : Aggregate<EncumbranceId>
 
     if (HolderOwnerId is null)
       throw new DomainException(
-        $"Link {HolderName} to an owner record first (edit the charge): an enforced charge is settled by transferring the share to its holder.");
+        $"Link {HolderName} to an owner record first (edit the charge). An enforced charge is settled by transferring the share to its holder.");
 
     Status = EncumbranceStatus.Enforced;
     Remarks = Guard.Text(remarks, 4000, "Remarks") ?? Remarks;
@@ -121,7 +121,7 @@ public class PropertyEncumbrance : Aggregate<EncumbranceId>
   private static void EnsureStartNotFuture(DateOnly startDate, DateOnly? today)
   {
     if (today is { } day && startDate > day)
-      throw new DomainException($"A charge cannot start in the future ({startDate:yyyy-MM-dd}); today is {day:yyyy-MM-dd}.");
+      throw new DomainException($"A charge cannot start in the future ({startDate:yyyy-MM-dd}). Today is {day:yyyy-MM-dd}.");
   }
 
   private void EnsureOn(Property property)
@@ -162,7 +162,7 @@ public class PropertyEncumbrance : Aggregate<EncumbranceId>
     // a charge sits on a share that is held now; an ended row is history (also when an edit re-links it)
     if (ownership is not null && ownership.Id != OwnershipId && !ownership.IsCurrent)
       throw new DomainException(
-        $"That ownership ended on {ownership.EffectiveTo:yyyy-MM-dd}; register the charge against the owner's current share.");
+        $"That ownership ended on {ownership.EffectiveTo:yyyy-MM-dd}. Register the charge against the owner's current share.");
 
     Guard.DateOrder(startDate, endDate, "Start date", "End date");
 

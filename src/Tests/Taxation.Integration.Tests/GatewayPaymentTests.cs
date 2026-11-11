@@ -134,7 +134,7 @@ public class GatewayPaymentTests(PaymentDatabase db)
     var held = await db.ReportAsync(facts);
 
     Assert.Equal(GatewayOutcomeKind.Held, held.Kind);
-    Assert.Contains("exceeds", held.Reason);
+    Assert.Contains("is more than", held.Reason);
     Assert.Empty(await PaymentsAsync(psid));
     Assert.Equal(3000, await db.DuesAsync(psid));
     Assert.Equal(GatewayOutcomeKind.Held, (await db.ReportAsync(facts)).Kind);

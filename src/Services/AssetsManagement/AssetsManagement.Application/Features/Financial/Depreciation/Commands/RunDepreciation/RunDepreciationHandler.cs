@@ -18,7 +18,7 @@ public class RunDepreciationHandler(IApplicationDbContext context, ICurrentUser 
 
     if (command.Post)
     {
-      FinanceRights.Require(currentUser, PermissionCatalog.AssetFinance.Post, "Posting depreciation (making the months final) needs the Asset finance right to post. Write the months as drafts instead.");
+      FinanceRights.Require(currentUser, PermissionCatalog.AssetFinance.Post, "Posting depreciation makes the months final. It needs the Asset finance right to post. Save the months as drafts instead.");
       if (until > today)
         return Result<RunDepreciationCommandResult>.Failure("Months can only be posted once they are over. Choose a date up to today.");
     }
@@ -56,7 +56,7 @@ public class RunDepreciationHandler(IApplicationDbContext context, ICurrentUser 
       var code = asset.AssetCode.Value;
       if (disposed.Contains(asset.Id) || terminal.Contains(asset.StatusId))
       {
-        skipped.Add(new DepreciationRunSkip(asset.Id.Value, code, "Its record is closed (disposed)."));
+        skipped.Add(new DepreciationRunSkip(asset.Id.Value, code, "It has been disposed of, so its record is closed."));
         continue;
       }
 

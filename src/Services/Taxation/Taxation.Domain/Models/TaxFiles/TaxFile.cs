@@ -65,7 +65,7 @@ public class TaxFile : Aggregate<TaxFileId>
     if (snapshot.PropertyId == Guid.Empty)
       throw new DomainException("Choose the property.");
     if (!snapshot.IsActive)
-      throw new DomainException($"{snapshot.PropertyCode} is deactivated in Property; a tax file cannot be opened for it.");
+      throw new DomainException($"{snapshot.PropertyCode} is deactivated in Property. A tax file cannot be opened for it.");
 
     var file = new TaxFile
     {
@@ -133,7 +133,7 @@ public class TaxFile : Aggregate<TaxFileId>
     {
       case TaxStatus.Active:
         if (TaxCategory == TaxCategory.Exempt)
-          throw new DomainException("An exempt property is active again only by changing its category.");
+          throw new DomainException("An exempt property becomes active again only when its category changes.");
         TaxStatus = TaxStatus.Active;
         ExemptionReason = null;
         ClosedOn = null;
@@ -150,7 +150,7 @@ public class TaxFile : Aggregate<TaxFileId>
         Remarks = Guard.Text(reason, 4000, "Reason") ?? Remarks;
         break;
       default:
-        throw new DomainException("A file is sealed through the sealing order, not by a status change.");
+        throw new DomainException("A file is sealed by a sealing order, not by changing its status.");
     }
   }
 
@@ -246,7 +246,7 @@ public class TaxFile : Aggregate<TaxFileId>
   public void SetHeadValue(TaxHead head, DateOnly? facilityFrom, decimal? quantity)
   {
     if (head.HeadKind != HeadKind.Regular || head.IsBuiltin)
-      throw new DomainException($"{head.Name} takes no per-property value.");
+      throw new DomainException($"{head.Name} does not take a value for each property.");
     if (quantity is < 0)
       throw new DomainException("The quantity cannot be negative.");
 
@@ -293,7 +293,7 @@ public class TaxFile : Aggregate<TaxFileId>
     if (policy is not null)
     {
       if (mode != OverrideMode.Special)
-        throw new DomainException("A special policy replaces the computed amount; it cannot be a minimum.");
+        throw new DomainException("A special policy replaces the calculated amount. It cannot be a minimum.");
       if (!policy.IsActive)
         throw new DomainException($"\"{policy.Name}\" is not active.");
       if (policy.HeadId != head.Id)
@@ -331,9 +331,9 @@ public class TaxFile : Aggregate<TaxFileId>
   {
     var ov = _overrides.FirstOrDefault(o => o.Id == id) ?? throw new DomainException("The override was not found on this file.");
     if (ov.EffectiveFrom <= today)
-      throw new DomainException($"The override is in force since {ov.EffectiveFrom:dd'/'MM'/'yyyy}; end it instead.");
+      throw new DomainException($"The override has been active since {ov.EffectiveFrom:dd'/'MM'/'yyyy}. End it instead.");
     if (_overrides.Any(o => o.HeadId == ov.HeadId && o.EffectiveFrom > ov.EffectiveFrom))
-      throw new DomainException("A later override of the head follows it; take that one back first.");
+      throw new DomainException("A later override of the head comes after it. Take that one back first.");
     var previous = _overrides.Where(o => o.HeadId == ov.HeadId && o.EffectiveFrom < ov.EffectiveFrom).OrderByDescending(o => o.EffectiveFrom).FirstOrDefault();
     previous?.Reopen(ov.EffectiveFrom.AddDays(-1));
     _overrides.Remove(ov);
@@ -383,7 +383,7 @@ public class TaxFile : Aggregate<TaxFileId>
   {
     var hold = _holds.FirstOrDefault(h => h.Id == id) ?? throw new DomainException("The hold was not found on this file.");
     if (hold.StartedOn <= today)
-      throw new DomainException($"The hold is in force since {hold.StartedOn:dd'/'MM'/'yyyy}; give it its last day instead.");
+      throw new DomainException($"The hold has been active since {hold.StartedOn:dd'/'MM'/'yyyy}. Give it a last day instead.");
     _holds.Remove(hold);
     Touch();
     return hold;

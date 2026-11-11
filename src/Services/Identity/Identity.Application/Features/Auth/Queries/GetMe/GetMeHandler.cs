@@ -10,7 +10,7 @@ public class GetMeHandler(IApplicationDbContext context, ICurrentUser currentUse
 
     var user = await context.Users.AsNoTracking()
         .FirstOrDefaultAsync(u => u.Id == UserId.Of(userId), cancellationToken)
-      ?? throw new UserNotFoundException("This account was not found - it may have been deleted.");
+      ?? throw new UserNotFoundException("This account was not found. It may have been deleted.");
 
     // resolved live rather than read from the token, so a role change shows up immediately here
     var resolved = await permissionService.ResolveAsync(user.Id, cancellationToken);

@@ -45,7 +45,7 @@ public class AssetAssignment : Aggregate<AssetAssignmentId>
     ArgumentNullException.ThrowIfNull(recordedBy);
 
     if (to.DepartmentId is null && to.CustodianId is null && toLocationId is null)
-      throw new DomainException("Say where the asset goes: a location, a person or a department.");
+      throw new DomainException("Say where the asset goes. Choose a location, a person or a department.");
 
     // a few minutes of clock difference between the browser and the server are not "the future"
     if (assignmentDate > now.AddMinutes(5))
@@ -81,7 +81,7 @@ public class AssetAssignment : Aggregate<AssetAssignmentId>
   public void MarkReturned(DateOnly actualReturnDate, DateOnly today)
   {
     if (!ExpectedReturnDate.HasValue)
-      throw new DomainException("Only an asset issued on loan (with a date it is due back) can be returned.");
+      throw new DomainException("Only an asset issued on loan can be returned. A loan has a date it is due back.");
 
     if (ActualReturnDate.HasValue)
       throw new DomainException("This loan has already been returned.");

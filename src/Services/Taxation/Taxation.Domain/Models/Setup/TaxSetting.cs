@@ -50,9 +50,9 @@ public class TaxSetting : Aggregate<TaxSettingId>
   public static TaxSetting? Void(TaxSetting future, IReadOnlyList<TaxSetting> history, DateOnly today)
   {
     if (future.EffectiveFrom <= today)
-      throw new DomainException($"The value from {future.EffectiveFrom:dd'/'MM'/'yyyy} is already in force; change it from a new date instead.");
+      throw new DomainException($"The value from {future.EffectiveFrom:dd'/'MM'/'yyyy} is already in use. Change it from a new date instead.");
     if (history.Any(h => h.Key == future.Key && h.EffectiveFrom > future.EffectiveFrom))
-      throw new DomainException($"A later value follows it; take that one back first.");
+      throw new DomainException($"A later value comes after it. Take that one back first.");
     var previous = history.Where(h => h.Key == future.Key && h.EffectiveFrom < future.EffectiveFrom).OrderByDescending(h => h.EffectiveFrom).FirstOrDefault();
     if (previous is not null && previous.EffectiveTo == future.EffectiveFrom.AddDays(-1))
       previous.EffectiveTo = null;
@@ -122,7 +122,7 @@ public static class SettingKeys
     Pct(CcUpliftPctRes, 100, 1000, "Uplift % of a residential property without a completion certificate"),
     Pct(CcUpliftPctCom, 150, 1000, "Uplift % of a commercial property without a completion certificate"),
     OneOf(CcUpliftRateBasis, "COMMERCIAL", "Which rate the uplift is charged at", "COMMERCIAL", "RESIDENTIAL"),
-    Text(DueDateDdMm, "31-08", 5, "Due date of the annual demand in its year (DD-MM)", @"^(0[1-9]|[12]\d|3[01])-(0[1-9]|1[0-2])$", "write the day and month as DD-MM, e.g. 31-08."),
+    Text(DueDateDdMm, "31-08", 5, "Due date of the annual demand in its year (DD-MM)", @"^(0[1-9]|[12]\d|3[01])-(0[1-9]|1[0-2])$", "write the day and month as DD-MM, for example 31-08."),
     Int(DueDaysAfterIssue, 30, 0, 365, "A demand issued late is due no sooner than this many days after it is issued"),
     Int(ClearanceValidDays, 30, 1, 365, "Days a clearance certificate stays valid"),
     OneOf(PsidModel, "CONSTANT", "One constant 1Link reference per property, re-synced (a reference per issue is not supported yet)", "CONSTANT"),

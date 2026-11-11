@@ -61,7 +61,7 @@ public class StartAccessReviewHandler(IApplicationDbContext context, ICurrentUse
   public async Task<Result<Guid>> Handle(StartAccessReviewCommand command, CancellationToken cancellationToken)
   {
     if (await context.AccessReviews.AnyAsync(r => r.ClosedAt == null, cancellationToken))
-      return Result<Guid>.Failure("A review is already in progress - finish it first.");
+      return Result<Guid>.Failure("A review is already in progress. Finish it first.");
     var count = await context.Users.CountAsync(u => u.IsActive, cancellationToken);
     var review = AccessReview.Start(currentUser.UserId, currentUser.AuditName, count, DateTime.UtcNow);
     await context.AccessReviews.AddAsync(review, cancellationToken);
@@ -88,7 +88,7 @@ public class DecideAccessReviewHandler(IApplicationDbContext context, IdentityGu
     var userId = UserId.Of(command.UserId);
     guard.EnsureNotSelf(userId, "review the access of");
     var user = await context.Users.FirstOrDefaultAsync(u => u.Id == userId, cancellationToken)
-      ?? throw new UserNotFoundException("This account was not found - it may have been deleted.");
+      ?? throw new UserNotFoundException("This account was not found. It may have been deleted.");
 
     var map = await AccessMap.BuildAsync(context, cancellationToken);
     var account = map.Accounts[userId];

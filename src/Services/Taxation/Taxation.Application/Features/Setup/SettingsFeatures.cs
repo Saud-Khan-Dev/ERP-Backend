@@ -21,7 +21,7 @@ public class ChangeSettingsCommandValidator : AbstractValidator<ChangeSettingsCo
   public ChangeSettingsCommandValidator()
   {
     RuleFor(x => x.Values).NotEmpty().WithMessage("Give at least one setting.");
-    RuleForEach(x => x.Values).Must(kv => kv.Value is not null && kv.Value.Length <= 100).WithMessage("A value has at most 100 characters.");
+    RuleForEach(x => x.Values).Must(kv => kv.Value is not null && kv.Value.Length <= 100).WithMessage("A value cannot be longer than 100 characters.");
   }
 }
 
@@ -135,7 +135,7 @@ public class SpecialPolicyHandlers(IApplicationDbContext context, IClock clock) 
   {
     var policy = await context.LoadPolicyAsync(command.Id, cancellationToken);
     if (await context.Overrides.AnyAsync(o => o.PolicyId == policy.Id, cancellationToken) || await context.DemandLines.AnyAsync(l => l.PolicyId == policy.Id, cancellationToken))
-      return Result<UpdatedResult>.Failure($"\"{policy.Name}\" is assigned to properties or was charged on demands; deactivate it instead.");
+      return Result<UpdatedResult>.Failure($"\"{policy.Name}\" is assigned to properties or was charged on demands. Deactivate it instead.");
     context.SpecialPolicies.Remove(policy);
     await context.SaveChangesAsync(cancellationToken);
     return CommandResults.Updated();
@@ -176,7 +176,7 @@ public class SpecialPolicyHandlers(IApplicationDbContext context, IClock clock) 
     var policy = await context.LoadPolicyAsync(command.Id, cancellationToken);
     var head = await context.LoadHeadAsync(command.HeadId, cancellationToken);
     if (policy.HeadId != head.Id && await context.Overrides.AnyAsync(o => o.PolicyId == policy.Id, cancellationToken))
-      return Result<UpdatedResult>.Failure($"\"{policy.Name}\" is assigned to properties; its head cannot change.");
+      return Result<UpdatedResult>.Failure($"\"{policy.Name}\" is assigned to properties. So its head cannot change.");
     policy.Update(head, command.Policy);
     if (policy.Code is { } code && await context.SpecialPolicies.AnyAsync(p => p.Id != policy.Id && p.Code == code, cancellationToken))
       return Result<UpdatedResult>.Failure($"Another policy has the code {code}.");

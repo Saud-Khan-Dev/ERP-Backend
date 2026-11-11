@@ -119,7 +119,7 @@ public class TaxationExceptionHandler(ILogger<TaxationExceptionHandler> logger) 
     {
       PostgresErrorCodes.UniqueViolation => ("Conflict", known ?? "A record with the same values already exists.", StatusCodes.Status409Conflict),
       PostgresErrorCodes.ExclusionViolation => ("Conflict", known ?? "The period overlaps another one that is already on record.", StatusCodes.Status409Conflict),
-      PostgresErrorCodes.ForeignKeyViolation => ("Conflict", known ?? "The record is still referred to elsewhere, or refers to something that does not exist.", StatusCodes.Status409Conflict),
+      PostgresErrorCodes.ForeignKeyViolation => ("Conflict", known ?? "The record is still used elsewhere, or it points to something that does not exist.", StatusCodes.Status409Conflict),
       PostgresErrorCodes.CheckViolation => ("Rejected", known ?? $"The values break the rule '{error.ConstraintName}'.", StatusCodes.Status400BadRequest),
       PostgresErrorCodes.SerializationFailure or PostgresErrorCodes.DeadlockDetected =>
         ("Conflict", "Someone else changed the same records at the same moment. Try again.", StatusCodes.Status409Conflict),

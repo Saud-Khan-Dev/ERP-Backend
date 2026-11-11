@@ -23,7 +23,7 @@ public class RecordCompletedTransferHandler(
 
       await context.Transfers.AddAsync(waiting, cancellationToken);
       audit.Record(PropertyAuditActions.RecordedForApproval, waiting,
-        "Entered after the fact; waits for another officer's approval (Transfers pass through two people)");
+        "Entered after the transfer happened. It waits for another officer's approval (transfers pass through two people)");
       await context.SaveChangesAsync(cancellationToken);
 
       return Result<RecordCompletedTransferCommandResult>.Success(new RecordCompletedTransferCommandResult(

@@ -17,7 +17,7 @@ public class RemoveOptionSetValueHandler(IApplicationDbContext context, IAssetDa
     var fieldCodes = await context.AttributeDefinitions.AsNoTracking().Where(d => d.OptionSetId == id).Select(d => d.Code).ToListAsync(cancellationToken);
     var holders = await queries.AssetsHoldingChoiceAsync(fieldCodes.Select(c => c.Value).ToList(), value.Value.Value, cancellationToken);
     if (holders > 0)
-      return Result<RemoveOptionSetValueCommandResult>.Failure($"{holders} {(holders == 1 ? "asset holds" : "assets hold")} '{value.Label}', so it cannot be removed. Switch it off instead - those assets keep it.");
+      return Result<RemoveOptionSetValueCommandResult>.Failure($"{holders} {(holders == 1 ? "asset has" : "assets have")} '{value.Label}', so it cannot be removed. Switch it off instead. Those assets will keep it.");
 
     optionSet.RemoveValue(valueId);
     await context.SaveChangesAsync(cancellationToken);

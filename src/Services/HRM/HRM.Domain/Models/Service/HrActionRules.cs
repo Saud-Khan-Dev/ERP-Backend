@@ -22,8 +22,8 @@ public static class PostKinds
   public static string? Problem(string who, EmploymentBasis person, string postCode, EmploymentBasis post) =>
       IsContract(person) == IsContract(post) ? null
       : IsContract(person)
-        ? $"{who} is {EnumText.WithArticle(person)} employee; post {postCode} is a sanctioned post. Choose a contract post."
-        : $"Post {postCode} is a contract post; {who} is {EnumText.WithArticle(person)} employee. Choose a sanctioned post.";
+        ? $"{who} is {EnumText.WithArticle(person)} employee. Post {postCode} is a sanctioned post. Choose a contract post."
+        : $"Post {postCode} is a contract post. {who} is {EnumText.WithArticle(person)} employee. Choose a sanctioned post.";
 }
 
 /// What the HR action rules need to know beyond the action itself (loaded by the caller for the action's date).
@@ -66,7 +66,7 @@ public static class HrActionRules
     var type = action.ActionType;
 
     if (e.ProfileStatus != RecordStatus.Active)
-      return $"The profile of {who} is inactive; reactivate it first.";
+      return $"The profile of {who} is inactive. Reactivate it first.";
 
     if (Fit(type, facts) is { } unfit)
       return unfit;
@@ -76,13 +76,13 @@ public static class HrActionRules
       case HrActionType.Appointment:
       case HrActionType.DeputationIn:
         if (facts.Current is { } held)
-          return $"{who} already holds post {held.PostCode} on {Day(on)}; use a transfer or promotion instead.";
+          return $"{who} already has post {held.PostCode} on {Day(on)}. Use a transfer or promotion instead.";
         if (Post(facts, action, needsScale: true) is { } postProblem)
           return postProblem;
         if (e.AppointmentAgeProblem(on, facts.RetirementAge) is { } ageProblem)
           return ageProblem;
         if (type == HrActionType.DeputationIn && string.IsNullOrWhiteSpace(action.ExternalReferenceOrg))
-          return "Name the parent department the deputationist comes from.";
+          return "Enter the parent department that the deputationist comes from.";
         if (type == HrActionType.DeputationIn && !facts.HasDeputationType)
           return "No active employment type follows the deputation rules. Add one under Configuration › People & service first.";
         break;
@@ -91,18 +91,18 @@ public static class HrActionRules
       case HrActionType.Promotion:
       case HrActionType.Demotion:
         if (facts.Current is not { } from)
-          return $"{who} holds no regular post on {Day(on)}, so there is nothing to {Verb(type)} from.";
+          return $"{who} has no regular post on {Day(on)}, so there is nothing to {Verb(type)} from.";
         if (Post(facts, action, needsScale: type != HrActionType.Transfer) is { } moveProblem)
           return moveProblem;
         var to = facts.Target!;
         if (type == HrActionType.Promotion && to.Bps <= from.Bps)
-          return $"A promotion needs a higher grade: post {to.PostCode} is BPS-{to.Bps}, the current post {from.PostCode} BPS-{from.Bps}.";
+          return $"A promotion needs a higher grade. Post {to.PostCode} is BPS-{to.Bps}, and the current post {from.PostCode} is BPS-{from.Bps}.";
         if (type == HrActionType.Demotion && to.Bps >= from.Bps)
-          return $"A demotion needs a lower grade: post {to.PostCode} is BPS-{to.Bps}, the current post {from.PostCode} BPS-{from.Bps}.";
+          return $"A demotion needs a lower grade. Post {to.PostCode} is BPS-{to.Bps}, and the current post {from.PostCode} is BPS-{from.Bps}.";
         if (type == HrActionType.Transfer && to.Bps != from.Bps)
-          return $"Post {to.PostCode} is BPS-{to.Bps} and the current post BPS-{from.Bps}; record a promotion or demotion instead of a transfer.";
+          return $"Post {to.PostCode} is BPS-{to.Bps} and the current post is BPS-{from.Bps}. Record a promotion or demotion instead of a transfer.";
         if (on <= from.Since)
-          return $"{who} took the current post on {Day(from.Since)}; the move must be dated after that.";
+          return $"{who} took the current post on {Day(from.Since)}. The move must be dated after that.";
         if (type != HrActionType.Transfer && !facts.HasPayBefore)
           return $"{who} has no pay record before {Day(on)} to fix the new pay from. Record the pay first.";
         break;
@@ -111,19 +111,19 @@ public static class HrActionRules
         if (facts.Current is null)
         {
           if (action.NewPostId is null)
-            return $"{who} holds no regular post on {Day(on)}; choose the post they join (the post kept on lien is suggested).";
+            return $"{who} has no regular post on {Day(on)}. Choose the post they join. The post kept on lien is suggested.";
           if (Post(facts, action, needsScale: true) is { } joinProblem)
             return joinProblem;
         }
         else if (action.NewPostId is not null)
         {
-          return $"{who} still holds post {facts.Current.PostCode}; joining needs no new post.";
+          return $"{who} still has post {facts.Current.PostCode}. Joining does not need a new post.";
         }
         break;
 
       case HrActionType.DeputationOut:
         if (string.IsNullOrWhiteSpace(action.ExternalReferenceOrg))
-          return "Name the department the employee is deputed to.";
+          return "Enter the department the employee is deputed to.";
         break;
 
       case HrActionType.Regularization:
@@ -135,7 +135,7 @@ public static class HrActionRules
 
       case HrActionType.Lwop:
         if (action.EndDate is null)
-          return "Give the last day of the leave without pay.";
+          return "Enter the last day of the leave without pay.";
         if (!facts.HasUnpaidLeaveType)
           return "There is no leave type that is deducted from pay. Add one under Configuration › Leave first.";
         if (facts.LeaveClash is { } clash)
@@ -146,12 +146,12 @@ public static class HrActionRules
         if (e.EmploymentStatus == EmploymentStatus.Suspended)
         {
           if (action.NewPostId is not null)
-            return $"{who} kept the post during the suspension; a reinstatement after suspension needs no post.";
+            return $"{who} kept the post during the suspension. A reinstatement after suspension does not need a post.";
         }
         else
         {
           if (facts.SettlementPaid)
-            return "The final settlement has been paid; record a fresh appointment instead of a reinstatement.";
+            return "The final settlement has been paid. Record a new appointment instead of a reinstatement.";
           if (action.NewPostId is null)
             return $"Choose the post {who} is reinstated on.";
           if (Post(facts, action, needsScale: true) is { } reinstateProblem)
@@ -165,7 +165,7 @@ public static class HrActionRules
         if (!facts.EventType.IsActive)
           return $"The event type '{facts.EventType.Name}' is inactive.";
         if (ServiceEventNames.IsSystem(facts.EventType.Name))
-          return $"'{facts.EventType.Name}' has its own action; choose it instead.";
+          return $"'{facts.EventType.Name}' has its own action. Choose that action instead.";
         break;
     }
 
@@ -198,7 +198,7 @@ public static class HrActionRules
     {
       return EmploymentStatuses.Reinstatable.Contains(status)
         ? status == EmploymentStatus.Suspended || facts.HasSeparation ? null : $"{who}'s separation record is missing."
-        : $"Reinstatement brings back someone suspended, terminated, dismissed or removed from service; {who} is {state}.";
+        : $"Reinstatement brings back someone suspended, terminated, dismissed or removed from service. {who} is {state}.";
     }
 
     if (e.HasLeftService)
@@ -210,35 +210,35 @@ public static class HrActionRules
     return type switch
     {
       HrActionType.Appointment or HrActionType.DeputationIn when status is EmploymentStatus.Suspended or EmploymentStatus.DeputedOut =>
-        $"{who} is {state}; {(status == EmploymentStatus.DeputedOut ? "bring them back with a joining" : "reinstate them first")}.",
+        $"{who} is {state}. {(status == EmploymentStatus.DeputedOut ? "Bring them back with a joining" : "Reinstate them first")}.",
       HrActionType.Appointment or HrActionType.DeputationIn when facts.Current is { } held =>
-        $"{who} already holds post {held.PostCode}.",
+        $"{who} already has post {held.PostCode}.",
       HrActionType.Transfer or HrActionType.Promotion or HrActionType.Demotion when status is not (EmploymentStatus.Active or EmploymentStatus.OnLeave) =>
         $"{who} is {state}.",
       HrActionType.Transfer or HrActionType.Promotion or HrActionType.Demotion when facts.Current is null =>
-        $"{who} holds no regular post to move from.",
+        $"{who} has no regular post to move from.",
       HrActionType.Joining when status is not (EmploymentStatus.DeputedOut or EmploymentStatus.OnLeave) =>
-        $"Joining brings back an employee from deputation or leave; {who} is {state}.",
+        $"Joining brings back an employee from deputation or leave. {who} is {state}.",
       HrActionType.DeputationIn when e.EmploymentBasis is not (EmploymentBasis.Deputation or EmploymentBasis.Regular) =>
         $"{who} is {EnumText.WithArticle(e.EmploymentBasis)} employee.",
       HrActionType.DeputationOut when status != EmploymentStatus.Active =>
-        $"{who} is {state}; only an employee on duty is deputed out.",
+        $"{who} is {state}. Only an employee on duty can be deputed out.",
       HrActionType.Regularization when e.EmploymentBasis == EmploymentBasis.Regular =>
         $"{who} is already a regular employee.",
       HrActionType.Regularization when e.EmploymentBasis == EmploymentBasis.Deputation =>
-        $"{who} serves on deputation; a deputationist is absorbed by appointment, not regularized.",
+        $"{who} is on deputation. A deputationist is absorbed by appointment, not regularized.",
       HrActionType.Lwop when status is not (EmploymentStatus.Active or EmploymentStatus.OnLeave) =>
         $"{who} is {state}.",
       HrActionType.Suspension when status is EmploymentStatus.Suspended =>
         $"{who} is already suspended.",
       HrActionType.Suspension when status is EmploymentStatus.DeputedOut =>
-        $"{who} is on deputation; the borrowing department deals with discipline.",
+        $"{who} is on deputation. The borrowing department deals with discipline.",
       HrActionType.EndOfContract when e.EmploymentBasis is EmploymentBasis.Regular or EmploymentBasis.Deputation =>
         $"{who} is {EnumText.WithArticle(e.EmploymentBasis)} employee, not engaged on a contract.",
       HrActionType.DeputationEnd when e.EmploymentBasis != EmploymentBasis.Deputation =>
         $"{who} is not serving on deputation.",
       HrActionType.Retirement or HrActionType.CompulsoryRetirement or HrActionType.PrematureRetirement when e.EmploymentBasis != EmploymentBasis.Regular =>
-        $"Only a regular employee retires; {who} is {EnumText.WithArticle(e.EmploymentBasis)} employee.",
+        $"Only a regular employee can retire. {who} is {EnumText.WithArticle(e.EmploymentBasis)} employee.",
       _ when HrActionRequest.EndsService(type) && facts.HasSeparation => $"{who}'s separation is already recorded.",
       _ => null
     };
@@ -251,14 +251,14 @@ public static class HrActionRules
     if (facts.Target is not { } post || post.PostId != action.NewPostId)
       return $"The post does not exist on {Day(action.EffectiveDate)}.";
     if (post.Lifecycle != PostLifecycle.Sanctioned)
-      return $"Post {post.PostCode} is {EnumText.Words(post.Lifecycle)} on {Day(action.EffectiveDate)} and takes no regular appointment.";
+      return $"Post {post.PostCode} is {EnumText.Words(post.Lifecycle)} on {Day(action.EffectiveDate)} and cannot take a regular appointment.";
     if (post.SeatsTaken >= post.Seats)
-      return $"Post {post.PostCode} is full: {post.SeatsTaken} of {post.Seats} seat(s) are held from {Day(action.EffectiveDate)}.";
+      return $"Post {post.PostCode} is full. {post.SeatsTaken} of {post.Seats} seat(s) are taken from {Day(action.EffectiveDate)}.";
     var person = action.ActionType == HrActionType.DeputationIn ? EmploymentBasis.Deputation : facts.Employee.EmploymentBasis;
     if (post.Basis is { } kind && PostKinds.Problem(facts.Employee.DisplayName, person, post.PostCode, kind) is { } kindProblem)
       return kindProblem;
     if (needsScale && !post.HasScaleInForce)
-      return $"No pay scale of BPS-{post.Bps} is in force on {Day(action.EffectiveDate)}, so the pay cannot be fixed. Notify the scale first.";
+      return $"No pay scale for BPS-{post.Bps} is active on {Day(action.EffectiveDate)}, so the pay cannot be fixed. Notify the scale first.";
     return null;
   }
 

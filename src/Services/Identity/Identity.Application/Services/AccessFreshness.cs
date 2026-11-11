@@ -38,7 +38,7 @@ public sealed class DatabaseTokenStateChecker(IApplicationDbContext context) : I
     if (!Guid.TryParse(user.FindFirst(ErpClaimTypes.SessionId)?.Value, out var sid)
         || !Guid.TryParse(user.FindFirst(ErpClaimTypes.UserId)?.Value, out var uid)
         || !long.TryParse(user.FindFirst(ErpClaimTypes.AccessStamp)?.Value, out var stamp))
-      return TokenVerdict.Stale("Signed in before this version - sign in again");
+      return TokenVerdict.Stale("Signed in before this version. Sign in again.");
 
     var now = DateTime.UtcNow;
     var session = await context.Sessions.AsNoTracking().FirstOrDefaultAsync(s => s.Id == SessionId.Of(sid), cancellationToken);

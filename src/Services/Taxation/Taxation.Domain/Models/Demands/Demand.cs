@@ -81,7 +81,7 @@ public class Demand : Aggregate<DemandId>
   public void Recompute(DemandRunId? runId, TaxFileBasis basis, TaxFilePayer payer, IReadOnlyList<ComputedLine> lines, decimal arrearsPreview)
   {
     if (Status != DemandStatus.Draft)
-      throw new DomainException($"{DemandNo} is already issued; its amounts are fixed.");
+      throw new DomainException($"{DemandNo} is already issued. Its amounts cannot change.");
     RunId = runId;
     BasisId = basis.Id;
     Address(payer);
@@ -122,7 +122,7 @@ public class Demand : Aggregate<DemandId>
   public void Cancel()
   {
     if (Status != DemandStatus.Draft)
-      throw new DomainException($"{DemandNo} is issued; an issued demand is corrected, not cancelled.");
+      throw new DomainException($"{DemandNo} is issued. An issued demand cannot be cancelled. Correct it instead.");
     Status = DemandStatus.Cancelled;
   }
 
@@ -162,7 +162,7 @@ public class Demand : Aggregate<DemandId>
     if (!IsOpen)
       throw new DomainException($"{DemandNo} has nothing to pay.");
     if (amount <= 0)
-      throw new DomainException("The amount must be positive.");
+      throw new DomainException("The amount must be more than zero.");
 
     var left = Math.Min(amount, Balance);
     var settled = new List<ItemSettlement>();
@@ -190,11 +190,11 @@ public class Demand : Aggregate<DemandId>
   public IReadOnlyList<Arrears> CarryInto(Demand next, IReadOnlyDictionary<Guid, decimal> paidByItem, TaxHeadId surchargeHeadId, Guid? actor, DateTime now, DateOnly today)
   {
     if (next.TaxFileId != TaxFileId || next.FiscalYear <= FiscalYear)
-      throw new DomainException("A balance is carried only into a later year's demand of the same file.");
+      throw new DomainException("A balance can be carried only into a later year's demand of the same file.");
     var yearEnd = global::FiscalYear.End(FiscalYear);
     var yearLabel = global::FiscalYear.Label(FiscalYear);
     if (today <= yearEnd && Status is not (DemandStatus.Draft or DemandStatus.Cancelled or DemandStatus.Carried or DemandStatus.Paid))
-      throw new DomainException($"FY {yearLabel} is not over until {yearEnd:dd'/'MM'/'yyyy}; its balance is carried only after that.");
+      throw new DomainException($"FY {yearLabel} is not over until {yearEnd:dd'/'MM'/'yyyy}. Its balance can be carried only after that.");
     if (Status is DemandStatus.Draft or DemandStatus.Cancelled or DemandStatus.Carried or DemandStatus.Paid || Balance <= 0)
       return [];
 
@@ -223,7 +223,7 @@ public class Demand : Aggregate<DemandId>
   public Penalty AddPenalty(PenaltyRule rule, PenaltyRunId? runId, decimal baseAmount, decimal amount, decimal? pct, DateOnly appliedOn)
   {
     if (!IsOpen)
-      throw new DomainException($"{DemandNo} has nothing outstanding; no surcharge applies.");
+      throw new DomainException($"{DemandNo} has nothing outstanding. So no surcharge applies.");
     if (amount <= 0)
       throw new DomainException("A surcharge must be more than zero.");
     var penalty = Penalty.Create(PenaltyId.New(), Id, TaxFileId, rule, runId, baseAmount, amount, pct, appliedOn);
@@ -259,11 +259,11 @@ public class Demand : Aggregate<DemandId>
   public Arrears AddManualArrears(TaxHead head, int? fiscalYear, decimal amount, string? description, string reason, Guid actor, DateTime now)
   {
     if (Status is DemandStatus.Carried or DemandStatus.Cancelled)
-      throw new DomainException($"{DemandNo} is {EnumText.Words(Status)}; charges are added to the demand that holds the balance.");
+      throw new DomainException($"{DemandNo} is {EnumText.Words(Status)}. Add charges to the demand that has the balance.");
     if (fiscalYear > FiscalYear)
       throw new DomainException($"A row for FY {(global::FiscalYear.Label(fiscalYear.Value))} is after the demand's year.");
     if (!head.OnNotice)
-      throw new DomainException($"{head.Name} is a fee; it is charged on its own, not added to a notice.");
+      throw new DomainException($"{head.Name} is a fee. It is charged on its own, not added to a notice.");
     var row = Arrears.Manual(ArrearsId.New(), TaxFileId, head.Id, fiscalYear, amount, description, reason, actor, now);
     AttachArrears(row);
     AfterChange(DateOnly.FromDateTime(now));
@@ -288,7 +288,7 @@ public class Demand : Aggregate<DemandId>
     if (amount <= 0)
       return;
     if (Status == DemandStatus.Carried)
-      throw new DomainException($"{DemandNo} was carried into a later year; what it owes is on that year's demand.");
+      throw new DomainException($"{DemandNo} was carried into a later year. What it owes is on that year's demand.");
     PaidAmount = Math.Max(0, PaidAmount - amount);
     Recalculate();
     StatusFromBalance(today);
@@ -308,7 +308,7 @@ public class Demand : Aggregate<DemandId>
   public Arrears BillAgain(TaxHeadId headId, int? fiscalYear, decimal amount, DemandId sourceDemandId, Guid? actor, DateTime now)
   {
     if (!IsIssued || Status == DemandStatus.Carried)
-      throw new DomainException($"{DemandNo} does not hold the file's balance.");
+      throw new DomainException($"{DemandNo} does not have the file's balance.");
     var row = Arrears.Carried(ArrearsId.New(), TaxFileId, headId, fiscalYear, amount, sourceDemandId, actor, now);
     AttachArrears(row);
     AfterChange(DateOnly.FromDateTime(now));
@@ -499,7 +499,7 @@ public class Arrears : Entity<ArrearsId>
   /// demand, or billed on it.
   public static Arrears Imported(ArrearsId id, TaxFileId fileId, TaxHead head, int? fiscalYear, decimal amount, string? description, Guid? importRowId, Guid actor, DateTime now) =>
       !head.OnNotice
-        ? throw new DomainException($"{head.Name} is a fee, not a due of the old register.")
+        ? throw new DomainException($"{head.Name} is a fee, not a due on the old register.")
         : new()
   {
     Id = id,
@@ -550,13 +550,13 @@ public class Arrears : Entity<ArrearsId>
   public void CorrectOpening(TaxHead head, int? fiscalYear, decimal amount, string? description, string reason, Guid actor, DateTime now)
   {
     if (!IsUnbilledOpening)
-      throw new DomainException("Only an earlier due of the old register that is not billed yet can be corrected; a billed one is corrected with a notice.");
+      throw new DomainException("Only an earlier due on the old register that is not billed yet can be corrected here. To correct a billed one, use a notice.");
     if (!head.OnNotice)
-      throw new DomainException($"{head.Name} is a fee, not a due of the old register.");
+      throw new DomainException($"{head.Name} is a fee, not a due on the old register.");
     var value = Rupees.Round(Guard.Positive(amount, "Amount"));
     var settled = Settled;
     if (value < settled)
-      throw new DomainException($"{Rupees.Text(settled)} was already paid on it; the amount cannot be less.");
+      throw new DomainException($"{Rupees.Text(settled)} was already paid on it. The amount cannot be less than that.");
     HeadId = head.Id;
     FiscalYear = fiscalYear is { } fy ? global::FiscalYear.Valid(fy) : null;
     OriginalAmount = value;

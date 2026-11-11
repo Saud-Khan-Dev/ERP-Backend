@@ -126,7 +126,7 @@ public class PostHandlers(IApplicationDbContext context, CodeIssuer codes, Servi
   {
     var post = await context.LoadPostAsync(command.Id, cancellationToken);
     var asOf = command.AsOf ?? clock.Today;
-    var version = post.VersionOn(asOf) ?? throw new DomainException($"Post {post.PostCode} has no version in force on {asOf:dd'/'MM'/'yyyy}.");
+    var version = post.VersionOn(asOf) ?? throw new DomainException($"Post {post.PostCode} has no active version on {asOf:dd'/'MM'/'yyyy}.");
     var details = await ResolveAsync(post.Id, command.Details, version.EffectiveFrom, version.Details, cancellationToken);
     var filled = await records.FilledSeatsOnAsync(post.Id, asOf, cancellationToken);
     post.CorrectOn(asOf, details, filled);
@@ -206,7 +206,7 @@ public class PostHandlers(IApplicationDbContext context, CodeIssuer codes, Servi
       for (var current = reportingId; current is not null && seen.Add(current); current = reportsTo.GetValueOrDefault(current))
       {
         if (current == postId)
-          throw new DomainException("That reporting post (directly or further up) reports to this post; the reporting line would loop.");
+          throw new DomainException("That reporting post reports to this post, directly or further up. The reporting line would go in a circle.");
       }
     }
 

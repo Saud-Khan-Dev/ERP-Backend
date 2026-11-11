@@ -7,7 +7,7 @@ public class GetAssetAcquisitionHandler(IApplicationDbContext context)
   {
     var assetId = AssetId.Of(query.AssetId);
     var acquisition = await context.AssetAcquisitions.AsNoTracking().FirstOrDefaultAsync(a => a.AssetId == assetId, cancellationToken)
-      ?? throw new AssetAcquisitionNotFoundException($"No acquisition record exists for asset {query.AssetId}.");
+      ?? throw new AssetAcquisitionNotFoundException($"Asset {query.AssetId} has no purchase record.");
 
     return Result<GetAssetAcquisitionQueryResult>.Success(new GetAssetAcquisitionQueryResult(acquisition.ToDto()));
   }

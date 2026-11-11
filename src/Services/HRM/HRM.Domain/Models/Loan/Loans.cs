@@ -20,9 +20,9 @@ public class LoanType : Aggregate<LoanTypeId>
     if (deductionComponent is not null)
     {
       if (deductionComponent.ComponentType != ComponentType.Deduction)
-        throw new DomainException($"'{deductionComponent.ComponentName}' is an earning; installments are recovered on a deduction line.");
+        throw new DomainException($"'{deductionComponent.ComponentName}' is an earning. Installments are recovered on a deduction line.");
       if (deductionComponent.IsSystem)
-        throw new DomainException($"'{deductionComponent.ComponentName}' is worked out by the payroll engine and cannot carry loan installments.");
+        throw new DomainException($"'{deductionComponent.ComponentName}' is calculated by payroll, so it cannot be used for loan installments.");
     }
 
     Name = Guard.RequiredText(name, 100, "Loan type name");
@@ -109,7 +109,7 @@ public class EmployeeLoan : Aggregate<EmployeeLoanId>
     employee.EnsureInService();
     loanType.EnsureActive();
     if (loanType.SalaryComponentId is null)
-      throw new DomainException($"'{loanType.Name}' has no deduction line to recover installments on; set its salary component first.");
+      throw new DomainException($"'{loanType.Name}' has no deduction line to recover installments on. Set its salary component first.");
 
     var principal = Guard.Money(Guard.Positive(principalAmount, "Principal"), "Principal");
     var count = Guard.Between(installmentsCount, 1, 600, "Number of installments");
@@ -133,9 +133,9 @@ public class EmployeeLoan : Aggregate<EmployeeLoanId>
     var total = loan.TotalRepayable;
     var monthly = decimal.Round(total / count, 2, MidpointRounding.AwayFromZero);
     if (monthly <= 0)
-      throw new DomainException("The installment would be zero; take fewer installments.");
+      throw new DomainException("The installment would be zero. Take fewer installments.");
     if (total - monthly * (count - 1) <= 0)
-      throw new DomainException("The last installment would be zero or less; take fewer installments.");
+      throw new DomainException("The last installment would be zero or less. Take fewer installments.");
 
     loan.MonthlyInstallment = monthly;
     loan.EndDate = startDate.AddMonths(count - 1);
@@ -150,7 +150,7 @@ public class EmployeeLoan : Aggregate<EmployeeLoanId>
   public void Sanction(Employee employee, LoanType loanType, Guid? approvedBy, DateOnly? today = null)
   {
     if (Status != LoanStatus.Pending)
-      throw new DomainException($"The loan is {EnumText.Words(Status)}; only a pending application can be sanctioned.");
+      throw new DomainException($"The loan is {EnumText.Words(Status)}. Only a pending application can be sanctioned.");
     // a start in a past month would make every past installment fall due in the next payroll at once
     EnsureStartsThisMonthOrLater(StartDate, today);
     employee.EnsureInService();
@@ -171,7 +171,7 @@ public class EmployeeLoan : Aggregate<EmployeeLoanId>
   private static void EnsureStartsThisMonthOrLater(DateOnly startDate, DateOnly? today)
   {
     if (today is { } now && startDate < new DateOnly(now.Year, now.Month, 1))
-      throw new DomainException("The first installment cannot fall in a month already gone. For a loan already running, sanction the balance still owed, starting this month.");
+      throw new DomainException("The first installment cannot be in a past month. For a loan that is already running, sanction the balance still owed, starting this month.");
   }
 
   public bool IsActive => Status == LoanStatus.Active;
@@ -243,7 +243,7 @@ public class EmployeeLoan : Aggregate<EmployeeLoanId>
     EnsureActive();
     var installment = Installment(installmentId);
     var forgiven = installment.Amount - installment.PaidAmount;
-    installment.Waive(Guard.Text(reason, 1000, "Reason") ?? throw new DomainException("Give the reason (the sanction) for waiving the installment."),
+    installment.Waive(Guard.Text(reason, 1000, "Reason") ?? throw new DomainException("Enter the reason (the sanction) for waiving the installment."),
       Guard.Actor(waivedBy, "waive an installment"), at);
     Reduce(forgiven);
     return forgiven;
@@ -255,7 +255,7 @@ public class EmployeeLoan : Aggregate<EmployeeLoanId>
     if (Status != LoanStatus.Pending)
       EnsureActive();
     if (_installments.Any(i => i.PaidAmount > 0))
-      throw new DomainException("Installments have already been recovered; write the loan off instead of cancelling it.");
+      throw new DomainException("Installments have already been recovered. Write the loan off instead of cancelling it.");
 
     Close(LoanStatus.Cancelled, reason, cancelledBy, at, "cancelling");
   }
@@ -269,7 +269,7 @@ public class EmployeeLoan : Aggregate<EmployeeLoanId>
 
   private void Close(LoanStatus status, string? reason, Guid? by, DateTime at, string act)
   {
-    ClosureReason = Guard.Text(reason, 1000, "Reason") ?? throw new DomainException($"Give the reason for {act} the loan.");
+    ClosureReason = Guard.Text(reason, 1000, "Reason") ?? throw new DomainException($"Enter the reason for {act} the loan.");
     ClosedBy = Guard.Actor(by, $"close a loan");
     ClosedAt = at;
     Status = status;
@@ -439,7 +439,7 @@ public class GpFundAccount : Aggregate<GpFundAccountId>
     if (closedOn < OpenedOn)
       throw new DomainException("An account cannot close before it opened.");
     if (balance != 0)
-      throw new DomainException($"The account still holds {balance:N2}; record the final payment before closing it.");
+      throw new DomainException($"The account still has {balance:N2}. Record the final payment before closing it.");
 
     ClosedOn = closedOn;
     Status = RecordStatus.Inactive;
@@ -539,7 +539,7 @@ public class GpFundTransaction : Aggregate<GpFundTransactionId>
     ArgumentNullException.ThrowIfNull(account);
 
     if (date < account.OpenedOn)
-      throw new DomainException($"The GP Fund account opened on {account.OpenedOn:yyyy-MM-dd}; nothing can be dated before that.");
+      throw new DomainException($"The GP Fund account opened on {account.OpenedOn:yyyy-MM-dd}. Nothing can be dated before that.");
 
     return new GpFundTransaction
     {

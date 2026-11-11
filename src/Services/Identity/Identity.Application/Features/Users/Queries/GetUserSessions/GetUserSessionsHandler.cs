@@ -9,7 +9,7 @@ public class GetUserSessionsHandler(IApplicationDbContext context)
     var userId = UserId.Of(query.UserId);
 
     if (!await context.Users.IgnoreQueryFilters().AnyAsync(u => u.Id == userId, cancellationToken))
-      throw new UserNotFoundException("This account was not found - it may have been deleted.");
+      throw new UserNotFoundException("This account was not found. It may have been deleted.");
 
     var sessions = context.Sessions.AsNoTracking().Where(s => s.UserId == userId);
 

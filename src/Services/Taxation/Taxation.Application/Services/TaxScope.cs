@@ -120,7 +120,7 @@ public static class TaxScope
 
   /// The refusal for a bulk act that reaches every file, or null when the person works on every town.
   public static string? EveryTownRefusal(this IApplicationDbContext context, string act) => context.IsLimited()
-    ? $"You cannot {act}: it reaches the tax files of every town, and your access is limited to some towns. Someone who works on every town does it."
+    ? $"You cannot {act}. It reaches the tax files of every town, but your access is limited to some towns. Ask someone who works on every town to do it."
     : null;
 
   /// The refusal for a run over one circle (or all circles), or null when the person works on every town it reaches.
@@ -129,13 +129,13 @@ public static class TaxScope
     if (context.TownScope is not { } towns)
       return null;
     if (circleId is null)
-      return $"You cannot {act} for every circle: your access is limited to some towns. Choose a circle whose towns are all yours, or ask someone who works on every town.";
+      return $"You cannot {act} for every circle. Your access is limited to some towns. Choose a circle whose towns are all yours, or ask someone who works on every town.";
     var today = DateOnly.FromDateTime(DateTime.UtcNow.AddHours(5));
     var circleTowns = await context.CircleTowns.AsNoTracking().Where(t => t.CircleId == circleId && (t.EffectiveTo == null || t.EffectiveTo >= today))
       .Select(t => new { t.TownId, t.TownCode })
       .ToListAsync(cancellationToken);
     var outside = circleTowns.Where(t => !towns.Contains(t.TownId)).Select(t => t.TownCode).Distinct().ToList();
     return outside.Count == 0 ? null
-      : $"You cannot {act} for this circle: it also covers {string.Join(", ", outside)}, outside the towns you work on. Someone who works on all of its towns does it.";
+      : $"You cannot {act} for this circle. It also covers {string.Join(", ", outside)}, outside the towns you work on. Ask someone who works on all of its towns to do it.";
   }
 }

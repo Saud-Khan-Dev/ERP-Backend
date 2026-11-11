@@ -61,7 +61,7 @@ public class PropertyOwnership : Aggregate<OwnershipId>
     acquisitionTransferType?.EnsureActive();
 
     if (today is { } day && effectiveFrom > day)
-      throw new DomainException($"An ownership cannot start in the future ({effectiveFrom:yyyy-MM-dd}); today is {day:yyyy-MM-dd}.");
+      throw new DomainException($"An ownership cannot start in the future ({effectiveFrom:yyyy-MM-dd}). Today is {day:yyyy-MM-dd}.");
 
     return New(id, property.Id, owner.Id, tenureType.Id, sharePct, effectiveFrom,
       acquisitionTransferType?.Id, acquiredViaTransferId: null, acquiredViaAllotmentId: null, referenceNo, remarks);
@@ -89,12 +89,12 @@ public class PropertyOwnership : Aggregate<OwnershipId>
     var code = record.Property.PropertyCode.Value;
 
     if (record.Current.Count > 0)
-      throw new DomainException($"{code} is already held. A new owner comes in only through a transfer.");
+      throw new DomainException($"{code} already has owners. A new owner can come in only through a transfer.");
 
     if (record.AllotmentInForce is { } allotted)
       throw new DomainException(
-        $"{code} is allotted to {allotted.AllotteeName} ({allotted.Allotment.AllotmentNo.Value}); "
-        + "while the allotment is in force the plot gets an owner only by confirming the allottee as owner.");
+        $"{code} is allotted to {allotted.AllotteeName} ({allotted.Allotment.AllotmentNo.Value}). "
+        + "While the allotment is active, the only way to give the plot an owner is to confirm the allottee as owner.");
 
     if (owners.Count == 0)
       throw new DomainException("Give at least one owner, with the share they hold.");
@@ -108,7 +108,7 @@ public class PropertyOwnership : Aggregate<OwnershipId>
     // the sum of what is stored, not of what was typed: a share keeps four decimals
     var total = owners.Sum(o => Guard.SharePct(o.SharePct, "Ownership share"));
     if (total != OwnershipShares.Whole)
-      throw new DomainException($"The shares add up to {total:0.####}%; together the owners hold exactly {OwnershipShares.Whole:0}%.");
+      throw new DomainException($"The shares add up to {total:0.####}%. Together the owners must have exactly {OwnershipShares.Whole:0}%.");
 
     foreach (var o in owners)
     {
@@ -227,18 +227,18 @@ public class PropertyOwnership : Aggregate<OwnershipId>
 
     if (record.ChargeOn(this) is { } charge)
       throw new DomainException(charge.Status == EncumbranceStatus.Enforced
-        ? $"{name}'s {OwnershipSharePct:0.####}% is under {charge.Describe()}, which was enforced; the share can only be transferred to {charge.HolderName}."
-        : $"{name}'s {OwnershipSharePct:0.####}% is under {charge.Describe()}; release it before {act}.");
+        ? $"{name}'s {OwnershipSharePct:0.####}% is under {charge.Describe()}. The charge was enforced, so the share can only be transferred to {charge.HolderName}."
+        : $"{name}'s {OwnershipSharePct:0.####}% is under {charge.Describe()}. Release the charge before {act}.");
 
     if (record.PropertyCharge is { } propertyCharge)
       throw new DomainException(propertyCharge.Status == EncumbranceStatus.Enforced
-        ? $"{record.Property.PropertyCode.Value} is under {propertyCharge.Describe()} on the whole property, which was enforced; shares can only be transferred to {propertyCharge.HolderName}."
-        : $"{record.Property.PropertyCode.Value} is under {propertyCharge.Describe()} on the whole property; release it before {act}.");
+        ? $"{record.Property.PropertyCode.Value} is under {propertyCharge.Describe()} on the whole property. The charge was enforced, so shares can only be transferred to {propertyCharge.HolderName}."
+        : $"{record.Property.PropertyCode.Value} is under {propertyCharge.Describe()} on the whole property. Release the charge before {act}.");
 
     var pending = record.PendingTransfersGivenBy(OwnerId).ToList();
     if (pending.Count > 0)
       throw new DomainException(
-        $"{name}'s share is being transferred in {string.Join(", ", pending.Select(t => t.TransferNo.Value))}; cancel or approve that first.");
+        $"{name}'s share is being transferred in {string.Join(", ", pending.Select(t => t.TransferNo.Value))}. Cancel or approve that transfer first.");
   }
 
   /// A disputed share is still held (it keeps counting toward the 100%) but cannot be transferred.
@@ -286,7 +286,7 @@ public class PropertyOwnership : Aggregate<OwnershipId>
 
     if (held.Count > 0)
       throw new DomainException(
-        $"{name} already holds {held.Sum(o => o.OwnershipSharePct):0.####}% of {code} (since {OwnershipHistory.HoldingSince(held[0], record.Ownerships):yyyy-MM-dd}). Record a transfer to change the share.");
+        $"{name} already owns {held.Sum(o => o.OwnershipSharePct):0.####}% of {code} (since {OwnershipHistory.HoldingSince(held[0], record.Ownerships):yyyy-MM-dd}). Record a transfer to change the share.");
 
     OwnershipShares.EnsureRoomFor(record.Current, sharePct);
     OwnershipHistory.EnsureCanStart(name, record.RowsOf(owner.Id), effectiveFrom, "the new share");
@@ -317,11 +317,11 @@ public static class OwnershipShares
 
     if (total >= Whole)
       throw new DomainException(
-        $"Current owners already hold {Whole:0.####}% of this property; nothing is unallocated. Record a transfer to move a share instead.");
+        $"The current owners already own {Whole:0.####}% of this property. No share is left without an owner. Record a transfer to move a share instead.");
 
     if (total + addingPct > Whole)
       throw new DomainException(
-        $"Shares held would total {total + addingPct:0.####}%. Only {Whole - total:0.####}% of this property is unallocated.");
+        $"The shares would add up to {total + addingPct:0.####}%. Only {Whole - total:0.####}% of this property has no owner yet.");
   }
 }
 
@@ -365,11 +365,11 @@ public static class OwnershipHistory
     var latest = rows.OrderByDescending(o => o.EffectiveFrom).First();
     if (date <= latest.EffectiveFrom)
       throw new DomainException(latest.IsCurrent
-        ? $"{ownerName} holds this share only since {latest.EffectiveFrom:yyyy-MM-dd}; date {what} after that."
-        : $"{ownerName} already has an ownership entry starting {latest.EffectiveFrom:yyyy-MM-dd}; date {what} after that.");
+        ? $"{ownerName} has owned this share only since {latest.EffectiveFrom:yyyy-MM-dd}. Date {what} after that."
+        : $"{ownerName} already has an ownership entry starting {latest.EffectiveFrom:yyyy-MM-dd}. Date {what} after that.");
 
     var lastEnd = rows.Where(o => o.EffectiveTo != null).Max(o => o.EffectiveTo);
     if (lastEnd is { } end && date < end)
-      throw new DomainException($"{ownerName}'s earlier ownership runs until {end:yyyy-MM-dd}; date {what} on or after that.");
+      throw new DomainException($"{ownerName}'s earlier ownership runs until {end:yyyy-MM-dd}. Date {what} on or after that.");
   }
 }

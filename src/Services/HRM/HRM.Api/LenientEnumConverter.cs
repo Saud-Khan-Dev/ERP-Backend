@@ -24,7 +24,7 @@ public sealed partial class LenientEnumConverter<T> : JsonConverter<T> where T :
       return value;
 
     throw new JsonException(raw is null
-      ? $"'{reader.TokenType.ToString().ToLowerInvariant()}' given; a name is expected. Use one of: {Allowed}."
+      ? $"'{reader.TokenType.ToString().ToLowerInvariant()}' was given, but a name is expected. Use one of: {Allowed}."
       : $"'{raw}' is not valid here. Use one of: {Allowed}.");
   }
 

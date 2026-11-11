@@ -105,10 +105,10 @@ public class OwnerTypeRuleTests
   }
 
   [Theory]
-  [InlineData(SystemMasterCodes.OwnerTypeCompany, "A company has no CNIC - use its NTN.")]
-  [InlineData(SystemMasterCodes.OwnerTypeTrust, "A trust has no CNIC - use its NTN.")]
-  [InlineData(SystemMasterCodes.OwnerTypeGovernment, "A government body has no CNIC - use its NTN.")]
-  [InlineData(SystemMasterCodes.OwnerTypeJointEntity, "A joint entity has no CNIC - use its NTN.")]
+  [InlineData(SystemMasterCodes.OwnerTypeCompany, "A company has no CNIC. Use its NTN.")]
+  [InlineData(SystemMasterCodes.OwnerTypeTrust, "A trust has no CNIC. Use its NTN.")]
+  [InlineData(SystemMasterCodes.OwnerTypeGovernment, "A government body has no CNIC. Use its NTN.")]
+  [InlineData(SystemMasterCodes.OwnerTypeJointEntity, "A joint entity has no CNIC. Use its NTN.")]
   public void An_organization_has_no_cnic(string code, string message)
   {
     var error = Assert.Throws<DomainException>(() => Register(Master<OwnerType>(code), cnic: "3520212345671"));

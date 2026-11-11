@@ -7,7 +7,7 @@ public class DomainException : Exception
 /// the API cannot leak whether a username exists — the specific reason is logged, not returned.
 public sealed class InvalidCredentialsException : DomainException
 {
-  public const string GenericMessage = "Invalid username or password.";
+  public const string GenericMessage = "The username or password is incorrect.";
 
   /// The real reason, for the audit log only.
   public string Reason { get; }

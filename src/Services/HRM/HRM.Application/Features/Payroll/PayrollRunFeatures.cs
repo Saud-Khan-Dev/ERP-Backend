@@ -271,14 +271,14 @@ public class PayrollRunHandlers(
         targets.IntersectWith(only);
       if (targets.Count == 0)
         problems.Add(run.RunType == PayrollRunType.Supplementary
-          ? "Everyone holding a post this month is already on another run of the month."
-          : "No one held a regular post during the month.");
+          ? "Everyone who has a post this month is already on another run for this month."
+          : "No one had a regular post during the month.");
     }
     else
     {
       targets = [.. slips.Select(s => s.EmployeeId)];
       if (targets.Count == 0)
-        problems.Add($"{EnumText.WithArticle(run.RunType, capitalized: true)} run is made of adjustments: add them for each employee, then calculate.");
+        problems.Add($"{EnumText.WithArticle(run.RunType, capitalized: true)} run is made of adjustments. Add them for each employee, then calculate.");
     }
 
     var employees = await context.Employees.AsNoTracking().Where(e => targets.Contains(e.Id)).ToListAsync(cancellationToken);
@@ -365,7 +365,7 @@ public class PayrollRunHandlers(
       return Result<FinalizePayrollRunResult>.Failure(refusal);
     var run = await context.LoadPayrollRunAsync(command.Id, cancellationToken);
     if (run.Status != PayrollRunStatus.Approved)
-      return Result<FinalizePayrollRunResult>.Failure($"The run is {EnumText.Words(run.Status)}; only an approved run can be finalized.");
+      return Result<FinalizePayrollRunResult>.Failure($"The run is {EnumText.Words(run.Status)}. Only an approved run can be finalized.");
     // maker-checker (PAYROLL_PAY): who approved does not post and pay
     await duty.EnsureSeparateAsync(DutyRules.PayrollPay, run.ApprovedBy, "finalize a payroll run you approved", run, cancellationToken);
 
@@ -456,7 +456,7 @@ public class PayrollRunHandlers(
     var run = await context.LoadPayrollRunAsync(command.Id, cancellationToken);
     var period = await context.PayrollPeriods.AsNoTracking().FirstAsync(p => p.Id == run.PayrollPeriodId, cancellationToken);
     if (period.Status == PayrollPeriodStatus.Locked)
-      return Result<ReversePayrollRunResult>.Failure($"{period.Label} is locked; its payroll can no longer be reversed.");
+      return Result<ReversePayrollRunResult>.Failure($"{period.Label} is locked. Its payroll can no longer be reversed.");
 
     var slips = await context.PayrollTransactions.AsNoTracking().Include(t => t.Lines).Include(t => t.LoanDeductions).AsSplitQuery()
       .Where(t => t.PayrollRunId == run.Id).ToListAsync(cancellationToken);
@@ -464,7 +464,7 @@ public class PayrollRunHandlers(
     var payments = await context.Payments.Where(p => slipIds.Contains(p.PayrollTransactionId)).ToListAsync(cancellationToken);
     var processed = payments.Count(p => p.PaymentStatus == PaymentStatus.Processed);
     if (processed > 0)
-      return Result<ReversePayrollRunResult>.Failure($"{processed} salary payment(s) of this run went out. Record them as returned before reversing the run.");
+      return Result<ReversePayrollRunResult>.Failure($"{processed} salary payment(s) of this run were sent out. Record them as returned before reversing the run.");
 
     using var quiet = audit.Quietly();
     run.Reverse(currentUser.UserId, clock.UtcNow, command.Reason);
@@ -611,7 +611,7 @@ public class PayrollRunHandlers(
     if (slip is null)
     {
       if (run.RunType == PayrollRunType.Supplementary && (await PaidElsewhereAsync(run, cancellationToken)).Contains(employee.Id))
-        return Result<CreatedResult>.Failure($"{employee.DisplayName} is already on another run of {period.Label}; add the adjustment there.");
+        return Result<CreatedResult>.Failure($"{employee.DisplayName} is already on another run of {period.Label}. Add the adjustment there.");
       slip = PayrollTransaction.Open(PayrollTransactionId.New(), run, employee);
       context.PayrollTransactions.Add(slip);
       slips.Add(slip);
@@ -688,7 +688,7 @@ public class PayrollRunHandlers(
     {
       if (await context.Payments.AnyAsync(p => p.PayrollTransactionId == slip.Id
           && (p.PaymentStatus == PaymentStatus.Pending || p.PaymentStatus == PaymentStatus.Processed), cancellationToken))
-        return Result<UpdatedResult>.Failure("A payment of this salary is pending or made; mark it failed or returned before holding the salary.");
+        return Result<UpdatedResult>.Failure("A payment of this salary is pending or has been made. Mark it failed or returned before holding the salary.");
       slip.Hold(command.Remarks);
     }
     else
@@ -842,7 +842,7 @@ public class PayrollRunHandlers(
     foreach (var e in employees)
     {
       if (e.SuperannuationDate(retirementAge) is { } due && due <= period.EndDate && !e.HasLeftService)
-        yield return $"{e.EmployeeNumber}: reached the retirement age on {due:dd'/'MM'/'yyyy} but no retirement is recorded - check before approving.";
+        yield return $"{e.EmployeeNumber}: reached the retirement age on {due:dd'/'MM'/'yyyy}, but no retirement is recorded. Check this before approving.";
     }
   }
 

@@ -170,7 +170,7 @@ public sealed class OfficeScope(IApplicationDbContext context, EmployeeScope sco
     if (!scope.IsLimited)
       return null;
     var names = await OfficeNamesAsync(cancellationToken);
-    return $"You cannot {act}: it covers every office, and your access is limited to {names}. Ask someone who works on all offices.";
+    return $"You cannot {act}. It covers every office, but your access is limited to {names}. Ask someone who works on all offices.";
   }
 
   /// "Finance Wing, Nathia Gali Office" - the offices the person works on, for messages.

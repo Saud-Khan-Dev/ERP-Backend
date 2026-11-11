@@ -67,7 +67,7 @@ public class BuildingPlan : Aggregate<BuildingPlanId>
     status.EnsureActive();
 
     if (status.Is(SystemMasterCodes.Approved) || status.Is(SystemMasterCodes.Rejected) || status.Is(SystemMasterCodes.Revised))
-      throw new DomainException("Use approve / reject / revise for these statuses.");
+      throw new DomainException("Use Approve, Reject or Revise to set these statuses.");
 
     BuildingPlanStatusId = status.Id;
   }
@@ -95,7 +95,7 @@ public class BuildingPlan : Aggregate<BuildingPlanId>
     Guard.DateOrder(approval.ApprovalDate, approval.ValidityEndDate, "Approval date", "Validity end date");
 
     if (today is { } day && approval.ApprovalDate > day)
-      throw new DomainException($"The approval date cannot be in the future ({approval.ApprovalDate:yyyy-MM-dd}); today is {day:yyyy-MM-dd}.");
+      throw new DomainException($"The approval date cannot be in the future ({approval.ApprovalDate:yyyy-MM-dd}). Today is {day:yyyy-MM-dd}.");
 
     BuildingPlanStatusId = approvedStatus.Id;
     ApprovalDate = approval.ApprovalDate;
@@ -106,7 +106,7 @@ public class BuildingPlan : Aggregate<BuildingPlanId>
     NoDuesCertificateNo = Guard.Text(approval.NoDuesCertificateNo, NoDuesCertificateMaxLength, "No-dues certificate no.");
 
     return slopeDegrees is { } slope && slope > PropertyBoundary.SteepSlopeDegrees
-      ? new[] { $"The plot's surveyed slope is {slope:0.##}°, above the 45° limit of the Building & Construction Regulations 2026; the plan was approved as entered." }
+      ? new[] { $"The plot's surveyed slope is {slope:0.##}°, above the 45° limit of the Building & Construction Regulations 2026. The plan was still approved as entered." }
       : Array.Empty<string>();
   }
 
@@ -123,7 +123,7 @@ public class BuildingPlan : Aggregate<BuildingPlanId>
       throw new DomainException($"Plan {PlanNo.Value} rev. {RevisionNo} is {currentStatus.Name.Value.ToLowerInvariant()}, not rejected, so the appeal has nothing to reopen.");
 
     BuildingPlanStatusId = submittedStatus.Id;
-    Remarks = RemarkText.Append(Remarks, $"Rejection set aside on appeal {appealNo}; under consideration again.");
+    Remarks = RemarkText.Append(Remarks, $"Rejection set aside on appeal {appealNo}. The plan is under consideration again.");
   }
 
   public void Reject(BuildingPlanStatus currentStatus, BuildingPlanStatus rejectedStatus, string? remarks)
@@ -145,7 +145,7 @@ public class BuildingPlan : Aggregate<BuildingPlanId>
       throw new DomainException("The supplied status does not match the plan.");
 
     if (currentStatus.Is(SystemMasterCodes.Revised))
-      throw new DomainException($"Revision {RevisionNo} of plan {PlanNo.Value} has already been revised; revise the latest revision.");
+      throw new DomainException($"Revision {RevisionNo} of plan {PlanNo.Value} has already been revised. Revise the latest revision instead.");
 
     var revision = new BuildingPlan
     {

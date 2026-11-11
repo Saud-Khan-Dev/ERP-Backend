@@ -17,7 +17,7 @@ public class AssetReportEndpoints : ICarterModule
 
       var filter = AssetQueryParsing.Read(http, user, new PaginationRequest(0, 1));
       if (totalsOnly == true && !filter.IncludeMoney)
-        throw new AccessDeniedException("The totals are money: they need the Asset finance right to view.");
+        throw new AccessDeniedException("The totals show money. Seeing them needs the Asset finance right to view.");
 
       var result = await sender.Send(new GetAssetReportQuery(filter, ids, asOf, totalsOnly ?? false));
       if (!result.IsSuccess)

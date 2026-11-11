@@ -76,7 +76,7 @@ public class AttributeAssignment : Aggregate<AttributeAssignmentId>
     ArgumentNullException.ThrowIfNull(target);
 
     if (target.Scope == AttributeScope.AssetClass)
-      throw new DomainException("A class is the top of the structure: there is nothing above it to hide a field from.");
+      throw new DomainException("A class is the top of the structure. There is nothing above it to hide a field from.");
 
     return new AttributeAssignment
     {
@@ -96,7 +96,7 @@ public class AttributeAssignment : Aggregate<AttributeAssignmentId>
   public void Update(AttributeGroupId? attributeGroupId, AttributeAssignmentOptions options, bool isActive)
   {
     if (IsHidden)
-      throw new DomainException("This field is marked \"not used here\". Use it here again first, then change how it is asked.");
+      throw new DomainException("This field is marked \"not used here\". Use it here again first. Then change how it is asked.");
 
     Apply(attributeGroupId, options);
     IsActive = isActive;
@@ -107,7 +107,7 @@ public class AttributeAssignment : Aggregate<AttributeAssignmentId>
     ArgumentNullException.ThrowIfNull(options);
 
     if (options.DependsOnAssignmentId is not null && options.DependsOnAssignmentId == Id)
-      throw new DomainException("An attribute cannot depend on itself.");
+      throw new DomainException("A field cannot depend on itself.");
 
     if (options.DependsOnAssignmentId is null && options.DependsOnValue is not null)
       throw new DomainException("Say which field this one depends on.");
@@ -165,7 +165,7 @@ public sealed record AttributeScopeTarget
       AttributeScope.AssetType when typeId.HasValue => ForType(AssetTypeId.Of(typeId.Value)),
       AttributeScope.Category when categoryId.HasValue => ForCategory(AssetCategoryId.Of(categoryId.Value)),
       AttributeScope.Asset when assetId.HasValue => ForAsset(AssetId.Of(assetId.Value)),
-      _ => throw new DomainException("The node does not match the level the field is added to.")
+      _ => throw new DomainException("The item chosen does not match the level the field is added to.")
     };
   }
 }

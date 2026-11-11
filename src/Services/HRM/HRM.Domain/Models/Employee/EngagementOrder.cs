@@ -22,10 +22,10 @@ public class EngagementOrder : Aggregate<EngagementOrderId>
       DateOnly startDate, DateOnly endDate, WageBasis wageBasis, decimal rate, EmployeeDocumentId letterDocumentId)
   {
     if (employee.EmploymentBasis is EmploymentBasis.Regular or EmploymentBasis.Deputation)
-      throw new DomainException($"{employee.DisplayName} is {EnumText.WithArticle(employee.EmploymentBasis)} employee; orders are for contingent staff, who hold no seat.");
+      throw new DomainException($"{employee.DisplayName} is {EnumText.WithArticle(employee.EmploymentBasis)} employee. Orders are for contingent staff, who do not have a seat.");
     Guard.DateOrder(startDate, endDate, "the first day", "The last day");
     if (rate <= 0)
-      throw new DomainException("Give the wage of the order.");
+      throw new DomainException("Enter the wage for the order.");
 
     return new EngagementOrder
     {

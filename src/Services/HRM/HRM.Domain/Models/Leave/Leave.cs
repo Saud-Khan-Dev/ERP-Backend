@@ -25,7 +25,7 @@ public class LeaveType : Aggregate<LeaveTypeId>
   public void EnsureActive()
   {
     if (!IsActive)
-      throw new DomainException($"'{Name}' is no longer in use; choose another leave type.");
+      throw new DomainException($"'{Name}' is no longer in use. Choose another leave type.");
   }
 
   public void Update(string name, bool isPaid, decimal? maxDaysPerYear, string? accrualRule, bool carryForwardAllowed, bool affectsPayroll)
@@ -93,7 +93,7 @@ public class LeaveEntitlement : Aggregate<LeaveEntitlementId>
   {
     var days = decimal.Round(Guard.Between(entitledDays, 0, 366, "Entitled days"), 2);
     if (days + ledgerTotal < 0)
-      throw new DomainException($"{-ledgerTotal:0.##} day(s) are already used; the entitlement cannot be lower than that.");
+      throw new DomainException($"{-ledgerTotal:0.##} day(s) are already used. The entitlement cannot be lower than that.");
 
     EntitledDays = days;
     IsPlaceholder = false;
@@ -174,7 +174,7 @@ public class LeaveApplication : Aggregate<LeaveApplicationId>
       IReadOnlyCollection<LeaveApplication> others)
   {
     if (!leaveType.AffectsPayroll)
-      throw new DomainException($"'{leaveType.Name}' is not deducted from pay; leave without pay needs a type that is.");
+      throw new DomainException($"'{leaveType.Name}' is not deducted from pay. Leave without pay needs a type that is deducted from pay.");
 
     var application = Apply(id, employee, leaveType, startDate, endDate, days, reason, DateOnly.FromDateTime(at), others);
     application.HrActionId = hrActionId;
@@ -189,7 +189,7 @@ public class LeaveApplication : Aggregate<LeaveApplicationId>
   public void Change(DateOnly startDate, DateOnly endDate, decimal days, string? reason, IReadOnlyCollection<LeaveApplication> others)
   {
     if (Status != LeaveStatus.Pending)
-      throw new DomainException($"The application is {EnumText.Words(Status)}; only a pending one can be changed.");
+      throw new DomainException($"The application is {EnumText.Words(Status)}. Only a pending one can be changed.");
 
     SetPeriod(startDate, endDate, days, reason, others);
   }
@@ -198,7 +198,7 @@ public class LeaveApplication : Aggregate<LeaveApplicationId>
   public void ApproveForHrAction(HrActionRequestId hrActionId, Guid? approvedBy, DateTime at)
   {
     if (Status != LeaveStatus.Pending)
-      throw new DomainException($"The application is {EnumText.Words(Status)}; only a pending one can be approved.");
+      throw new DomainException($"The application is {EnumText.Words(Status)}. Only a pending one can be approved.");
 
     HrActionId = hrActionId;
     ApprovedBy = Guard.Actor(approvedBy, "approve leave");
@@ -213,7 +213,7 @@ public class LeaveApplication : Aggregate<LeaveApplicationId>
   public IReadOnlyList<LeaveLedgerEntry> Approve(Guid? approvedBy, EmployeeId? approverEmployeeId, DateTime at, IReadOnlyList<LeaveDaysByYear> daysByYear)
   {
     if (Status != LeaveStatus.Pending)
-      throw new DomainException($"The application is {EnumText.Words(Status)}; only a pending one can be approved.");
+      throw new DomainException($"The application is {EnumText.Words(Status)}. Only a pending one can be approved.");
     EnsureNotOwn(approverEmployeeId, "approve");
 
     if (daysByYear.Sum(d => d.Days) != Days)
@@ -236,10 +236,10 @@ public class LeaveApplication : Aggregate<LeaveApplicationId>
   public void Reject(Guid? rejectedBy, EmployeeId? rejecterEmployeeId, DateTime at, string? reason)
   {
     if (Status != LeaveStatus.Pending)
-      throw new DomainException($"The application is {EnumText.Words(Status)}; only a pending one can be rejected.");
+      throw new DomainException($"The application is {EnumText.Words(Status)}. Only a pending one can be rejected.");
     EnsureNotOwn(rejecterEmployeeId, "decide");
 
-    DecisionReason = Guard.Text(reason, 1000, "Reason") ?? throw new DomainException("Give the reason for rejecting the leave; the employee sees it.");
+    DecisionReason = Guard.Text(reason, 1000, "Reason") ?? throw new DomainException("Enter the reason for rejecting the leave. The employee will see it.");
     DecidedBy = Guard.Actor(rejectedBy, "reject leave");
     DecidedAt = at;
     Status = LeaveStatus.Rejected;
@@ -256,7 +256,7 @@ public class LeaveApplication : Aggregate<LeaveApplicationId>
     var wasApproved = Status == LeaveStatus.Approved;
     var why = Guard.Text(reason, 1000, "Reason");
     if (wasApproved && why is null)
-      throw new DomainException("Give the reason for cancelling an approved leave.");
+      throw new DomainException("Enter the reason for cancelling an approved leave.");
 
     Status = LeaveStatus.Cancelled;
     DecidedBy = cancelledBy;
@@ -280,7 +280,7 @@ public class LeaveApplication : Aggregate<LeaveApplicationId>
   private void EnsureNotOwn(EmployeeId? deciderEmployeeId, string verb)
   {
     if (deciderEmployeeId is not null && deciderEmployeeId == EmployeeId)
-      throw new DomainException($"You cannot {verb} your own leave; another officer decides it.");
+      throw new DomainException($"You cannot {verb} your own leave. Another officer must decide it.");
   }
 
   private void SetPeriod(DateOnly startDate, DateOnly endDate, decimal days, string? reason, IReadOnlyCollection<LeaveApplication> others)
@@ -290,7 +290,7 @@ public class LeaveApplication : Aggregate<LeaveApplicationId>
     var calendarDays = endDate.DayNumber - startDate.DayNumber + 1;
     days = decimal.Round(days, 2);
     if (days <= 0)
-      throw new DomainException("The leave must be for more than zero days (are all the days holidays or off days?).");
+      throw new DomainException("The leave must be for more than zero days. Check whether all the days are holidays or off days.");
     if (days > calendarDays)
       throw new DomainException($"{days:0.##} day(s) do not fit between {startDate:yyyy-MM-dd} and {endDate:yyyy-MM-dd}.");
     if (days % 0.5m != 0)
@@ -411,7 +411,7 @@ public static class LeaveDayCounter
       return counted;
 
     if (days != total - 0.5m)
-      throw new DomainException($"{total:0.##} working day(s) fall in these dates; the leave is {total:0.##} day(s), or {total - 0.5m:0.##} with a half day.");
+      throw new DomainException($"{total:0.##} working day(s) fall in these dates. So the leave is {total:0.##} day(s), or {total - 0.5m:0.##} with a half day.");
 
     return Split(days, counted, from);
   }

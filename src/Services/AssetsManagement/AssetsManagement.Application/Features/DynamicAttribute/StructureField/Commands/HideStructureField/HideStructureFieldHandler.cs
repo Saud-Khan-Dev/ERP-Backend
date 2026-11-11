@@ -22,7 +22,7 @@ public class HideStructureFieldHandler(IApplicationDbContext context, IAttribute
     if (own is { IsHidden: true })
       return Result<HideStructureFieldCommandResult>.Failure($"'{definition.Name.Value}' is already left off this form.");
     if (own is not null)
-      return Result<HideStructureFieldCommandResult>.Failure($"'{definition.Name.Value}' is added on this node itself. Remove it here instead.");
+      return Result<HideStructureFieldCommandResult>.Failure($"'{definition.Name.Value}' was added at this level itself. Remove it here instead.");
 
     var hidden = AttributeAssignment.CreateHidden(AttributeAssignmentId.Of(Guid.NewGuid()), definitionId, target, command.InheritToChildren);
     await context.AttributeAssignments.AddAsync(hidden, cancellationToken);
@@ -41,7 +41,7 @@ public class HideStructureFieldHandler(IApplicationDbContext context, IAttribute
       ?? throw new AttributeAssignmentNotFoundException("That field is already used here.");
 
     if (!hidden.IsHidden)
-      return Result<HideStructureFieldCommandResult>.Failure("That field is used here; there is nothing to undo.");
+      return Result<HideStructureFieldCommandResult>.Failure("That field is used here. There is nothing to undo.");
 
     context.AttributeAssignments.Remove(hidden);
     await context.SaveChangesAsync(cancellationToken);

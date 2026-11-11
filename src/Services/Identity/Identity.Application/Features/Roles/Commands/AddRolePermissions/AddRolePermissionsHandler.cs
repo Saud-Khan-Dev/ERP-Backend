@@ -20,7 +20,7 @@ public class AddRolePermissionsHandler(IApplicationDbContext context, IdentityGu
     var found = await context.Permissions.CountAsync(p => ids.Contains(p.Id), cancellationToken);
 
     if (found != ids.Count)
-      throw new PermissionNotFoundException("One or more of the supplied permissions was not found.");
+      throw new PermissionNotFoundException("Some of the chosen permissions were not found.");
 
     var existing = await context.RolePermissions
         .Where(rp => rp.RoleId == roleId && ids.Contains(rp.PermissionId))

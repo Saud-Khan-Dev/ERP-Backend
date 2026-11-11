@@ -32,10 +32,10 @@ public sealed class PaymentPosting(
       return Result<ReceivePaymentResult>.Failure($"Nothing is owed on reference {Numbers.FormatPsid(file.Psid)}.");
     var amount = Rupees.Round(received.Amount);
     if (amount > duesBefore)
-      return Result<ReceivePaymentResult>.Failure($"The amount exceeds the {Rupees.Text(duesBefore)} behind this reference.");
+      return Result<ReceivePaymentResult>.Failure($"The amount is more than the {Rupees.Text(duesBefore)} owed on this reference.");
     var paidAt = received.PaidAt ?? clock.UtcNow;
     if (DateOnly.FromDateTime(paidAt.AddHours(5)) < file.OpenedOn)
-      return Result<ReceivePaymentResult>.Failure($"{file.FileNo} was opened on {file.OpenedOn:dd'/'MM'/'yyyy}; a payment on it cannot be dated before that.");
+      return Result<ReceivePaymentResult>.Failure($"{file.FileNo} was opened on {file.OpenedOn:dd'/'MM'/'yyyy}. A payment on it cannot be dated before that.");
 
     var manual = Payment.IsManual(received.Channel);
     var receipt = manual ? await ReceiptNoAsync(received.ReceiptNo, cancellationToken) : null;

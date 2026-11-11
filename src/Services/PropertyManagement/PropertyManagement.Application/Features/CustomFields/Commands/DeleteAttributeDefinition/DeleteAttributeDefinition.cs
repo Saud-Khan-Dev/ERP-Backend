@@ -17,7 +17,7 @@ public class DeleteAttributeDefinitionHandler(IApplicationDbContext context)
 
     if (held > 0)
       return Result<DeleteAttributeDefinitionCommandResult>.Failure(
-        $"{held} propert{(held == 1 ? "y holds" : "ies hold")} a value for '{definition.Label.Value}', so it cannot be deleted. Switch it off instead: the values stay readable.");
+        $"{held} propert{(held == 1 ? "y has" : "ies have")} a value for '{definition.Label.Value}', so it cannot be deleted. Switch it off instead. The values can still be read.");
 
     // rows a property saved empty carry nothing
     foreach (var empty in values)

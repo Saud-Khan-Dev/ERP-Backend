@@ -18,10 +18,10 @@ public sealed record EmailAddress
     value = value.Trim().ToLowerInvariant();
 
     if (value.Length > MaxLength)
-      throw new DomainException($"Email cannot exceed {MaxLength} characters.");
+      throw new DomainException($"Email can be at most {MaxLength} characters long.");
 
     if (!Pattern.IsMatch(value))
-      throw new DomainException("Email is not a valid address.");
+      throw new DomainException("This email address is not valid.");
 
     return new EmailAddress(value);
   }

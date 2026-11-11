@@ -42,7 +42,7 @@ public class RecordViolationHandler(IApplicationDbContext context, MasterLookup 
       if (!currentUser.HasPermission(PermissionCatalog.Property.Approve))
         throw new PermissionRequiredException(
           $"This is violation no. {violation.OccurrenceNo} within the notice period, so recording it cancels {(lease is not null ? lease.LeaseNo.Value : rental!.RentalNo.Value)} (Act s.28-A). "
-          + "A cancellation is an approver's act: ask an officer who can approve to record it.");
+          + "Only an approver can record a cancellation. Ask an officer who can approve to record it.");
 
       var reason = $"Cancelled under Act s.28-A: violation no. {violation.OccurrenceNo} within the notice period.";
 

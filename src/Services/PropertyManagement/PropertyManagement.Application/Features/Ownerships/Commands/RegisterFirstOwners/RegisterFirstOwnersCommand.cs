@@ -24,8 +24,8 @@ public class OwnershipInputValidator : AbstractValidator<OwnershipInput>
   {
     RuleFor(x => x.OwnerId).NotEmpty().WithMessage("Choose the owner.");
     RuleFor(x => x.TenureTypeId).NotEmpty().WithMessage("Choose how the property is held.");
-    RuleFor(x => x.OwnershipSharePct).GreaterThan(0).LessThanOrEqualTo(100).WithMessage("A share is more than 0% and at most 100%.");
-    RuleFor(x => x.EffectiveFrom).NotEmpty().WithMessage("The date the owner holds the share from is required.");
+    RuleFor(x => x.OwnershipSharePct).GreaterThan(0).LessThanOrEqualTo(100).WithMessage("A share must be more than 0% and not more than 100%.");
+    RuleFor(x => x.EffectiveFrom).NotEmpty().WithMessage("Give the date from which the owner owns the share.");
     RuleFor(x => x.ReferenceNo).MaximumLength(100);
     RuleFor(x => x.Remarks).MaximumLength(4000);
   }

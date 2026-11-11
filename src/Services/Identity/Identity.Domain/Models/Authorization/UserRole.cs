@@ -22,7 +22,7 @@ public class UserRole : Entity<UserRoleId>
     ArgumentNullException.ThrowIfNull(roleId);
 
     if (expiresAt.HasValue && expiresAt.Value <= now)
-      throw new DomainException("A role grant cannot expire in the past.");
+      throw new DomainException("A role cannot be given with an end date in the past.");
 
     return new UserRole
     {
@@ -38,7 +38,7 @@ public class UserRole : Entity<UserRoleId>
   public void Revoke(DateTime now)
   {
     if (RevokedAt.HasValue)
-      throw new DomainException("This role grant has already been revoked.");
+      throw new DomainException("This role has already been taken away.");
 
     RevokedAt = now;
   }

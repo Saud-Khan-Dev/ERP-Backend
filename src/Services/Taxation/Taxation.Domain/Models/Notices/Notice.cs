@@ -119,7 +119,7 @@ public class Notice : Aggregate<NoticeId>
       NoticeParticulars particulars, PenaltyRunId? penaltyRunId, bool sendSms)
   {
     if (!demand.IsIssued)
-      throw new DomainException($"{demand.DemandNo} is not issued; notices go out on issued demands.");
+      throw new DomainException($"{demand.DemandNo} is not issued. Notices are sent only on issued demands.");
     if (template.Stage != stage)
       throw new DomainException("The template is for another stage.");
     if (file.Psid is null)
@@ -186,7 +186,7 @@ public class Notice : Aggregate<NoticeId>
     if (changes.Days is { } d && d != v.Days)
     {
       if (d is < 1 or > 90)
-        throw new DomainException("Days to pay: a whole number from 1 to 90.");
+        throw new DomainException("Days to pay must be a whole number from 1 to 90.");
       edits.Add(new NoticeEdit("days", v.Days.ToString(), d.ToString(), changes.Reason ?? "", actor, now));
       days = d;
     }
@@ -225,7 +225,7 @@ public class Notice : Aggregate<NoticeId>
       replyBy = reply;
     }
     if (replyBy < issueDate)
-      throw new DomainException("The pay-by date cannot be before the notice date - give a later pay-by date with the new notice date.");
+      throw new DomainException("The pay-by date cannot be before the notice date. Give a later pay-by date with the new notice date.");
 
     if (edits.Count > 0 && string.IsNullOrWhiteSpace(changes.Reason))
       throw new DomainException("Give a reason for the edit.");
@@ -306,7 +306,7 @@ public class Notice : Aggregate<NoticeId>
   private void EnsurePending()
   {
     if (Status != NoticeStatus.Pending)
-      throw new DomainException($"Notice {NoticeNo} is {EnumText.Words(Status)}; only a pending notice can change.");
+      throw new DomainException($"Notice {NoticeNo} is {EnumText.Words(Status)}. Only a pending notice can change.");
   }
 
   private static IReadOnlyList<NoticeColumn> WithParticular(IReadOnlyList<NoticeColumn> columns)

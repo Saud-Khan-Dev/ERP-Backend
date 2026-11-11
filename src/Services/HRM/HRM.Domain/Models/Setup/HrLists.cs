@@ -19,7 +19,7 @@ public class QualificationLevel : Aggregate<QualificationLevelId>
   {
     Name = Guard.RequiredText(name, 100, "Qualification level");
     if (rank is < 1 or > 99)
-      throw new DomainException("The rank is 1 to 99 (higher = higher qualification).");
+      throw new DomainException("The rank must be between 1 and 99. A higher rank means a higher qualification.");
     Rank = rank;
   }
 
@@ -107,7 +107,7 @@ public class AdjustmentType : Aggregate<AdjustmentTypeId>
   public void Update(string name, AdjustmentDirection direction)
   {
     if (IsSystem && Direction != direction && Name is not null)
-      throw new DomainException($"'{Name}' is written by the arrears run; whether it raises or lowers pay cannot change.");
+      throw new DomainException($"'{Name}' is set by the arrears run, so you cannot change whether it raises or lowers pay.");
     Name = Guard.RequiredText(name, 100, "Adjustment type");
     Direction = direction;
   }
@@ -115,7 +115,7 @@ public class AdjustmentType : Aggregate<AdjustmentTypeId>
   public void SetActive(bool isActive)
   {
     if (!isActive && IsSystem)
-      throw new DomainException($"'{Name}' is written by the arrears run; it cannot be switched off.");
+      throw new DomainException($"'{Name}' is set by the arrears run, so it cannot be switched off.");
     IsActive = isActive;
   }
 
@@ -129,8 +129,8 @@ public class AdjustmentType : Aggregate<AdjustmentTypeId>
   public void EnsureFits(decimal amount)
   {
     if (Direction == AdjustmentDirection.Lowers && amount > 0)
-      throw new DomainException($"{Name} lowers net pay: enter it as a negative amount.");
+      throw new DomainException($"{Name} lowers net pay. Enter it as a negative amount.");
     if (Direction == AdjustmentDirection.Raises && amount < 0)
-      throw new DomainException($"{Name} raises net pay: enter it as a positive amount.");
+      throw new DomainException($"{Name} raises net pay. Enter it as a positive amount.");
   }
 }

@@ -22,7 +22,7 @@ public sealed record AttributeCode
       throw new DomainException($"Attribute code cannot exceed {MaxLength} characters.");
 
     if (!Pattern.IsMatch(value))
-      throw new DomainException("Attribute code must start with a letter and contain only lower-case letters, digits and underscores (e.g. ram_gb).");
+      throw new DomainException("Attribute code must start with a letter. It can use only small letters, numbers and underscores (for example ram_gb).");
 
     return new AttributeCode(value);
   }

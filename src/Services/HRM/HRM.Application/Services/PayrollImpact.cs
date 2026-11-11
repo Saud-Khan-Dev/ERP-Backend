@@ -7,8 +7,8 @@ public sealed record PayrollImpactDto(Guid RunId, string? RunLabel, PayrollRunTy
 /// told what to recover or pay as arrears.
 public class PayrollImpactFinder(IApplicationDbContext context)
 {
-  public const string Arrears = "Paid on the old figures: work out the arrears for this month.";
-  public const string Recovery = "Paid for days that are no longer payable: recover the overpayment from the next pay.";
+  public const string Arrears = "Paid on the old figures. Work out the arrears for this month.";
+  public const string Recovery = "Paid for days that are no longer payable. Recover the overpayment from the next pay.";
 
   /// Posted runs of months ending on or after `from` (and starting on or before `to`) that paid the employee.
   public async Task<IReadOnlyList<PayrollImpactDto>> RunsAsync(EmployeeId employeeId, DateOnly first, DateOnly? last, string effect, CancellationToken cancellationToken)

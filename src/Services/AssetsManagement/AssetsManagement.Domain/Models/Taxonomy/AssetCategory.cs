@@ -37,7 +37,7 @@ public class AssetCategory : Aggregate<AssetCategoryId>
       throw new DomainException("A category must belong to the same asset class as its parent.");
 
     if (parent is not null && parent.AssetTypeId != assetTypeId)
-      throw new DomainException("A sub-category belongs to the same asset type as its parent.");
+      throw new DomainException("A sub-category must have the same asset type as its parent.");
 
     var category = new AssetCategory
     {
@@ -84,7 +84,7 @@ public class AssetCategory : Aggregate<AssetCategoryId>
         throw new DomainException("A category must belong to the same asset class as its parent.");
 
       if (parent.AssetTypeId != AssetTypeId)
-        throw new DomainException("A sub-category belongs to the same asset type as its parent.");
+        throw new DomainException("A sub-category must have the same asset type as its parent.");
 
       if (Path is not null && IsAncestorOf(parent))
         throw new DomainException("A category cannot be moved under one of its own sub-categories.");

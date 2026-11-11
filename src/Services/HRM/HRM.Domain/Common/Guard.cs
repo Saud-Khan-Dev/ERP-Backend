@@ -10,7 +10,7 @@ public static class Guard
     value = value.Trim();
 
     if (value.Length > maxLength)
-      throw new DomainException($"{field} cannot exceed {maxLength} characters.");
+      throw new DomainException($"{field} can have at most {maxLength} characters.");
 
     return value;
   }
@@ -26,7 +26,7 @@ public static class Guard
     foreach (var c in code)
     {
       if (!(char.IsAsciiLetterOrDigit(c) || c is '-' or '_' or '/'))
-        throw new DomainException($"{field} may only contain letters, digits, '-', '_' and '/' (e.g. GDA-ENG-01).");
+        throw new DomainException($"{field} can only have letters, digits, '-', '_' and '/' (e.g. GDA-ENG-01).");
     }
 
     return code;

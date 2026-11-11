@@ -144,7 +144,7 @@ public class PayScaleVersion : Aggregate<PayScaleVersionId>
       if (pay >= maxBasicPay)
         break;
       if (stages.Count > 100)
-        throw new DomainException("The increment is too small for this range: a scale cannot have more than 100 stages.");
+        throw new DomainException("The increment is too small for this range. A scale cannot have more than 100 stages.");
       pay += annualIncrement;
     }
 
@@ -160,7 +160,7 @@ public class PayScaleVersion : Aggregate<PayScaleVersionId>
       throw new DomainException("A pay scale needs at least one stage.");
 
     if (stages.Select(s => s.StageNumber).Distinct().Count() != stages.Count)
-      throw new DomainException("Each stage number may appear only once.");
+      throw new DomainException("Each stage number can be used only once.");
 
     var ordered = stages.OrderBy(s => s.StageNumber).ToList();
     decimal? previous = null;

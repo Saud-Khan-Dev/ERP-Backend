@@ -77,7 +77,7 @@ public class AssetExceptionHandler(ILogger<AssetExceptionHandler> logger) : IExc
 
       _ => (
         Title: exception.GetType().Name,
-        Detail: "Something went wrong on the server. Nothing was saved - try again.",
+        Detail: "Something went wrong on the server. Nothing was saved. Try again.",
         StatusCode: StatusCodes.Status500InternalServerError
       )
     };
@@ -138,7 +138,7 @@ public class AssetExceptionHandler(ILogger<AssetExceptionHandler> logger) : IExc
 
   private static readonly Dictionary<string, string> ConstraintMessages = new(StringComparer.Ordinal)
   {
-    ["ix_asset_asset_code"] = "This asset tag is already in use. Try again - a new tag will be issued.",
+    ["ix_asset_asset_code"] = "This asset tag is already in use. Try again and a new tag will be issued.",
     ["ix_asset_barcode"] = "This barcode is already used by another asset.",
     ["ux_asset_depreciation_schedule_active"] = "The asset already has an active depreciation schedule.",
     ["ix_asset_acquisition_asset_id"] = "The asset already has a purchase record.",

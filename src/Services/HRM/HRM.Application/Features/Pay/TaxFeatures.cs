@@ -102,7 +102,7 @@ public class SetTaxOpeningCommandValidator : AbstractValidator<SetTaxOpeningComm
   {
     RuleFor(x => x.TaxableIncome).GreaterThanOrEqualTo(0);
     RuleFor(x => x.TaxWithheld).GreaterThanOrEqualTo(0);
-    RuleFor(x => x.Remarks).NotEmpty().WithMessage("Say where the figures come from.").MaximumLength(1000);
+    RuleFor(x => x.Remarks).NotEmpty().WithMessage("Enter where the figures come from.").MaximumLength(1000);
   }
 }
 
@@ -198,7 +198,7 @@ public class TaxHandlers(IApplicationDbContext context, IClock clock, DutyGuard 
     var year = await context.LoadTaxYearAsync(command.Id, cancellationToken);
     if ((year.StartDate != command.StartDate || year.EndDate != command.EndDate)
         && await context.TaxLedger.AnyAsync(l => l.TaxYearId == year.Id, cancellationToken))
-      return Result<UpdatedResult>.Failure($"Tax has already been withheld in {year.YearLabel}; its dates cannot change.");
+      return Result<UpdatedResult>.Failure($"Tax has already been withheld in {year.YearLabel}. Its dates cannot change.");
 
     year.Update(command.YearLabel, command.StartDate, command.EndDate);
     if (await context.TaxYears.AnyAsync(t => t.Id != year.Id && t.YearLabel == year.YearLabel, cancellationToken))
@@ -261,7 +261,7 @@ public class TaxHandlers(IApplicationDbContext context, IClock clock, DutyGuard 
     var exemption = EmployeeTaxExemption.Create(TaxExemptionId.New(), employee.Id, year, command.ExemptionType, command.Amount);
     if (await context.TaxExemptions.AnyAsync(e => e.EmployeeId == employee.Id && e.TaxYearId == year.Id
         && e.ExemptionType.ToLower() == exemption.ExemptionType.ToLower(), cancellationToken))
-      return Result<CreatedResult>.Failure($"{exemption.ExemptionType} is already recorded for {year.YearLabel}; change that entry instead.");
+      return Result<CreatedResult>.Failure($"{exemption.ExemptionType} is already recorded for {year.YearLabel}. Change that entry instead.");
 
     context.TaxExemptions.Add(exemption);
     await context.SaveChangesAsync(cancellationToken);

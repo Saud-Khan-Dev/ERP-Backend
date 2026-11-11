@@ -38,10 +38,10 @@ public class DepreciationMethod : Aggregate<DepreciationMethodId>
     ArgumentNullException.ThrowIfNull(name);
 
     if ((IsSystem || inUse) && code != Code)
-      throw new DomainException($"The code of '{Name.Value}' cannot change: {(IsSystem ? "the system relies on it" : "schedules use it")}.");
+      throw new DomainException($"The code of '{Name.Value}' cannot change. {(IsSystem ? "The system relies on it" : "Schedules use it")}.");
 
     if ((IsSystem || inUse) && kind != Kind)
-      throw new DomainException($"How '{Name.Value}' is worked out cannot change: {(IsSystem ? "it is one of the system's methods" : "schedules use it")}. Add a new method instead.");
+      throw new DomainException($"How '{Name.Value}' is worked out cannot change. {(IsSystem ? "It is one of the system's methods" : "Schedules use it")}. Add a new method instead.");
 
     Code = code;
     Name = name;

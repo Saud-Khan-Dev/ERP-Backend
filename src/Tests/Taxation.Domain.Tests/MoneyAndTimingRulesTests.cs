@@ -274,7 +274,7 @@ public class MoneyAndTimingRulesTests
     file.AddOverride(PropertyTax, OverrideMode.Minimum, null, 20000, false, "Board", null, D("2025-07-01"), Officer, Now);
     var later = file.AddOverride(PropertyTax, OverrideMode.Minimum, null, 30000, false, "typo", null, D("2027-07-01"), Officer, Now);
     Assert.Equal(D("2027-06-30"), file.Overrides.First().EffectiveTo);
-    Assert.Contains("in force since", Assert.Throws<DomainException>(() => file.VoidOverride(file.Overrides.First().Id, D("2026-01-01"))).Message);
+    Assert.Contains("active since", Assert.Throws<DomainException>(() => file.VoidOverride(file.Overrides.First().Id, D("2026-01-01"))).Message);
     file.VoidOverride(later.Id, D("2026-01-01"));
     Assert.Single(file.Overrides);
     Assert.Null(file.Overrides.Single().EffectiveTo);
@@ -301,7 +301,7 @@ public class MoneyAndTimingRulesTests
     Assert.Equal(D("2026-06-30"), rule.EffectiveTo);
     Assert.Equal(3m, next.Rate);
     Assert.Equal(2m, rule.Rate);
-    Assert.Contains("in force since", Assert.Throws<DomainException>(() => PenaltyRule.Void(rule, [rule, next], D("2026-01-01"))).Message);
+    Assert.Contains("active since", Assert.Throws<DomainException>(() => PenaltyRule.Void(rule, [rule, next], D("2026-01-01"))).Message);
     PenaltyRule.Void(next, [rule, next], D("2026-01-01"));
     Assert.Null(rule.EffectiveTo);
   }

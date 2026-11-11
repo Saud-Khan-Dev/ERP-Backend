@@ -19,10 +19,10 @@ public sealed record LookupCode
     value = value.Trim().ToUpperInvariant().Replace(' ', '_').Replace('-', '_');
 
     if (value.Length > MaxLength)
-      throw new DomainException($"Code cannot exceed {MaxLength} characters.");
+      throw new DomainException($"Code can be at most {MaxLength} characters long.");
 
     if (!Pattern.IsMatch(value))
-      throw new DomainException("Code may only contain upper-case letters, digits and underscores (e.g. ASSET_MANAGER).");
+      throw new DomainException("Code can only have capital letters, digits and underscores (for example ASSET_MANAGER).");
 
     return new LookupCode(value);
   }

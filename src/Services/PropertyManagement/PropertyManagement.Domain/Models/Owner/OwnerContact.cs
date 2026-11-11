@@ -25,7 +25,7 @@ public class OwnerContact : Entity<OwnerContactId>
 
     var number = Guard.RequiredText(contactNumber, 30, "Contact number");
     if (!NumberPattern.IsMatch(number))
-      throw new DomainException("Contact number may only contain digits, spaces, '-', '(' ')' and a leading '+'.");
+      throw new DomainException("Contact number can only have digits, spaces, '-', '(' and ')'. A '+' can only be the first character.");
 
     ContactTypeId = contactTypeId;
     ContactNumber = number;

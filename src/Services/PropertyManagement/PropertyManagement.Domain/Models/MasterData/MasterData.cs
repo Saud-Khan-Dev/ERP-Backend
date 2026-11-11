@@ -21,7 +21,7 @@ public abstract class MasterData : Entity<MasterId>
 
     var codeLength = MasterLimits.For(typeof(T)).CodeLength;
     if (code.Value.Length > codeLength)
-      throw new DomainException($"Code cannot exceed {codeLength} characters.");
+      throw new DomainException($"Code can have at most {codeLength} characters.");
 
     var master = new T { Id = id, Code = code, IsActive = true };
     master.Apply(name, description, sortOrder, extras ?? MasterExtras.None);
@@ -60,7 +60,7 @@ public abstract class MasterData : Entity<MasterId>
 
     var nameLength = MasterLimits.For(GetType()).NameLength;
     if (name.Value.Length > nameLength)
-      throw new DomainException($"Name cannot exceed {nameLength} characters.");
+      throw new DomainException($"Name can have at most {nameLength} characters.");
 
     Name = name;
     Description = Guard.Text(description, 2000, "Description");

@@ -86,7 +86,7 @@ public class PropertyDocument : Aggregate<DocumentId>
     if (entityType == DocumentEntityType.Owner)
     {
       if (propertyId is not null)
-        throw new DomainException("An owner's document is not filed under a property - leave the property empty.");
+        throw new DomainException("An owner's document is not filed under a property. Leave the property empty.");
     }
     else
     {

@@ -110,7 +110,7 @@ public class NoticeLetterhead : Aggregate<NoticeLetterheadId>
   public NoticeLetterhead Revise(NoticeLetterheadId id, LetterheadInput input, string? logoLeftRef, string? logoRightRef, DateOnly effectiveFrom)
   {
     if (effectiveFrom < EffectiveFrom)
-      throw new DomainException($"The letterhead in force started on {EffectiveFrom:yyyy-MM-dd}; a new one cannot start before it.");
+      throw new DomainException($"The letterhead in use started on {EffectiveFrom:yyyy-MM-dd}. A new one cannot start before it.");
     var next = Create(id, input, logoLeftRef, logoRightRef, effectiveFrom);
     EffectiveTo = effectiveFrom.AddDays(-1);
     return next;
@@ -202,7 +202,7 @@ public class NoticeTableLayout : Aggregate<NoticeTableLayoutId>
 
     var missing = requiredHeads.Where(c => !seen.ContainsKey(c)).Select(c => knownHeads.GetValueOrDefault(c, c)).ToList();
     if (missing.Count > 0)
-      throw new DomainException($"Every head a notice can carry needs a row; {string.Join(", ", missing)} {(missing.Count == 1 ? "has" : "have")} none.");
+      throw new DomainException($"Every head a notice can carry needs a row. {string.Join(", ", missing)} {(missing.Count == 1 ? "has" : "have")} none.");
 
     var columns = input.Columns.ToDictionary(c => c.Key);
     var colOrder = 0;
@@ -221,7 +221,7 @@ public class NoticeTableLayout : Aggregate<NoticeTableLayoutId>
   public void EndBefore(DateOnly nextStart)
   {
     if (nextStart < EffectiveFrom)
-      throw new DomainException($"The layout in force started on {EffectiveFrom:yyyy-MM-dd}; a new one cannot start before it.");
+      throw new DomainException($"The layout in use started on {EffectiveFrom:yyyy-MM-dd}. A new one cannot start before it.");
     EffectiveTo = nextStart.AddDays(-1);
   }
 

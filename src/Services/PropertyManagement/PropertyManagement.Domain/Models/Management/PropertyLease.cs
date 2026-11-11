@@ -55,7 +55,7 @@ public class PropertyLease : Aggregate<LeaseId>
     lessee.EnsureCanTakeOn("a lease");
 
     if (!initialStatus.Is(SystemMasterCodes.Draft) && !initialStatus.Is(SystemMasterCodes.Active))
-      throw new DomainException("A new lease starts as DRAFT or ACTIVE.");
+      throw new DomainException("A new lease starts as a draft or active.");
 
     var lease = new PropertyLease
     {
@@ -93,7 +93,7 @@ public class PropertyLease : Aggregate<LeaseId>
 
     if (termsChanged)
       throw new DomainException(
-        $"Lease {LeaseNo.Value} is in force, so its terms are history: renew or revise it to change the amount, dates or purpose. Only the agreement reference, its date and the remarks can be corrected.");
+        $"Lease {LeaseNo.Value} is active, so its terms cannot be edited. Renew or revise it to change the amount, dates or purpose. Only the agreement reference, its date and the remarks can be corrected.");
 
     AgreementReference = Guard.Text(terms.AgreementReference, 100, "Agreement reference");
     AgreementDate = terms.AgreementDate;
@@ -113,7 +113,7 @@ public class PropertyLease : Aggregate<LeaseId>
     var expectedEnd = LeaseStartDate.AddYears(years).AddDays(-1);
     return Math.Abs(expectedEnd.DayNumber - LeaseEndDate.DayNumber) <= 31
       ? Array.Empty<string>()
-      : new[] { $"The term of {years} year(s) does not match the dates {LeaseStartDate:yyyy-MM-dd} to {LeaseEndDate:yyyy-MM-dd}; the dates are what count." };
+      : new[] { $"The term of {years} year(s) does not match the dates {LeaseStartDate:yyyy-MM-dd} to {LeaseEndDate:yyyy-MM-dd}. The dates are used." };
   }
 
   public void Activate(LeaseStatus currentStatus, LeaseStatus activeStatus)
@@ -174,7 +174,7 @@ public class PropertyLease : Aggregate<LeaseId>
     terminatedStatus.EnsureIs(SystemMasterCodes.Terminated);
 
     if (currentStatus.Is(SystemMasterCodes.Draft))
-      throw new DomainException($"{LeaseNo.Value} is still a draft and never came into force; withdraw the draft instead.");
+      throw new DomainException($"{LeaseNo.Value} is still a draft and never became active. Withdraw the draft instead.");
 
     AgreementDates.EnsureEndedOn(LeaseNo.Value, terminationDate, LeaseStartDate, LeaseEndDate, today);
     LeaseStatusId = terminatedStatus.Id;
@@ -189,7 +189,7 @@ public class PropertyLease : Aggregate<LeaseId>
     withdrawnStatus.EnsureIs(SystemMasterCodes.Withdrawn);
 
     if (!currentStatus.Is(SystemMasterCodes.Draft))
-      throw new DomainException($"Only a draft can be withdrawn; {LeaseNo.Value} is {currentStatus.Name.Value.ToLowerInvariant()}. Terminate it instead.");
+      throw new DomainException($"Only a draft can be withdrawn. {LeaseNo.Value} is {currentStatus.Name.Value.ToLowerInvariant()}. Terminate it instead.");
 
     LeaseStatusId = withdrawnStatus.Id;
     TerminationReason = Guard.RequiredText(reason, 4000, "Reason");
@@ -211,12 +211,12 @@ public class PropertyLease : Aggregate<LeaseId>
     expiredStatus.EnsureIs(SystemMasterCodes.Expired);
 
     if (currentStatus.Is(SystemMasterCodes.Draft))
-      throw new DomainException($"{LeaseNo.Value} is a draft and was never in force, so it cannot expire. Activate it, or leave it as a draft.");
+      throw new DomainException($"{LeaseNo.Value} is a draft and was never active, so it cannot expire. Activate it, or leave it as a draft.");
 
     EnsureInForce(currentStatus);
 
     if (today <= LeaseEndDate)
-      throw new DomainException($"{LeaseNo.Value} ends on {LeaseEndDate:yyyy-MM-dd}; it can be marked expired after that.");
+      throw new DomainException($"{LeaseNo.Value} ends on {LeaseEndDate:yyyy-MM-dd}. It can be marked expired after that.");
 
     LeaseStatusId = expiredStatus.Id;
   }
@@ -228,7 +228,7 @@ public class PropertyLease : Aggregate<LeaseId>
     activeStatus.EnsureIs(SystemMasterCodes.Active);
 
     if (!currentStatus.Is(SystemMasterCodes.Cancelled))
-      throw new DomainException($"{LeaseNo.Value} is {currentStatus.Name.Value}; only a cancelled lease can be reinstated.");
+      throw new DomainException($"{LeaseNo.Value} is {currentStatus.Name.Value}. Only a cancelled lease can be reinstated.");
 
     var cancelledOn = TerminationDate;
     LeaseStatusId = activeStatus.Id;
@@ -255,7 +255,7 @@ public class PropertyLease : Aggregate<LeaseId>
     EnsureCurrent(currentStatus);
 
     if (!IsInForce(currentStatus))
-      throw new DomainException($"Lease {LeaseNo.Value} is {currentStatus.Name.Value} and no longer in force.");
+      throw new DomainException($"Lease {LeaseNo.Value} is {currentStatus.Name.Value} and no longer active.");
   }
 
   private void EnsureCurrent(LeaseStatus currentStatus)

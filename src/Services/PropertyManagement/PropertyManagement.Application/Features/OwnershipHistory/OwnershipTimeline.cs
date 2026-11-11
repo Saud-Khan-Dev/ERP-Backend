@@ -112,10 +112,10 @@ public class OwnershipTimelineHandlers(
       throw new DomainException($"{property.PropertyCode.Value} has no owners on the register to correct.");
     if (rows.Any(r => r.OpenedByTransferId is not null || r.ClosedByTransferId is not null || r.AcquiredViaTransferId is not null || r.AcquiredViaAllotmentId is not null || !r.IsCurrent)
         || await context.Transfers.AnyAsync(t => t.PropertyId == property.Id && t.TransferStatus != TransferStatus.Cancelled && t.TransferStatus != TransferStatus.Rejected, cancellationToken))
-      throw new DomainException("A transfer came after the first owners, so they are put right only by another transfer.");
+      throw new DomainException("A transfer was recorded after the first owners. So they can be corrected only by another transfer.");
     var rowIds = rows.Select(r => r.Id).ToList();
     if (await context.Encumbrances.AnyAsync(e => e.PropertyId == property.Id && e.OwnershipId != null && rowIds.Contains(e.OwnershipId!), cancellationToken))
-      throw new DomainException("A charge is registered against one of these shares; release it before the owners are corrected.");
+      throw new DomainException("A charge is registered against one of these shares. Release the charge before correcting the owners.");
 
     // the PROPERTY_TRANSFER rule: who entered the owners does not correct them
     foreach (var maker in rows.Select(r => r.CreatedBy).Distinct())
@@ -143,7 +143,7 @@ public class OwnershipTimelineHandlers(
   {
     var transfer = await context.LoadTransferAsync(command.TransferId, cancellationToken);
     if (transfer.FromHistoryEntryId is not { } entryId)
-      throw new DomainException($"{transfer.TransferNo.Value} was not entered from the old records; a transfer is put right by another transfer.");
+      throw new DomainException($"{transfer.TransferNo.Value} was not entered from the old records. To correct a transfer, record another transfer.");
     var entry = await context.HistoryEntries.AsNoTracking().FirstAsync(h => h.Id == entryId, cancellationToken);
     foreach (var (maker, act) in new[] { (entry.CreatedBy, "entered"), (entry.LastEditedByUserId, "changed") })
       if (await dutyRules.SeparationRefusalAsync(DutyRules.PropertyTransfer, maker, currentUser.UserId, $"correct {transfer.TransferNo.Value}, whose history you {act}", cancellationToken) is { } refusal)

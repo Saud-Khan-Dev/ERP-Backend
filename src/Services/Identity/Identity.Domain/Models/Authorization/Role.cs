@@ -41,10 +41,10 @@ public class Role : Aggregate<RoleId>
     EnsureNotDeleted();
 
     if (IsSystem && code != Code)
-      throw new DomainException($"System role '{Code.Value}' cannot be renamed.");
+      throw new DomainException($"'{Code.Value}' is a built-in role. It cannot be renamed.");
 
     if (IsSystem && !isActive)
-      throw new DomainException($"System role '{Code.Value}' cannot be deactivated.");
+      throw new DomainException($"'{Code.Value}' is a built-in role. It cannot be switched off.");
 
     Code = code;
     RoleName = name;
@@ -55,7 +55,7 @@ public class Role : Aggregate<RoleId>
   public void EnsureDeletable()
   {
     if (IsSystem)
-      throw new DomainException($"System role '{Code.Value}' cannot be deleted.");
+      throw new DomainException($"'{Code.Value}' is a built-in role. It cannot be deleted.");
   }
 
   public void SoftDelete(DateTime now)

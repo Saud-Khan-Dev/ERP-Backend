@@ -31,8 +31,8 @@ public class ViolationActionsHandler(IApplicationDbContext context, ICurrentUser
     // decision of its own (PROPERTY.WAIVE). The route lets either code in; the act decides which one it needs.
     if (command.FineStatus is FineStatus.Waived or FineStatus.RecoveryAsArrears && !currentUser.HasPermission(PermissionCatalog.Property.Waive))
       throw new PermissionRequiredException(command.FineStatus == FineStatus.Waived
-        ? "Waiving a fine needs Property: waive fines (PROPERTY.WAIVE); ask an officer who holds it."
-        : "Sending a fine for recovery as arrears of land revenue needs Property: waive fines (PROPERTY.WAIVE); ask an officer who holds it.");
+        ? "Waiving a fine needs Property: waive fines (PROPERTY.WAIVE). Ask an officer who has it."
+        : "Sending a fine for recovery as arrears of land revenue needs Property: waive fines (PROPERTY.WAIVE). Ask an officer who has it.");
     if (command.FineStatus is not (FineStatus.Waived or FineStatus.RecoveryAsArrears) && !currentUser.HasPermission(PermissionCatalog.Property.Edit))
       throw new PermissionRequiredException("Recording a fine as paid needs Property: edit (PROPERTY.EDIT).");
 

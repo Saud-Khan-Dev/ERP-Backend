@@ -210,10 +210,10 @@ public sealed class TaxFileImporter(IApplicationDbContext context, IPropertyDire
       if (taxCategory == TaxCategory.Exempt)
         throw new DomainException("Opening a file as exempt needs approval rights (TAX.APPROVE).");
       if (taxCategory != mapped)
-        throw new DomainException($"Property type '{snapshot.PropertyTypeCode ?? "none"}' {(mapped is null ? "is not mapped to a category" : $"maps to {EnumText.Words(mapped.Value)}")}; "
-          + "opening the file in another category needs approval rights (TAX.APPROVE).");
+        throw new DomainException($"Property type '{snapshot.PropertyTypeCode ?? "none"}' {(mapped is null ? "is not mapped to a category" : $"maps to {EnumText.Words(mapped.Value)}")}. "
+          + "Opening the file in another category needs approval rights (TAX.APPROVE).");
       if (details.UpliftPct is not null || details.UpliftRateBasis is not null)
-        throw new DomainException("A file's own completion-certificate uplift changes its tax like an override and needs approval rights (TAX.APPROVE). Leave it to the settings.");
+        throw new DomainException("A file's own completion-certificate uplift changes its tax like an override. So it needs approval rights (TAX.APPROVE). Leave it to the settings.");
     }
 
     var settings = await setup.SettingsAsync(today, cancellationToken);

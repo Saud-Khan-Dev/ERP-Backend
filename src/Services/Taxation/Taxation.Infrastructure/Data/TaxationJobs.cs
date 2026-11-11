@@ -23,7 +23,7 @@ public sealed class TaxationJobs(ApplicationDbContext context, IConfiguration co
       last is null ? null : At(last.StartedAt),
       last?.Status switch { JobRunStatus.Done => "Succeeded", JobRunStatus.Failed => "Failed", JobRunStatus.Running => "Running", _ => null },
       !enabled ? "Switched off (Taxation:DailyJob:Enabled)."
-        : last is null ? $"Runs every day from {hour:00}:00 Pakistan time; it has not run yet."
+        : last is null ? $"Runs every day from {hour:00}:00 Pakistan time. It has not run yet."
         : $"{(last.StartedBy is null ? "By the schedule" : "Run by a person")}: {last.Error ?? last.Summary ?? "running"}",
       next));
 

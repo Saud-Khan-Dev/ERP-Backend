@@ -12,7 +12,7 @@ public class DeleteOptionSetHandler(IApplicationDbContext context)
     optionSet.EnsureDeletable();
 
     if (await context.AttributeDefinitions.AnyAsync(d => d.OptionSetId == id, cancellationToken))
-      return Result<DeleteOptionSetCommandResult>.Failure("This option set is used by attribute definitions. Deactivate it instead.");
+      return Result<DeleteOptionSetCommandResult>.Failure("This option set is used by fields. Switch it off instead.");
 
     context.OptionSets.Remove(optionSet);
     await context.SaveChangesAsync(cancellationToken);

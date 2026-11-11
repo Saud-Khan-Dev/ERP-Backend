@@ -14,7 +14,7 @@ public class DeleteUserHandler(IApplicationDbContext context, IdentityGuard guar
     await guard.EnsureNotLastSuperAdminAsync(id, "deleting it", cancellationToken);
 
     var user = await context.Users.FirstOrDefaultAsync(u => u.Id == id, cancellationToken)
-      ?? throw new UserNotFoundException("This account was not found - it may already be deleted.");
+      ?? throw new UserNotFoundException("This account was not found. It may already be deleted.");
 
     user.SoftDelete(currentUser.AuditName, now);
 

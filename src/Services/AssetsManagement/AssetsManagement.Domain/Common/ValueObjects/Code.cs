@@ -13,7 +13,7 @@ public sealed record Code
       throw new DomainException("Category code is required.");
 
     if (value.Length > DefaultLength)
-      throw new DomainException("Category code length is too large.");
+      throw new DomainException("Category code is too long.");
 
     value = value.Trim().ToUpperInvariant();
 

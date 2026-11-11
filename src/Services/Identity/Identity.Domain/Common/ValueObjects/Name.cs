@@ -14,7 +14,7 @@ public sealed record Name
     value = value.Trim();
 
     if (value.Length > maxLength)
-      throw new DomainException($"Name cannot exceed {maxLength} characters.");
+      throw new DomainException($"Name can be at most {maxLength} characters long.");
 
     return new Name(value);
   }

@@ -49,7 +49,7 @@ public static class SystemEvents
 {
   public static async Task<LifecycleEventType> TypeAsync(IApplicationDbContext context, EventPurpose purpose, CancellationToken cancellationToken) =>
       await context.LifecycleEventTypes.AsNoTracking().FirstOrDefaultAsync(t => t.IsSystem && t.Purpose == purpose, cancellationToken)
-      ?? throw new DomainException("The register's timeline types are missing - restart the Assets service so it can set them up.");
+      ?? throw new DomainException("The register's timeline types are missing. Restart the Assets service so it can set them up.");
 
   /// Adds the event of the purpose to the context (the caller saves).
   public static async Task<AssetLifecycleEvent> AddAsync(
@@ -90,7 +90,7 @@ public static class CustodyResolver
       person = await hrm.EmployeeAsync(personId, cancellationToken)
         ?? throw new DomainException("The custodian is not on HR's staff list. Choose the person again.");
       if (!person.InService)
-        throw new DomainException($"{person.Name} ({person.EmployeeNumber}) is no longer in service ({Plain(person.Status)}) and cannot be given assets.");
+        throw new DomainException($"{person.Name} ({person.EmployeeNumber}) is no longer in service ({Plain(person.Status)}). Assets cannot be given to them.");
     }
 
     OrgUnitRef? unit = null;

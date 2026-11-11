@@ -14,7 +14,7 @@ public class PayService(IApplicationDbContext context, IOptions<HrmOptions> opti
       return scale;
 
     var label = await context.PayScaleGrades.Where(g => g.Id == gradeId).Select(g => g.GradeName ?? "BPS-" + g.BpsNumber).FirstOrDefaultAsync(cancellationToken);
-    throw new DomainException($"No pay scale of {label ?? "this grade"} is in force on {date:yyyy-MM-dd}. Notify the scale first.");
+    throw new DomainException($"No pay scale for {label ?? "this grade"} is active on {date:yyyy-MM-dd}. Notify the scale first.");
   }
 
   /// The scale a stage belongs to (tracked).

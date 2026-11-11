@@ -85,7 +85,7 @@ public class PropertyRental : Aggregate<RentalId>
 
     if (termsChanged)
       throw new DomainException(
-        $"Rental {RentalNo.Value} is in force, so its terms are history: renew or revise it to change the rent, dates or increase. Only the agreement reference, its date and the remarks can be corrected.");
+        $"Rental {RentalNo.Value} is active, so its terms cannot be edited. Renew or revise it to change the rent, dates or increase. Only the agreement reference, its date and the remarks can be corrected.");
 
     AgreementReference = Guard.Text(terms.AgreementReference, 100, "Agreement reference");
     AgreementDate = terms.AgreementDate;
@@ -99,7 +99,7 @@ public class PropertyRental : Aggregate<RentalId>
     activeStatus.EnsureIs(SystemMasterCodes.Active);
 
     if (!currentStatus.Is(SystemMasterCodes.Draft))
-      throw new DomainException($"Only a draft rental can be activated; {RentalNo.Value} is {currentStatus.Name.Value.ToLowerInvariant()}.");
+      throw new DomainException($"Only a draft rental can be activated. {RentalNo.Value} is {currentStatus.Name.Value.ToLowerInvariant()}.");
 
     RentalStatusId = activeStatus.Id;
   }
@@ -110,7 +110,7 @@ public class PropertyRental : Aggregate<RentalId>
   {
     EnsureCurrent(currentStatus);
     if (!currentStatus.Is(SystemMasterCodes.Active) && !currentStatus.Is(SystemMasterCodes.Expired))
-      throw new DomainException($"Rental {RentalNo.Value} is {currentStatus.Name.Value.ToLowerInvariant()}; only an active or expired rental can be renewed.");
+      throw new DomainException($"Rental {RentalNo.Value} is {currentStatus.Name.Value.ToLowerInvariant()}. Only an active or expired rental can be renewed.");
     endedStatus.EnsureIs(SystemMasterCodes.Ended);
     activeStatus.EnsureIs(SystemMasterCodes.Active);
     tenant.EnsureCanTakeOn("a tenancy");
@@ -155,7 +155,7 @@ public class PropertyRental : Aggregate<RentalId>
       throw new DomainException($"{RentalNo.Value} has no end date, so it cannot expire. Terminate it, or renew it with an end date.");
 
     if (today <= end)
-      throw new DomainException($"{RentalNo.Value} ends on {end:yyyy-MM-dd}; it can be marked expired after that.");
+      throw new DomainException($"{RentalNo.Value} ends on {end:yyyy-MM-dd}. It can be marked expired after that.");
 
     RentalStatusId = expiredStatus.Id;
   }
@@ -202,7 +202,7 @@ public class PropertyRental : Aggregate<RentalId>
       throw new DomainException("The supplied status does not match the rental.");
 
     if (!currentStatus.Is(SystemMasterCodes.Cancelled))
-      throw new DomainException($"{RentalNo.Value} is {currentStatus.Name.Value}; only a cancelled rental can be reinstated.");
+      throw new DomainException($"{RentalNo.Value} is {currentStatus.Name.Value}. Only a cancelled rental can be reinstated.");
 
     var cancelledOn = TerminationDate;
     RentalStatusId = activeStatus.Id;
@@ -229,7 +229,7 @@ public class PropertyRental : Aggregate<RentalId>
     withdrawnStatus.EnsureIs(SystemMasterCodes.Withdrawn);
 
     if (!currentStatus.Is(SystemMasterCodes.Draft))
-      throw new DomainException($"Only a draft can be withdrawn; {RentalNo.Value} is {currentStatus.Name.Value.ToLowerInvariant()}. Terminate it instead.");
+      throw new DomainException($"Only a draft can be withdrawn. {RentalNo.Value} is {currentStatus.Name.Value.ToLowerInvariant()}. Terminate it instead.");
 
     RentalStatusId = withdrawnStatus.Id;
     TerminationReason = Guard.RequiredText(reason, 4000, "Reason");
@@ -261,10 +261,10 @@ public class PropertyRental : Aggregate<RentalId>
     EnsureCurrent(currentStatus);
 
     if (currentStatus.Is(SystemMasterCodes.Draft))
-      throw new DomainException($"Rental {RentalNo.Value} is still a draft; activate it first.");
+      throw new DomainException($"Rental {RentalNo.Value} is still a draft. Activate it first.");
 
     if (!IsInForce(currentStatus))
-      throw new DomainException($"Rental {RentalNo.Value} is {currentStatus.Name.Value.ToLowerInvariant()} and no longer in force.");
+      throw new DomainException($"Rental {RentalNo.Value} is {currentStatus.Name.Value.ToLowerInvariant()} and no longer active.");
   }
 
   private void EnsureCurrent(RentalStatus currentStatus)

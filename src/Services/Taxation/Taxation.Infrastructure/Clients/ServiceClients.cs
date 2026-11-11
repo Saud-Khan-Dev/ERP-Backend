@@ -55,11 +55,11 @@ internal static class ServiceJson
       if (response.StatusCode == HttpStatusCode.NotFound)
         return null;
       if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
-        throw new ExternalServiceException($"The {service} service refused the request: the signed-in user needs read access there ({(service == "Property" ? "PROPERTY.VIEW" : "an HRM permission")}).");
+        throw new ExternalServiceException($"The {service} service refused the request. You need read access there ({(service == "Property" ? "PROPERTY.VIEW" : "an HRM permission")}).");
       if (!response.IsSuccessStatusCode)
       {
         logger.LogWarning("{Service} answered {Status} to {Path}", service, (int)response.StatusCode, path);
-        throw new ExternalServiceException($"The {service} service answered {(int)response.StatusCode} to {path}.");
+        throw new ExternalServiceException($"The {service} service returned an error ({(int)response.StatusCode}) for {path}.");
       }
       return await response.Content.ReadFromJsonAsync<T>(Options, cancellationToken);
     }

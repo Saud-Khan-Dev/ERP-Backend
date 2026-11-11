@@ -19,7 +19,7 @@ public static class AssetQueryParsing
   {
     var parts = raw!.Split(':', 3);
     if (parts.Length != 3 || !Enum.TryParse<AttributeFilterOperator>(parts[1], ignoreCase: true, out var op))
-      throw new BadHttpRequestException($"Invalid attribute filter '{raw}'. Expected code:op:value.");
+      throw new BadHttpRequestException($"The field filter '{raw}' is not valid. Write it as code:op:value.");
 
     return new AttributeFilter(parts[0], op, parts[2]);
   }

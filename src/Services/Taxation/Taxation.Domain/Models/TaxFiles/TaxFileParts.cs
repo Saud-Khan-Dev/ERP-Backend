@@ -189,7 +189,7 @@ public class TaxFileOverride : Entity<TaxFileOverrideId>
     if (EffectiveTo is not null && EffectiveTo <= lastDay)
       throw new DomainException($"The override already ended on {EffectiveTo:yyyy-MM-dd}.");
     if (lastDay < EffectiveFrom)
-      throw new DomainException($"The override starts on {EffectiveFrom:yyyy-MM-dd}; it cannot end before that.");
+      throw new DomainException($"The override starts on {EffectiveFrom:yyyy-MM-dd}. It cannot end before that.");
     EffectiveTo = lastDay;
   }
 
@@ -319,7 +319,7 @@ public class AgreementSchedule : Entity<AgreementScheduleId>
   public AgreementStepRevision Revise(DateOnly effectiveFrom, decimal stepPct, int stepIntervalYears, string? boardReference)
   {
     if (effectiveFrom <= StartDate)
-      throw new DomainException("A revision takes effect after the agreement started; change the terms instead.");
+      throw new DomainException("A revision must take effect after the agreement started. Otherwise, change the terms instead.");
     if (_revisions.Any(r => r.EffectiveFrom >= effectiveFrom))
       throw new DomainException("The agreement already has a revision from that date or later.");
     var revision = AgreementStepRevision.Create(AgreementStepRevisionId.New(), Id, TaxFileId, effectiveFrom, stepPct, stepIntervalYears, boardReference);

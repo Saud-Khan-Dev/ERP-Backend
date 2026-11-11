@@ -36,7 +36,7 @@ public class AttributeAssignmentInputValidator : AbstractValidator<AttributeAssi
     RuleFor(x => x.LabelOverride).MaximumLength(150);
     RuleFor(x => x)
       .Must(x => new[] { x.AssetClassId, x.AssetTypeId, x.CategoryId, x.AssetId }.Count(v => v.HasValue && v.Value != Guid.Empty) == 1)
-      .WithMessage("Exactly one of assetClassId, assetTypeId, categoryId or assetId must be provided.");
+      .WithMessage("Give exactly one of assetClassId, assetTypeId, categoryId or assetId.");
   }
 }
 

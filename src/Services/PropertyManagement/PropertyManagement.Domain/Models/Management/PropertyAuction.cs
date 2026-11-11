@@ -79,10 +79,10 @@ public class PropertyAuction : Aggregate<AuctionId>
     status.EnsureActive();
 
     if (status.Is(SystemMasterCodes.Awarded) || status.Is(SystemMasterCodes.Successful))
-      throw new DomainException("Use award: it records the winner, the winning amount and the award date.");
+      throw new DomainException("Use Award. It records the winner, the winning amount and the award date.");
 
     if (status.Is(SystemMasterCodes.Cancelled))
-      throw new DomainException("Use cancel, so the reason is recorded.");
+      throw new DomainException("Use Cancel, so the reason is recorded.");
 
     if (status.Id == AuctionStatusId)
       throw new DomainException($"Auction {AuctionNo.Value} is already {status.Name.Value}.");
@@ -146,7 +146,7 @@ public class PropertyAuction : Aggregate<AuctionId>
     else
     {
       if (successfulBidder is null || winningAmount is null)
-        throw new DomainException("With no recorded bids, give the successful bidder and the winning amount.");
+        throw new DomainException("No bids are recorded. Give the successful bidder and the winning amount.");
 
       successfulBidder.EnsureCanTakeOn("an award");
       winner = successfulBidder.Id;
@@ -195,7 +195,7 @@ public class PropertyAuction : Aggregate<AuctionId>
       throw new DomainException("The supplied status does not match the auction.");
 
     if (!currentStatus.Is(SystemMasterCodes.Unsuccessful) && !currentStatus.Is(SystemMasterCodes.Cancelled))
-      throw new DomainException($"Auction {AuctionNo.Value} is {currentStatus.Name.Value}; only an unsuccessful or cancelled auction can be re-auctioned.");
+      throw new DomainException($"Auction {AuctionNo.Value} is {currentStatus.Name.Value}. Only an unsuccessful or cancelled auction can be re-auctioned.");
 
     if (property.Id != PropertyId)
       throw new DomainException("A re-auction is held on the same property.");

@@ -36,7 +36,7 @@ public class ImposeFineCommandValidator : AbstractValidator<ImposeFineCommand>
 {
   public ImposeFineCommandValidator() =>
     RuleFor(x => x.FineAmount).GreaterThan(0).LessThanOrEqualTo(AgreementViolation.MaxFine)
-      .WithMessage($"The fine may extend to Rs {AgreementViolation.MaxFine:N0} (s.28-A).");
+      .WithMessage($"The fine cannot be more than Rs {AgreementViolation.MaxFine:N0} (s.28-A).");
 }
 
 public class SetFineStatusCommandValidator : AbstractValidator<SetFineStatusCommand>

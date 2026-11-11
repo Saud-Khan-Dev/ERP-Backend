@@ -40,7 +40,7 @@ public class TaxYear : Aggregate<TaxYearId>
     ArgumentNullException.ThrowIfNull(slabs);
 
     if (slabs.Select(s => s.SlabOrder).Distinct().Count() != slabs.Count)
-      throw new DomainException("Each slab order may appear only once.");
+      throw new DomainException("Each slab order can be used only once.");
 
     var ordered = slabs.OrderBy(s => s.MinIncome).ToList();
     for (var i = 0; i < ordered.Count; i++)
@@ -55,9 +55,9 @@ public class TaxYear : Aggregate<TaxYearId>
         throw new DomainException($"Slab {slab.SlabOrder} overlaps the slab below it.");
       // no income may fall between two slabs (it would be taxed nothing)
       if (i == 0 && slab.MinIncome != 0)
-        throw new DomainException($"The lowest slab must start at 0; incomes below {slab.MinIncome:#,##0} would fall in no slab.");
+        throw new DomainException($"The lowest slab must start at 0. Otherwise, incomes below {slab.MinIncome:#,##0} would not fall in any slab.");
       if (i > 0 && ordered[i - 1].MaxIncome is { } before && slab.MinIncome > before)
-        throw new DomainException($"Slab {slab.SlabOrder} starts at {slab.MinIncome:#,##0} but the slab below ends at {before:#,##0}; incomes in between would fall in no slab.");
+        throw new DomainException($"Slab {slab.SlabOrder} starts at {slab.MinIncome:#,##0}, but the slab below ends at {before:#,##0}. Incomes in between would not fall in any slab.");
     }
 
     _slabs.Clear();
@@ -187,6 +187,6 @@ public class EmployeeTaxOpening : Aggregate<TaxOpeningId>
     TaxWithheld = Guard.Money(taxWithheld, "Tax withheld so far");
     if (TaxWithheld > TaxableIncome)
       throw new DomainException("The tax withheld cannot be more than the taxable income.");
-    Remarks = Guard.Text(remarks, 1000, "Remarks") ?? throw new DomainException("Say where the figures come from (the previous office's certificate, the old system ...).");
+    Remarks = Guard.Text(remarks, 1000, "Remarks") ?? throw new DomainException("Enter where the figures come from, such as the previous office's certificate or the old system.");
   }
 }

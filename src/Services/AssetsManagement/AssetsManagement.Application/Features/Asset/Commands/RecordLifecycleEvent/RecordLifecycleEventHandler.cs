@@ -16,7 +16,7 @@ public class RecordLifecycleEventHandler(IApplicationDbContext context, ICurrent
       ?? throw new LifecycleEventTypeNotFoundException("That kind of event was not found. Choose it again.");
 
     if (!eventType.IsHandRecorded)
-      return Result<RecordLifecycleEventCommandResult>.Failure($"'{eventType.Name.Value}' is written by its own act (transfer, status change, disposal …), not recorded by hand.");
+      return Result<RecordLifecycleEventCommandResult>.Failure($"'{eventType.Name.Value}' is recorded by the system when its action is done (transfer, status change, disposal …). It cannot be recorded by hand.");
 
     var purchaseDate = await context.AssetAcquisitions.AsNoTracking().Where(a => a.AssetId == assetId).Select(a => (DateOnly?)a.AcquisitionDate).FirstOrDefaultAsync(cancellationToken);
     var eventDate = EventDates.Check(command.EventDate, clock, asset, purchaseDate);

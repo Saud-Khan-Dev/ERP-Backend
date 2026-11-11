@@ -8,7 +8,7 @@ public class CancelTransferHandler(IApplicationDbContext context, ICurrentUser c
     // the route needs PROPERTY_LEGAL.EDIT; undoing an officer's approval needs the approver's permission
     if (transfer.TransferStatus == TransferStatus.Approved && !currentUser.HasPermission(PermissionCatalog.Property.Approve))
       throw new PermissionRequiredException(
-        $"{transfer.TransferNo.Value} has been approved; cancelling it needs the Approve permission (PROPERTY.APPROVE).");
+        $"{transfer.TransferNo.Value} has been approved. Cancelling it needs the Approve permission (PROPERTY.APPROVE).");
 
     var property = await context.LoadPropertyAsync(transfer.PropertyId.Value, cancellationToken);
     // closing a waiting transfer frees the givers' shares: it must not cross an approval of the same property

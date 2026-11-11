@@ -27,11 +27,11 @@ public sealed record PermissionCode
     value = value.Trim().ToUpperInvariant();
 
     if (value.Length > MaxLength)
-      throw new DomainException($"Permission code cannot exceed {MaxLength} characters.");
+      throw new DomainException($"Permission code can be at most {MaxLength} characters long.");
 
     var match = Pattern.Match(value);
     if (!match.Success)
-      throw new DomainException("Permission code must be in the form MODULE.ACTION (e.g. ASSETS.CREATE).");
+      throw new DomainException("Permission code must look like MODULE.ACTION (for example ASSETS.CREATE).");
 
     return new PermissionCode(value, match.Groups[1].Value, match.Groups[2].Value);
   }

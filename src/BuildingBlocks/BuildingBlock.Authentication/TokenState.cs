@@ -45,7 +45,7 @@ public sealed class HttpTokenStateChecker(IHttpClientFactory httpClients, IMemor
     var session = user.FindFirst(ErpClaimTypes.SessionId)?.Value;
     var stamp = user.FindFirst(ErpClaimTypes.AccessStamp)?.Value;
     if (string.IsNullOrEmpty(session) || string.IsNullOrEmpty(stamp))
-      return TokenVerdict.Stale("Signed in before this version - sign in again");
+      return TokenVerdict.Stale("Signed in before this version. Sign in again.");
 
     var key = $"token-state:{session}:{stamp}";
     if (cache.TryGetValue(key, out TokenVerdict? known) && known is not null)

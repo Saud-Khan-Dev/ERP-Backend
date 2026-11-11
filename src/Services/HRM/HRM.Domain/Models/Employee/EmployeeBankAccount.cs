@@ -57,7 +57,7 @@ public class EmployeeBankAccount : Aggregate<BankAccountId>
 
     text = new string(text.Where(c => !char.IsWhiteSpace(c)).ToArray());
     if (text.Any(c => !(char.IsAsciiLetterOrDigit(c) || c == '-')))
-      throw new DomainException("An account number may only contain letters, digits and '-'.");
+      throw new DomainException("An account number can only have letters, digits and '-'.");
 
     return text.ToUpperInvariant();
   }

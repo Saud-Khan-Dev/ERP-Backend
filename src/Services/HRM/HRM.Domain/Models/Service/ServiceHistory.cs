@@ -21,7 +21,7 @@ public class ServiceEventType : Aggregate<ServiceEventTypeId>
     var group = Guard.Text(category, 50, "Category")?.ToLowerInvariant()
       ?? throw new DomainException("Choose the group of the event: entry, movement, status, disciplinary or exit.");
     if (!Categories.Contains(group))
-      throw new DomainException($"The group of an event is one of: {string.Join(", ", Categories)}.");
+      throw new DomainException($"The group of an event must be one of: {string.Join(", ", Categories)}.");
     Category = group;
   }
 

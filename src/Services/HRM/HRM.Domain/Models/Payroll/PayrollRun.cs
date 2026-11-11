@@ -45,9 +45,9 @@ public class PayrollPeriod : Aggregate<PayrollPeriodId>
   public void EnsureUnused(int runs, string doing)
   {
     if (Status != PayrollPeriodStatus.Open)
-      throw new DomainException($"{Label} is {EnumText.Words(Status)}; only an open month without runs can {doing}.");
+      throw new DomainException($"{Label} is {EnumText.Words(Status)}. Only an open month without runs can {doing}.");
     if (runs > 0)
-      throw new DomainException($"{Label} has {runs} payroll run(s); a month with runs cannot {doing}.");
+      throw new DomainException($"{Label} has {runs} payroll run(s). A month with runs cannot {doing}.");
   }
 
   /// True when the two months share a day.
@@ -67,7 +67,7 @@ public class PayrollPeriod : Aggregate<PayrollPeriodId>
   public void Reopen()
   {
     if (Status != PayrollPeriodStatus.Closed)
-      throw new DomainException(Status == PayrollPeriodStatus.Locked ? $"{Label} is locked for good." : $"{Label} is already open.");
+      throw new DomainException(Status == PayrollPeriodStatus.Locked ? $"{Label} is locked permanently." : $"{Label} is already open.");
 
     Status = PayrollPeriodStatus.Open;
   }
@@ -84,7 +84,7 @@ public class PayrollPeriod : Aggregate<PayrollPeriodId>
   public void EnsureOpen()
   {
     if (Status != PayrollPeriodStatus.Open)
-      throw new DomainException($"{Label} is {EnumText.Words(Status)}; no payroll can be run in it.");
+      throw new DomainException($"{Label} is {EnumText.Words(Status)}. No payroll can be run in it.");
   }
 }
 
@@ -220,7 +220,7 @@ public class PayrollRun : Aggregate<PayrollRunId>
   public void Reverse(Guid? reversedBy = null, DateTime? at = null, string? reason = null)
   {
     if (Status is not (PayrollRunStatus.Finalized or PayrollRunStatus.Paid))
-      throw new DomainException($"Only a finalized or paid run can be reversed; this one is {EnumText.Words(Status)}. A run before finalization is changed or deleted instead.");
+      throw new DomainException($"Only a finalized or paid run can be reversed. This one is {EnumText.Words(Status)}. A run that is not finalized yet can be changed or deleted instead.");
 
     Status = PayrollRunStatus.Reversed;
     ReversedBy = reversedBy;
@@ -231,13 +231,13 @@ public class PayrollRun : Aggregate<PayrollRunId>
   public void EnsureEditable()
   {
     if (Status is not (PayrollRunStatus.Draft or PayrollRunStatus.Calculated))
-      throw new DomainException($"The run is {EnumText.Words(Status)}; its figures can only change while it is a draft or calculated.");
+      throw new DomainException($"The run is {EnumText.Words(Status)}. Its figures can only change while it is a draft or calculated.");
   }
 
   private void Move(PayrollRunStatus from, PayrollRunStatus to)
   {
     if (Status != from)
-      throw new DomainException($"The run is {EnumText.Words(Status)}; it must be {EnumText.Words(from)} to become {EnumText.Words(to)}.");
+      throw new DomainException($"The run is {EnumText.Words(Status)}. It must be {EnumText.Words(from)} to become {EnumText.Words(to)}.");
 
     Status = to;
   }

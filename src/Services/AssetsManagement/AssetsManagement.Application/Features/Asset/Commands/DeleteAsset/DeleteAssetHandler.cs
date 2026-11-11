@@ -17,7 +17,7 @@ public class DeleteAssetHandler(IApplicationDbContext context, ICurrentUser curr
     var schedules = await context.AssetDepreciationSchedules.Include(s => s.Entries).Where(s => s.AssetId == id).ToListAsync(cancellationToken);
     var posted = schedules.SelectMany(s => s.Entries).Count(e => e.Posted && !e.IsReversed);
     if (posted > 0)
-      return Result<DeleteAssetCommandResult>.Failure($"Depreciation is posted on this asset ({posted} {(posted == 1 ? "month" : "months")}), so it is part of the accounts and cannot be deleted. Dispose of it instead - or, if it was registered by mistake, reverse those months first.");
+      return Result<DeleteAssetCommandResult>.Failure($"Depreciation is posted on this asset ({posted} {(posted == 1 ? "month" : "months")}). So it is part of the accounts and cannot be deleted. Dispose of it instead. If it was registered by mistake, reverse those months first.");
 
     if (await context.AssetAssignments.AnyAsync(a => a.AssetId == id && a.ExpectedReturnDate != null && a.ActualReturnDate == null, cancellationToken))
       return Result<DeleteAssetCommandResult>.Failure("This asset is out on loan. Record its return before deleting it.");

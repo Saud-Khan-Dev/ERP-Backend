@@ -51,12 +51,12 @@ public class PostGpFundTransactionCommandValidator : AbstractValidator<PostGpFun
     RuleFor(x => x.TransactionType)
       .Must(t => t is GpFundTransactionType.Opening or GpFundTransactionType.Interest or GpFundTransactionType.Withdrawal
         or GpFundTransactionType.FinalPayment or GpFundTransactionType.Adjustment)
-      .WithMessage("Post an opening, interest, withdrawal, final payment or adjustment; subscriptions and advance recoveries come from payroll, advances from loans.");
+      .WithMessage("Post an opening, interest, withdrawal, final payment or adjustment. Subscriptions and advance recoveries come from payroll. Advances come from loans.");
     RuleFor(x => x.Amount).NotNull().NotEqual(0).When(x => x.TransactionType != GpFundTransactionType.FinalPayment)
       .WithMessage("Enter the amount.");
     RuleFor(x => x.Amount).GreaterThan(0).When(x => x.TransactionType is GpFundTransactionType.Opening or GpFundTransactionType.Interest or GpFundTransactionType.Withdrawal)
       .WithMessage("The amount must be above zero.");
-    RuleFor(x => x.Remarks).NotEmpty().When(x => x.TransactionType == GpFundTransactionType.Adjustment).WithMessage("Give the reason for the adjustment.");
+    RuleFor(x => x.Remarks).NotEmpty().When(x => x.TransactionType == GpFundTransactionType.Adjustment).WithMessage("Enter the reason for the adjustment.");
     RuleFor(x => x.Remarks).MaximumLength(2000);
   }
 }
@@ -137,7 +137,7 @@ public class GpFundHandlers(IApplicationDbContext context, HrLookup lookup, IClo
       account = await context.LoadGpFundAccountAsync(id, cancellationToken);
     else
     {
-      var employeeId = EmployeeId.Of(query.EmployeeId ?? throw new ArgumentException("Give the account or the employee."));
+      var employeeId = EmployeeId.Of(query.EmployeeId ?? throw new ArgumentException("Choose the account or the employee."));
       account = await context.GpFundAccounts.AsNoTracking().FirstOrDefaultAsync(a => a.EmployeeId == employeeId, cancellationToken)
         ?? throw new GpFundAccountNotFoundException("The employee has no GP Fund account.");
     }
@@ -192,7 +192,7 @@ public class GpFundHandlers(IApplicationDbContext context, HrLookup lookup, IClo
     var transaction = command.TransactionType switch
     {
       GpFundTransactionType.Opening => await context.GpFundTransactions.AnyAsync(t => t.GpFundAccountId == account.Id && t.TransactionType == GpFundTransactionType.Opening, cancellationToken)
-        ? throw new DomainException("The account already has its opening balance; correct it with an adjustment.")
+        ? throw new DomainException("The account already has its opening balance. Correct it with an adjustment.")
         : GpFundTransaction.Opening(account, command.TransactionDate, amount, command.Remarks),
       GpFundTransactionType.Interest => GpFundTransaction.Interest(account, command.TransactionDate, amount, command.Remarks),
       GpFundTransactionType.Withdrawal => GpFundTransaction.Withdrawal(account, command.TransactionDate, amount, balance, command.Remarks),
@@ -241,7 +241,7 @@ public class GpFundHandlers(IApplicationDbContext context, HrLookup lookup, IClo
   {
     var rate = await LoadRateAsync(command.Id, cancellationToken);
     if (await context.GpFundTransactions.AnyAsync(t => t.TransactionType == GpFundTransactionType.Interest && t.Remarks == InterestRemark(rate), cancellationToken))
-      return Result<UpdatedResult>.Failure($"Interest for {rate.FiscalYear} has already been credited; correct it with adjustments.");
+      return Result<UpdatedResult>.Failure($"Interest for {rate.FiscalYear} has already been credited. Correct it with adjustments.");
 
     var i = command.Rate;
     rate.Update(i.FiscalYear, i.RatePercent, i.NotificationRef, i.EffectiveFrom, i.EffectiveTo);
@@ -256,7 +256,7 @@ public class GpFundHandlers(IApplicationDbContext context, HrLookup lookup, IClo
   {
     var rate = await LoadRateAsync(command.RateId, cancellationToken);
     if (rate.EffectiveTo is not { } yearEnd)
-      return Result<PostGpFundInterestResult>.Failure($"The {rate.FiscalYear} rate has no end date; set the last day of the fiscal year first.");
+      return Result<PostGpFundInterestResult>.Failure($"The {rate.FiscalYear} rate has no end date. Set the last day of the fiscal year first.");
     if (yearEnd > clock.Today)
       return Result<PostGpFundInterestResult>.Failure($"{rate.FiscalYear} has not ended yet (it ends on {yearEnd:yyyy-MM-dd}).");
 
@@ -314,7 +314,7 @@ public class GpFundHandlers(IApplicationDbContext context, HrLookup lookup, IClo
   {
     if (await context.Loans.AnyAsync(l => l.EmployeeId == account.EmployeeId && l.Status == LoanStatus.Active
         && context.LoanTypes.Any(t => t.Id == l.LoanTypeId && t.IsGpfAdvance), cancellationToken))
-      throw new DomainException("A GP Fund advance is still being repaid; recover or settle it before the final payment.");
+      throw new DomainException("A GP Fund advance is still being repaid. Recover or settle it before the final payment.");
 
     return GpFundTransaction.FinalPayment(account, date, balance, remarks ?? "Final payment");
   }

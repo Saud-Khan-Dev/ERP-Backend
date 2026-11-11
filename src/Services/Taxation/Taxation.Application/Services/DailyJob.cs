@@ -38,8 +38,8 @@ public sealed class DailyJob(IServiceScopeFactory scopes, ILogger<DailyJob> logg
       await context.SaveChangesAsync(cancellationToken);
       var prepared = await sp.GetRequiredService<NoticeEscalation>().PrepareDueAsync(cancellationToken);
       var run = await context.JobRuns.FirstAsync(r => r.Id == id, cancellationToken);
-      var summary = $"{yearEnd} year-end surcharge(s) applied; {prepared.Count} notice(s) prepared for confirmation"
-        + (calendars.FellBack ? "; HRM holidays could not be read, so notice days skipped weekends only" : "") + ".";
+      var summary = $"{yearEnd} year-end surcharge(s) applied. {prepared.Count} notice(s) prepared for confirmation"
+        + (calendars.FellBack ? ". HRM holidays could not be read, so notice days skipped only weekends" : "") + ".";
       run.Finish(yearEnd, prepared.Count, summary, clock.UtcNow);
       sp.GetRequiredService<IAuditTrail>().Record(AuditActions.Ran, AuditKind, run.Id.Value, run.RunDate.ToString("yyyy-MM-dd"), null, null, null, summary);
       await context.SaveChangesAsync(cancellationToken);

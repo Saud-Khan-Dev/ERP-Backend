@@ -89,7 +89,7 @@ public class PropertyOutsourcing : Aggregate<OutsourcingId>
 
     if (termsChanged)
       throw new DomainException(
-        $"Contract {ContractNo.Value} is in force, so its terms are history: renew or revise it to change the amount, dates or service. Only the reference no. and the remarks can be corrected.");
+        $"Contract {ContractNo.Value} is active, so its terms cannot be edited. Renew or revise it to change the amount, dates or service. Only the reference no. and the remarks can be corrected.");
 
     if (MoneyDirection is null && terms.MoneyDirection is { } direction)
       MoneyDirection = EnsureDirection(direction);
@@ -105,7 +105,7 @@ public class PropertyOutsourcing : Aggregate<OutsourcingId>
     activeStatus.EnsureIs(SystemMasterCodes.Active);
 
     if (!currentStatus.Is(SystemMasterCodes.Draft))
-      throw new DomainException($"Only a draft contract can be activated; {ContractNo.Value} is {currentStatus.Name.Value.ToLowerInvariant()}.");
+      throw new DomainException($"Only a draft contract can be activated. {ContractNo.Value} is {currentStatus.Name.Value.ToLowerInvariant()}.");
 
     ContractStatusId = activeStatus.Id;
   }
@@ -128,7 +128,7 @@ public class PropertyOutsourcing : Aggregate<OutsourcingId>
     activeStatus.EnsureIs(SystemMasterCodes.Active);
 
     if (!currentStatus.Is(SystemMasterCodes.Active) && !currentStatus.Is(SystemMasterCodes.Expired))
-      throw new DomainException($"Contract {ContractNo.Value} is {currentStatus.Name.Value.ToLowerInvariant()}; only an active or expired contract can be renewed.");
+      throw new DomainException($"Contract {ContractNo.Value} is {currentStatus.Name.Value.ToLowerInvariant()}. Only an active or expired contract can be renewed.");
 
     if (newTerms.ContractStartDate <= ContractStartDate)
       throw new DomainException($"The renewal must start after {ContractNo.Value} started ({ContractStartDate:yyyy-MM-dd}).");
@@ -166,10 +166,10 @@ public class PropertyOutsourcing : Aggregate<OutsourcingId>
     ArgumentNullException.ThrowIfNull(status);
 
     if (status.Is(SystemMasterCodes.Terminated))
-      throw new DomainException("Use terminate, so the date and reason are recorded.");
+      throw new DomainException("Use Terminate, so the date and reason are recorded.");
 
     if (!status.Is(SystemMasterCodes.Expired))
-      throw new DomainException("A contract changes status only through its acts: activate, renew, terminate or mark expired.");
+      throw new DomainException("A contract changes status only through its actions: Activate, Renew, Terminate or Mark expired.");
 
     Expire(currentStatus, status, today);
   }
@@ -184,7 +184,7 @@ public class PropertyOutsourcing : Aggregate<OutsourcingId>
       throw new DomainException($"{ContractNo.Value} has no end date, so it cannot expire. Terminate it instead, or renew it with an end date.");
 
     if (today <= end)
-      throw new DomainException($"{ContractNo.Value} ends on {end:yyyy-MM-dd}; it can be marked expired after that.");
+      throw new DomainException($"{ContractNo.Value} ends on {end:yyyy-MM-dd}. It can be marked expired after that.");
 
     ContractStatusId = expiredStatus.Id;
   }
@@ -209,7 +209,7 @@ public class PropertyOutsourcing : Aggregate<OutsourcingId>
     withdrawnStatus.EnsureIs(SystemMasterCodes.Withdrawn);
 
     if (!currentStatus.Is(SystemMasterCodes.Draft))
-      throw new DomainException($"Only a draft can be withdrawn; {ContractNo.Value} is {currentStatus.Name.Value.ToLowerInvariant()}. Terminate it instead.");
+      throw new DomainException($"Only a draft can be withdrawn. {ContractNo.Value} is {currentStatus.Name.Value.ToLowerInvariant()}. Terminate it instead.");
 
     ContractStatusId = withdrawnStatus.Id;
     TerminationReason = Guard.RequiredText(reason, 4000, "Termination reason");
@@ -227,10 +227,10 @@ public class PropertyOutsourcing : Aggregate<OutsourcingId>
     EnsureCurrent(currentStatus);
 
     if (currentStatus.Is(SystemMasterCodes.Draft))
-      throw new DomainException($"Contract {ContractNo.Value} is still a draft; activate it first.");
+      throw new DomainException($"Contract {ContractNo.Value} is still a draft. Activate it first.");
 
     if (!currentStatus.Is(SystemMasterCodes.Active))
-      throw new DomainException($"Contract {ContractNo.Value} is {currentStatus.Name.Value.ToLowerInvariant()} and no longer in force.");
+      throw new DomainException($"Contract {ContractNo.Value} is {currentStatus.Name.Value.ToLowerInvariant()} and no longer active.");
   }
 
   private void EnsureCurrent(ContractStatus currentStatus)

@@ -72,7 +72,7 @@ public class AttributeDefinition : Aggregate<AttributeDefinitionId>
 
     if (used.Count > 0 && dataType != DataType)
       throw new DomainException(
-        $"{used.Count} propert{(used.Count == 1 ? "y holds" : "ies hold")} a value for '{Label.Value}', so its kind of value cannot change. Add a new field instead.");
+        $"{used.Count} propert{(used.Count == 1 ? "y has" : "ies have")} a value for '{Label.Value}', so its kind of value cannot change. Add a new field instead.");
 
     if (used.Count > 0 && dataType is AttributeDataType.Dropdown or AttributeDataType.MultiSelect)
     {
@@ -82,7 +82,7 @@ public class AttributeDefinition : Aggregate<AttributeDefinitionId>
         .SelectMany(v => dataType == AttributeDataType.MultiSelect ? v.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries) : new[] { v })
         .Where(v => !kept.Contains(v)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
       if (dropped.Count > 0)
-        throw new DomainException($"Properties still hold {string.Join(", ", dropped.Select(o => $"'{o}'"))}, so it cannot be taken off the list.");
+        throw new DomainException($"Some properties still use {string.Join(", ", dropped.Select(o => $"'{o}'"))}, so it cannot be taken off the list.");
     }
 
     Apply(group, label, dataType, isRequired, optionsCsv, defaultValue, displayOrder);
@@ -144,7 +144,7 @@ public class AttributeDefinition : Aggregate<AttributeDefinitionId>
       case AttributeDataType.MultiSelect:
         foreach (var item in value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
           if (!Options.Contains(item, StringComparer.OrdinalIgnoreCase))
-            throw new DomainException($"'{Label.Value}' contains an invalid option '{item}'. Allowed: {OptionsCsv}.");
+            throw new DomainException($"'{Label.Value}' has an option that is not on the list: '{item}'. Allowed: {OptionsCsv}.");
         break;
     }
   }
@@ -168,7 +168,7 @@ public class AttributeDefinition : Aggregate<AttributeDefinitionId>
       throw new DomainException("Unknown data type.");
 
     if (label.Value.Length > 100)
-      throw new DomainException("Label cannot exceed 100 characters.");
+      throw new DomainException("Label can have at most 100 characters.");
 
     AttributeGroupId = group.Id;
     Label = label;
@@ -200,7 +200,7 @@ public class AttributeDefinition : Aggregate<AttributeDefinitionId>
 
     var csv = string.Join(',', options);
     if (csv.Length > 2000)
-      throw new DomainException("The option list cannot exceed 2000 characters.");
+      throw new DomainException("The option list can have at most 2000 characters.");
 
     return csv;
   }

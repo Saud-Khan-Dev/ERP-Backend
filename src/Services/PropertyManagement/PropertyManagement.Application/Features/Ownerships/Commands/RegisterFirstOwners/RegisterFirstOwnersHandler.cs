@@ -22,7 +22,7 @@ public class RegisterFirstOwnersHandler(IApplicationDbContext context, MasterLoo
     // ended with a cancelled allotment, say) gets owners only from an approver
     if (record.Current.Count == 0 && record.HasHolderHistory && !currentUser.HasPermission(PermissionCatalog.Property.Approve))
       throw new PermissionRequiredException(
-        $"{property.PropertyCode.Value} was held before, so entering its owners now is an approver's act. Ask an officer who can approve.");
+        $"{property.PropertyCode.Value} had owners before, so only an approver can enter its owners now. Ask an officer who can approve.");
 
     var rows = PropertyOwnership.RegisterFirstOwners(owners, record);
 

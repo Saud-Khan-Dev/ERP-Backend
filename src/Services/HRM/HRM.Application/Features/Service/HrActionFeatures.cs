@@ -203,7 +203,7 @@ public class MoveHrActionCommandValidator : AbstractValidator<MoveHrActionComman
   {
     RuleFor(x => x.Step).IsInEnum();
     RuleFor(x => x.Remarks).MaximumLength(1000);
-    RuleFor(x => x.Remarks).NotEmpty().When(x => x.Step == HrActionStep.Reject).WithMessage("Give the reason for rejecting the HR action.");
+    RuleFor(x => x.Remarks).NotEmpty().When(x => x.Step == HrActionStep.Reject).WithMessage("Enter the reason for rejecting the HR action.");
   }
 }
 
@@ -405,7 +405,7 @@ public class HrActionHandlers(
       else if (taken >= post.SanctionedCount)
         reason = $"Full: {taken} of {post.SanctionedCount} seat(s) held.";
       else if (needsScale && !gradesWithScale.Contains(post.GradeId))
-        reason = $"No pay scale of BPS-{post.Bps} is in force on {date:dd'/'MM'/'yyyy}.";
+        reason = $"No pay scale for BPS-{post.Bps} is active on {date:dd'/'MM'/'yyyy}.";
 
       // a grade the move can never take is left out; a post that only waits for a seat or a scale is shown disabled
       if (reason is not null && reason.StartsWith("BPS-", StringComparison.Ordinal))
@@ -454,11 +454,11 @@ public class HrActionHandlers(
           case HrActionType.DeputationIn:
           {
             var scale = await pay.ScaleInForceAsync(details.NewGradeId!, date, cancellationToken);
-            var stage = scale.Stage(details.StageNumber ?? 0) ?? throw new DomainException($"The scale in force has no stage {details.StageNumber}.");
+            var stage = scale.Stage(details.StageNumber ?? 0) ?? throw new DomainException($"The active scale has no stage {details.StageNumber}.");
             bpsAfter = target!.Bps;
             payAfter = details.BasicPay ?? stage.BasicPay;
             stageAfter = stage.StageNumber;
-            line = $"{(details.ActionType == HrActionType.Appointment ? "Appointed to" : "Joins on deputation on")} post {target.PostCode} (BPS-{target.Bps}) from {day}; pay Rs {payAfter:#,##0} (stage {stage.StageNumber}).";
+            line = $"{(details.ActionType == HrActionType.Appointment ? "Appointed to" : "Joins on deputation on")} post {target.PostCode} (BPS-{target.Bps}) from {day}. Pay is Rs {payAfter:#,##0} (stage {stage.StageNumber}).";
             break;
           }
           case HrActionType.Promotion:
@@ -473,21 +473,21 @@ public class HrActionHandlers(
             break;
           }
           case HrActionType.Transfer:
-            line = $"Moves from post {facts.Current!.PostCode} to {target!.PostCode} (BPS-{target.Bps}) from {day}; the pay stays Rs {payBefore:#,##0}.";
+            line = $"Moves from post {facts.Current!.PostCode} to {target!.PostCode} (BPS-{target.Bps}) from {day}. The pay stays Rs {payBefore:#,##0}.";
             break;
           case HrActionType.Lwop:
           {
             var days = details.EndDate!.Value.DayNumber - date.DayNumber + 1;
-            line = $"No pay from {day} to {details.EndDate:dd'/'MM'/'yyyy} ({days} day(s)); the next increment moves back by the same days.";
+            line = $"No pay from {day} to {details.EndDate:dd'/'MM'/'yyyy} ({days} day(s)). The next increment moves back by the same number of days.";
             break;
           }
           case HrActionType.Suspension:
             statusAfter = EmploymentStatus.Suspended;
-            line = $"Suspended from {day}; the post is kept.";
+            line = $"Suspended from {day}. The post is kept.";
             break;
           case HrActionType.DeputationOut:
             statusAfter = EmploymentStatus.DeputedOut;
-            line = $"Deputed to {details.ExternalReferenceOrg} from {day}; post {facts.Current?.PostCode ?? "-"} is released and kept on lien. GDA stops paying from that day.";
+            line = $"Deputed to {details.ExternalReferenceOrg} from {day}. Post {facts.Current?.PostCode ?? "-"} is released and kept on lien. GDA stops paying from that day.";
             break;
           case HrActionType.Regularization:
             line = $"Becomes a regular employee from {day}.";
@@ -498,7 +498,7 @@ public class HrActionHandlers(
             if (target is not null)
             {
               bpsAfter = target.Bps;
-              line = $"Back on duty from {day} on post {target.PostCode} (BPS-{target.Bps}); the pay reopens at the stage last drawn.";
+              line = $"Back on duty from {day} on post {target.PostCode} (BPS-{target.Bps}). The pay goes back to the last stage drawn.";
             }
             else
             {
@@ -510,7 +510,7 @@ public class HrActionHandlers(
             {
               statusAfter = ServiceEventNames.StatusAfter(separation);
               payAfter = null;
-              line = $"Service ends on {day} ({EnumText.Words(statusAfter.Value)}); pay stops after that day. Open HR actions, leave, tasks and requests are closed.";
+              line = $"Service ends on {day} ({EnumText.Words(statusAfter.Value)}). Pay stops after that day. Open HR actions, leave, tasks and requests are closed.";
             }
             else if (facts.EventType is { } eventType)
             {
@@ -553,7 +553,7 @@ public class HrActionHandlers(
     var action = await context.LoadHrActionAsync(command.Id, cancellationToken);
     var employee = await context.LoadEmployeeAsync(action.EmployeeId.Value, cancellationToken);
     if (command.Action.ActionType != action.ActionType)
-      return Result<UpdatedResult>.Failure("The kind of an HR action cannot change; cancel it and draft the right one.");
+      return Result<UpdatedResult>.Failure("The kind of an HR action cannot change. Cancel it and draft the right one.");
 
     var (details, current) = await ResolveAsync(action.EmployeeId, command.Action, cancellationToken);
     await checks.EnsureAllowedAsync(employee, details, cancellationToken);
@@ -608,7 +608,7 @@ public class HrActionHandlers(
   private void EnsureSuperAdmin(string act)
   {
     if (!currentUser.IsSuperAdmin)
-      throw new DomainException($"Only the Super Administrator can {act}. Submit it; the Super Administrator decides it.");
+      throw new DomainException($"Only the Super Administrator can {act}. Submit it, and the Super Administrator will decide it.");
   }
 
   public async Task<Result<ApplyHrActionResult>> Handle(ApplyHrActionCommand command, CancellationToken cancellationToken)

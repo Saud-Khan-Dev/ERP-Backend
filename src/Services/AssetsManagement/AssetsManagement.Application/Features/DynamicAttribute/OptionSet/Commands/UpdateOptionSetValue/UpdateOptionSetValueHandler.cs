@@ -20,7 +20,7 @@ public class UpdateOptionSetValueHandler(IApplicationDbContext context, IAssetDa
     {
       var fieldCodes = await context.AttributeDefinitions.AsNoTracking().Where(d => d.OptionSetId == id).Select(d => d.Code).ToListAsync(cancellationToken);
       if (await queries.AssetsHoldingChoiceAsync(fieldCodes.Select(c => c.Value).ToList(), existing.Value.Value, cancellationToken) > 0)
-        return Result<UpdateOptionSetValueCommandResult>.Failure($"Assets hold '{existing.Label}', so its code cannot change. Rename its label instead.");
+        return Result<UpdateOptionSetValueCommandResult>.Failure($"Assets use '{existing.Label}', so its code cannot change. Rename its label instead.");
     }
 
     optionSet.UpdateValue(

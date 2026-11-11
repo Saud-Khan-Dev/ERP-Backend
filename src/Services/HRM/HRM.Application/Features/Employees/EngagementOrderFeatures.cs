@@ -37,7 +37,7 @@ public class AddEngagementOrderCommandValidator : AbstractValidator<AddEngagemen
     RuleFor(x => x.Order.OrgUnitId).NotEmpty().WithMessage("Choose the office.");
     RuleFor(x => x.Order.DesignationId).NotEmpty().WithMessage("Choose the designation.");
     RuleFor(x => x.Order.WageBasis).IsInEnum();
-    RuleFor(x => x.Order.Rate).GreaterThan(0).WithMessage("Give the wage of the order.");
+    RuleFor(x => x.Order.Rate).GreaterThan(0).WithMessage("Enter the wage for the order.");
     RuleFor(x => x.Order.LetterDocumentId).NotEmpty().WithMessage("Attach the order letter.");
   }
 }
@@ -78,7 +78,7 @@ public class EngagementOrderHandlers(IApplicationDbContext context, HrLookup loo
 
     var office = await context.LoadOrgUnitAsync(input.OrgUnitId, cancellationToken);
     if (!office.IsActiveOn(input.StartDate))
-      return Result<CreatedResult>.Failure("That office is not on the structure on the order's first day.");
+      return Result<CreatedResult>.Failure("That office does not exist in the structure on the order's first day.");
     (await context.LoadDesignationAsync(input.DesignationId, cancellationToken)).EnsureActive();
     var letter = await context.LoadDocumentAsync(input.LetterDocumentId, cancellationToken);
     if (letter.EmployeeId != employee.Id)
@@ -90,7 +90,7 @@ public class EngagementOrderHandlers(IApplicationDbContext context, HrLookup loo
       .Where(o => o.EmployeeId == employee.Id && o.Status == RecordStatus.Active && o.StartDate <= order.EndDate && o.EndDate >= order.StartDate)
       .Select(o => new { o.StartDate, o.EndDate }).FirstOrDefaultAsync(cancellationToken);
     if (clash is not null)
-      return Result<CreatedResult>.Failure($"An order already covers {clash.StartDate:dd'/'MM'/'yyyy} to {clash.EndDate:dd'/'MM'/'yyyy}; a renewal starts after it ends.");
+      return Result<CreatedResult>.Failure($"An order already covers {clash.StartDate:dd'/'MM'/'yyyy} to {clash.EndDate:dd'/'MM'/'yyyy}. A renewal must start after it ends.");
 
     context.EngagementOrders.Add(order);
     await FollowTermAsync(employee, order, cancellationToken);
@@ -117,7 +117,7 @@ public class EngagementOrderHandlers(IApplicationDbContext context, HrLookup loo
         select p.StartDate)
       .AnyAsync(cancellationToken);
     if (paid)
-      return Result<UpdatedResult>.Failure("Pay for this order's days has been finalized; reverse that payroll run before cancelling the order.");
+      return Result<UpdatedResult>.Failure("Pay for this order's days has been finalized. Reverse that payroll run before cancelling the order.");
 
     order.Cancel(command.Reason);
     var latest = await context.EngagementOrders.Where(o => o.EmployeeId == order.EmployeeId && o.Id != order.Id && o.Status == RecordStatus.Active)

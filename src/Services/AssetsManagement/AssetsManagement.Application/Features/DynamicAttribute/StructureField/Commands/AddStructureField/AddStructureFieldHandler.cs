@@ -80,7 +80,7 @@ public class AddStructureFieldHandler(IApplicationDbContext context)
         && a.CategoryId == target.CategoryId
         && a.AssetId == null, cancellationToken);
     if (duplicate is { IsHidden: true })
-      return Result<AddStructureFieldCommandResult>.Failure($"'{definition.Name.Value}' is marked \"not used here\" on this node. Use it here again instead.");
+      return Result<AddStructureFieldCommandResult>.Failure($"'{definition.Name.Value}' is marked \"not used here\" at this level. Use it here again instead.");
     if (duplicate is not null)
       return Result<AddStructureFieldCommandResult>.Failure($"'{definition.Name.Value}' is already on this form.");
 

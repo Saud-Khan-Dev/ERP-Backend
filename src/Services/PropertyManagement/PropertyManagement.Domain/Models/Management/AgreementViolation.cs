@@ -124,8 +124,8 @@ public class AgreementViolation : Aggregate<ViolationId>
 
     if (!parties.Contains(violator.Id))
       throw new DomainException(agreement.Transfer is not null
-        ? $"{violator.OwnerName.Value} did not receive a share in {agreementNo}; a breach of a sale's conditions is recorded against a transferee."
-        : $"{violator.OwnerName.Value} is not the {(agreement.Lease is not null ? "lessee" : agreement.Rental is not null ? "tenant" : "allottee")} of {agreementNo}; record the violation against the party bound by the agreement.");
+        ? $"{violator.OwnerName.Value} did not receive a share in {agreementNo}. A breach of a sale's conditions is recorded against a person who got a share in the sale."
+        : $"{violator.OwnerName.Value} is not the {(agreement.Lease is not null ? "lessee" : agreement.Rental is not null ? "tenant" : "allottee")} of {agreementNo}. Record the violation against the party bound by the agreement.");
 
     if (violationDate < agreementStart)
       throw new DomainException($"The violation date cannot be before {agreementNo} started ({agreementStart:yyyy-MM-dd}).");
@@ -193,10 +193,10 @@ public class AgreementViolation : Aggregate<ViolationId>
     EnsureNotRectified();
 
     if (FineStatus is { } current && current != global::FineStatus.Imposed)
-      throw new DomainException($"The fine of Rs {FineAmount:N0} is already {DescribeFine(current)}; it can no longer be changed.");
+      throw new DomainException($"The fine of Rs {FineAmount:N0} is already {DescribeFine(current)}. It can no longer be changed.");
 
     if (amount <= 0 || amount > MaxFine)
-      throw new DomainException($"The fine must be greater than zero and may extend to Rs {MaxFine:N0} (s.28-A).");
+      throw new DomainException($"The fine must be more than zero and not more than Rs {MaxFine:N0} (s.28-A).");
 
     if (imposedBy == Guid.Empty)
       throw new DomainException("The imposing officer is required.");
@@ -224,7 +224,7 @@ public class AgreementViolation : Aggregate<ViolationId>
       throw new DomainException("No fine has been imposed for this violation.");
 
     if (FineStatus is global::FineStatus.Paid or global::FineStatus.Waived)
-      throw new DomainException($"The fine of Rs {FineAmount:N0} is already {DescribeFine(FineStatus.Value)}; it can no longer change.");
+      throw new DomainException($"The fine of Rs {FineAmount:N0} is already {DescribeFine(FineStatus.Value)}. It can no longer change.");
 
     switch (change.Status)
     {
@@ -233,7 +233,7 @@ public class AgreementViolation : Aggregate<ViolationId>
           ?? throw new DomainException("Give the receipt no. the fine was paid against.");
         var paidOn = change.PaidOn ?? throw new DomainException("Give the date the fine was paid.");
         if (paidOn > today)
-          throw new DomainException($"The payment date cannot be in the future ({paidOn:yyyy-MM-dd}); today is {today:yyyy-MM-dd}.");
+          throw new DomainException($"The payment date cannot be in the future ({paidOn:yyyy-MM-dd}). Today is {today:yyyy-MM-dd}.");
         if (paidOn < (FineImposedOn ?? ViolationDate))
           throw new DomainException($"The fine cannot have been paid before it was imposed ({FineImposedOn ?? ViolationDate:yyyy-MM-dd}).");
         FineReceiptNo = receipt;
@@ -274,7 +274,7 @@ public class AgreementViolation : Aggregate<ViolationId>
     EnsureNotRectified();
 
     if (LedToCancellation)
-      throw new DomainException($"Violation no. {OccurrenceNo} cancelled the agreement on {CancellationDate:yyyy-MM-dd}; it cannot be marked rectified. The cancellation can only be set aside on appeal.");
+      throw new DomainException($"Violation no. {OccurrenceNo} cancelled the agreement on {CancellationDate:yyyy-MM-dd}. It cannot be marked rectified. The cancellation can be set aside only on appeal.");
 
     if (ViolationStatus == ViolationStatus.Appealed)
       throw new DomainException("This violation is under appeal. Record the appeal's decision, or its withdrawal, first.");

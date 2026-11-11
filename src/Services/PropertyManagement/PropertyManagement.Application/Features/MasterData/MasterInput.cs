@@ -42,10 +42,10 @@ public static class MasterRules
   public static void EnsureCanDeactivate(MasterDescriptor descriptor, MasterData master)
   {
     if (SystemMasterCodes.IsRequired(descriptor.ClrType, master.Code.Value))
-      throw new DomainException($"'{master.Name.Value}' is used by the system - it can be renamed but not switched off.");
+      throw new DomainException($"'{master.Name.Value}' is used by the system. It can be renamed but not switched off.");
 
     if (descriptor.ReadOnly)
-      throw new DomainException($"{descriptor.Label} values are set by the system's own acts and cannot be switched off; they can be renamed.");
+      throw new DomainException($"{descriptor.Label} values are set by the system and cannot be switched off. They can be renamed.");
   }
 
   /// A document type's applies_to (PROPERTY | OWNER) is fixed once documents of that type are filed: they would
@@ -73,6 +73,6 @@ public static class MasterRules
         .Select(u => u.Code)
         .FirstOrDefaultAsync(cancellationToken);
 
-    return other is null ? null : $"{other.Value} is already the base unit; only one unit can be the base.";
+    return other is null ? null : $"{other.Value} is already the base unit. Only one unit can be the base.";
   }
 }

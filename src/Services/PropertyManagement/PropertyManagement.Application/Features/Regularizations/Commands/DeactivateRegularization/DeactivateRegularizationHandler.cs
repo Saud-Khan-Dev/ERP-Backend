@@ -8,7 +8,7 @@ public class DeactivateRegularizationHandler(IApplicationDbContext context, ICur
 
     // withdrawing a regularized case takes its area off the property: it undoes an approver's decision
     if (regularization.RegularizationStatus == RegularizationStatus.Regularized && !currentUser.HasPermission(PermissionCatalog.Property.Approve))
-      throw new PermissionRequiredException("This case was regularized; withdrawing it takes its area off the property, which is an approver's act.");
+      throw new PermissionRequiredException("This case was regularized. Withdrawing it takes its area off the property, so only an approver can do it.");
 
     regularization.Deactivate();
 

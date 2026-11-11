@@ -122,7 +122,7 @@ public class DocumentService(
     var cnicCode = MasterCode.Of(SystemMasterCodes.DocumentCnicCopy);
     var cnicCopy = await context.Set<DocumentType>().AsNoTracking()
         .FirstOrDefaultAsync(t => t.Code == cnicCode, cancellationToken)
-      ?? throw new DomainException($"Document type {SystemMasterCodes.DocumentCnicCopy} is missing; restart the service so it is seeded again.");
+      ?? throw new DomainException($"Document type {SystemMasterCodes.DocumentCnicCopy} is missing. Restart the service so it is added again.");
 
     // tracked on purpose: rows already loaded keep their unsaved changes, and Local adds the new ones
     await context.Documents.Where(d => d.EntityType == DocumentEntityType.Owner && d.EntityId == ownerId.Value).LoadAsync(cancellationToken);
@@ -147,8 +147,8 @@ public class DocumentService(
   {
     if (!MaySee(document))
       throw new PermissionRequiredException(document.IsConfidential
-        ? "This paper is confidential; it needs Legal: view (PROPERTY_LEGAL.VIEW)."
-        : "This paper is filed on a legal record; it needs Legal: view (PROPERTY_LEGAL.VIEW).");
+        ? "This paper is confidential. Seeing it needs Legal: view (PROPERTY_LEGAL.VIEW)."
+        : "This paper is filed on a legal record. Seeing it needs Legal: view (PROPERTY_LEGAL.VIEW).");
   }
 
   /// Filing a paper on an encroachment, case or appeal is legal work (PROPERTY_LEGAL.EDIT, 403 otherwise).

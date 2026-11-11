@@ -157,7 +157,7 @@ public class AttributeDefinition : Aggregate<AttributeDefinitionId>
       throw new DomainException("A number cannot have more decimals than digits.");
 
     if (isMultiValue && requiresOptionSet)
-      throw new DomainException("A dropdown that takes several choices is its own kind of field.");
+      throw new DomainException("A dropdown that allows several choices is its own kind of field.");
 
     Name = name;
     Description = description;

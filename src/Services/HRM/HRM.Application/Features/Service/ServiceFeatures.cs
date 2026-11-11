@@ -159,7 +159,7 @@ public class ServiceRecordHandlers(IApplicationDbContext context, ServiceRecordR
     var assignment = await context.LoadAssignmentAsync(command.Id, cancellationToken);
     if (await context.PayrollSegments.AnyAsync(s => s.PostId == assignment.PostId
         && context.PayrollTransactions.Any(t => t.Id == s.PayrollTransactionId && t.EmployeeId == assignment.EmployeeId), cancellationToken))
-      return Result<UpdatedResult>.Failure("The employee has been paid on this post; end the assignment instead of cancelling it.");
+      return Result<UpdatedResult>.Failure("The employee has been paid on this post. End the assignment instead of cancelling it.");
 
     assignment.Cancel(command.Remarks);
     await context.SaveChangesAsync(cancellationToken);

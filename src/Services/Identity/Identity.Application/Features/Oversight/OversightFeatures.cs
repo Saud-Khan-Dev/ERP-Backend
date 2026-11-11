@@ -218,7 +218,7 @@ public class UpdateOversightSettingsHandler(IApplicationDbContext context, IActi
   {
     var id = SecuritySettingsId.Of(SecuritySettings.SingletonId);
     var settings = await context.SecuritySettings.FirstOrDefaultAsync(s => s.Id == id, cancellationToken)
-      ?? throw new DomainException("The security settings are not set up yet - restart the Identity service.");
+      ?? throw new DomainException("The security settings are not set up yet. Restart the Identity service.");
     var before = new OversightSettingsDto(settings.DormantAfterDays, settings.SwitchOffDormant, settings.AccessReviewMonths, settings.SignInMaxDays);
     var s = command.Settings;
     settings.UpdateOversight(s.DormantAfterDays, s.SwitchOffDormant, s.AccessReviewMonths, s.SignInMaxDays);

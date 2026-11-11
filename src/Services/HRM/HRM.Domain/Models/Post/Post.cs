@@ -77,7 +77,7 @@ public class Post : Aggregate<PostId>
   {
     EnsureNotReportingToItself(details);
     EnsureSeatsCover(details.SanctionedCount, filledSeats);
-    var version = VersionOn(asOf) ?? throw new DomainException($"Post {PostCode} has no version in force on {asOf:dd'/'MM'/'yyyy}.");
+    var version = VersionOn(asOf) ?? throw new DomainException($"Post {PostCode} has no active version on {asOf:dd'/'MM'/'yyyy}.");
     version.Correct(details);
     return version;
   }
@@ -86,7 +86,7 @@ public class Post : Aggregate<PostId>
   {
     var latest = Latest;
     if (latest.LifecycleStatus == PostLifecycle.Abolished)
-      throw new DomainException($"Post {PostCode} is abolished; create a new post instead.");
+      throw new DomainException($"Post {PostCode} is abolished. Create a new post instead.");
 
     if (effectiveFrom <= latest.EffectiveFrom)
       throw new DomainException($"A new version of post {PostCode} must start after {latest.EffectiveFrom:yyyy-MM-dd}, when the current one started.");
@@ -110,7 +110,7 @@ public class Post : Aggregate<PostId>
   private void EnsureSeatsCover(int sanctionedCount, int filledSeats)
   {
     if (sanctionedCount < filledSeats)
-      throw new DomainException($"Post {PostCode} has {filledSeats} regular holder(s); it cannot be reduced to {sanctionedCount} seat(s).");
+      throw new DomainException($"Post {PostCode} has {filledSeats} regular holder(s). It cannot be reduced to {sanctionedCount} seat(s).");
   }
 }
 

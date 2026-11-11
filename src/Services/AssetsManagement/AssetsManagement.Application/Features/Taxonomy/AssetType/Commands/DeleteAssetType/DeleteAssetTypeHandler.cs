@@ -13,7 +13,7 @@ public class DeleteAssetTypeHandler(IApplicationDbContext context)
       return Result<DeleteAssetTypeCommandResult>.Failure($"'{assetType.Name.Value}' still has categories under it. Delete those first, or switch the type off.");
 
     if (await context.Assets.IgnoreQueryFilters().AnyAsync(a => a.AssetTypeId == id, cancellationToken))
-      return Result<DeleteAssetTypeCommandResult>.Failure($"Assets (some may be deleted ones kept on record) are of type '{assetType.Name.Value}', so it cannot be deleted. Switch it off instead.");
+      return Result<DeleteAssetTypeCommandResult>.Failure($"Assets are of type '{assetType.Name.Value}', so it cannot be deleted. Some of them may be deleted assets that are kept on record. Switch it off instead.");
 
     context.AssetTypes.Remove(assetType);
     await context.SaveChangesAsync(cancellationToken);

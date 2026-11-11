@@ -22,10 +22,10 @@ public class RestoreUserHandler(IApplicationDbContext context, IdentityGuard gua
     var taken = await context.Users.AsNoTracking().Where(u => u.Id != id && (u.Username == user.Username || u.Email == user.Email))
       .Select(u => u.Username.Value).FirstOrDefaultAsync(cancellationToken);
     if (taken is not null)
-      return Result<RestoreUserCommandResult>.Failure($"The account {taken} now uses this username or email - this one cannot be restored. Register a new account instead.");
+      return Result<RestoreUserCommandResult>.Failure($"The account {taken} now uses this username or email. So this one cannot be restored. Register a new account instead.");
     var code = user.EmployeeCode;
     if (user.EmployeeId is not null && code is not null && await context.Users.AnyAsync(u => u.Id != id && u.EmployeeCode == code && u.EmployeeId != null, cancellationToken))
-      return Result<RestoreUserCommandResult>.Failure($"Another account in use is linked to {code.Value} - this one cannot be restored.");
+      return Result<RestoreUserCommandResult>.Failure($"Another account in use is linked to {code.Value}. So this one cannot be restored.");
 
     user.Restore();
     await activity.RecordAsync(ActivityAction.UserRestored, ActivityTargetType.User, user.Id.Value, user.DisplayName.Value, null, cancellationToken);

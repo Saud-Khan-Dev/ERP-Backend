@@ -24,7 +24,7 @@ public class UpdateMasterHandler(IApplicationDbContext context)
       var used = (await context.ReferenceCountsAsync(typeof(MeasurementUnit), new[] { unit.Id.Value }, cancellationToken)).GetValueOrDefault(unit.Id.Value);
       if (used > 0)
         return Result<UpdateMasterCommandResult>.Failure(
-          $"{unit.Name.Value} is used by {used} area(s) already, stored in square feet with its present factor ({unit.FactorToBase:0.########}). Its factor can no longer change; add a new unit instead.");
+          $"{unit.Name.Value} is already used by {used} area(s). They are stored in square feet using its present factor ({unit.FactorToBase:0.########}). So its factor can no longer change. Add a new unit instead.");
     }
 
     var extras = new MasterInput(master.Code.Value, input.Name, input.Description, input.SortOrder,

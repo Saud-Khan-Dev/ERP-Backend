@@ -27,7 +27,7 @@ public sealed class TaxFormula
       throw new DomainException("A formula is required.");
 
     if (expression.Length > 500)
-      throw new DomainException("A formula cannot exceed 500 characters.");
+      throw new DomainException("A formula cannot be longer than 500 characters.");
 
     var parser = new Parser(expression);
     var root = parser.ParseExpression();
@@ -58,7 +58,7 @@ public sealed class TaxFormula
     }
     catch (OverflowException)
     {
-      throw new DomainException($"The formula '{Expression}' gives a number too large.");
+      throw new DomainException($"The formula '{Expression}' gives a number that is too large.");
     }
   }
 

@@ -91,7 +91,7 @@ public class PropertyBoundary : Aggregate<BoundaryId>
     if (newer is not null)
     {
       boundary.IsCurrent = false;
-      notes.Add($"Surveyed on {surveyDate:yyyy-MM-dd}, before the current boundary survey of {newer.SurveyDate:yyyy-MM-dd}: it is kept as history and the current boundary stays in force.");
+      notes.Add($"Surveyed on {surveyDate:yyyy-MM-dd}, which is before the current boundary survey of {newer.SurveyDate:yyyy-MM-dd}. It is kept as history, and the current boundary stays in use.");
     }
     else
     {
@@ -103,7 +103,7 @@ public class PropertyBoundary : Aggregate<BoundaryId>
   }
 
   public static string SteepSlopeWarning(decimal slopeDegrees) =>
-      $"Slope {slopeDegrees.ToString("0.##", CultureInfo.InvariantCulture)}° is above the 45° limit of the Building & Construction Regulations 2026 - the survey is recorded; check before approving construction.";
+      $"Slope {slopeDegrees.ToString("0.##", CultureInfo.InvariantCulture)}° is above the 45° limit of the Building & Construction Regulations 2026. The survey is still recorded. Check it before approving construction.";
 
   /// A newer survey replaced this one.
   public void Supersede() => IsCurrent = false;

@@ -72,6 +72,6 @@ public class CreateAssetCommandValidator : AbstractValidator<CreateAssetCommand>
     RuleFor(x => x.Depreciation!).SetValidator(new DepreciationPlanInputValidator()).When(x => x.Depreciation is not null);
     RuleFor(x => x.Acquisition).NotNull()
       .When(x => x.Depreciation is not null)
-      .WithMessage("Depreciation is worked out from the purchase cost: enter the purchase details too.");
+      .WithMessage("Depreciation is worked out from the purchase cost. Enter the purchase details too.");
   }
 }

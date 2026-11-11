@@ -10,7 +10,7 @@ public class AllotmentRuleTests
   {
     var (property, classification) = NewPlot("PRIVATE_PROPERTY");
 
-    Assert.Equal("Only GDA property can be allotted; PROP-00001 is classified as PRIVATE_PROPERTY.",
+    Assert.Equal("Only GDA property can be allotted. PROP-00001 is marked as PRIVATE_PROPERTY.",
       Message(() => Allot(property, classification, Owner("Shazia Bibi"))));
   }
 
@@ -20,7 +20,7 @@ public class AllotmentRuleTests
     var (property, classification) = NewPlot();
     var first = Allot(property, classification, Owner("Shazia Bibi"), no: "ALT-00037");
 
-    Assert.Equal("ALT-00037 to Shazia Bibi is already in force on this plot; cancel, surrender or expire it first.",
+    Assert.Equal("ALT-00037 to Shazia Bibi is already active on this plot. Cancel, surrender or expire it first.",
       Message(() => Allot(property, classification, Owner("Other"), no: "ALT-00038", inForce: new PropertyAllotment.InForce(first, "Shazia Bibi"))));
   }
 
@@ -72,7 +72,7 @@ public class AllotmentRuleTests
     var allotment = Allot(property, classification, allottee);
 
     var full = Record(property, new[] { Own(property, holder, 100) }, new[] { allottee, holder });
-    Assert.Equal("Someone already holds 100% of PROP-00001; transfer a share to the allottee instead.",
+    Assert.Equal("Someone already owns 100% of PROP-00001. Transfer a share to the allottee instead.",
       Message(() => allotment.ConfirmOwnership(OwnershipId.New(), Active, allottee, Owned, 100, D("2025-02-01"), null, null, full)));
 
     var empty = Record(property, Array.Empty<PropertyOwnership>(), new[] { allottee });
@@ -124,11 +124,11 @@ public class AllotmentRuleTests
       Record(property, Array.Empty<PropertyOwnership>(), new[] { allottee }));
 
     var record = Record(property, new[] { confirmed }, new[] { allottee });
-    Assert.Contains("date the cancellation on or after that",
+    Assert.Contains("Date the cancellation on or after that",
       Message(() => allotment.Cancel(Active, Cancelled, D("2025-03-01"), "x", null, record)));
 
     var charged = Record(property, new[] { confirmed }, new[] { allottee }, charges: new[] { Charge(property, confirmed) });
-    Assert.Contains("release it before the allotment is cancelled",
+    Assert.Contains("Release the charge before the allotment is cancelled",
       Message(() => allotment.Cancel(Active, Cancelled, D("2026-03-01"), "x", null, charged)));
     Assert.Equal(OwnershipStatus.Active, confirmed.OwnershipStatus);
   }
@@ -141,9 +141,9 @@ public class AllotmentRuleTests
     var allotment = Allot(property, classification, allottee);
     var record = Record(property, Array.Empty<PropertyOwnership>(), new[] { allottee });
 
-    Assert.Contains("restore act", Message(() => allotment.ChangeStatus(Active, Restored, null, record)));
-    Assert.Contains("restore act", Message(() => allotment.ChangeStatus(Active, Active, null, record)));
-    Assert.Contains("cancel act", Message(() => allotment.ChangeStatus(Active, Cancelled, null, record)));
+    Assert.Contains("Restore action", Message(() => allotment.ChangeStatus(Active, Restored, null, record)));
+    Assert.Contains("Restore action", Message(() => allotment.ChangeStatus(Active, Active, null, record)));
+    Assert.Contains("Cancel action", Message(() => allotment.ChangeStatus(Active, Cancelled, null, record)));
     Assert.Contains("only be surrendered or expired", Message(() => allotment.ChangeStatus(Active, Master<AllotmentStatus>("ON_HOLD"), null, record)));
     Assert.Contains("date the allotment was surrendered", Message(() => allotment.ChangeStatus(Active, Surrendered, null, record)));
     Assert.Contains("cannot be in the future", Message(() => allotment.ChangeStatus(Active, Surrendered, D("2026-10-14"), record)));
@@ -152,9 +152,9 @@ public class AllotmentRuleTests
     Assert.Equal(Surrendered.Id, allotment.AllotmentStatusId);
     Assert.Equal(D("2026-05-01"), allotment.SurrenderDate);
 
-    Assert.Contains("only an allotment in force can be cancelled",
+    Assert.Contains("Only an active allotment can be cancelled",
       Message(() => allotment.Cancel(Surrendered, Cancelled, D("2026-06-01"), "x", null, record)));
-    Assert.Contains("only an allotment in force", Message(() => allotment.ChangeStatus(Surrendered, Expired, D("2026-06-01"), record)));
+    Assert.Contains("Only an active allotment", Message(() => allotment.ChangeStatus(Surrendered, Expired, D("2026-06-01"), record)));
     Assert.Contains("Only a cancelled allotment can be restored",
       Message(() => allotment.Restore(property, Surrendered, Restored, D("2026-06-01"), null, null, Today)));
   }
@@ -183,7 +183,7 @@ public class AllotmentRuleTests
     var record = Record(property, Array.Empty<PropertyOwnership>(), new[] { allottee });
 
     var withTerm = Allot(property, classification, allottee, expiry: D("2030-01-01"));
-    Assert.Equal("ALT-00001 expires on 2030-01-01; it can be marked expired after that.",
+    Assert.Equal("ALT-00001 expires on 2030-01-01. It can be marked expired after that.",
       Message(() => withTerm.ChangeStatus(Active, Expired, null, record)));
 
     var lapsed = Allot(property, classification, allottee, expiry: D("2026-01-01"));
@@ -191,7 +191,7 @@ public class AllotmentRuleTests
     Assert.Equal(Expired.Id, lapsed.AllotmentStatusId);
 
     var openEnded = Allot(property, classification, allottee);
-    Assert.Contains("give the date it expired", Message(() => openEnded.ChangeStatus(Active, Expired, null, record)));
+    Assert.Contains("Give the date it expired", Message(() => openEnded.ChangeStatus(Active, Expired, null, record)));
     openEnded.ChangeStatus(Active, Expired, D("2026-09-30"), record);
     Assert.Equal(D("2026-09-30"), openEnded.ExpiryDate);
   }
@@ -208,7 +208,7 @@ public class AllotmentRuleTests
     Assert.Equal("Allotment ALT-00001 is already cancelled.", Message(() => allotment.Cancel(Cancelled, Cancelled, D("2026-03-02"), "x", null, record)));
 
     var newer = Allot(property, classification, Owner("Other"), "2026-04-01", "ALT-00002");
-    Assert.Contains("ALT-00002 to Other is already in force",
+    Assert.Contains("ALT-00002 to Other is already active",
       Message(() => allotment.Restore(property, Cancelled, Restored, D("2026-05-01"), null, new PropertyAllotment.InForce(newer, "Other"), Today)));
     Assert.Contains("before it was cancelled",
       Message(() => allotment.Restore(property, Cancelled, Restored, D("2026-02-01"), null, null, Today)));
@@ -223,7 +223,7 @@ public class AllotmentRuleTests
     var confirmed = allotment.ConfirmOwnership(OwnershipId.New(), Active, allottee, Owned, 100, D("2025-02-01"), null, null,
       Record(property, Array.Empty<PropertyOwnership>(), new[] { allottee }));
 
-    Assert.Contains("cancel or surrender the allotment first", Message(() => allotment.Deactivate(property, new[] { confirmed })));
+    Assert.Contains("Cancel or surrender the allotment first", Message(() => allotment.Deactivate(property, new[] { confirmed })));
   }
 
   [Fact]

@@ -38,7 +38,7 @@ public class CreateUserInputValidator : AbstractValidator<CreateUserInput>
     RuleForEach(x => x.RoleIds).NotEmpty().WithMessage("Role ids cannot be empty.");
     RuleFor(x => x.EmployeeCode).MaximumLength(EmployeeCode.MaxLength);
     RuleFor(x => x.EmployeeCode).NotEmpty().When(x => x.EmployeeId is not null)
-      .WithMessage("The HR employee number is missing - choose the person again.");
+      .WithMessage("The HR employee number is missing. Choose the person again.");
     RuleFor(x => x.OwnerId).Must(id => id != Guid.Empty).WithMessage("Choose the person's owner record.");
     RuleFor(x => x.EmployeeId).Must(id => id != Guid.Empty).WithMessage("Choose the person's HR record.");
   }

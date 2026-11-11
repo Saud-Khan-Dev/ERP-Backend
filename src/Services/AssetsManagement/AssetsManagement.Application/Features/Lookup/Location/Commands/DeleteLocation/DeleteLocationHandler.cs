@@ -14,7 +14,7 @@ public class DeleteLocationHandler(IApplicationDbContext context)
 
     if (await context.Assets.IgnoreQueryFilters().AnyAsync(a => a.CurrentLocationId == id, cancellationToken)
         || await context.AssetAssignments.AnyAsync(a => a.FromLocationId == id || a.ToLocationId == id, cancellationToken))
-      return Result<DeleteLocationCommandResult>.Failure($"Assets are at '{location.Name.Value}', or were moved through it, so it cannot be deleted. Switch it off instead - it then stays readable on old records.");
+      return Result<DeleteLocationCommandResult>.Failure($"Assets are at '{location.Name.Value}', or were moved through it, so it cannot be deleted. Switch it off instead. It will still show on old records.");
 
     context.Locations.Remove(location);
     await context.SaveChangesAsync(cancellationToken);

@@ -32,7 +32,7 @@ public static class AgreementOverlap
           continue;
 
         throw new DomainException(
-          $"{other.Code} to {other.PartyName} already runs {Period(other)} on this property; a second {Noun(candidate.Kind)} cannot overlap it. "
+          $"{other.Code} to {other.PartyName} already runs {Period(other)} on this property. A second {Noun(candidate.Kind)} cannot overlap it. "
           + $"Renew or end {other.Code} first{(other.End is { } end ? $", or start the new {Noun(candidate.Kind)} after {end:yyyy-MM-dd}" : "")}.");
       }
 
@@ -70,15 +70,15 @@ public static class AgreementDates
   public static void EnsureEndedOn(string code, DateOnly date, DateOnly start, DateOnly? agreedEnd, DateOnly? today)
   {
     if (today is { } day && date > day)
-      throw new DomainException($"The termination date cannot be in the future ({date:yyyy-MM-dd}); today is {day:yyyy-MM-dd}.");
+      throw new DomainException($"The termination date cannot be in the future ({date:yyyy-MM-dd}). Today is {day:yyyy-MM-dd}.");
 
     var notStartedYet = today is { } now && start > now;
     if (date < start && !(notStartedYet && date == today))
       throw new DomainException(notStartedYet
-        ? $"{code} has not started yet (it starts on {start:yyyy-MM-dd}); call it off today, or terminate it once it has started."
+        ? $"{code} has not started yet. It starts on {start:yyyy-MM-dd}. Call it off today, or terminate it once it has started."
         : $"{code} cannot end before it started ({start:yyyy-MM-dd}).");
 
     if (agreedEnd is { } end && date > end)
-      throw new DomainException($"{code} ends on {end:yyyy-MM-dd} anyway; mark it expired after that instead of terminating it later.");
+      throw new DomainException($"{code} ends on {end:yyyy-MM-dd} anyway. Mark it expired after that instead of terminating it later.");
   }
 }

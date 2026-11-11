@@ -37,7 +37,7 @@ public class WorkShift : Aggregate<WorkShiftId>
     var days = (workingWeekdays is null || workingWeekdays.Count == 0 ? DefaultWeekdays.Select(d => (int)d) : workingWeekdays)
       .Distinct().OrderBy(d => d).ToArray();
     if (days.Any(d => d is < 1 or > 7))
-      throw new DomainException("Working weekdays are 1 (Monday) to 7 (Sunday).");
+      throw new DomainException("Working weekdays must be between 1 (Monday) and 7 (Sunday).");
     WorkingWeekdays = days.Select(d => (short)d).ToArray();
   }
 
@@ -179,7 +179,7 @@ public class AttendanceRecord : Aggregate<AttendanceRecordId>
   public static void EnsureRecordable(DateOnly date, DateOnly today)
   {
     if (date > today)
-      throw new DomainException($"{date:yyyy-MM-dd} has not come yet; attendance is recorded for today or earlier.");
+      throw new DomainException($"{date:yyyy-MM-dd} has not come yet. Attendance is recorded only for today or earlier.");
   }
 
   /// A day closed as absent that approved leave covers becomes leave.

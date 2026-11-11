@@ -28,7 +28,7 @@ public class UserPermissionOverride : Entity<Guid>
     ArgumentNullException.ThrowIfNull(permissionId);
 
     if (expiresAt.HasValue && expiresAt.Value <= now)
-      throw new DomainException("An override cannot expire in the past.");
+      throw new DomainException("An exception cannot end in the past.");
 
     return new UserPermissionOverride
     {
@@ -45,7 +45,7 @@ public class UserPermissionOverride : Entity<Guid>
   public void Update(OverrideEffect effect, DateTime? expiresAt, string? reason, DateTime now)
   {
     if (expiresAt.HasValue && expiresAt.Value <= now)
-      throw new DomainException("An override cannot expire in the past.");
+      throw new DomainException("An exception cannot end in the past.");
 
     Effect = effect;
     ExpiresAt = expiresAt;

@@ -15,7 +15,7 @@ public class CreateAssetHandler(
     // purchase and depreciation are money: registering them with the asset needs the finance right as well
     if (command.Acquisition is not null || command.Depreciation is not null)
       FinanceRights.Require(currentUser, PermissionCatalog.AssetFinance.Create,
-        "Recording the purchase or the depreciation needs the Asset finance right to add records. Register the asset without them, and someone with that right adds them on its Finance tab.");
+        "Recording the purchase or the depreciation needs the Asset finance right to add records. Register the asset without them. Someone with that right can then add them on its Finance tab.");
 
     AssetCode assetCode;
     if (string.IsNullOrWhiteSpace(input.AssetCode))

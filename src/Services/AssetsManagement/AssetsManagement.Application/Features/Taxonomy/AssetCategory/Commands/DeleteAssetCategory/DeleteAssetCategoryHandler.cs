@@ -17,7 +17,7 @@ public class DeleteAssetCategoryHandler(IApplicationDbContext context)
       return Result<DeleteAssetCategoryCommandResult>.Failure($"{live} {(live == 1 ? "asset is" : "assets are")} in '{category.Name.Value}'. Move them to another category first, or switch the category off.");
 
     if (await context.Assets.IgnoreQueryFilters().AnyAsync(a => a.CategoryId == id, cancellationToken))
-      return Result<DeleteAssetCategoryCommandResult>.Failure($"Deleted assets are kept on record in '{category.Name.Value}', so it cannot be deleted. Switch it off instead - it then disappears from the forms.");
+      return Result<DeleteAssetCategoryCommandResult>.Failure($"Deleted assets are kept on record in '{category.Name.Value}', so it cannot be deleted. Switch it off instead. It will then no longer show on the forms.");
 
     context.AssetCategories.Remove(category);
 

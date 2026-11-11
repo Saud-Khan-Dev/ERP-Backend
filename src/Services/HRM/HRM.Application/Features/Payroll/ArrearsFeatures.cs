@@ -42,7 +42,7 @@ public class ArrearsHandlers(IApplicationDbContext context, PayrollEngine engine
 
     var source = await context.LoadPayrollPeriodAsync(command.SourcePeriodId, cancellationToken);
     if (source.EndDate >= period.StartDate)
-      return Result<WorkOutArrearsResult>.Failure($"{source.Label} is not before {period.Label}; arrears are worked out for a month already paid.");
+      return Result<WorkOutArrearsResult>.Failure($"{source.Label} is not before {period.Label}. Arrears are worked out only for a month that is already paid.");
 
     // the month's posted runs that the engine worked out (regular and supplementary)
     var posted = await context.PayrollRuns.AsNoTracking()

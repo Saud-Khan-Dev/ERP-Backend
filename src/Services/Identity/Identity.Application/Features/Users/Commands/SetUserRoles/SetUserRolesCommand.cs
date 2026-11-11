@@ -52,7 +52,7 @@ public class SetUserRolesHandler(IApplicationDbContext context, IdentityGuard gu
     var touchedIds = addIds.Concat(removeGrants.Select(g => g.RoleId)).Concat(redated.Select(g => g.RoleId)).Distinct().ToList();
     var roles = await context.Roles.Where(r => touchedIds.Contains(r.Id)).ToDictionaryAsync(r => r.Id, cancellationToken);
     if (addIds.Any(id => !roles.ContainsKey(id)))
-      throw new RoleNotFoundException("One of the chosen roles was not found - it may have been deleted.");
+      throw new RoleNotFoundException("One of the chosen roles was not found. It may have been deleted.");
 
     foreach (var role in roles.Values)
       guard.EnsureCanAdministerRole(role);

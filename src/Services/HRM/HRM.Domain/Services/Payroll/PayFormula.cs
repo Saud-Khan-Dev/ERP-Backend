@@ -28,7 +28,7 @@ public sealed class PayFormula
       throw new DomainException("A formula is required.");
 
     if (expression.Length > 2000)
-      throw new DomainException("A formula cannot exceed 2000 characters.");
+      throw new DomainException("A formula can have at most 2000 characters.");
 
     var parser = new Parser(expression);
     var root = parser.ParseExpression();

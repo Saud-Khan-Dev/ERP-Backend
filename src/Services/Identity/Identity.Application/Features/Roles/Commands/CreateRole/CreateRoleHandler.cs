@@ -11,7 +11,7 @@ public class CreateRoleHandler(IApplicationDbContext context, ICurrentUser curre
     var name = input.Name.Trim();
 
     if (await context.Roles.AnyAsync(r => r.RoleName == Name.Of(name, 100), cancellationToken))
-      return Result<CreateRoleCommandResult>.Failure($"A role called {name} already exists - open it instead, or choose another name.");
+      return Result<CreateRoleCommandResult>.Failure($"A role called {name} already exists. Open it instead, or choose another name.");
 
     LookupCode code;
     if (string.IsNullOrWhiteSpace(input.Code))
@@ -20,7 +20,7 @@ public class CreateRoleHandler(IApplicationDbContext context, ICurrentUser curre
     {
       code = LookupCode.Of(input.Code);
       if (await context.Roles.IgnoreQueryFilters().AnyAsync(r => r.Code == code, cancellationToken))
-        return Result<CreateRoleCommandResult>.Failure($"A role with the code {code.Value} already exists (or existed and was deleted) - choose another code.");
+        return Result<CreateRoleCommandResult>.Failure($"The code {code.Value} is already used by a role, or by one that was deleted. Choose another code.");
     }
 
     if (code.Value == Role.SuperAdminCode)
@@ -61,7 +61,7 @@ public class CreateRoleHandler(IApplicationDbContext context, ICurrentUser curre
     var found = await context.Permissions.CountAsync(p => ids.Contains(p.Id), cancellationToken);
 
     if (found != ids.Count)
-      throw new PermissionNotFoundException("One or more of the supplied permissions was not found.");
+      throw new PermissionNotFoundException("Some of the chosen permissions were not found.");
 
     return ids;
   }
@@ -88,6 +88,6 @@ public static class RoleCodes
       if (!await context.Roles.IgnoreQueryFilters().AnyAsync(r => r.Code == candidate, cancellationToken))
         return candidate;
     }
-    throw new DomainException("Could not find a free code for this role - choose another name.");
+    throw new DomainException("Could not find a free code for this role. Choose another name.");
   }
 }

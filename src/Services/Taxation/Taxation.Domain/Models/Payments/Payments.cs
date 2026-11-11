@@ -102,9 +102,9 @@ public class Payment : Aggregate<PaymentId>
       DateTime paidAt, Guid? receivedBy, DateTime now)
   {
     if (fee.Status != FeeStatus.Due)
-      throw new DomainException($"Fee {fee.FeeNo} is {EnumText.Words(fee.Status)}; only a due fee is paid.");
+      throw new DomainException($"Fee {fee.FeeNo} is {EnumText.Words(fee.Status)}. Only a due fee can be paid.");
     if (fee.Amount <= 0)
-      throw new DomainException($"Fee {fee.FeeNo} is for nothing; there is nothing to pay.");
+      throw new DomainException($"Fee {fee.FeeNo} is for zero rupees, so there is nothing to pay.");
     var payment = Create(id, channel, fee.Amount, transactionRef, receiptNo, bankCode, paidAt, receivedBy, now);
     payment.TaxFileId = file?.Id;
     payment.Psid = file?.Psid;
@@ -121,7 +121,7 @@ public class Payment : Aggregate<PaymentId>
   {
     var value = Rupees.Round(amount);
     if (value <= 0)
-      throw new DomainException("The amount must be positive.");
+      throw new DomainException("The amount must be more than zero.");
     if (paidAt > now.AddMinutes(5))
       throw new DomainException("A payment cannot be dated in the future.");
 
@@ -162,7 +162,7 @@ public class Payment : Aggregate<PaymentId>
   {
     var allocation = _allocations.FirstOrDefault(a => a.Id == from) ?? throw new DomainException("The allocation is not part of this payment.");
     if (into.Sum(i => i.Amount) != amount || amount <= 0 || amount > allocation.Amount)
-      throw new DomainException("A credit moves whole: what leaves one item goes to others.");
+      throw new DomainException("A credit must move in full. What leaves one item must go to the others.");
     allocation.Reduce(amount);
     if (allocation.Amount == 0)
       _allocations.Remove(allocation);
@@ -249,9 +249,9 @@ public class Party : Aggregate<PartyId>
     Mobile = Guard.Text(mobile, 30, "Mobile");
     Address = Guard.Text(address, 400, "Address");
     if (PartyType == PartyType.Owner && ownerId is null)
-      throw new DomainException("An owner party points at the Property owner.");
+      throw new DomainException("An owner party must be linked to the owner in Property.");
     if (PartyType == PartyType.Employee && employeeId is null)
-      throw new DomainException("An employee party points at the HRM employee.");
+      throw new DomainException("An employee party must be linked to the employee in HRM.");
     OwnerId = ownerId;
     EmployeeId = employeeId;
   }
@@ -334,7 +334,7 @@ public class Fee : Aggregate<FeeId>
   public void Waive(string reason)
   {
     if (Status != FeeStatus.Due)
-      throw new DomainException($"Fee {FeeNo} is {EnumText.Words(Status)}; only a due fee can be waived.");
+      throw new DomainException($"Fee {FeeNo} is {EnumText.Words(Status)}. Only a due fee can be waived.");
     ExemptionReason = Guard.RequiredText(reason, 200, "Reason");
     Status = FeeStatus.Waived;
   }
@@ -375,12 +375,12 @@ public class Clearance : Aggregate<ClearanceId>
     if (dues > 0 || feesDue > 0)
     {
       var parts = new List<string>();
-      if (dues > 0) parts.Add($"{Rupees.Text(dues)} behind the reference");
+      if (dues > 0) parts.Add($"{Rupees.Text(dues)} owed on the reference");
       if (feesDue > 0) parts.Add($"{Rupees.Text(feesDue)} in fees due");
-      throw new DomainException($"{Rupees.Text(dues + feesDue)} is outstanding on {file.FileNo} ({string.Join(" and ", parts)}). A clearance is issued only when nothing is due.");
+      throw new DomainException($"{Rupees.Text(dues + feesDue)} is outstanding on {file.FileNo} ({string.Join(" and ", parts)}). A clearance can be issued only when nothing is due.");
     }
     if (validDays < 1)
-      throw new DomainException("A clearance is valid for at least one day.");
+      throw new DomainException("A clearance must be valid for at least one day.");
     return new Clearance
     {
       Id = id,
@@ -404,9 +404,9 @@ public class Clearance : Aggregate<ClearanceId>
   /// Why the certificate cannot be used today, in words; null when it can.
   public string? Unusable(DateOnly today) => StatusOn(today) switch
   {
-    ClearanceStatus.Consumed => $"Clearance {ClearanceNo} was already used{(ConsumedAt is { } at ? $" on {at:dd'/'MM'/'yyyy}" : "")}; a clearance is used once.",
+    ClearanceStatus.Consumed => $"Clearance {ClearanceNo} was already used{(ConsumedAt is { } at ? $" on {at:dd'/'MM'/'yyyy}" : "")}. A clearance can be used only once.",
     ClearanceStatus.Expired => $"Clearance {ClearanceNo} expired after {ValidUntil:dd'/'MM'/'yyyy}. Issue a new one.",
-    ClearanceStatus.Revoked => $"Clearance {ClearanceNo} was revoked; it cannot be used.",
+    ClearanceStatus.Revoked => $"Clearance {ClearanceNo} was revoked. It cannot be used.",
     _ => null
   };
 

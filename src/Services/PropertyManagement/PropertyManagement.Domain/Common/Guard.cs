@@ -10,7 +10,7 @@ public static class Guard
     value = value.Trim();
 
     if (value.Length > maxLength)
-      throw new DomainException($"{field} cannot exceed {maxLength} characters.");
+      throw new DomainException($"{field} can have at most {maxLength} characters.");
 
     return value;
   }
@@ -31,7 +31,7 @@ public static class Guard
   public static decimal SharePct(decimal value, string field)
   {
     if (value <= 0 || value > 100)
-      throw new DomainException($"{field} must be greater than 0 and at most 100.");
+      throw new DomainException($"{field} must be more than 0 and not more than 100.");
 
     return decimal.Round(value, 4);
   }

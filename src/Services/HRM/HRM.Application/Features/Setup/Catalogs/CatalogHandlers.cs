@@ -180,7 +180,7 @@ public class UpdateServiceEventTypeHandler(IApplicationDbContext context) : ICom
     var type = await context.LoadEventTypeAsync(command.Id, cancellationToken);
 
     if (ServiceEventNames.IsSystem(type.Name) && !string.Equals(type.Name, command.Type.Name.Trim(), StringComparison.Ordinal))
-      return Result<UpdatedResult>.Failure($"'{type.Name}' is the event HR actions are recorded under; it cannot be renamed.");
+      return Result<UpdatedResult>.Failure($"'{type.Name}' is the event that HR actions are recorded under. It cannot be renamed.");
 
     type.Update(command.Type.Name, command.Type.Category);
 
@@ -232,9 +232,9 @@ public class UpdatePayScaleGradeHandler(IApplicationDbContext context) : IComman
     if (!command.IsActive && grade.IsActive)
     {
       if (await context.PostVersions.AnyAsync(v => v.GradeId == grade.Id && v.EffectiveTo == null && v.LifecycleStatus != PostLifecycle.Abolished, cancellationToken))
-        return Result<UpdatedResult>.Failure($"Posts are graded {grade.GradeName ?? "BPS-" + grade.BpsNumber}; regrade them before deactivating the grade.");
+        return Result<UpdatedResult>.Failure($"Some posts are in grade {grade.GradeName ?? "BPS-" + grade.BpsNumber}. Change their grade before deactivating this grade.");
       if (await context.PayScaleVersions.AnyAsync(v => v.GradeId == grade.Id && v.Status == RecordStatus.Active && v.EffectiveTo == null, cancellationToken))
-        return Result<UpdatedResult>.Failure($"A pay scale of {grade.GradeName ?? "BPS-" + grade.BpsNumber} is in force; withdraw it before deactivating the grade.");
+        return Result<UpdatedResult>.Failure($"A pay scale for {grade.GradeName ?? "BPS-" + grade.BpsNumber} is active. Withdraw it before deactivating the grade.");
     }
     grade.Update(command.GradeName, command.IsActive);
     await context.SaveChangesAsync(cancellationToken);
@@ -268,7 +268,7 @@ public static class EmploymentTypeUse
     var other = await context.EmploymentTypes.AsNoTracking()
       .Where(t => t.Id != type.Id && t.IsActive && t.Basis == type.Basis).Select(t => t.Name).FirstOrDefaultAsync(cancellationToken);
     return other is null ? null
-      : $"'{other}' already follows the {EnumText.Words(type.Basis)} rules; only one active employment type may. Deactivate it first.";
+      : $"'{other}' already follows the {EnumText.Words(type.Basis)} rules. Only one active employment type can do that. Deactivate it first.";
   }
 }
 
@@ -391,7 +391,7 @@ public class HrListHandlers(IApplicationDbContext context) :
   {
     var type = await context.LoadAdjustmentTypeAsync(command.Id, cancellationToken);
     if (type.Direction != command.Type.Direction && await context.PayrollAdjustments.AnyAsync(a => a.AdjustmentTypeId == type.Id, cancellationToken))
-      return Result<UpdatedResult>.Failure($"Pay slips carry '{type.Name}', so whether it raises or lowers pay cannot change. Add a new type instead.");
+      return Result<UpdatedResult>.Failure($"Pay slips use '{type.Name}', so you cannot change whether it raises or lowers pay. Add a new type instead.");
     type.Update(command.Type.Name, command.Type.Direction);
     if (await context.AdjustmentTypes.AnyAsync(x => x.Id != type.Id && x.Name.ToLower() == type.Name.ToLower(), cancellationToken))
       return Result<UpdatedResult>.Failure($"Another adjustment type is named '{type.Name}'.");
@@ -445,7 +445,7 @@ public class SetCatalogActivationHandler(IApplicationDbContext context) : IComma
       case CatalogKind.ServiceEventType:
         var eventType = await context.LoadEventTypeAsync(command.Id, cancellationToken);
         if (!command.IsActive && ServiceEventNames.IsSystem(eventType.Name))
-          return Result<UpdatedResult>.Failure($"'{eventType.Name}' is the event HR actions are recorded under; it cannot be deactivated.");
+          return Result<UpdatedResult>.Failure($"'{eventType.Name}' is the event that HR actions are recorded under. It cannot be deactivated.");
         eventType.SetActive(command.IsActive);
         break;
       case CatalogKind.RequestType:
@@ -474,7 +474,7 @@ public class DeleteCatalogValueHandler(IApplicationDbContext context) : ICommand
       {
         var type = await context.LoadUnitTypeAsync(command.Id, cancellationToken);
         if (await context.OrganizationUnitVersions.AnyAsync(v => v.UnitTypeId == type.Id, cancellationToken))
-          throw new InUseException($"Units are of type '{type.Name}', so it cannot be deleted. Deactivate it instead.");
+          throw new InUseException($"Some units are of type '{type.Name}', so it cannot be deleted. Deactivate it instead.");
         context.OrganizationUnitTypes.Remove(type);
         break;
       }
@@ -501,7 +501,7 @@ public class DeleteCatalogValueHandler(IApplicationDbContext context) : ICommand
       {
         var type = await context.LoadDocumentTypeAsync(command.Id, cancellationToken);
         if (await context.Documents.AnyAsync(d => d.DocumentTypeId == type.Id, cancellationToken))
-          throw new InUseException($"Papers of the kind '{type.Name}' are on file, so it cannot be deleted. Deactivate it instead.");
+          throw new InUseException($"Documents of type '{type.Name}' are on file, so it cannot be deleted. Deactivate it instead.");
         context.DocumentTypes.Remove(type);
         break;
       }
@@ -512,7 +512,7 @@ public class DeleteCatalogValueHandler(IApplicationDbContext context) : ICommand
           ?? throw new RecruitmentMethodNotFoundException($"Recruitment method {command.Id} was not found.");
         if (await context.ServiceHistory.AnyAsync(h => h.RecruitmentMethodId == method.Id, cancellationToken)
             || await context.HrActions.AnyAsync(a => a.RecruitmentMethodId == method.Id, cancellationToken))
-          throw new InUseException($"Service records name '{method.Name}', so it cannot be deleted. Deactivate it instead.");
+          throw new InUseException($"Service records use '{method.Name}', so it cannot be deleted. Deactivate it instead.");
         context.RecruitmentMethods.Remove(method);
         break;
       }
@@ -537,7 +537,7 @@ public class DeleteCatalogValueHandler(IApplicationDbContext context) : ICommand
         var method = await context.LoadEmploymentMethodAsync(command.Id, cancellationToken);
         if (await context.Employees.AnyAsync(e => e.EmploymentMethodId == method.Id, cancellationToken)
             || await context.HrActions.AnyAsync(a => a.EmploymentMethodId == method.Id, cancellationToken))
-          throw new InUseException($"Employees or HR actions name '{method.Name}', so it cannot be deleted. Deactivate it instead.");
+          throw new InUseException($"Employees or HR actions use '{method.Name}', so it cannot be deleted. Deactivate it instead.");
         context.EmploymentMethods.Remove(method);
         break;
       }
@@ -545,9 +545,9 @@ public class DeleteCatalogValueHandler(IApplicationDbContext context) : ICommand
       {
         var type = await context.LoadAdjustmentTypeAsync(command.Id, cancellationToken);
         if (type.IsSystem)
-          throw new InUseException($"'{type.Name}' is written by the arrears run; it cannot be deleted.");
+          throw new InUseException($"'{type.Name}' is set by the arrears run, so it cannot be deleted.");
         if (await context.PayrollAdjustments.AnyAsync(a => a.AdjustmentTypeId == type.Id, cancellationToken))
-          throw new InUseException($"Pay slips carry '{type.Name}', so it cannot be deleted. Deactivate it instead.");
+          throw new InUseException($"Pay slips use '{type.Name}', so it cannot be deleted. Deactivate it instead.");
         context.AdjustmentTypes.Remove(type);
         break;
       }
@@ -563,7 +563,7 @@ public class DeleteCatalogValueHandler(IApplicationDbContext context) : ICommand
       {
         var eventType = await context.LoadEventTypeAsync(command.Id, cancellationToken);
         if (ServiceEventNames.IsSystem(eventType.Name))
-          throw new InUseException($"'{eventType.Name}' is the event HR actions are recorded under; it cannot be deleted.");
+          throw new InUseException($"'{eventType.Name}' is the event that HR actions are recorded under. It cannot be deleted.");
         if (await context.ServiceHistory.AnyAsync(h => h.EventTypeId == eventType.Id, cancellationToken)
             || await context.HrActions.AnyAsync(a => a.EventTypeId == eventType.Id, cancellationToken))
           throw new InUseException($"Service records are of the event '{eventType.Name}', so it cannot be deleted. Deactivate it instead.");
@@ -576,7 +576,7 @@ public class DeleteCatalogValueHandler(IApplicationDbContext context) : ICommand
         var requestType = await context.RequestTypes.FirstOrDefaultAsync(t => t.Id == requestTypeId, cancellationToken)
           ?? throw new RequestTypeNotFoundException($"Request type {command.Id} was not found.");
         if (await context.Requests.AnyAsync(r => r.RequestTypeId == requestType.Id, cancellationToken))
-          throw new InUseException($"Requests of the kind '{requestType.Name}' were raised, so it cannot be deleted. Deactivate it instead.");
+          throw new InUseException($"Requests of type '{requestType.Name}' were made, so it cannot be deleted. Deactivate it instead.");
         context.RequestTypes.Remove(requestType);
         break;
       }

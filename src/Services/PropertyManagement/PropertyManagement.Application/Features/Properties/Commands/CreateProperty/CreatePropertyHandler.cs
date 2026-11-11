@@ -149,7 +149,7 @@ public class CreatePropertyHandler(IApplicationDbContext context, MasterLookup m
     {
       var definition = definitions[id];
       if (!string.IsNullOrWhiteSpace(value) && (!activeGroups.Contains(definition.AttributeGroupId) || !definition.AppliesTo(propertyTypeId, classificationId)))
-        return Result<List<(AttributeDefinition, string?)>>.Failure($"'{definition.Label.Value}' does not apply to this kind of property; leave it out.");
+        return Result<List<(AttributeDefinition, string?)>>.Failure($"'{definition.Label.Value}' does not apply to this kind of property. Leave it out.");
 
       if (!string.IsNullOrWhiteSpace(value) || definition.IsRequired)
         values.Add((definition, value));

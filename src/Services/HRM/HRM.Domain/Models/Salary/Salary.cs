@@ -19,7 +19,7 @@ public class SalaryComponent : Aggregate<SalaryComponentId>
   public void Update(string name, ComponentType type, bool isTaxable)
   {
     if (IsSystem && SystemComponents.TypeOf(ComponentCode) != type)
-      throw new DomainException($"{ComponentCode} is a {EnumText.Words(SystemComponents.TypeOf(ComponentCode))} the payroll engine depends on; its type cannot change.");
+      throw new DomainException($"{ComponentCode} is a {EnumText.Words(SystemComponents.TypeOf(ComponentCode))} that payroll depends on. Its type cannot change.");
 
     if (type == ComponentType.Deduction && isTaxable)
       throw new DomainException("A deduction is not taxable income.");
@@ -32,7 +32,7 @@ public class SalaryComponent : Aggregate<SalaryComponentId>
   public void SetActive(bool isActive)
   {
     if (!isActive && IsSystem)
-      throw new DomainException($"{ComponentCode} is used by the payroll engine and cannot be deactivated.");
+      throw new DomainException($"{ComponentCode} is used by payroll, so it cannot be deactivated.");
 
     IsActive = isActive;
   }
@@ -162,7 +162,7 @@ public class SalaryComponentRule : Aggregate<SalaryComponentRuleId>
       throw new DomainException(component.ComponentCode switch
       {
         SystemComponents.BasicPay => "Basic pay comes from each employee's pay record, not from a rule.",
-        SystemComponents.IncomeTax => "Income tax is worked out from the tax slabs, not from a rule.",
+        SystemComponents.IncomeTax => "Income tax is calculated from the tax slabs, not from a rule.",
         _ => "GP Fund subscription is set on each employee's GP Fund account, not by a rule."
       });
 
@@ -267,7 +267,7 @@ public class SalaryComponentRule : Aggregate<SalaryComponentRuleId>
       case CalculationMethod.Formula:
         var parsed = PayFormula.Parse(d.FormulaExpression);
         if (component.ComponentType == ComponentType.Earning && parsed.UsedVariables.Contains(CalculationBases.GrossPay))
-          throw new DomainException("An earning cannot be worked out from gross pay, which it is part of.");
+          throw new DomainException("An earning cannot be calculated from gross pay, because it is part of gross pay.");
         formula = parsed.Expression;
         calculationBase = null;
         break;
@@ -304,7 +304,7 @@ public class SalaryComponentRule : Aggregate<SalaryComponentRuleId>
       throw new DomainException($"The calculation base must be one of {string.Join(", ", CalculationBases.All)}.");
 
     if (component.ComponentType == ComponentType.Earning && calculationBase == CalculationBases.GrossPay)
-      throw new DomainException("An earning cannot be worked out from gross pay, which it is part of.");
+      throw new DomainException("An earning cannot be calculated from gross pay, because it is part of gross pay.");
   }
 
   /// The rule that applies: lowest priority number, then most specific, then the latest start.
@@ -351,9 +351,9 @@ public class EmployeeSalaryComponent : Aggregate<SalaryOverrideId>
     if (component.IsSystem)
       throw new DomainException(component.ComponentCode switch
       {
-        SystemComponents.BasicPay => "Basic pay cannot be overridden: change the employee's pay record instead.",
-        SystemComponents.IncomeTax => "Income tax cannot be overridden: it comes from the tax slabs (record an exemption instead).",
-        _ => "GP Fund cannot be overridden: change the subscription on the employee's GP Fund account instead."
+        SystemComponents.BasicPay => "Basic pay cannot be overridden. Change the employee's pay record instead.",
+        SystemComponents.IncomeTax => "Income tax cannot be overridden. It comes from the tax slabs. Record an exemption instead.",
+        _ => "GP Fund cannot be overridden. Change the subscription on the employee's GP Fund account instead."
       });
 
     var item = new EmployeeSalaryComponent { Id = id, EmployeeId = employeeId, SalaryComponentId = component.Id, PostId = postId };
@@ -384,13 +384,13 @@ public class EmployeeSalaryComponent : Aggregate<SalaryOverrideId>
   private void Apply(decimal? fixedAmount, decimal? percentage, DateOnly effectiveFrom, DateOnly? effectiveTo, string? remarks, IReadOnlyCollection<EmployeeSalaryComponent> existing)
   {
     if (fixedAmount.HasValue == percentage.HasValue)
-      throw new DomainException("An override is either a fixed amount or a percentage.");
+      throw new DomainException("An override must be either a fixed amount or a percentage.");
 
     DateRange.EnsureValid(effectiveFrom, effectiveTo);
     var range = new DateRange(effectiveFrom, effectiveTo);
 
     if (existing.FirstOrDefault(e => e.Id != Id && e.EmployeeId == EmployeeId && e.SalaryComponentId == SalaryComponentId && e.Range.Overlaps(range)) is { } clash)
-      throw new DomainException($"Another override of this component runs from {clash.EffectiveFrom:yyyy-MM-dd}; end it first.");
+      throw new DomainException($"Another override of this component runs from {clash.EffectiveFrom:yyyy-MM-dd}. End it first.");
 
     OverrideFixedAmount = Guard.Money(fixedAmount, "Override amount");
     OverridePercentage = Guard.Between(percentage, 0, 1000, "Override percentage");
